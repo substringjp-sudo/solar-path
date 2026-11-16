@@ -294,6 +294,7 @@ void main() {
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${demGlsl('seaMask')}
 ${TERRAIN_DIST_GLSL}
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
@@ -361,7 +362,12 @@ void main() {
   // 물이 아닌 곳에는 아무것도 안 그립니다 — 먼저 그린 옛 지면 원반이
   // 그 자리를 그대로 이어받습니다. 삼각형이 물가를 걸치면 0.5 등고선이
   // 경계가 되고, 그건 땅 격자가 vElevM <= 0 에서 버리는 자리와 같습니다.
-  if (vWater < 0.5) discard;
+  // 외해 연결 마스크가 있으면 바다와 단절된 내륙 0m 저지대 위에는 수면을 얹지 않습니다.
+  float seaZone =
+      uSeaMaskSeaValid > 0.5 ? seaMask_seaAt(vGround.xz)
+    : uDemSeaValid > 0.5     ? dem_seaAt(vGround.xz)
+    :                          1.0;
+  if (vWater < 0.5 || seaZone < 0.5) discard;
 #ifdef SEA_DIST_OUT
   // §129 지형 거리 판에 바다도 적습니다 — B = 1 이 "바다" 표시(볼륨 하늘이 이 화소에 하늘 되비침을 칠함).
   vec4 seaDist = terrainDistEncode(vDistM / 1000.0);

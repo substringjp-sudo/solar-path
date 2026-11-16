@@ -140,6 +140,8 @@ export interface DemPatch {
   observerV: number;
   /** 받아 온 타일 수 / 요청한 타일 수 — 1 이 아니면 구멍이 있습니다 */
   coverage: number;
+  /** 광역 패치(zoom ≤ 10)에서 외해와 연결된 바다 구역 마스크 (R>0.5 = 바다, 0 = 내륙) */
+  seaTexture?: THREE.DataTexture | null;
   dispose: () => void;
 }
 
@@ -188,6 +190,8 @@ uniform float u${U}SpanM;    // 타일 한 장의 지상 거리 (m)
 uniform float u${U}Block;    // 블록 한 변의 타일 수
 uniform float u${U}Valid;    // 0 이면 자료 없음 — 호출부가 물러날 수 있게
 uniform float u${U}Despike;  // 1 이면 튀는 화소를 걷어냅니다 (저줌 타일용)
+uniform sampler2D u${U}SeaTex; // 외해 연결 바다 마스크 (R>0.5 = 바다, 0 = 내륙)
+uniform float u${U}SeaValid;   // 0 이면 마스크 없음 — 기존처럼 고도만으로 판정
 
 /** 씬의 지상 좌표(m, 관측자 원점) → 블록 UV (0~1) */
 vec2 ${p}_uv(vec2 groundM) {
@@ -199,6 +203,12 @@ float ${p}_inside(vec2 groundM) {
   vec2 uv = ${p}_uv(groundM);
   vec2 k = step(vec2(0.0), uv) * step(uv, vec2(1.0));
   return k.x * k.y;
+}
+
+/** 외해와 연결된 해역인가 (1 = 바다 구역, 0 = 내륙 저지대). 마스크 없으면 1. */
+float ${p}_seaAt(vec2 groundM) {
+  if (u${U}SeaValid < 0.5) return 1.0;
+  return step(0.5, texture2D(u${U}SeaTex, clamp(${p}_uv(groundM), 0.0, 1.0)).r);
 }
 
 /**
@@ -614,6 +624,7 @@ export async function loadDemPatch(
   const prevTarget = deps.renderer.getRenderTarget();
   deps.renderer.setRenderTarget(target);
   deps.renderer.render(scene, cam);
+  const seaTexture = buildConnectedSeaTexture(deps.renderer, target, size, zoom);
   deps.renderer.setRenderTarget(prevTarget);
 
   scene.traverse((o) => {
@@ -634,8 +645,10 @@ export async function loadDemPatch(
     observerU: t.x - originX,
     observerV: t.y - originY,
     coverage: got / (block * block),
+    seaTexture,
     dispose: () => {
       if (cache.get(key)?.texture === target.texture) cache.delete(key);
+      seaTexture?.dispose();
       target.dispose();
     },
   };
@@ -647,6 +660,165 @@ export async function loadDemPatch(
     oldest?.dispose();
   }
   return patch;
+}
+
+const SEA_MASK_MAX_ZOOM = 10;
+const SEA_FLOOD_MAX_ELEV_M = 0.05;
+const SEA_BORDER_MIN_DEPTH_M = -2.0;
+const SEA_ENCLOSED_MIN_DEPTH_M = -15.0;
+const SEA_ENCLOSED_MIN_PIXELS = 400;
+
+function decodeTerrariumPixel(rgba: Uint8Array, idx4: number): number | null {
+  const a = rgba[idx4 + 3];
+  const r = rgba[idx4];
+  const g = rgba[idx4 + 1];
+  const b = rgba[idx4 + 2];
+  // 결측 타일(알파 0)이나 클리어된 빈 화소(-32768m)는 통과 불가로 막아 가짜 외해 시드를 차단합니다.
+  if (a < 128 || (r === 0 && g === 0 && b === 0)) return null;
+  return r * 256 + g + b / 256 - 32768;
+}
+
+function dilateMask3x3(src: Uint8Array, size: number): Uint8Array {
+  const out = new Uint8Array(src.length);
+  for (let y = 0; y < size; y++) {
+    const y0 = Math.max(0, y - 1);
+    const y1 = Math.min(size - 1, y + 1);
+    for (let x = 0; x < size; x++) {
+      if (src[y * size + x] > 0) {
+        out[y * size + x] = 255;
+        continue;
+      }
+      const x0 = Math.max(0, x - 1);
+      const x1 = Math.min(size - 1, x + 1);
+      let hit = false;
+      for (let ny = y0; ny <= y1 && !hit; ny++) {
+        const row = ny * size;
+        for (let nx = x0; nx <= x1; nx++) {
+          if (src[row + nx] > 0) {
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (hit) out[y * size + x] = 255;
+    }
+  }
+  return out;
+}
+
+/**
+ * Terrarium RGBA 렌더 타깃 화소에서 외해와 연결된 바다 영역 마스크(0/255)를 계산합니다.
+ *
+ * 저줌 광역 패치(줌 ≤ 10)는 해저 수심(GEBCO 음수 고도)을 포함하므로, 고도 0.05m 이하
+ * 연결 요소를 BFS 로 묶어 패치 외곽에 닿는 심해(≤ -2m) 또는 깊은 내해만 바다(255)로 두고,
+ * 고립된 내륙 0m 저지대·간척지는 0 으로 남깁니다. 고해상도 해안선 경계가 잘리지 않게 1 texel 만 팽창합니다.
+ */
+export function computeConnectedSeaMask(rgba: Uint8Array, size: number): Uint8Array | null {
+  if (size <= 0 || rgba.length < size * size * 4) return null;
+  const total = size * size;
+  const passable = new Uint8Array(total);
+  let validCount = 0;
+  for (let i = 0; i < total; i++) {
+    const elev = decodeTerrariumPixel(rgba, i * 4);
+    if (elev === null) continue;
+    validCount++;
+    if (elev <= SEA_FLOOD_MAX_ELEV_M) passable[i] = 1;
+  }
+  if (validCount === 0) return null;
+
+  const visited = new Uint8Array(total);
+  const sea = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  const component = new Int32Array(total);
+  let hasAnySea = false;
+
+  for (let start = 0; start < total; start++) {
+    if (passable[start] === 0 || visited[start] === 1) continue;
+    visited[start] = 1;
+    let head = 0;
+    let tail = 0;
+    let compLen = 0;
+    let touchesBorder = false;
+    let minElev = Infinity;
+    queue[tail++] = start;
+
+    while (head < tail) {
+      const curr = queue[head++];
+      component[compLen++] = curr;
+      const elev = rgba[curr * 4] * 256 + rgba[curr * 4 + 1] + rgba[curr * 4 + 2] / 256 - 32768;
+      if (elev < minElev) minElev = elev;
+
+      const x = curr % size;
+      const y = (curr / size) | 0;
+      if (x === 0 || x === size - 1 || y === 0 || y === size - 1) touchesBorder = true;
+
+      if (x > 0) {
+        const n = curr - 1;
+        if (passable[n] && !visited[n]) { visited[n] = 1; queue[tail++] = n; }
+      }
+      if (x + 1 < size) {
+        const n = curr + 1;
+        if (passable[n] && !visited[n]) { visited[n] = 1; queue[tail++] = n; }
+      }
+      if (y > 0) {
+        const n = curr - size;
+        if (passable[n] && !visited[n]) { visited[n] = 1; queue[tail++] = n; }
+      }
+      if (y + 1 < size) {
+        const n = curr + size;
+        if (passable[n] && !visited[n]) { visited[n] = 1; queue[tail++] = n; }
+      }
+    }
+
+    const isOcean =
+      (touchesBorder && minElev <= SEA_BORDER_MIN_DEPTH_M) ||
+      (compLen >= SEA_ENCLOSED_MIN_PIXELS && minElev <= SEA_ENCLOSED_MIN_DEPTH_M);
+    if (!isOcean) continue;
+
+    hasAnySea = true;
+    for (let k = 0; k < compLen; k++) sea[component[k]] = 255;
+  }
+
+  return hasAnySea ? dilateMask3x3(sea, size) : sea;
+}
+
+function buildConnectedSeaTexture(
+  renderer: THREE.WebGLRenderer,
+  target: THREE.WebGLRenderTarget,
+  size: number,
+  zoom: number,
+): THREE.DataTexture | null {
+  if (zoom > SEA_MASK_MAX_ZOOM || typeof renderer.readRenderTargetPixels !== 'function') return null;
+  const rgba = new Uint8Array(size * size * 4);
+  try {
+    renderer.readRenderTargetPixels(target, 0, 0, size, size, rgba);
+  } catch {
+    return null;
+  }
+  const mask = computeConnectedSeaMask(rgba, size);
+  if (!mask) return null;
+
+  const total = size * size;
+  const texBytes = new Uint8Array(total * 4);
+  for (let i = 0; i < total; i++) {
+    const v = mask[i];
+    const o = i * 4;
+    texBytes[o] = v;
+    texBytes[o + 1] = v;
+    texBytes[o + 2] = v;
+    texBytes[o + 3] = 255;
+  }
+
+  const tex = new THREE.DataTexture(texBytes, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.generateMipmaps = false;
+  tex.flipY = false;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /** `demGlsl(prefix)` 가 기대하는 유니폼을 만듭니다 (기본 접두사 `dem`). */
@@ -668,5 +840,7 @@ export function makeDemUniforms(
     [`u${U}Block`]: { value: block },
     [`u${U}Valid`]: { value: patch ? 1 : 0 },
     [`u${U}Despike`]: { value: 0 },
+    [`u${U}SeaTex`]: { value: patch?.seaTexture ?? null },
+    [`u${U}SeaValid`]: { value: patch?.seaTexture ? 1 : 0 },
   };
 }

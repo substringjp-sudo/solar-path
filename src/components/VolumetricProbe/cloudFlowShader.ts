@@ -68,6 +68,23 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   // S1 균일변수
   src = src.replace(decl, decl + '\n' + FLOW_VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
     + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;');
+  // 층별 찢긴 결 UV 오프셋 헬퍼 — 각 레인이 자기 바람 방향(genusGrainDir)과 활성 고도에서만 자기 UV 를 뒤틀게 합니다.
+  const weatherDecl = 'WeatherSample sampleWeather(';
+  if (!src.includes(weatherDecl)) throw new Error('cloudFlow: sampleWeather anchor missing');
+  src = src.replace(weatherDecl, [
+    'vec2 flowWispWarp(const vec2 uv, const float dirRad, const float h, const float amt) {',
+    '  if (amt <= 0.0) return vec2(0.0);',
+    '  vec2 gPw = uv * genusTileM;',
+    '  vec2 gWw = vec2(sin(dirRad), cos(dirRad));',
+    '  vec2 gWn = vec2(-gWw.y, gWw.x);',
+    '  float gA = dot(gPw, gWw), gC = dot(gPw, gWn);',
+    '  float gB = clamp((texture(shapeTexture, vec3(gA * 0.18, 0.23, gC * 0.18) * shapeRepeat + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
+    '  float gStr = clamp((texture(shapeTexture, vec3(gA / 6.0, h * 0.15, gC * 1.4 + gB * 420.0) * shapeRepeat * 2.4 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
+    '  float gJit = clamp((texture(shapeTexture, vec3(gA / 2.2, h * 0.35, gC * 3.2 - gB * 220.0) * shapeRepeat * 5.5 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
+    '  return (gWw * ((0.65 * gStr + 0.35 * gJit) * 520.0) + gWn * ((0.5 * gB + 0.5 * gJit) * 210.0)) * (amt / genusTileM);',
+    '}',
+    weatherDecl,
+  ].join('\n'));
   // S2 mode 2 — LWP 돔(꼭대기 = d^(1/top)). genusMode 0/1 은 이전과 같음.
   src = src.replace(oHs, [
     '  vec4 gDomeL = gRamp * (vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop));',
@@ -83,30 +100,27 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  vec4 gDepthTau = gDensity * max(gHfTop - gHf, vec4(0.0)) * (maxLayerHeights - minLayerHeights) * densityScales / max(genusTauRef, vec4(1e-3));',
     '  weather.depth = mix(max(localWeather - (vec4(1.0) - gHs), vec4(0.0)), gDepthTau, genusFlow);',
   ].join('\n'));
-  // S4 층별 드리프트·기울임 fetch — 선언은 분기 앞에(두 분기 뒤의 SHADOW 마스크 3행은 그대로).
+  // S4 층별 드리프트·기울임·결 warp fetch — 각 레인이 자기 방향(genusGrainDir)과 활성 고도에서만 자기 UV 를 밉니다(두 분기 뒤의 SHADOW 마스크 3행은 그대로).
   src = src.replace(gFetch, [
     '  vec2 gUv0 = uv * localWeatherRepeat + localWeatherOffset;',
     '  float gFoot0 = genusTexelM * exp2(mipLevel);',
     '  float gWispFade0 = 1.0 - smoothstep(1500.0, 6000.0, gFoot0);',
-    '  if (dot(genusWisp, genusFlow) * gWispFade0 > 0.0) {',
-    '    vec2 gPw0 = uv * genusTileM;',
-    '    vec2 gWw0 = vec2(sin(genusGrainDir.x), cos(genusGrainDir.x));',
-    '    vec2 gWn0 = vec2(-gWw0.y, gWw0.x);',
-    '    float gA0 = dot(gPw0, gWw0), gC0 = dot(gPw0, gWn0);',
-    '    float gB0 = clamp((texture(shapeTexture, vec3(gA0 * 0.18, 0.23, gC0 * 0.18) * shapeRepeat + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
-    '    float gStr0 = clamp((texture(shapeTexture, vec3(gA0 / 6.0, height * 0.15, gC0 * 1.4 + gB0 * 420.0) * shapeRepeat * 2.4 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
-    '    float gJit0 = clamp((texture(shapeTexture, vec3(gA0 / 2.2, height * 0.35, gC0 * 3.2 - gB0 * 220.0) * shapeRepeat * 5.5 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
-    '    float gWispMax = max(max(genusWisp.x * genusFlow.x, genusWisp.y * genusFlow.y), max(genusWisp.z * genusFlow.z, genusWisp.w * genusFlow.w)) * gWispFade0;',
-    '    vec2 gUvWarpM = gWw0 * ((0.65 * gStr0 + 0.35 * gJit0) * 520.0) + gWn0 * ((0.5 * gB0 + 0.5 * gJit0) * 210.0);',
-    '    gUv0 += (gUvWarpM * gWispMax) / genusTileM;',
-    '  }',
+    '  vec4 gWW = genusWisp * genusFlow * gWispFade0 * step(minLayerHeights, vec4(height)) * step(vec4(height), maxLayerHeights);',
+    '  vec2 gW0 = flowWispWarp(gUv0, genusGrainDir.x, height, gWW.x);',
+    '  vec2 gW1 = flowWispWarp(gUv0, genusGrainDir.y, height, gWW.y);',
+    '  vec2 gW2 = flowWispWarp(gUv0, genusGrainDir.z, height, gWW.z);',
+    '  vec2 gW3 = flowWispWarp(gUv0, genusGrainDir.w, height, gWW.w);',
     '  vec4 localWeather;',
-    '  if (genusUvOn > 0.5) {',
-    '    vec4 gHA = max(vec4(height) - minLayerHeights, vec4(0.0)) / genusTileM;',
-    '    vec4 gT0 = textureLod(localWeatherTexture, gUv0 + vec2(genusDriftU.x + genusTiltU.x * gHA.x, genusDriftV.x + genusTiltV.x * gHA.x), mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT1 = textureLod(localWeatherTexture, gUv0 + vec2(genusDriftU.y + genusTiltU.y * gHA.y, genusDriftV.y + genusTiltV.y * gHA.y), mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT2 = textureLod(localWeatherTexture, gUv0 + vec2(genusDriftU.z + genusTiltU.z * gHA.z, genusDriftV.z + genusTiltV.z * gHA.z), mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT3 = textureLod(localWeatherTexture, gUv0 + vec2(genusDriftU.w + genusTiltU.w * gHA.w, genusDriftV.w + genusTiltV.w * gHA.w), mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '  if (genusUvOn > 0.5 || dot(gWW, vec4(1.0)) > 0.0) {',
+    '    vec4 gHA = genusUvOn > 0.5 ? max(vec4(height) - minLayerHeights, vec4(0.0)) / genusTileM : vec4(0.0);',
+    '    vec2 d0 = genusUvOn > 0.5 ? vec2(genusDriftU.x + genusTiltU.x * gHA.x, genusDriftV.x + genusTiltV.x * gHA.x) : vec2(0.0);',
+    '    vec2 d1 = genusUvOn > 0.5 ? vec2(genusDriftU.y + genusTiltU.y * gHA.y, genusDriftV.y + genusTiltV.y * gHA.y) : vec2(0.0);',
+    '    vec2 d2 = genusUvOn > 0.5 ? vec2(genusDriftU.z + genusTiltU.z * gHA.z, genusDriftV.z + genusTiltV.z * gHA.z) : vec2(0.0);',
+    '    vec2 d3 = genusUvOn > 0.5 ? vec2(genusDriftU.w + genusTiltU.w * gHA.w, genusDriftV.w + genusTiltV.w * gHA.w) : vec2(0.0);',
+    '    vec4 gT0 = textureLod(localWeatherTexture, gUv0 + gW0 + d0, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT1 = textureLod(localWeatherTexture, gUv0 + gW1 + d1, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT2 = textureLod(localWeatherTexture, gUv0 + gW2 + d2, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT3 = textureLod(localWeatherTexture, gUv0 + gW3 + d3, mipLevel).LOCAL_WEATHER_CHANNELS;',
     '    localWeather = pow(vec4(gT0.x, gT1.y, gT2.z, gT3.w), weatherExponents);',
     '  } else {',
     '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
@@ -124,40 +138,42 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  float gFoot = genusTexelM * exp2(mipLevel);',
     // 찢긴 결 잡음은 늘인 능선이라 멀리서도 알갱이가 덜 생김 — wisp 만큼 침식 페이드를 1.5~6 km 로 늘려 중간 거리 구름 끝도 결로.
     '  vec4 gErodeAmt = genusErode * mix(vec4(1.0 - smoothstep(150.0, 600.0, gFoot)), vec4(1.0 - smoothstep(1500.0, 6000.0, gFoot)), clamp(genusWisp, vec4(0.0), vec4(1.0)));',
+    // 활성 층 밀도 가중으로 각 레인의 바람 방향·결 배율·높이 비율을 합성(.x 고정 버그 제거).
+    '  vec4 gDw = density / max(density.x + density.y + density.z + density.w, 1e-6);',
+    '  vec2 gDirV = gDw.x * vec2(sin(genusGrainDir.x), cos(genusGrainDir.x)) + gDw.y * vec2(sin(genusGrainDir.y), cos(genusGrainDir.y)) + gDw.z * vec2(sin(genusGrainDir.z), cos(genusGrainDir.z)) + gDw.w * vec2(sin(genusGrainDir.w), cos(genusGrainDir.w));',
+    '  vec2 gWwActive = length(gDirV) > 1e-4 ? normalize(gDirV) : vec2(0.0, 1.0);',
+    '  float gHfActive = dot(weather.heightFraction, gDw);',
+    '  float gGrainActive = dot(genusGrain, gDw);',
     // 2026-11-13 찢긴 결(genusWisp): shapeTexture 는 평균 0.7906·표준편차 0.0785 에 몰려 있어 그대로 (2n−1) 을 쓰면 능선이 접히지 않고
     //   둥근 Worley 방울(포도송이)로 남음. 실측 평균 0.7906 중심으로 [−1, 1] 영점 정규화 뒤 두 주파수 도메인 휨과 다중 스케일 능선·결을 만듦.
     '  float gShapeZero = clamp(0.5 + (shape - 0.7906) / 0.314, 0.0, 1.0);',
     '  vec4 gShapeN = vec4(gShapeZero);',
-    '  if (dot(genusWisp, genusFlow) > 0.0) {',
+    '  if (dot(genusWisp * gDw, genusFlow) > 0.0) {',
     '    vec2 gPw = uv * genusTileM;',
-    '    vec2 gWw = vec2(sin(genusGrainDir.x), cos(genusGrainDir.x));',
-    '    float gA = dot(gPw, gWw), gC = dot(gPw, vec2(-gWw.y, gWw.x));',
+    '    float gA = dot(gPw, gWwActive), gC = dot(gPw, vec2(-gWwActive.y, gWwActive.x));',
     '    float gBend = clamp((texture(shapeTexture, vec3(gA * 0.22, 0.37, gC * 0.22) * shapeRepeat + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
     '    float gBendFine = clamp((texture(shapeTexture, vec3(gA * 0.65, 1.17, gC * 0.65) * shapeRepeat + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
     '    float gCw = gC + gBend * 520.0 + gBendFine * 190.0;',
-    '    float gS1 = clamp((texture(shapeTexture, vec3(gA / 7.0, weather.heightFraction.x * 350.0, gCw) * shapeRepeat * 2.8 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
-    '    float gS2 = clamp((texture(shapeTexture, vec3(gA / 3.0 + gC * 0.15, weather.heightFraction.x * 550.0, gCw * 1.7) * shapeRepeat * 6.2 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
+    '    float gS1 = clamp((texture(shapeTexture, vec3(gA / 7.0, gHfActive * 350.0, gCw) * shapeRepeat * 2.8 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
+    '    float gS2 = clamp((texture(shapeTexture, vec3(gA / 3.0 + gC * 0.15, gHfActive * 550.0, gCw * 1.7) * shapeRepeat * 6.2 + shapeOffset).r - 0.7906) / 0.157, -1.0, 1.0);',
     '    float gRidge = clamp(0.55 * (1.0 - abs(gS1)) + 0.25 * (0.5 + 0.5 * gS1) + 0.35 * (0.5 + 0.5 * gS2) - 0.15, 0.0, 1.0);',
     '    gShapeN = mix(gShapeN, vec4(gRidge), clamp(genusWisp, vec4(0.0), vec4(1.0)));',
     '  }',
     '  vec4 gMul = density * clamp(vec4(1.0) + gErodeAmt * (2.0 * gShapeN - 1.0), vec4(0.0), vec4(2.0));',
-    // 2026-11-13 가까운 구름 가장자리 깎기(genusCarve) + 바람결(genusGrain): 평균 보존 곱만으로는 표면이 깎이지 않아 층적운이 결 없이 뭉개졌음.
-    //   결 = 바람 방향으로 genusGrain 배 늘인 모양 잡음(층 0 의 방향, 대개 저층). gGrain/gFine 도 평균 0.7906 기준으로 [0, 1] 정규화해
-    //   편차를 키운 뒤 문턱 lo 아래를 지우고 부드럽게 번지게 해 둥근 봉우리 끝을 거칠게 풀어냄.
+    // 2026-11-13 가까운 구름 가장자리 깎기(genusCarve) + 바람결(genusGrain): 활성 층의 바람 방향·결 배율·높이 비율을 씁니다.
     '  vec4 gCarveAmt = genusCarve * (1.0 - smoothstep(800.0, 3000.0, gFoot));',
-    '  if (dot(gCarveAmt, genusFlow) > 0.0) {',
+    '  if (dot(gCarveAmt * gDw, genusFlow) > 0.0) {',
     '    vec2 gPm = uv * genusTileM;',
-    '    vec2 gW = vec2(sin(genusGrainDir.x), cos(genusGrainDir.x));',
-    '    float gAlong = dot(gPm, gW) / max(1.0, genusGrain.x), gAcross = dot(gPm, vec2(-gW.y, gW.x));',
-    '    float gGrain = texture(shapeTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeRepeat * 4.0 + shapeOffset).r;',
+    '    float gAlong = dot(gPm, gWwActive) / max(1.0, gGrainActive), gAcross = dot(gPm, vec2(-gWwActive.y, gWwActive.x));',
+    '    float gGrain = texture(shapeTexture, vec3(gAlong, gHfActive * 600.0, gAcross) * shapeRepeat * 4.0 + shapeOffset).r;',
     '    #ifdef SHAPE_DETAIL',
-    '    float gFine = texture(shapeDetailTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeDetailRepeat * 0.6 + shapeDetailOffset).r;',
+    '    float gFine = texture(shapeDetailTexture, vec3(gAlong, gHfActive * 600.0, gAcross) * shapeDetailRepeat * 0.6 + shapeDetailOffset).r;',
     '    #else',
-    '    float gFine = texture(shapeTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeRepeat * 11.0 + shapeOffset).r;',
+    '    float gFine = texture(shapeTexture, vec3(gAlong, gHfActive * 600.0, gAcross) * shapeRepeat * 11.0 + shapeOffset).r;',
     '    #endif',
     '    float gGrain0 = clamp(0.5 + (gGrain - 0.7906) / 0.25, 0.0, 1.0);',
     '    float gFine0 = clamp(0.5 + (gFine - 0.7906) / 0.25, 0.0, 1.0);',
-    '    vec4 gN = mix(vec4(0.35 * gShapeZero + 0.4 * mix(gShapeZero, gGrain0, step(1.01, genusGrain.x)) + 0.25 * gFine0), 0.70 * gShapeN + 0.30 * gFine0, clamp(genusWisp, vec4(0.0), vec4(1.0)));',
+    '    vec4 gN = mix(vec4(0.35 * gShapeZero + 0.4 * mix(gShapeZero, gGrain0, step(1.01, gGrainActive)) + 0.25 * gFine0), 0.70 * gShapeN + 0.30 * gFine0, clamp(genusWisp, vec4(0.0), vec4(1.0)));',
     '    vec4 gLo = gCarveAmt * pow(vec4(1.0) - gN, vec4(1.35)) * 1.15;',
     '    gMul *= smoothstep(gLo * 0.45, gLo + vec4(1e-3), gMul);',
     '  }',

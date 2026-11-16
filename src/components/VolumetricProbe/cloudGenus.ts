@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
+import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, ICE_DIFFUSE_SCALE, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
@@ -285,27 +285,69 @@ function periodicNoise2(nx: number, ny: number, seed: number): F2 {
     return ab + (c + (d - c) * sx - ab) * sy;
   };
 }
-function fbm2(nx: number, ny: number, oct: number, seed: number): F2 {
-  const ns = Array.from({ length: oct }, (_, k) => periodicNoise2(nx << k, ny << k, seed + k * 131));
+interface Fbm2Data {
+  n: number;
+  nx: Int32Array;
+  ny: Int32Array;
+  amp: Float64Array;
+  grids: Float32Array[];
+}
+
+function makeFbm2Data(nx0: number, ny0: number, oct: number, seed: number, seedStep: number): Fbm2Data {
+  const nx = new Int32Array(oct), ny = new Int32Array(oct), amp = new Float64Array(oct);
+  const grids: Float32Array[] = new Array(oct);
   let w = 0, a0 = 0.5;
   for (let k = 0; k < oct; k++) { w += a0; a0 *= 0.5; }
   const invW = 1 / w;
-  return (u, v) => {
-    let s = 0, a = 0.5;
-    for (let k = 0; k < oct; k++) { s += a * ns[k](u, v); a *= 0.5; }
-    return s * invW;
-  };
+  a0 = 0.5;
+  for (let k = 0; k < oct; k++) {
+    const gx = nx0 << k, gy = ny0 << k;
+    nx[k] = gx; ny[k] = gy;
+    amp[k] = a0 * invW;
+    a0 *= 0.5;
+    const r = rng(seed + k * seedStep), g = new Float32Array(gx * gy);
+    for (let i = 0; i < g.length; i++) g[i] = r();
+    grids[k] = g;
+  }
+  return { n: oct, nx, ny, amp, grids };
+}
+
+function evalFbm2(d: Fbm2Data, u: number, v: number): number {
+  u -= Math.floor(u); if (u >= 1) u = 0;
+  v -= Math.floor(v); if (v >= 1) v = 0;
+  let s = 0;
+  for (let k = 0; k < d.n; k++) {
+    const nx = d.nx[k], ny = d.ny[k], g = d.grids[k];
+    const x = u * nx, y = v * ny, i0 = x | 0, j0 = y | 0, fx = x - i0, fy = y - j0;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const i1 = i0 + 1 === nx ? 0 : i0 + 1;
+    const j1 = j0 + 1 === ny ? 0 : j0 + 1;
+    const r0 = j0 * nx, r1 = j1 * nx;
+    const a = g[r0 + i0], ab = a + (g[r0 + i1] - a) * sx;
+    const c = g[r1 + i0], cd = c + (g[r1 + i1] - c) * sx;
+    s += d.amp[k] * (ab + (cd - ab) * sy);
+  }
+  return s;
+}
+
+function bilinearPow2(grid: Float32Array, size: number, mask: number, u: number, v: number): number {
+  const x = u * size, y = v * size, x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const i0 = x0 & mask, i1 = (i0 + 1) & mask;
+  const j0 = y0 & mask, j1 = (j0 + 1) & mask;
+  const r0 = j0 * size, r1 = j1 * size;
+  const a = grid[r0 + i0], ab = a + (grid[r0 + i1] - a) * fx;
+  const c = grid[r1 + i0], cd = c + (grid[r1 + i1] - c) * fx;
+  return ab + (cd - ab) * fy;
+}
+
+function fbm2(nx: number, ny: number, oct: number, seed: number): F2 {
+  const d = makeFbm2Data(nx, ny, oct, seed, 131);
+  return (u, v) => evalFbm2(d, u, v);
 }
 function fbm(n0: number, oct: number, seed: number): F2 {
-  const ns = Array.from({ length: oct }, (_, k) => periodicNoise(n0 << k, seed + k * 101));
-  let w = 0, a0 = 0.5;
-  for (let k = 0; k < oct; k++) { w += a0; a0 *= 0.5; }
-  const invW = 1 / w;
-  return (u, v) => {
-    let s = 0, a = 0.5;
-    for (let k = 0; k < oct; k++) { s += a * ns[k](u, v); a *= 0.5; }
-    return s * invW;
-  };
+  const d = makeFbm2Data(n0, n0, oct, seed, 101);
+  return (u, v) => evalFbm2(d, u, v);
 }
 interface Pt { x: number; y: number; s: number; t: number }
 function cells(n: number, seed: number, jitter = 0.9) {
@@ -818,7 +860,109 @@ export function morphCoverIn(m: MorphParams, cover: number): number {
  *     세기는 리처드슨 수 Ri = N²/(ΔU/Δz)² 가 작을수록 셈(Ri 3 이상 거의 없음, 0.5 에서 최대).
  * 모든 파수는 타일 정수 파수라 경계가 이어짐. 값이 클수록 구름 — 뒤의 운량 문턱이 그대로 씀.
  */
+/**
+ * 상층 권운·권층운 연속체 무늬 — 저층 소용돌이(flowCore) 없이 상층 유체역학 요소로 합성:
+ *  1) 국지 생성핵(2D cellEnv·microMottle)과 대규모 곡선 사행 왜곡(macroWarp + swirl)으로 일직선 직조감 제거
+ *  2) 강한 연직 전단·낮은 베일에서는 굽어진 빙정 붓터치(실털형, 비등방 2.5~3.5:1)가 살아남
+ *  3) 높은 베일·약한 전단에서는 광역 습윤 패치(moist)와 부드러운 2D 확산 덩어리로 하늘에 퍼짐
+ *  4) 성층 안정도(N)·리처드슨 수(Ri)에 따른 중력파 물결도 휘어진 좌표 위에서 약하게 적용
+ */
+function cirrusField(S: number, tileKm: number, seed: number, L: GenusLayer): FieldPx {
+  const o = (L.opts ?? {}) as Record<string, number | undefined>;
+  const su = o.shearU ?? 0, sv = o.shearV ?? 0, dzKm = Math.max(0.3, o.shearDzKm ?? 2);
+  const dU = Math.hypot(su, sv) / 3.6;
+  const wu = o.windU ?? 0, wv = o.windV ?? 0, wSpd = Math.hypot(wu, wv) / 3.6;
+  const fbDeg = param(L, 'windDeg') ?? 30;
+  const windDeg = wSpd > 0.5 ? ((Math.atan2(wu, wv) * 180) / Math.PI + 360) % 360 : fbDeg;
+  const shearDeg = dU > 1 ? ((Math.atan2(su, sv) * 180) / Math.PI + 360) % 360 : windDeg;
+  const N = Math.min(0.03, Math.max(0.003, o.flowN ?? 0.01));
+  const sh = dU / (dzKm * 1000);
+  const Ri = (N * N) / Math.max(sh * sh, 1e-10);
+  const veil = Math.min(1, Math.max(0, fp(L, 'flowVeil') ?? 0.25));
+  // 강한 연직 전단(jet/shear)일수록 실털·꼬리 성분이 뚜렷해지고, 약한 전단·고베일에서는 확산 덩어리가 우세합니다.
+  const shearFib = Math.min(1, Math.max(0.25, (dU - 2) / 10));
+
+  // 대규모 S자 상층 기류 굽힘(8~12 km) + 중규모 와류 왜곡 — 일직선 바코드 느낌 제거
+  // 저주파 성분(wa* · moist)은 Nyquist 파수 <= 10 이므로 64×64 격자에 1회 계산 뒤 쌍선형 보간해 화소당 비용을 크게 낮춤
+  const macroWarpU = makeFbm2Data(2, 2, 2, seed + 11, 101), macroWarpV = makeFbm2Data(2, 2, 2, seed + 13, 101);
+  const swirlU = makeFbm2Data(5, 2, 2, seed + 19, 101), swirlV = makeFbm2Data(5, 2, 2, seed + 23, 101);
+  const waMacro = 0.14 - 0.05 * veil;
+  const waSwirl = 0.055 - 0.025 * veil;
+
+  const moist = spectralNoise(Math.max(1, tileKm / 26), 1, null, seed + 1);
+  const WG = 64, WM = 63;
+  const warpDu = new Float32Array(WG * WG), warpDv = new Float32Array(WG * WG), moistG = new Float32Array(WG * WG);
+  for (let gy = 0; gy < WG; gy++) {
+    const v0 = gy / WG;
+    for (let gx = 0; gx < WG; gx++) {
+      const u0 = gx / WG, p = gy * WG + gx;
+      warpDu[p] = (evalFbm2(macroWarpU, u0, v0) - 0.5) * waMacro + (evalFbm2(swirlU, u0, v0) - 0.5) * waSwirl;
+      warpDv[p] = (evalFbm2(macroWarpV, u0, v0) - 0.5) * waMacro + (evalFbm2(swirlV, u0, v0) - 0.5) * waSwirl;
+      moistG[p] = moist(u0, v0);
+    }
+  }
+
+  // 2D 생성핵 덩어리 및 잔구름 얼룩(직선 줄무늬 없이 자연스럽게 퍼지는 구조)
+  const cellEnv = makeFbm2Data(3, 3, 3, seed + 29, 101);
+  const microMottle = makeFbm2Data(7, 3, 3, seed + 31, 101);
+  // 3:1~4:1 수준의 유한 길이 빙정 붓터치(기존 50:1 직선 침선 대신 생성핵과 어우러지는 굽은 깃털 결)
+  const [sa, sb] = intDir(shearDeg), sL = Math.hypot(sa, sb);
+  const streakD = makeFbm2Data(Math.max(1, Math.round(tileKm / (6.5 * sL))), Math.max(1, Math.round(tileKm / (2.0 * sL))), 3, seed + 3, 131);
+  const [ta, tb] = intDir(windDeg), tL = Math.hypot(ta, tb);
+  const tuftD = makeFbm2Data(Math.max(1, Math.round(tileKm / (7.5 * tL))), Math.max(1, Math.round(tileKm / (2.8 * tL))), 3, seed + 7, 131);
+  const wispD = makeFbm2Data(Math.max(1, Math.round(tileKm / (4.5 * sL))), Math.max(1, Math.round(tileKm / (1.1 * sL))), 2, seed + 17, 131);
+
+  const lamKm = Math.min(15, Math.max(2.5, (2 * Math.PI * Math.max(dU, 3)) / N / 1000));
+  const kk = Math.max(1, Math.round(tileKm / lamKm / sL));
+  // 평면파 세기를 낮추고 반드시 휘어진 좌표에 걸어 바코드 같은 평행 직선 제거
+  const wA = 0.12 * (1 - 0.5 * veil) * smoothstep(3, 0.5, Ri);
+  const ph = rng(seed + 5)() * 6.2832;
+  const needSheet = veil > 1e-4;
+  const needFilament = veil < 0.9999;
+
+  return (x, y) => {
+    const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+    const u = u0 + bilinearPow2(warpDu, WG, WM, u0, v0);
+    const v = v0 + bilinearPow2(warpDv, WG, WM, u0, v0);
+
+    const m = bilinearPow2(moistG, WG, WM, u0, v0);
+    const ce = evalFbm2(cellEnv, u, v);
+    const cellMask = smoothstep(0.28, 0.72, ce);
+
+    let mm = 0, brush = 0;
+    if (needSheet || (needFilament && cellMask > 0)) {
+      const su = sa * u + sb * v, sv = -sb * u + sa * v;
+      const tu = ta * u + tb * v, tv = -tb * u + ta * v;
+      mm = evalFbm2(microMottle, u, v);
+      brush = 0.52 * evalFbm2(tuftD, tu, tv) + 0.48 * evalFbm2(streakD, su, sv);
+    }
+
+    let filament = 0;
+    if (needFilament) {
+      if (cellMask > 0) {
+        const patchyMix = 0.55 * ce + 0.25 * mm + 0.20 * brush;
+        let filCell = patchyMix;
+        if (shearFib > 1e-4) {
+          const su = sa * u + sb * v, sv = -sb * u + sa * v;
+          const feathery = 0.45 * ce + 0.55 * (0.4 + 0.6 * evalFbm2(wispD, su, sv)) * (0.35 + 0.65 * brush);
+          filCell += (feathery - patchyMix) * shearFib;
+        }
+        filament = cellMask * filCell + (1 - cellMask) * (0.25 * m + 0.15 * ce);
+      } else {
+        filament = 0.25 * m + 0.15 * ce;
+      }
+    }
+
+    // 퍼지는 베일 성분: 직선 줄무늬 거의 없이 넓은 습윤장 + 뭉근한 2D 얼룩 + 아주 희미한 곡선 결
+    const sheet = needSheet ? (0.56 * m + 0.24 * ce + 0.12 * mm + 0.08 * brush) : 0;
+
+    const w = wA > 0 ? wA * (0.5 + 0.5 * Math.cos(6.2831853 * kk * (sa * u + sb * v) + ph)) : 0;
+    return filament + (sheet - filament) * veil + w * (0.35 + 0.65 * m);
+  };
+}
+
 function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer): FieldPx {
+  if (L.genus === 'ci') return cirrusField(S, tileKm, seed, L);
   const o = (L.opts ?? {}) as Record<string, number | undefined>;
   const su = o.shearU ?? 0, sv = o.shearV ?? 0, dzKm = Math.max(0.3, o.shearDzKm ?? 2);
   const dU = Math.hypot(su, sv) / 3.6;                       // m/s
@@ -928,6 +1072,12 @@ function layerPatternKey(
     flowCoreWindU: _fcu,
     flowCoreWindV: _fcv,
     flowCoreAniso: _fca,
+    flowMode: _fm,
+    flowTop: _ft,
+    flowEdge: _fe,
+    flowTilt: _fti,
+    densPow: _fd,
+    flowErode: _fer,
     ...patternOpts
   } = o;
   if (useFlow) delete patternOpts.spacingKm;
@@ -939,7 +1089,7 @@ function* genusWeatherSteps(
   flow: FlowSceneParams | null = null,
   stats: { s90?: number; hoursUsed?: number; umax?: number } = {},
 ): Generator<void, void, void> {
-  const ROWS = 8;
+  const ROWS = 16;
   // §130 흐름 핵은 장면당 하나 — 첫 흐름 층에서 늦게 만들어 모든 층이 같은 변위 지도를 씁니다.
   let core: FlowCore | null = null;
   for (let k = 0; k < plainCover.length; k++) {
@@ -1537,7 +1687,8 @@ const DIFFUSE_FIELD_GLSL = [
   '        float gTa = dot(gTauA, media.weight), gTt = dot(gTauT, media.weight);',
   '        float gDsun = genusDiffuseField(gTa, gTt, 1.0 / gMu0);',
   `        float gDsky = genusDiffuseField(gTa, gTt, ${SKY_SECANT.toFixed(1)});`,
-  `        vec3 gJ = (sunIrradiance * gMu0 * genusSunWeight(gMu0) * gDsun + skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky) * ${INV_2PI.toFixed(6)};`,
+  '        float gBeam = dot(max(genusBeamTransmittance, vec4(0.0)), media.weight);',
+  `        vec3 gJ = (sunIrradiance * gBeam * gMu0 * genusSunWeight(gMu0) * gDsun + skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky) * ${INV_2PI.toFixed(6)};`,
   '        radiance += gJ * dot(genusOn, media.weight);',
   '      }',
 ].join('\n');
@@ -1569,7 +1720,12 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        }',
       '#endif',
     ].join('\n');
-    const COLW = COLUMN_GLSL + '\n' + WAVE_COL;
+    const ICE_COL_SCALE = [
+      `        vec4 gIceMul = mix(vec4(1.0), vec4(${ICE_DIFFUSE_SCALE.toFixed(4)}), step(vec4(6500.0), minLayerHeights));`,
+      '        gTauA *= gIceMul;',
+      '        gTauT *= gIceMul;',
+    ].join('\n');
+    const COLW = COLUMN_GLSL + '\n' + WAVE_COL + '\n' + ICE_COL_SCALE;
     // L4(2026-11-12): L2 두-흐름 확산장·하늘빛 처리를 thru 레인(판 구름 st·as·ns·흐린 날 채우기, GenusParams.thru 1)에만.
     // 흩어진 구름(cu·cg·cb·sc·ac, thru 0)은 원래 식 그대로 — §138 판정에서 L2 가 조각 구름 밑면을 2~3 배 밝힌 것을 피함.
     // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
@@ -1605,7 +1761,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       `        float gMu0d = ${DIFF_MU0};`,
       '        float gDs = genusDiffuseField(gDeckA, gDeckT, 1.0 / gMu0d);',
       `        float gDk = genusDiffuseField(gDeckA, gDeckT, ${SKY_SECANT.toFixed(1)});`,
-      `        vec3 gJd = (sunIrradiance * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
+      `        vec3 gJd = (sunIrradiance * max(genusBeamTransmittance.x, 0.0) * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
       '        float gUw = dot(vec4(1.0) - genusOn * genusThru, media.weight);',
       `        gSkyIrr = mix(skyIrradiance, skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA), gUw);`,
       // 고른 확산 빛 속의 두꺼운 구름은 다중 산란으로 그 빛의 평균 휘도에 가까워짐(takram 하늘빛 항은 단일 산란 E/4π·기울기·ao 라 너무 어두움).

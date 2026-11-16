@@ -507,7 +507,12 @@ void main() {
   // 화면 화소 발자국(m): 2x2 쿼드 미분이 discard 경계에서 깨지지 않게 먼저 잽니다. 발밑(3mm)까지 풀리도록 하한을 낮춤.
   float pixG = max(0.003, 0.5 * length(fwidth(vGround)));
 #endif
-  if (uDemValid > 0.5 && vElevM <= 0.0) discard;
+  // 광역 외해 연결 마스크가 있으면 바다와 단절된 내륙 0m 이하 저지대는 잘라내지 않고 육지로 남깁니다.
+  bool isSeaZone =
+      uDemFarSeaValid > 0.5 ? (demFar_seaAt(vGround) > 0.5)
+    : uDemSeaValid > 0.5    ? (dem_seaAt(vGround) > 0.5)
+    :                         true;
+  if (uDemValid > 0.5 && isSeaZone && vElevM <= 0.0) discard;
 #ifdef TERRAIN_DIST_OUT
   // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
   gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
@@ -624,7 +629,7 @@ void main() {
   // 95m 밖 원거리 산에서는 nearW = 0 이 되어 기존과 동일한 법선·색감을 유지하고, 발밑 구간에서만 회전/워핑된
   // C2 Gradient Noise + 3x3 Cellular 자갈/풀 뭉치 노이즈를 pixG 발자국에 맞춰 안티에일리어싱 페이드 인 합니다.
   float nearW = 1.0 - smoothstep(25.0, 95.0, vDistM);
-  float wetM = uDemValid > 0.5 ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
+  float wetM = (uDemValid > 0.5 && isSeaZone) ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
   float detailH = 0.5;
   float detailRockH = 0.5;
   float detailGrain = 0.5;
@@ -787,7 +792,7 @@ void main() {
 
   // ── 조간대: 젖은 모래는 마른 것의 절반쯤 밝기 ────────────────────────────
   // 폭을 **고도**로 재므로 완만한 모래밭은 넓고 절벽은 좁습니다.
-  float wet = uDemValid > 0.5
+  float wet = (uDemValid > 0.5 && isSeaZone)
     ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
   alb = mix(alb, alb * 0.52, wet);
 

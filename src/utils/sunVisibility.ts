@@ -224,7 +224,7 @@ export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?:
     : null;
   if (ok(o.aod550)) aod = pmAod != null ? Math.max(o.aod550, pmAod) : o.aod550;
   else if (pmAod != null) aod = pmAod;
-  else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 30000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
+  else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 60000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
   if (aod == null) return null;
   const fine = ok(o.pm25) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.pm25 / o.pm10) : 0.6;
   const dustShare = ok(o.dust) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.dust / o.pm10) : 0;

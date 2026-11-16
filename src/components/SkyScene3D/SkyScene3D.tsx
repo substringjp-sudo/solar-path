@@ -632,6 +632,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** §129 지난 프레임에 볼륨 하늘을 깔았는가 — 바다 쌍둥이(거리·빛 판)는 그때만 그립니다(평소 구름 슬랩의 가림을 바꾸지 않게). */
   const volDrewRef = useRef(false);
   const volPendingRef = useRef(false);
+  const volBuildSeqRef = useRef(0);
   const prewarmedDayKeyRef = useRef('');
   const prewarmCancelRef = useRef<(() => void) | null>(null);
   const volGovRef = useRef<ResolutionGovernor | null>(null);
@@ -863,6 +864,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 슬라이더에서 손을 떼는 순간: 진행 중인 같은 시간대(key) 비동기 빌드는 취소하지 않고 그대로 마저 끝내며,
       // 만약 다른 시간대로 바뀌었으면 animate 루프에서 새 setSceneAsync 가 이전 작업을 덮어씁니다.
       lastTargetSyncPerfRef.current = performance.now();
+      volSettleRef.current = Math.max(volSettleRef.current, 18);
       requestRender(4);
     }
   }, [isSliding, requestRender]);
@@ -1122,7 +1124,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (!alive) return;
       const before = metarRef.current;
       metarRef.current = m;
-      if ((before?.icao ?? '') !== (m?.icao ?? '') || (before?.timeMs ?? 0) !== (m?.timeMs ?? 0)) { volKeyRef.current = ''; requestRender(3); }
+      // 씬이 이미/곧 그려진 상태에서 무작정 키를 비우면 권운 등 전 층이 2번 계산됨 — effectiveVolSceneKey 가 실제 운량/강수 변화 여부로 재빌드를 결정합니다.
+      if ((before?.icao ?? '') !== (m?.icao ?? '') || (before?.timeMs ?? 0) !== (m?.timeMs ?? 0)) { requestRender(3); }
     }).catch(() => {});
     pull();
     const id = setInterval(pull, 10 * 60_000);
@@ -2121,7 +2124,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   v.setResolutionScale(volGovRef.current.scale);
                   volQualityRef.current = '';
                   volRef.current = v; loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); }); volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
-                  volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 8;
+                  volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 18;
                   setVolumetricStatus({ phase: 'running' }); requestRender(3);
                 })
                 .catch(e => { volFailedRef.current = '생성: ' + String((e as Error)?.message ?? e); volBusyRef.current = false; setVolumetricStatus({ phase: 'failed', error: volFailedRef.current }); console.warn('[SkyScene] 볼륨 하늘 생성 실패:', (e as Error)?.stack ?? e); requestRender(2); });
@@ -2143,7 +2146,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
-              volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 8);
+              volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 18);
             }
             const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
             const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
@@ -2162,11 +2165,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 같은 시간대 내에서는 구름 형태가 유지되며 vol.setDate(바람 드리프트·태양 조명)만 60fps로 매끄럽게 돌아갑니다.
             const wLen = vWx?.length ?? 0;
             const wSample = vWx?.[Math.min(4, Math.max(0, wLen - 1))];
-            // §165 키는 순수 모듈 sceneKey.ts — 시간 버킷·자리·운량·덱·바람에 τ 구간과 비 0.3 플래그를 더했습니다.
-            const key = loadSceneKey()!.volSceneKey({
-              sceneMs: vBucketMs, lat: vLat, lon: vLon, elevM: vElev,   // 키의 τ 구간도 그 시간 가운데 해 고도로(분마다 해가 움직여 구간이 넘어가지 않게)
-              metarId: metarRef.current ? `${metarRef.current.icao}@${metarRef.current.timeMs}` : '',
-              metarTimeMs: metarRef.current?.timeMs ?? null,
+            // §165 키는 순수 모듈 sceneKey.ts — METAR 는 실제 관측 덮어쓰기가 반영되어 씬이 달라질 때만 키를 바꿔 불필요한 2차 재계산을 막습니다.
+            const key = loadSceneKey()!.effectiveVolSceneKey({
+              sceneMs: vBucketMs, lat: vLat, lon: vLon, elevM: vElev,
+              metarId: '', metar: metarRef.current,
               obs: vObs, sample: wSample,
             });
             const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
@@ -2177,7 +2179,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volInteractingRef.current = isInteractingNow;
               vol.setInteracting?.(isInteractingNow);
               composerNow.setInteracting?.(isInteractingNow);
-              if (!isInteractingNow) volSettleRef.current = Math.max(volSettleRef.current, 5);
+              if (!isInteractingNow) volSettleRef.current = Math.max(volSettleRef.current, 18);
             }
             const isFast = false;
             const needUpgrade = false;
@@ -2212,10 +2214,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 } : null;
                 volViewRef.current = '';
                 lastVolDateSyncRef.current.vMs = -1;
-                volSettleRef.current = 5;
+                volSettleRef.current = 18;
                 volFreshRef.current = false;
               } else if (!volPendingRef.current && !isSlidingNow) {
-                if (!volHasSceneRef.current) {
+                const isFirstCloudScene = !volHasSceneRef.current;
+                if (isFirstCloudScene) {
                   vol.setScene({ ...built.input, layers: [], macro: undefined });
                   volHasSceneRef.current = true;
                   volViewRef.current = '';
@@ -2225,9 +2228,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lastVolIsFastRef.current = isFast;
                 volKeyRef.current = key;
                 volPendingRef.current = true;
+                const myBuildSeq = ++volBuildSeqRef.current;
                 const tW = Date.now();
-                vol.setSceneAsync(built.input, isFast).then(applied => {
-                  if (volKeyRef.current === key) volPendingRef.current = false;
+                vol.setSceneAsync(built.input, isFast, isFirstCloudScene ? 24 : 12).then(applied => {
+                  if (volBuildSeqRef.current === myBuildSeq) volPendingRef.current = false;
                   volumetricStats.weatherMs = vol.weatherMs();
                   if (applied) {
                     volHasSceneRef.current = true;
@@ -2242,13 +2246,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                     } : null;
                     volViewRef.current = '';          // 다음 프레임에 지금 시선을 다시 겁니다(생성 중에 돌렸을 수 있음)
                     lastVolDateSyncRef.current.vMs = -1;
-                    volSettleRef.current = 5;
+                    volSettleRef.current = 18;
                     volFreshRef.current = false;      // §165 새 장면이 한 프레임 그려질 때까지 준비 아님
                   } else if (volKeyRef.current === key) volKeyRef.current = '';
                   if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
                   requestRender(3);
                 }).catch(e => {
-                  if (volKeyRef.current === key) { volPendingRef.current = false; volKeyRef.current = ''; }
+                  if (volBuildSeqRef.current === myBuildSeq) volPendingRef.current = false;
+                  if (volKeyRef.current === key) volKeyRef.current = '';
                   volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
                   setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
                   console.warn('[SkyScene] 볼륨 층 생성 실패:', (e as Error)?.stack ?? e); requestRender(2);
@@ -2355,9 +2360,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const anc = driftAnchorRef.current;
               if (!anc || anc.sceneMs !== vMs) driftAnchorRef.current = { sceneMs: vMs, wallMs: nowWall };
               const a2 = driftAnchorRef.current!;
-              if (vMs !== lastVolDateSyncRef.current.vMs || nowWall - lastVolDateSyncRef.current.wallMs >= 250) {
+              const dateChanged = vMs !== lastVolDateSyncRef.current.vMs;
+              if (dateChanged || nowWall - lastVolDateSyncRef.current.wallMs >= 250) {
                 vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
                 lastVolDateSyncRef.current = { vMs, wallMs: nowWall };
+                if (dateChanged) volSettleRef.current = Math.max(volSettleRef.current, 18);
               }
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
@@ -2365,7 +2372,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const gov = volGovRef.current;
               if (gov && (volSet.volumetricAutoRes ?? true) && isInteractingNow) {
                 const next = gov.sample(intervalMs);
-                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 5); }
+                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 18); }
               }
               volumetricStats.frameMs = gov?.emaMs ?? 0;
               // §169 조절기 값이 아니라 렌더러가 실제로 쓰는 배율 — 둘이 어긋나던 버그(품질 단계가 1.0 으로 되돌림)를 숨기지 않게.
@@ -2389,7 +2396,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               if (viewKey !== volViewRef.current) {
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM);
                 volViewRef.current = viewKey;
-                volSettleRef.current = Math.max(volSettleRef.current, 5);
+                volSettleRef.current = Math.max(volSettleRef.current, 18);
               }
               volTex = vol.renderToTexture(dtSec);
 
@@ -2909,7 +2916,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     if (moonRef.current) {
-      updateMoonPosition(moonRef.current, targetDate, lat, lng, fovRef.current);
+      updateMoonPosition(moonRef.current, targetDate, lat, lng, {
+        atmosphere,
+        sunAltDeg: sunAltRef.current,
+        fovDeg: fovRef.current,
+      });
       moonRef.current.group.visible = currentLayers.moon && moonRef.current.group.visible;
     }
 

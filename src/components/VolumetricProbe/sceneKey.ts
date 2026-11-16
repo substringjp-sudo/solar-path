@@ -7,7 +7,7 @@
  */
 import { sunPosition } from '../../utils/solarPosition';
 import type { CloudData } from '../../utils/weather';
-import { METAR_MAX_AGE_MIN } from '../../utils/metar';
+import { applyMetarToObs, METAR_MAX_AGE_MIN, type MetarObs } from '../../utils/metar';
 import { LAYER_BAND_KM, bandDeck } from '../../utils/cloudProfile';
 import { GENUS_THRESHOLDS } from '../../utils/cloudGenusForecast';
 import { cloudOpticalDepthFromDni } from '../../utils/dniOpticalDepth';
@@ -67,4 +67,20 @@ export function volSceneKey(i: SceneKeyInput): string {
     qCover(i.sample?.low), qCover(i.sample?.mid), qCover(i.sample?.high),
     ...[o?.windULow, o?.windVLow, o?.windUMid, o?.windVMid, o?.windUHigh, o?.windVHigh].map(qWind),
   ].join('|');
+}
+
+/**
+ * 실제 관측 덮어쓰기(applyMetarToObs)를 반영해 실질적으로 시각 장면이 달라질 때만 METAR 식별을 키에 포함합니다.
+ * 진입 직후 비동기 METAR 가 도착해도 창(±90분) 밖이거나 저·중층/강수 버킷이 그대로면 키를 유지해 불필요한 2차 재계산을 막습니다.
+ */
+export function effectiveVolSceneKey(i: SceneKeyInput & { metar?: MetarObs | null }): string {
+  const base = volSceneKey({ ...i, metarId: '', metarTimeMs: null });
+  const m = i.metar;
+  const o = i.obs;
+  if (!m || !o) return base;
+  const applied = applyMetarToObs(o, m, i.sceneMs, i.elevM);
+  if (!applied) return base;
+  const withMetar = volSceneKey({ ...i, obs: applied.obs, metarId: '', metarTimeMs: null });
+  if (withMetar === base) return base;
+  return `${withMetar}|M:${m.icao}@${m.timeMs}`;
 }

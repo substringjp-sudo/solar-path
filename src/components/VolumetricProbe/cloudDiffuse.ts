@@ -17,8 +17,12 @@
  * 기둥 광학두께는 그림자 지도가 아니라(행진 minTransmittance 에서 τ ≈ 72 로 포화 — 검토 1) 층 단면의 **해석적 적분**으로 셉니다(§138.1).
  */
 
-/** 물방울 구름의 비대칭 인자. 얼음은 0.75~0.8 이지만 이 단계에서는 한 값(RULER-physics3 §8). */
+/** 물방울 구름의 비대칭 인자. */
 export const DIFFUSE_G = 0.85;
+/** 빙정 구름(상층 ci·cs)의 비대칭 인자 — 전방 편중이 작아 축척 광학두께 (1-g)τ 가 더 큽니다. */
+export const DIFFUSE_G_ICE = 0.77;
+/** Δ-Eddington 동등 광학두께 배율 (1 - g_ice) / (1 - g_liq). */
+export const ICE_DIFFUSE_SCALE = (1 - DIFFUSE_G_ICE) / (1 - DIFFUSE_G);
 /** 확산 투과 식의 계수 3/4. */
 export const DIFFUSE_K = 0.75;
 /** 해가 지평선 근처일 때 μ0 바닥값 — 평면평행 세우기가 0 으로 무너지지 않게. */

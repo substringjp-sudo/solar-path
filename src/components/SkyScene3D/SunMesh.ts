@@ -124,18 +124,10 @@ export interface SunHandle {
 }
 
 /**
- * 화면에 보이는 태양 반지름(화면 세로의 몇 분의 몇)을 정하면 그에 맞는 시야각 반지름과 배율을 돌려줍니다.
- * 앱 하늘은 세로 시야 60~130° 로 그려 실제 눈이 받는 각보다 훨씬 넓습니다 — 실제 크기(0.267°)로 그리면 폰 화면에서 지름 3~6px 점이라
- * 눈으로 보는 태양보다 훨씬 작습니다. 실제 크기에 머무는 건 시야가 좁을 때(≈ 30° 이하)뿐입니다.
- * 지평선 가까이(고도 < 6°)는 능선·바다에 가려지는 정확도가 중요해 실제 크기로 돌아옵니다(§141 이전 1.08° 시절 문제).
+ * 해·달 모두 카메라 화각(FOV)과 1:1로 비교할 수 있도록 화면 비율 보정 없이 순수 물리 각반지름(0.267°)을 사용합니다.
  */
-export const SUN_SCREEN_RADIUS_FRAC = 0.009;
-export function sunDisplayScale(fovDeg: number, placeAltDeg: number): { scale: number; radiusDeg: number } {
-  const half = Math.tan((fovDeg * Math.PI) / 360);
-  const wantDeg = (Math.atan(SUN_SCREEN_RADIUS_FRAC * 2 * half) * 180) / Math.PI;
-  const k = Math.min(1, Math.max(0, (placeAltDeg - 1) / 5));
-  const scale = 1 + (Math.max(1, wantDeg / SUN_ANGULAR_RADIUS_DEG) - 1) * k;
-  return { scale, radiusDeg: SUN_ANGULAR_RADIUS_DEG * scale };
+export function sunDisplayScale(_fovDeg?: number, _placeAltDeg?: number): { scale: number; radiusDeg: number } {
+  return { scale: 1, radiusDeg: SUN_ANGULAR_RADIUS_DEG };
 }
 
 export function createSun(): SunHandle {

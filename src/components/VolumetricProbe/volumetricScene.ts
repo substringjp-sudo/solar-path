@@ -63,7 +63,7 @@ import type { TsunBuildInput, TsunLaneInput } from './tsunAtlas';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
-import { patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
+import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
 import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
@@ -543,7 +543,7 @@ export interface VolumetricScene {
    * §127 setScene 의 비동기판 — 날씨를 잘라 만드는 동안 이전 장면을 계속 그립니다(폰에서 JS 를 1초 넘게 막지 않게).
    * 더 새 setScene/setSceneAsync 가 오면 버려지고 false. isFast 가 참이면 드래그 중 S=128 초고속 모드로 생성합니다.
    */
-  setSceneAsync(input: VolumetricSceneInput, isFast?: boolean): Promise<boolean>;
+  setSceneAsync(input: VolumetricSceneInput, isFast?: boolean, sliceMs?: number): Promise<boolean>;
   /** 해당 장면의 날씨·파동 텍스처가 이미 캐시에 있어 0ms 동기 전환 가능한지 확인합니다. */
   hasCachedScene?(input: VolumetricSceneInput, isFast?: boolean): boolean;
   /** 날짜/날씨 변경 시 하루치 여러 시간대(24h)의 날씨·파동 텍스처를 미리 구워 캐시에 적재합니다. */
@@ -711,7 +711,11 @@ export async function createVolumetricScene(
   clouds.temporalUpscale = opt.temporalUpscale;
   clouds.shadow.temporalPass = opt.shadowTemporal;
   let baseMaxRay = clouds.clouds.maxRayDistance;
-  const applyMaxRay = () => { clouds.clouds.maxRayDistance = opt.maxRayKm != null ? opt.maxRayKm * 1000 : baseMaxRay; };
+  const applyMaxRay = () => {
+    clouds.clouds.maxRayDistance = opt.maxRayKm != null ? opt.maxRayKm * 1000 : baseMaxRay;
+    const fc = (aerial as unknown as { uniforms?: Map<string, Uniform> }).uniforms?.get('farCutKm');
+    if (fc) fc.value = clouds.clouds.maxRayDistance / 1000;
+  };
   let isInteracting = false;
   let baseMinStepSize = clouds.clouds.minStepSize;
   let baseMaxIter = clouds.clouds.maxIterationCount;
@@ -902,6 +906,76 @@ export async function createVolumetricScene(
       '  inScat = mix(inScat, mix(vec3(inL), inScat, 0.3), block) * mix(1.0, mix(max(0.50, cloudSkyT), 1.0, shFrac), block);',
       '  return cloud * t + inScat;',
       '}',
+      'uniform sampler2D farWeatherTex;', 'uniform float farWeatherOn;',
+      'uniform sampler2D farMacroTex;', 'uniform sampler2D farMacroLut;', 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
+      'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
+      'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
+      'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
+      'uniform vec4 farDriftU;', 'uniform vec4 farDriftV;', 'uniform vec4 farMacroDriftU;', 'uniform vec4 farMacroDriftV;', 'uniform vec4 farLutCol;',
+      'uniform vec3 farCityUp;', 'uniform float farCutKm;',
+      // 100km 너머 단일 구름 층 2D 평면 투영 + 원고리 격자 적층 (높은 층→낮은 층 순)
+      'void volEvalFarLayer(',
+      '  const vec3 camPosKm, const vec3 rayDir, const float rCam,',
+      '  const float baseKm, const float thickKm, const float tauV, const float densPow, const float isIce, const float coverFb,',
+      '  const vec4 wMask, const vec4 mMask, const vec2 wDrift, const vec2 mDrift, const float lutCol,',
+      '  inout vec3 accRgb, inout float accAlpha, inout float firstHitKm',
+      ') {',
+      '  if (baseKm < -0.5 || tauV <= 1e-4) return;',
+      '  float fRe = 6360.0;',
+      '  float rMid = fRe + baseKm + 0.5 * thickKm;',
+      '  float b = dot(camPosKm, rayDir);',
+      '  float c = (rCam - rMid) * (rCam + rMid);',
+      '  float disc = b * b - c;',
+      '  if (disc <= 0.0) return;',
+      '  float d = -b + sqrt(disc);',
+      '  float dCut = max(50.0, farCutKm);',
+      '  float cutFade = smoothstep(dCut - 8.0, dCut + 12.0, d) * (1.0 - smoothstep(325.0, 385.0, d));',
+      '  if (cutFade <= 0.005) return;',
+      '  vec3 hit = camPosKm + rayDir * d;',
+      '  vec3 hitUp = normalize(hit);',
+      '  float dens = coverFb;',
+      '  if (farWeatherOn > 0.5) {',
+      '    vec3 dRel = hit - farOriginKm;',
+      '    vec2 planeKm = vec2(dot(dRel, farEast), dot(dRel, farNorth));',
+      '    vec2 wUv = planeKm / max(farTileKm, 0.5) + wDrift;',
+      '    dens = dot(texture(farWeatherTex, wUv), wMask);',
+      '    if (farMacroOn > 0.5) {',
+      '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
+      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(texture(farMacroTex, mUv), mMask);',
+      '      if (lutCol >= -0.5) {',
+      '        vec4 sVec = texture(farMacroLut, vec2((mCov * 63.0 + 0.5) / 64.0, 0.5));',
+      '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
+      '        dens = clamp((dens - gMS) / max(1.0 - gMS, 1e-3), 0.0, 1.0);',
+      '      } else {',
+      '        dens *= mCov;',
+      '      }',
+      '    }',
+      '  }',
+      '  if (dens <= 0.005) return;',
+      '  dens = pow(dens, clamp(densPow, 0.35, 2.2));',
+      '  float sinEl = max(abs(dot(rayDir, hitUp)), 0.10);',
+      '  float tauRay = tauV * dens * min(5.5, 1.0 / sinEl);',
+      '  float alpha = (1.0 - exp(-tauRay)) * cutFade;',
+      '  if (alpha <= 0.005) return;',
+      '  vec3 skyE;',
+      '  vec3 sunE = GetSunAndSkyIrradiance(hit, hitUp, sunDirection, skyE);',
+      '  float sunLit = smoothstep(-0.062, 0.045, dot(hitUp, sunDirection));',
+      '  float cosS = dot(rayDir, sunDirection);',
+      '  float gP = isIce > 0.5 ? 0.65 : 0.45;',
+      '  float phF = (1.0 - gP * gP) / (12.5663706 * pow(max(1.0 + gP * gP - 2.0 * gP * cosS, 1e-2), 1.5));',
+      '  float ph = mix(0.0795775, phF, 0.55);',
+      '  float ms = exp(-min(tauRay * 0.25, 2.5));',
+      '  vec3 sunTerm = sunE * sunLit * mix(0.05, ph, ms) * (1.0 - 0.6 * farAirShade);',
+      '  vec3 skyTerm = skyE * (1.0 / 12.5663706) * mix(0.65, 1.0, ms);',
+      '  vec3 cloudLit = (sunTerm + skyTerm) * (0.7 + 0.3 * ms) + farCityUp * 0.35;',
+      '  float shKm = clamp(max(cloudAirShade, farAirShade), 0.0, 1.0) * min(d, 350.0);',
+      '  vec3 tAtm;',
+      '  vec3 inAtm = max(GetSkyRadianceToPoint(camPosKm, hit, shKm, sunDirection, tAtm), vec3(0.0));',
+      '  vec3 col = cloudLit * tAtm + inAtm;',
+      '  accRgb = mix(accRgb, col, alpha);',
+      '  accAlpha = 1.0 - (1.0 - accAlpha) * (1.0 - alpha);',
+      '  firstHitKm = firstHitKm <= 0.0 ? d : min(firstHitKm, d);',
+      '}',
       'void volHazeIrradiance(vec3 pos, vec3 upDir, vec3 sunDir, out vec3 outSunE, out vec3 outSkyE) {',
       '  vec3 unusedSky;',
       '  GetSunAndSkyIrradiance(pos, upDir, sunDir, outSkyE);',
@@ -914,8 +988,10 @@ export async function createVolumetricScene(
       '  float sinV = max(abs(dot(dir, upDir)), 0.03);',
       '  float cosS = dot(dir, sunDir);',
       '  float g = hazeP.z;',
-      '  float ph = (1.0 - g * g) / (12.5663706 * pow(max(1.0 + g * g - 2.0 * g * cosS, 1e-3), 1.5));',
-      '  ph = mix(ph, 0.0795775, 0.35);',
+      '  float phBody = (1.0 - g * g) / (12.5663706 * pow(max(1.0 + g * g - 2.0 * g * cosS, 1e-3), 1.5));',
+      '  float gFwd = min(0.96, g + 0.25);',
+      '  float phFwd = (1.0 - gFwd * gFwd) / (12.5663706 * pow(max(1.0 + gFwd * gFwd - 2.0 * gFwd * cosS, 1e-3), 1.5));',
+      '  float ph = mix(0.88 * phBody + 0.12 * phFwd, 0.0795775, 0.25);',
       '  vec3 tau0 = hazeP.x * pow(vec3(640.0, 550.0, 460.0) / 550.0, vec3(-hazeP.y));',
       '  float muS = max(dot(sunDir, upDir), 0.02);',
       '  vec3 a = tau0 * (1.0 / muS - 1.0 / sinV);',
@@ -1108,35 +1184,36 @@ export async function createVolumetricScene(
       '', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
-      // 100km 너머 2D 원거리 구름 테두리 띠: 3D 레이마칭이 100km에서 끊긴 뒤 고산 등 낮은 지평선까지 이어지는 틈을 2D 구면 껍질로 채웁니다.
+      // 100km 너머 2D 평면·원고리 덱 원근 투영: 3D 레이마칭이 100km에서 끊긴 뒤 지평선까지 이어지는 층을 높은 층→낮은 층 순으로 적층합니다.
       '  float fCloudAlpha = 0.0;',
       '  vec3 fCloudRgb = vec3(0.0);',
       '  float fCloudDist = 0.0;',
-      '  float fBlock = clamp(max(cloudAirShade, farAirShade), 0.0, 1.0);',
-      '  if (fBlock > 0.05 && cloudAirBaseKm < 45.0) {',
+      '  {',
       '    vec3 fRd = normalize(vRayDirection);',
       '    vec3 fUp = normalize(vCameraPosition);',
       '    float fSin = dot(fRd, fUp);',
-      '    float fRe = 6360.0;',
-      '    float fDCut = 100.0;',
-      '    float fSinCut = (cloudAirBaseKm - (fDCut * fDCut) / (2.0 * fRe)) / fDCut;',
-      '    float fMask = smoothstep(fSinCut + 0.028, fSinCut + 0.008, fSin);',
-      '    if (fMask > 0.01) {',
-      '      vec4 fOv = vec4(0.0);',
-      '      #ifdef HAS_OVERLAY',
-      '      fOv = texture(overlayBuffer, uv);',
-      '      #endif',
-      '      float fTer = 0.0;',
-      '      if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) fTer = 1.0; }',
-      '      float fAlpha = fBlock * fMask * (1.0 - fOv.a) * (1.0 - fTer);',
-      '      if (fAlpha > 0.005) {',
-      '        float fDisc = max(0.0, fSin * fSin + 2.0 * cloudAirBaseKm / fRe);',
-      '        float fDHit = clamp((-fSin + sqrt(fDisc)) * fRe, fDCut, 350.0);',
-      '        vec3 fRgb = volEvalCloudShell(vCameraPosition, fRd, fDHit, fBlock);',
-      '        outputColor.rgb = mix(outputColor.rgb, fRgb, fAlpha);',
-      '        fCloudAlpha = fAlpha;',
-      '        fCloudRgb = fRgb;',
-      '        fCloudDist = fDHit;',
+      '    float rCam = length(vCameraPosition);',
+      '    vec4 fOv = vec4(0.0);',
+      '    #ifdef HAS_OVERLAY',
+      '    fOv = texture(overlayBuffer, uv);',
+      '    #endif',
+      '    float fTer = 0.0;',
+      '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) fTer = 1.0; }',
+      '    if (fTer < 0.5 && fOv.a < 0.995 && farBaseKm.x >= -0.5) {',
+      '      vec3 accRgb = vec3(0.0);',
+      '      float accA = 0.0;',
+      '      float firstHit = 0.0;',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.x, farThickKm.x, farTauV.x, farDensPow.x, farIce.x, farCoverFb.x, farWeatherMask[0], farMacroMask[0], vec2(farDriftU.x, farDriftV.x), vec2(farMacroDriftU.x, farMacroDriftV.x), farLutCol.x, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.y, farThickKm.y, farTauV.y, farDensPow.y, farIce.y, farCoverFb.y, farWeatherMask[1], farMacroMask[1], vec2(farDriftU.y, farDriftV.y), vec2(farMacroDriftU.y, farMacroDriftV.y), farLutCol.y, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.z, farThickKm.z, farTauV.z, farDensPow.z, farIce.z, farCoverFb.z, farWeatherMask[2], farMacroMask[2], vec2(farDriftU.z, farDriftV.z), vec2(farMacroDriftU.z, farMacroDriftV.z), farLutCol.z, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.w, farThickKm.w, farTauV.w, farDensPow.w, farIce.w, farCoverFb.w, farWeatherMask[3], farMacroMask[3], vec2(farDriftU.w, farDriftV.w), vec2(farMacroDriftU.w, farMacroDriftV.w), farLutCol.w, accRgb, accA, firstHit);',
+      '      float visA = accA * (1.0 - fOv.a);',
+      '      if (visA > 0.004) {',
+      '        vec3 skyVis = max(outputColor.rgb - fOv.rgb, vec3(0.0));',
+      '        outputColor.rgb = fOv.rgb + skyVis * (1.0 - accA) + accRgb * (1.0 - fOv.a);',
+      '        fCloudAlpha = visA;',
+      '        fCloudRgb = accRgb * (1.0 - fOv.a);',
+      '        fCloudDist = firstHit;',
       '      }',
       '    }',
       '  }',
@@ -1188,8 +1265,8 @@ export async function createVolumetricScene(
       '  #ifdef HAS_OVERLAY',
       '  hOv = texture(overlayBuffer, uv);',
       '  #endif',
-      '  vec3 hClPart = hOv.rgb * (1.0 - fCloudAlpha) + fCloudRgb * fCloudAlpha;',
-      '  float hClCov = clamp(hOv.a * (1.0 - fCloudAlpha) + fCloudAlpha, 0.0, 1.0);',
+      '  vec3 hClPart = hOv.rgb + fCloudRgb;',
+      '  float hClCov = clamp(hOv.a + fCloudAlpha, 0.0, 1.0);',
       '  vec3 hBgPart = max(outputColor.rgb - hClPart, vec3(0.0));',
       '  outputColor.rgb = hBgPart * hTBg + hClPart * hTCl + (1.0 - hClCov) * hLBg + hClCov * hLCl;',
       '}',
@@ -1216,6 +1293,31 @@ export async function createVolumetricScene(
     fx.uniforms.set('cityNorth', new Uniform(new Vector3(1, 0, 0)));
     fx.uniforms.set('cityEast', new Uniform(new Vector3(0, 0, 1)));
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
+    fx.uniforms.set('farWeatherTex', new Uniform(null));
+    fx.uniforms.set('farWeatherOn', new Uniform(0));
+    fx.uniforms.set('farMacroTex', new Uniform(null));
+    fx.uniforms.set('farMacroLut', new Uniform(null));
+    fx.uniforms.set('farMacroOn', new Uniform(0));
+    fx.uniforms.set('farMacroExtentKm', new Uniform(768));
+    fx.uniforms.set('farWeatherMask', new Uniform(new Matrix4()));
+    fx.uniforms.set('farMacroMask', new Uniform(new Matrix4()));
+    fx.uniforms.set('farOriginKm', new Uniform(new Vector3()));
+    fx.uniforms.set('farEast', new Uniform(new Vector3(1, 0, 0)));
+    fx.uniforms.set('farNorth', new Uniform(new Vector3(0, 1, 0)));
+    fx.uniforms.set('farTileKm', new Uniform(GENUS_TILE_KM));
+    fx.uniforms.set('farBaseKm', new Uniform(new Vector4(-1, -1, -1, -1)));
+    fx.uniforms.set('farThickKm', new Uniform(new Vector4()));
+    fx.uniforms.set('farTauV', new Uniform(new Vector4()));
+    fx.uniforms.set('farDensPow', new Uniform(new Vector4(0.7, 0.7, 0.7, 0.7)));
+    fx.uniforms.set('farIce', new Uniform(new Vector4()));
+    fx.uniforms.set('farCoverFb', new Uniform(new Vector4()));
+    fx.uniforms.set('farDriftU', new Uniform(new Vector4()));
+    fx.uniforms.set('farDriftV', new Uniform(new Vector4()));
+    fx.uniforms.set('farMacroDriftU', new Uniform(new Vector4()));
+    fx.uniforms.set('farMacroDriftV', new Uniform(new Vector4()));
+    fx.uniforms.set('farLutCol', new Uniform(new Vector4(-1, -1, -1, -1)));
+    fx.uniforms.set('farCityUp', new Uniform(new Vector3()));
+    fx.uniforms.set('farCutKm', new Uniform(opt.maxRayKm != null ? opt.maxRayKm : baseMaxRay / 1000));
     aerialBase = src;
     fx.setFragmentShader(applyLightingFixAerial(src, lightingFlags()));
   }
@@ -1238,23 +1340,36 @@ export async function createVolumetricScene(
   const AIR_OPACITY: Record<string, number> = { cu: 0.9, cg: 0.95, cb: 1, sc: 0.85, st: 0.95, ns: 1, ac: 0.6, as: 0.85, ci: 0.1, cs: 0.3, cbanvil: 0.8 };
   const applyCloudAir = (p: VolumetricSceneInput) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
-    let T = 1, top = 0, base = 50;
+    let T = 1, top = 0, base = 50, baseW = 0, baseSum = 0, gapW = 0, gapSum = 0;
     for (const L of p.layers) {
       if (!L || !(L.cover > 0)) continue;
-      const o = Math.min(1, L.cover) * (L.genus ? AIR_OPACITY[L.genus] ?? 0.7 : 0.7);
+      const baseOp = L.genus ? AIR_OPACITY[L.genus] ?? 0.7 : 0.7;
+      const dsOp = L.genus === 'ci' || L.genus === 'cs'
+        ? 1 - Math.exp(-((L.opts?.densityScale ?? GENUS[L.genus].densityScale) * (L.thicknessM ?? GENUS[L.genus].height) * 0.04))
+        : 0;
+      const effOp = Math.min(1, Math.max(baseOp, dsOp));
+      const o = Math.min(1, L.cover) * effOp;
       if (o <= 0.02) continue;
       T *= 1 - o;
       top = Math.max(top, L.baseKm + (L.thicknessM ?? 1000) / 1000);
       base = Math.min(base, L.baseKm);
+      baseSum += L.baseKm * o;
+      baseW += o;
+      const sg = (L.opts as { sunGap?: number } | undefined)?.sunGap;
+      if (typeof sg === 'number' && Number.isFinite(sg)) { gapSum += sg * o; gapW += o; }
     }
-    au.get('cloudAirShade')!.value = opt.cloudAirShade ? 1 - T : 0;
+    const avgGap = gapW > 0 ? Math.min(1, Math.max(0, gapSum / gapW)) : 0;
+    const gapEase = T > 0.25 ? 1 - 0.35 * avgGap * Math.min(1, (T - 0.25) / 0.45) : 1;
+    const shade = (1 - T) * gapEase;
+    const repBase = baseW > 0 ? baseSum / baseW : base;
+    au.get('cloudAirShade')!.value = opt.cloudAirShade ? shade : 0;
     // 구름 패스 연무는 빛줄기(SHADOW_LENGTH)가 켜진 high 에서는 그 값이 맡으므로 0.
-    lastAirShadeC = opt.cloudAirShade && !aerial.shadowLength ? 1 - T : 0;
+    lastAirShadeC = opt.cloudAirShade && !aerial.shadowLength ? shade : 0;
     (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudAirShadeC.value = Math.max(lastAirShadeC, farAirShadeV);
     au.get('cloudAirTopKm')!.value = Math.max(0.2, top - (p.heightM ?? 0) / 1000);
-    // 연무를 구름 앞까지만 셀 때 쓰는 가장 낮은 구름 밑면(눈 위 km). 구름이 없으면 50(= 연무층 전체).
-    au.get('cloudAirBaseKm')!.value = base >= 50 ? 50 : Math.max(0.05, base - (p.heightM ?? 0) / 1000 - (p.altitudeM ?? 0) / 1000);
-    lastAirShade = opt.cloudAirShade ? 1 - T : 0;
+    // 연무를 구름 앞까지만 셀 때 쓰는 불투명도 가중 대표 밑면(눈 위 km). 구름이 없으면 50(= 연무층 전체).
+    au.get('cloudAirBaseKm')!.value = base >= 50 ? 50 : Math.max(0.05, repBase - (p.heightM ?? 0) / 1000 - (p.altitudeM ?? 0) / 1000);
+    lastAirShade = opt.cloudAirShade ? shade : 0;
   };
   const applyHaze = (h: HazeInput | undefined) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
@@ -1394,7 +1509,9 @@ export async function createVolumetricScene(
     while (ch.length < 4) ch.push(0);
     setFarSunUniforms(cm, farMap.map, ch as [number, number, number, number]);
     lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3], tAirHere: farMap.map.centerT[3] };
-    setFarAirShade(1 - farMap.map.centerT[3]);
+    // 일몰 후(태양 고도 < −0.5°)에는 지평선 아래 지구가 태양 광선을 가려 centerT[3]=0 이 되는데, 이를 구름 벽 차폐(1.0)로 쓰면 밤하늘 지평선에 불투명 회색 벽이 생깁니다.
+    const airSunWeight = Math.min(1, Math.max(0, (sunAltDeg + 0.5) / 1.3));
+    setFarAirShade((1 - farMap.map.centerT[3]) * airSunWeight);
   };
   const waveCacheMap = new Map<string, WaveField>();
   const WAVE_CACHE_SIZE = 16;
@@ -1707,7 +1824,7 @@ export async function createVolumetricScene(
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     if (!p || cityLight <= 0.01) {
-      cityState = null; au.get('cityAirOn')!.value = 0; (cu.cityUp.value as Vector3).set(0, 0, 0); return;
+      cityState = null; au.get('cityAirOn')!.value = 0; (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
     const m = 6.5 - 3.5 * cityLight, sqm = 14.5 + 1.08 * m;
     const timeF = cityTimeF(date, p.lon);
@@ -1723,6 +1840,7 @@ export async function createVolumetricScene(
     const g = moonGain > 0 ? moonGain : cityNight ? MOON_FULL : 1;
     const ramp = moonGain > 0 ? 1 : cityNight ? Math.min(1, (-12 - lastTrueSunAlt) / 2) : 1;
     (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((baseCd * CD_TO_RENDER * ramp) / g);
+    (au.get('farCityUp')!.value as Vector3).copy(cu.cityUp.value as Vector3);
     (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER * ramp) / g);
     au.get('cityAirOn')!.value = 1;
   };
@@ -1832,14 +1950,21 @@ export async function createVolumetricScene(
         flowCoreWindU: _fcu,
         flowCoreWindV: _fcv,
         flowCoreAniso: _fca,
+        flowMode: _fm,
+        flowTop: _ft,
+        flowEdge: _fe,
+        flowTilt: _fti,
+        densPow: _fd,
+        flowErode: _fer,
         ...restOpts
       } = g.opts as Record<string, unknown>;
       if (useFlow) delete restOpts.spacingKm;
       return { genus: g.genus, cover: g.cover, opts: restOpts };
     });
     const flowNeeded = !!flow && gl.some((g, i) => !!g && g.cover > 0 && !(i === 0 && (g.opts as { wave?: unknown }).wave) && ((g.opts?.flow ?? 0) > 0));
+    const hasFlowCore = !!flow && gl.some((g, i) => !!g && g.cover > 0 && !(i === 0 && (g.opts as { wave?: unknown }).wave) && ((g.opts?.flow ?? 0) > 0) && !((g.opts?.flowLaminar ?? 0) > 0));
     const texFlow = flowNeeded ? flow : null;
-    const key = JSON.stringify([useGenus, glForKey, plain, useGenus ? (texFlow ? ['flow', texFlow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
+    const key = JSON.stringify([useGenus, glForKey, plain, useGenus ? (texFlow ? (hasFlowCore ? ['flow', texFlow] : 'laminar') : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
     return { inputs, gl, useGenus, plain, key, flow: texFlow, S };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
@@ -1862,6 +1987,87 @@ export async function createVolumetricScene(
    * 예전에는 1970 년부터의 초(약 1.8·10⁹)에 지금 바람을 곱해 타일 소수부만 남겨, 바람이 5 km/h 만 달라도 구름 자리가 아무 데로나 튐 —
    * 시간 막대 미리보기와 손을 뗀 뒤 장면이 전혀 다른 배치로 보이던 원인. 적분이면 시각이 바뀔 때 이동이 이어짐.
    */
+  let farSortedLanes: number[] = [-1, -1, -1, -1];
+  const syncFar2DDrift = () => {
+    const au = (aerial as unknown as { uniforms?: Map<string, Uniform> }).uniforms;
+    if (!au) return;
+    const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    const gdu = cu.genusDriftU?.value as Vector4 | undefined;
+    const gdv = cu.genusDriftV?.value as Vector4 | undefined;
+    const mdu = cu.genusMacroDriftU?.value as Vector4 | undefined;
+    const mdv = cu.genusMacroDriftV?.value as Vector4 | undefined;
+    const pick = (v: Vector4 | undefined, i: number) =>
+      !v || i < 0 ? 0 : i === 0 ? v.x : i === 1 ? v.y : i === 2 ? v.z : v.w;
+    const s = farSortedLanes;
+    (au.get('farDriftU')!.value as Vector4).set(pick(gdu, s[0]), pick(gdu, s[1]), pick(gdu, s[2]), pick(gdu, s[3]));
+    (au.get('farDriftV')!.value as Vector4).set(pick(gdv, s[0]), pick(gdv, s[1]), pick(gdv, s[2]), pick(gdv, s[3]));
+    (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
+    (au.get('farMacroDriftV')!.value as Vector4).set(pick(mdv, s[0]), pick(mdv, s[1]), pick(mdv, s[2]), pick(mdv, s[3]));
+    au.get('farMacroTex')!.value = macro ? macro.texB : null;
+    au.get('farMacroLut')!.value = macro ? macro.lut : null;
+    au.get('farMacroOn')!.value = macro ? 1 : 0;
+    au.get('farMacroExtentKm')!.value = macro ? macro.extentKm : 768;
+  };
+  const applyFar2DState = (plan: WeatherPlan, tex: DataTexture, nue: Matrix4, position: Vector3) => {
+    const au = (aerial as unknown as { uniforms?: Map<string, Uniform> }).uniforms;
+    if (!au) return;
+    const north = new Vector3(), up = new Vector3(), east = new Vector3();
+    nue.extractBasis(north, up, east);
+    const altCorr = getAltitudeCorrectionOffset(position, atmosphereParams.bottomRadius, Ellipsoid.WGS84, new Vector3());
+    const [ox, oy] = plan.useGenus ? tsunObsKm : [0, 0];
+    const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
+    (au.get('farOriginKm')!.value as Vector3).copy(origin).multiplyScalar(0.001);
+    (au.get('farEast')!.value as Vector3).copy(east).normalize();
+    (au.get('farNorth')!.value as Vector3).copy(north).normalize();
+    au.get('farTileKm')!.value = GENUS_TILE_KM;
+    au.get('farWeatherTex')!.value = plan.useGenus ? tex : null;
+    au.get('farWeatherOn')!.value = plan.useGenus ? 1 : 0;
+    au.get('farCutKm')!.value = clouds.clouds.maxRayDistance / 1000;
+
+    type FarSlot = {
+      lane: number; baseKm: number; thickKm: number; tauV: number;
+      densPow: number; isIce: number; coverFb: number; lutCol: number; macroRow: number;
+    };
+    const active: FarSlot[] = [];
+    for (let i = 0; i < 4; i++) {
+      const cl = clouds.cloudLayers[i];
+      const inp = plan.inputs[i];
+      if (!cl || !inp || cl.height <= 0 || cl.densityScale <= 0 || !(inp.cover > 0)) continue;
+      const g = plan.useGenus ? plan.gl[i] : null;
+      const baseKm = cl.altitude / 1000;
+      const thickKm = cl.height / 1000;
+      const tauV = Math.min(8, 0.04 * cl.densityScale * cl.height);
+      const densPow = g ? (plan.flow && flowParam(g, 'flow', 0) > 0 ? flowParam(g, 'densPow', 0.7) : (GENUS[g.genus]?.domePow ?? 0.7)) : 0.7;
+      const isIce = g && (g.genus === 'ci' || g.genus === 'cs' || g.genus === 'cbanvil') ? 1 : (!g && bandOfInput(inp) === 'high' ? 1 : 0);
+      const band = macro?.laneBand[i] ?? null;
+      const hasBandMacro = !!(macro && band && macro.samples[band]);
+      const macroRow = hasBandMacro ? (band === 'low' ? 0 : band === 'mid' ? 1 : 2) : -1;
+      active.push({ lane: i, baseKm, thickKm, tauV, densPow, isIce, coverFb: inp.cover, lutCol: hasBandMacro ? i : -1, macroRow });
+    }
+    // 높은 층 → 낮은 층(원→근) 내림차순 정렬: 반투명 적층 순서 보장
+    active.sort((a, b) => b.baseKm - a.baseKm);
+
+    const bV = [-1, -1, -1, -1], tV = [0, 0, 0, 0], tau = [0, 0, 0, 0], dp = [0.7, 0.7, 0.7, 0.7], ice = [0, 0, 0, 0], fb = [0, 0, 0, 0], lut = [-1, -1, -1, -1];
+    const wMask = (au.get('farWeatherMask')!.value as Matrix4).elements; wMask.fill(0);
+    const mMask = (au.get('farMacroMask')!.value as Matrix4).elements; mMask.fill(0);
+    farSortedLanes = [-1, -1, -1, -1];
+    for (let s = 0; s < active.length && s < 4; s++) {
+      const x = active[s];
+      farSortedLanes[s] = x.lane;
+      bV[s] = x.baseKm; tV[s] = x.thickKm; tau[s] = x.tauV; dp[s] = x.densPow; ice[s] = x.isIce; fb[s] = x.coverFb; lut[s] = x.lutCol;
+      wMask[s * 4 + x.lane] = 1;
+      if (x.macroRow >= 0) mMask[s * 4 + x.macroRow] = 1;
+      else mMask[s * 4 + 3] = 1;
+    }
+    (au.get('farBaseKm')!.value as Vector4).set(bV[0], bV[1], bV[2], bV[3]);
+    (au.get('farThickKm')!.value as Vector4).set(tV[0], tV[1], tV[2], tV[3]);
+    (au.get('farTauV')!.value as Vector4).set(tau[0], tau[1], tau[2], tau[3]);
+    (au.get('farDensPow')!.value as Vector4).set(dp[0], dp[1], dp[2], dp[3]);
+    (au.get('farIce')!.value as Vector4).set(ice[0], ice[1], ice[2], ice[3]);
+    (au.get('farCoverFb')!.value as Vector4).set(fb[0], fb[1], fb[2], fb[3]);
+    (au.get('farLutCol')!.value as Vector4).set(lut[0], lut[1], lut[2], lut[3]);
+    syncFar2DDrift();
+  };
   /** 날씨가 준비된 뒤 장면을 한 번에 겁니다(층·종류 균일변수·날씨·노출). */
   const applyScene = (p: VolumetricSceneInput, plan: WeatherPlan, tex: DataTexture) => {
     lastInput = p;
@@ -2051,6 +2257,7 @@ export async function createVolumetricScene(
     weather = tex;
     clouds.localWeatherTexture = tex;
     genLayers = gl; genDate = p.date; genUv = flowUv;
+    applyFar2DState(plan, tex, nue, position);
     updateCity(p, p.date);
     const exposure = exposureFor(sunAltDeg, p);
     applyHaze(p.haze);
@@ -2075,14 +2282,14 @@ export async function createVolumetricScene(
    * 이전 것은 버려지고 false 를 돌려줍니다. 날씨가 캐시에 있으면 곧바로 바꿉니다.
    * isFast 가 참이면 드래그 중 S=128 초고속 모드(30~50ms)로 생성합니다.
    */
-  const setSceneAsync = async (p: VolumetricSceneInput, isFast = false): Promise<boolean> => {
+  const setSceneAsync = async (p: VolumetricSceneInput, isFast = false, sliceMs = 12): Promise<boolean> => {
     const my = ++sceneToken;
     const plan = weatherPlan(p, isFast);
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 12, () => my !== sceneToken || disposed, plan.flow, 0)
+        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, sliceMs, () => my !== sceneToken || disposed, plan.flow, 0)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -2096,7 +2303,7 @@ export async function createVolumetricScene(
       const key = waveKey(wp);
       if (!waveCacheGet(key)) {
         const t0 = Date.now();
-        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed, 12, 0);
+        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed, sliceMs, 0);
         if (!field) return false;
         if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
         waveCachePut(key, field);
@@ -2222,6 +2429,7 @@ export async function createVolumetricScene(
           for (const m of genusMats) setMacroMix(m, elapsed / MACRO_STEP_SEC);
         }
       }
+      syncFar2DDrift();
     }
     updateCity(lastInput, date);
     const exposure = exposureFor(sunAltDeg, lastInput);

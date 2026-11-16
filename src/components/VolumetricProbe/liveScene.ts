@@ -12,11 +12,11 @@ import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
-import { aerosolOpticsFromObs } from '../../utils/sunVisibility';
+import { aerosolOpticsFromObs, hazeLayerRh } from '../../utils/sunVisibility';
 import { cloudOpticalDepthFromDni } from '../../utils/dniOpticalDepth';
 import { pickDni } from '../../utils/satelliteIrradiance';
 import { clearSkyGHIMean } from '../../utils/satelliteBias';
-import { DIFFUSE_G, DIFFUSE_K } from './cloudDiffuse';
+import { DIFFUSE_G, DIFFUSE_G_ICE, DIFFUSE_K, diffuseTransmittance } from './cloudDiffuse';
 import { applyMetarToObs, type MetarObs } from '../../utils/metar';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { lclBaseKm, type ThermoInput } from './cloudPhysics';
@@ -243,11 +243,70 @@ export function mistLayerOf(thermo: ThermoInput, groundM: number, obs: CloudData
 export const DNI_VEIL_TAU = 1.5;
 export const DNI_SHEET_TAU = 3;
 export const DNI_VEIL_MAX_DENSITY = 0.07;
+
+export interface CirrusVeilInput {
+  highPct: number;
+  midPct?: number;
+  lowPct?: number;
+  shearU?: number;
+  shearV?: number;
+  rhLevels?: { zM: number; rhPct: number }[];
+  tauDni?: number | null;
+  thicknessM?: number;
+}
+
+/**
+ * 상층 기상 상태(상층 운량 · 상-중층 연직 시어 · 상층 습도 · 약한 직달일사 감쇠 τ)로부터
+ * 권운(가닥) ↔ 빙정 베일 연속 전이 손잡이(flowVeil, 단면, 순위 감마, 소광)를 산출합니다.
+ * flowVeil 은 시간 스크럽 캐시 안정을 위해 0.1 눈금으로 양자화합니다.
+ */
+export function cirrusVeilKnobs(i: CirrusVeilInput) {
+  const highPct = clamp(i.highPct, 0, 100);
+  const midPct = clamp(i.midPct ?? 0, 0, 100);
+  const lowPct = clamp(i.lowPct ?? 0, 0, 100);
+  const cover = highPct / 100;
+  const coverVeil = clamp((cover - 0.35) / 0.55, 0, 1) * 0.85;
+  const upperRh = (i.rhLevels ?? []).filter(q => q.zM >= 6000 && Number.isFinite(q.rhPct));
+  const maxUpperRh = upperRh.length ? Math.max(...upperRh.map(q => q.rhPct)) : null;
+  // 얼음 포화수증기압은 물보다 낮아 상층 물 기준 상대습도 50~80% 구간에서 빙정 베일이 급격히 퍼집니다.
+  const rhBonus = maxUpperRh != null ? clamp((maxUpperRh - 50) / 30, 0, 1) * 0.15 : 0;
+  const shearMps = Math.hypot(i.shearU ?? 0, i.shearV ?? 0) / 3.6;
+  const shearDamp = clamp((shearMps - 6) / 10, 0, 1) * 0.2;
+  const highShare = highPct / Math.max(1, highPct + midPct + lowPct);
+  const tauDni = i.tauDni != null && Number.isFinite(i.tauDni) ? i.tauDni : null;
+  const tauVeil = tauDni != null && tauDni > 0.05 ? clamp(tauDni / DNI_VEIL_TAU, 0, 1) * 0.3 * highShare : 0;
+  const flowVeil = Math.round(clamp(coverVeil + rhBonus + tauVeil - shearDamp, 0, 0.9) * 10) / 10;
+
+  const q1 = (v: number) => Math.round(v * 10) / 10;
+  const q2 = (v: number) => Math.round(v * 100) / 100;
+  const refThick = i.thicknessM ?? 800;
+  const baseDensity = (0.003 + 0.0022 * flowVeil) * (800 / refThick);
+  const tauDensity = tauDni != null && tauDni > 0.05 && midPct < 50 && lowPct < 50
+    ? ((tauDni * highShare) / 57) * (1000 / (i.thicknessM ?? 1000))
+    : 0;
+  const densityScale = Math.round(Math.min(DNI_VEIL_MAX_DENSITY, Math.max(baseDensity, tauDensity)) * 1e4) / 1e4;
+
+  return {
+    flowLaminar: 1,
+    flowVeil,
+    flowMode: 1,
+    flowTop: q1(1.0 + 1.4 * flowVeil),
+    flowDPow: q1(1.6 - 0.75 * flowVeil),
+    densPow: q2(0.95 - 0.45 * flowVeil),
+    flowEdge: q1(1.3 + 0.5 * flowVeil),
+    flowTilt: q1(0.8 - 0.55 * flowVeil),
+    flowErode: q2(0.32 - 0.06 * flowVeil),
+    densityScale,
+  };
+}
 export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[]; precipitation?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
-  const extra = op.aod - HAZE_BACKGROUND_AOD;
-  if (extra < 0.02) return undefined;
+  const rh = clamp(hazeLayerRh(o) ?? o.humidity ?? 50, 0, 95);
+  // 맑고 시정이 30~60km 인 날에도 해안·저층 수증기/해염에 의한 옅은 지평선 글로우(0.015~0.035 AOD)가 남도록 바닥을 부드럽게 둡니다.
+  const rhFloor = rh >= 40 ? 0.015 + 0.02 * ((rh - 40) / 55) : 0.01;
+  const extra = Math.max(op.aod - HAZE_BACKGROUND_AOD, op.aod >= 0.05 ? rhFloor : 0);
+  if (extra < 0.01) return undefined;
   const cap = (o.precipitation ?? 0) >= 0.1 ? 0.45 : 3;
   return { aod: Math.min(cap, extra), alpha: op.alpha, g: op.g, omega: op.omega };
 }
@@ -371,7 +430,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const NBAND: Record<'low' | 'mid' | 'high', [number, number]> = { low: [1000, 2500], mid: [3000, 6000], high: [7000, 11000] };
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
     const [u, v] = Wpat[band], [su, sv] = shearOf(band);
-    const nB = hasDayWind ? 0.012 : bruntN(thermo, NBAND[band][0], NBAND[band][1]);
+    const nB = band === 'high' || !hasDayWind ? bruntN(thermo, NBAND[band][0], NBAND[band][1]) : 0.012;
     const mGrad = macro[band];
     return {
       windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed,
@@ -477,7 +536,21 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, (tauDni! / 57) * (1000 / (highThicknessM ?? 1000))));
       layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
     } else {
-      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: flowOpts('high') });
+      const highGenus = renderGenusFor(forecast.high);
+      const baseOpts = flowOpts('high');
+      const ciKnobs = highGenus === 'ci'
+        ? cirrusVeilKnobs({
+            highPct: obs.high,
+            midPct: obs.mid ?? 0,
+            lowPct: obs.low ?? 0,
+            shearU: baseOpts.shearU,
+            shearV: baseOpts.shearV,
+            rhLevels: thermo.rhLevels,
+            tauDni,
+            thicknessM: highThicknessM,
+          })
+        : {};
+      layers.push({ genus: highGenus, cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...baseOpts, ...ciKnobs } });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
@@ -547,6 +620,26 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const mist = !fillOn && !anvil ? mistLayerOf(thermo, a.heightM, obs, sunAltDeg, dniPick.dni) : null;
   if (mist) layers[0] = { genus: 'st', cover: 1, baseKm: mist.baseKm, thicknessM: mist.thicknessM, band: 'low', opts: { densityScale: mist.densityScale } };
   if (anvil) layers.push(anvil);
+  // 위층 덮개 구름이 아래층으로 내려오는 직달 햇빛을 가릴 때(거시 15~360km 외 국지 다층 겹침) 두-흐름 확산광에 반영합니다.
+  for (let i = 0; i < layers.length; i++) {
+    const L = layers[i];
+    if (!L || !L.genus) continue;
+    let upperT = 1;
+    for (let j = 0; j < layers.length; j++) {
+      if (i === j) continue;
+      const U = layers[j];
+      if (!U || !U.genus || !(U.cover > 0.05) || U.baseKm <= L.baseKm + 0.3) continue;
+      if ((U.opts as { wave?: unknown } | undefined)?.wave) continue;
+      const dsU = U.opts?.densityScale ?? GENUS[U.genus].densityScale;
+      const thickU = U.thicknessM ?? GENUS[U.genus].height;
+      const gU = U.genus === 'ci' || U.genus === 'cs' || U.genus === 'cbanvil' ? DIFFUSE_G_ICE : DIFFUSE_G;
+      const tLayer = diffuseTransmittance(0.057 * dsU * thickU, gU);
+      upperT *= 1 - U.cover + U.cover * tLayer;
+    }
+    if (upperT < 0.995) {
+      L.opts = { ...L.opts, beamTransmittance: Math.round((L.opts?.beamTransmittance ?? 1) * upperT * 1000) / 1000 };
+    }
+  }
   for (const L of layers) if (L && L.genus) L.driftKm = driftKm(L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low'));
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);

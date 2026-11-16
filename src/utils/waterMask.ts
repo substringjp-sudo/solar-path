@@ -137,10 +137,13 @@ function generateCoastlineMask(
         const e5_0 = elevations[a0 * 3 + 0];
         const e5_1 = elevations[a1 * 3 + 0];
         const e5 = e5_0 * (1 - fa) + e5_1 * fa;
+        const e15 = elevations[a0 * 3 + 1] * (1 - fa) + elevations[a1 * 3 + 1] * fa;
+        const e40 = elevations[a0 * 3 + 2] * (1 - fa) + elevations[a1 * 3 + 2] * fa;
 
-        // 5km 지점이 바다(e5 <= 0.05)이거나 방위별 수역 비율이 높은 경우(wf > 0.3):
-        // 발밑 1.5m만 지나면 즉시 100% 시원한 바다 수면으로 전개
-        if (e5 <= 0.05 || wf > 0.3) {
+        // 5km 지점이 0m 이하라도 15km·40km 모두 육지이고 수역 비율(wf)이 거의 없으면
+        // 바다와 끊긴 내륙 저지대이므로 예비 원반을 바다로 덮지 않습니다.
+        const seaAt5 = e5 <= 0.05 && (e15 <= 0.05 || e40 <= 0.05 || wf > 0.05);
+        if (seaAt5 || wf > 0.3) {
           if (r > beachR) {
             seaWater = Math.min(1.0, (r - beachR) / 0.006);
           }
