@@ -39,7 +39,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { cityLightField, type CityLightField, type NightLights } from '../../utils/cityLightMap';
+import { cityLightField, CITY_REF_LOCAL, type CityLightField, type NightLights } from '../../utils/cityLightMap';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getMoonDirectionECEF, getSunDirectionECEF } from '@takram/three-atmosphere';
 import { CloudLayer, CloudShape, CloudShapeDetail, CloudsEffect, Turbulence } from '@takram/three-clouds';
 import {
@@ -1826,23 +1826,32 @@ export async function createVolumetricScene(
     if (!p || cityLight <= 0.01) {
       cityState = null; au.get('cityAirOn')!.value = 0; (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
+    applyCityMap(p);
+    const f = cityField?.f ?? null;
+    if (f && f.skyGlow <= 1e-4 && f.maxPatch <= 1e-4) {
+      cityState = null; au.get('cityAirOn')!.value = 0; (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
+    }
     const m = 6.5 - 3.5 * cityLight, sqm = 14.5 + 1.08 * m;
     const timeF = cityTimeF(date, p.lon);
-    const artCd = Math.max(0, 10.8e4 * (Math.pow(10, -0.4 * sqm) - Math.pow(10, -0.4 * 21.6))) * timeF;
-    const baseCd = 8 * artCd;
+    const refArtCd = Math.max(0, 10.8e4 * (Math.pow(10, -0.4 * sqm) - Math.pow(10, -0.4 * 21.6))) * timeF;
+    const refBaseCd = 8 * refArtCd;
+    const glowScale = f ? f.skyGlow : 1;
+    const cloudLocalScale = f ? Math.min(1.25, Math.max(0, f.local / CITY_REF_LOCAL)) : 1;
+    const artCd = refArtCd * glowScale;
+    const baseCd = refBaseCd * cloudLocalScale;
     const low = p.layers.filter(L => L && L.cover > 0 && (L.band ?? (L.baseKm < 2 ? 'low' : 'mid')) === 'low').reduce((a, L) => Math.max(a, Math.min(1, L.cover)), 0);
     const adaptCd = artCd + (baseCd - artCd) * low;
     cityState = { artCd, baseCd, adaptCd, timeF };
-    applyCityMap(p);
     // 렌더 단위의 눈금 g: 해 빛이면 1, 달빛이면 달빛 세기, 달 없는 밤(해 −12° 아래)이면 보름 세기 — 반 정밀 버퍼에 10⁻⁷ 같은 작은 값이 들어가면
     // 계단 무늬로 깨지거나 0 이 됨(1차 하네스: 도심 띠 무늬, 교외 완전히 검음). 해 −12° → −14° 에서 도시 빛을 서서히 켬(그 사이 박명 잔광은 버림).
     const cityNight = moonGain <= 0 && lastTrueSunAlt < -12;
     const g = moonGain > 0 ? moonGain : cityNight ? MOON_FULL : 1;
     const ramp = moonGain > 0 ? 1 : cityNight ? Math.min(1, (-12 - lastTrueSunAlt) / 2) : 1;
-    (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((baseCd * CD_TO_RENDER * ramp) / g);
-    (au.get('farCityUp')!.value as Vector3).copy(cu.cityUp.value as Vector3);
+    // 3D 구름 밑면은 cityTex(patch = 절대 도시 비율)가 자리마다 곱해주므로 3등급 기준 refBaseCd 를 넘깁니다.
+    (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((refBaseCd * CD_TO_RENDER * ramp) / g);
+    (au.get('farCityUp')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((refBaseCd * glowScale * CD_TO_RENDER * ramp) / g);
     (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER * ramp) / g);
-    au.get('cityAirOn')!.value = 1;
+    au.get('cityAirOn')!.value = glowScale > 1e-4 ? 1 : 0;
   };
   /**
    * 노출. 해: 해 고도 표. 밤(달 또는 도시 불빛): 눈이 맞춘 휘도 L_a(달빛 구름 + 도시)로 낮 노출 × MOON_DIM × (g/보름)·√(0.056/L_a)
@@ -1883,9 +1892,10 @@ export async function createVolumetricScene(
       return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La) * scale;
     }
     const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
-    if (cityA <= 1e-5 || lastTrueSunAlt >= -12) return base * scale;
+    if (!cityState || (cityField == null && cityA <= 1e-5) || lastTrueSunAlt >= -12) return base * scale;
     // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
-    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / cityA) * scale;
+    // 어두운 교외에서도 cityA → 0 으로 노출이 무한 폭등하지 않게 야간 암순응 바닥(0.0012 cd/m²)을 둡니다.
+    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012)) * scale;
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
@@ -2485,7 +2495,12 @@ export async function createVolumetricScene(
     setCityMap: (m: NightLights | null) => {
       cityMap = m;
       cityField?.tex.dispose(); cityField = null;
-      if (lastInput) updateCity(lastInput, lastInput.date);
+      if (lastInput) {
+        updateCity(lastInput, lastInput.date);
+        const exposure = exposureFor(lastSunAltForLight, lastInput);
+        renderer.toneMappingExposure = exposure;
+        last = { sunAltDeg: lastSunAltForLight, exposure };
+      }
     },
     setCityLight: (v: number) => {
       const c = Math.max(0, Math.min(1, v));

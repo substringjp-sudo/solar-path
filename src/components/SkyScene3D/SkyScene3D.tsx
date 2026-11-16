@@ -69,6 +69,12 @@ import {
   type TerrainFieldHandle,
 } from './TerrainField';
 import {
+  createBuildingField,
+  updateBuildingFieldEye,
+  type BuildingFieldHandle,
+} from './BuildingField';
+import { fetchNearbyBuildings, BUILDING_RADIUS_M } from '../../utils/buildingTiles';
+import {
   createSeaPlane,
   SEA_MASK_RADIUS_M,
   updateSeaPlaneEye,
@@ -82,7 +88,8 @@ import {
   type StarFieldHandle,
 } from './StarField';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
-import { loadNightLights } from '../../utils/nightLightsAsset';
+import { loadNightLights, getCachedNightLights } from '../../utils/nightLightsAsset';
+import { estimateLightPollution, type LightPollutionEstimate, type NightLights } from '../../utils/cityLightMap';
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
@@ -198,6 +205,7 @@ export interface LayerState {
   clouds: boolean;
   paths: boolean;
   cityLights: boolean;
+  buildings?: boolean;
 }
 
 /** 별 표현을 사용자가 조절하는 값 (레이어 ON/OFF와 달리 연속값이라 따로 둡니다) */
@@ -399,6 +407,7 @@ const DEFAULT_LAYERS: LayerState = {
   clouds: true,
   paths: true,
   cityLights: true,
+  buildings: false,
 };
 
 const DRAG_SENSITIVITY = 0.3;
@@ -483,6 +492,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * (아래 렌더 순서 참고). 절대 기존 경로를 대체하지 않습니다.
    */
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
+  const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
+  const buildingLoadedKeyRef = useRef<string | null>(null);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
@@ -505,6 +516,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * 돌리지 않으므로, 타이머가 이 값을 올려 재요청을 깨웁니다.
    */
   const [demRetryTick, setDemRetryTick] = useState(0);
+  const [buildingSyncTick, setBuildingSyncTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
   /** 달을 광원으로 둔 지면 조도(이득 곱하기 전) — 달이 움직였을 때만 다시 구합니다. */
@@ -674,7 +686,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastUpdateSceneTimeMsRef = useRef<number>(-1e15);
   const lastUpdateSceneWallMsRef = useRef<number>(0);
   const lastAppliedTuningRef = useRef<unknown>(null);
+  const locationRef = useRef(location);
+  const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
+  const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
+  const getLightEst = (lat: number, lon: number): LightPollutionEstimate | null => {
+    const m = nightLightsRef.current;
+    if (!m) return null;
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    if (cachedLightEstRef.current?.key === key) return cachedLightEstRef.current.est;
+    const est = estimateLightPollution(m, lat, lon);
+    cachedLightEstRef.current = { key, est };
+    return est;
+  };
   const lastCityLightValRef = useRef<number>(-1);
+  const lastVolCityLightRef = useRef<number>(-1);
   const lastVolDateSyncRef = useRef<{ vMs: number; wallMs: number }>({ vMs: -1, wallMs: 0 });
   const prevLabelsRef = useRef<Array<{ id: string; name: string; x: number; y: number; color: string }>>([]);
   const lastSentAzElevRef = useRef<{ az: number; el: number }>({ az: -999, el: -999 });
@@ -1083,9 +1108,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** buildPlanetPoints 결과 캐시 (30초 간격) */
   const cachedPlanetPointsRef = useRef<ReturnType<typeof buildPlanetPoints> | null>(null);
   const cachedPlanetPointsMsRef = useRef(0);
-  /** 달빛이 깎은 실효 한계등급 캐시 (30초 간격) */
+  /** 달빛·광공해가 깎은 실효 한계등급 캐시 */
   const cachedMoonMagLimitRef = useRef(6.5);
   const cachedMoonMagMsRef = useRef(0);
+  const cachedMoonBaseMagRef = useRef(Number.NaN);
   /** updateCelestialPaths 마지막 갱신 시각 (30초 간격) */
   const sunDiscRadiusDegRef = useRef(0.267);
   const lastCelestialPathsMsRef = useRef(0);
@@ -1113,7 +1139,27 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => { predictionRef.current = prediction; sceneDirtyRef.current = true; requestRender(3); }, [prediction, requestRender]);
   useEffect(() => { simRef.current = sim; sceneDirtyRef.current = true; requestRender(3); }, [sim, requestRender]);
   useEffect(() => { weatherRef.current = interpolatedWeather; sceneDirtyRef.current = true; requestRender(3); }, [interpolatedWeather, requestRender]);
-  useEffect(() => { sceneDirtyRef.current = true; }, [location]);
+  useEffect(() => {
+    locationRef.current = location;
+    lastAppliedTuningRef.current = null;
+    sceneDirtyRef.current = true;
+    requestRender(4);
+  }, [location, requestRender]);
+  useEffect(() => {
+    let alive = true;
+    loadNightLights().then((m) => {
+      if (!alive) return;
+      nightLightsRef.current = m;
+      cachedLightEstRef.current = null;
+      cachedMoonBaseMagRef.current = Number.NaN;
+      lastCityLightValRef.current = -1;
+      lastVolCityLightRef.current = -1;
+      if (volRef.current) volRef.current.setCityMap(m);
+      sceneDirtyRef.current = true;
+      requestRender(6);
+    });
+    return () => { alive = false; };
+  }, [requestRender]);
   // §160 METAR — 자리가 바뀌면 바로, 그 뒤 10 분마다. 실패하면 null(예보 그대로). 볼륨 하늘이 꺼져 있으면 받지 않습니다.
   const metarLat = location?.coords?.latitude, metarLon = location?.coords?.longitude;
   useEffect(() => {
@@ -1610,6 +1656,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (rendererRef.current) clearDemCache(rendererRef.current);
     demLoadedKeyRef.current = null;
     demLoadingKeyRef.current = null;
+    buildingLoadedKeyRef.current = null;
     glRef.current = gl;
 
     const renderer = new Renderer({ gl });
@@ -1698,6 +1745,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(terrainField.litMesh);
     assignLayer(terrainField.litMesh, LAYER_TERRAIN_LIT);
     terrainFieldRef.current = terrainField;
+
+    const buildingField = createBuildingField({ eyeHeightM: 1.6 });
+    buildingField.mesh.renderOrder = -0.475;
+    scene.add(buildingField.mesh);
+    assignLayer(buildingField.mesh, LAYER_MID);
+    scene.add(buildingField.distMesh);
+    assignLayer(buildingField.distMesh, LAYER_TERRAIN_DIST);
+    scene.add(buildingField.litMesh);
+    assignLayer(buildingField.litMesh, LAYER_TERRAIN_LIT);
+    buildingFieldRef.current = buildingField;
+    setBuildingSyncTick(t => t + 1);
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
     seaPlane.mesh.renderOrder = -0.47;
@@ -2044,6 +2102,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           updateTerrainFieldEye(terrainFieldRef.current, camera);
           terrainFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
         }
+        if (buildingFieldRef.current) {
+          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings));
+          buildingFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
+          updateBuildingFieldEye(buildingFieldRef.current, camera);
+        }
         if (seaPlaneRef.current) {
           updateSeaPlaneEye(seaPlaneRef.current, camera);
           if (seaPlaneRef.current.material.uniforms.uEyeHeightM) {
@@ -2059,19 +2122,33 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
 
         // 개발자 튜닝 값 및 광공해는 튜닝/설정/레이어가 바뀔 때만 밀어 넣습니다(카메라만 돌릴 때 매 프레임 7개 머티리얼 순회 생략).
-        const cityLightNow = layersRef.current.cityLights === false
-          ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5));
+        const locNow = locationRef.current;
+        const lightEstNow = getLightEst(locNow?.coords?.latitude ?? 37.5, locNow?.coords?.longitude ?? 127.0);
+        const cityLightsEnabled = layersRef.current.cityLights !== false;
+        const cityLightNow = !cityLightsEnabled
+          ? 0
+          : lightEstNow
+            ? lightEstNow.pollution
+            : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5));
+        // 구름·하늘 도시광 기준은 3등급(1.0)으로 고정하고 실제 세기/분포는 밤 불빛 지도가 정합니다.
+        const volCityLightNow = cityLightsEnabled && nightLightsRef.current ? 1.0 : 0;
         const tuningNow = getTuning();
-        if (tuningNow !== lastAppliedTuningRef.current || Math.abs(cityLightNow - lastCityLightValRef.current) > 1e-4) {
+        if (
+          tuningNow !== lastAppliedTuningRef.current ||
+          Math.abs(cityLightNow - lastCityLightValRef.current) > 1e-4 ||
+          Math.abs(volCityLightNow - lastVolCityLightRef.current) > 1e-4
+        ) {
           lastAppliedTuningRef.current = tuningNow;
           lastCityLightValRef.current = cityLightNow;
+          lastVolCityLightRef.current = volCityLightNow;
           setSceneCityLight(cityLightNow);
-          // 입체 구름 화면의 도시 불빛(구름 밑면·지평선 하늘빛) — 같은 값. 값이 같으면 아무것도 안 함.
-          volRef.current?.setCityLight(cityLightNow);
+          // 입체 구름 화면의 도시 불빛(구름 밑면·지평선 하늘빛) — 3등급 기준 × 불빛 지도 분포.
+          volRef.current?.setCityLight(volCityLightNow);
           volRef.current?.setExposureScale(tuningNow.displayExposure / DEFAULT_TUNING.displayExposure);
           applyTuningUniforms(sunRef.current?.material.uniforms);
           if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
           if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
+          if (buildingFieldRef.current) applyTuningUniforms(buildingFieldRef.current.material.uniforms);
           if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
         }
 
@@ -2123,7 +2200,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   volGovRef.current = createResolutionGovernor({ maxScale: skySettingsRef.current.volumetricRes ?? 0.5 });
                   v.setResolutionScale(volGovRef.current.scale);
                   volQualityRef.current = '';
-                  volRef.current = v; loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); }); volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
+                  volRef.current = v;
+                  lastVolCityLightRef.current = -1;
+                  if (nightLightsRef.current) v.setCityMap(nightLightsRef.current);
+                  else loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); });
+                  volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
                   volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 18;
                   setVolumetricStatus({ phase: 'running' }); requestRender(3);
                 })
@@ -2382,15 +2463,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               // §129 지형 빛 판도 같이 — 지형을 takram 이 하늘·구름과 같은 빛·노출로 칠합니다.
               // TBDR 최적화: 카메라 시선(viewKey)·태양 방향·지형 메시가 바뀌지 않은 프레임(TAA 수렴·구름 드리프트)에서는 FBO 3개를 재사용합니다.
               const terrainOn = !!terrainFieldRef.current?.mesh.visible;
+              const buildingsOn = !!buildingFieldRef.current?.mesh.visible;
+              const anyTerrainOn = terrainOn || buildingsOn;
               const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
               const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
-              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}`;
+              const bldSerial = buildingsOn ? buildingFieldRef.current!.geomSerial() : -1;
+              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}`;
               composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
-              vol.setTerrainDistance(terrainOn ? composerNow.terrainDistanceTexture() : null, terrainOn ? composerNow.terrainLitTexture() : null,
+              vol.setTerrainDistance(anyTerrainOn ? composerNow.terrainDistanceTexture() : null, anyTerrainOn ? composerNow.terrainLitTexture() : null,
                 ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03,
-                terrainOn ? composerNow.terrainLit2Texture() : null);
+                anyTerrainOn ? composerNow.terrainLit2Texture() : null);
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
@@ -2425,6 +2509,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             terrainFieldRef.current.material.colorWrite = !volTex;
             if (terrainFieldRef.current.material.uniforms.uDepthOnly) {
               terrainFieldRef.current.material.uniforms.uDepthOnly.value = volTex ? 1 : 0;
+            }
+          }
+          if (buildingFieldRef.current) {
+            buildingFieldRef.current.material.colorWrite = !volTex;
+            if (buildingFieldRef.current.material.uniforms.uDepthOnly) {
+              buildingFieldRef.current.material.uniforms.uDepthOnly.value = volTex ? 1 : 0;
             }
           }
           if (seaPlaneRef.current) {
@@ -2779,7 +2869,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         b: SOLAR_BEAM_SCALE * moonBeamRadiance.b,
       };
 
-      for (const h of [terrainFieldRef.current]) {
+      for (const h of [terrainFieldRef.current, buildingFieldRef.current]) {
         if (!h) continue;
         const u = h.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(
@@ -2803,6 +2893,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uAngstrom.value = atmosphere.angstrom;
         u.uElevScale.value = atmosphere.elevScale;
         if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
+        if (u.uOvercast) u.uOvercast.value = overcast;
+      }
+      if (buildingFieldRef.current?.material.uniforms.uObsElevM) {
+        buildingFieldRef.current.material.uniforms.uObsElevM.value =
+          simRef.current?.terrain?.observerElevation ?? 0;
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;
@@ -2938,13 +3033,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedPlanetPointsMsRef.current = targetTimeMs;
     }
 
-    // ── 달빛이 깎아먹는 한계등급: 씬 시각 5분 단위 갱신 ─────────────────────────
-    if (Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000) {
+    // ── 달빛·빛지도가 깎아먹는 한계등급: 씬 시각(5분) 또는 기준 등급 변동 시 즉시 갱신 ───
+    const lightEstForStars = getLightEst(lat, lng);
+    const baseMagLimit = lightEstForStars ? lightEstForStars.magLimit : settings.starMagLimit;
+    if (
+      Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000 ||
+      Math.abs(baseMagLimit - cachedMoonBaseMagRef.current) > 1e-3
+    ) {
       const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
       const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
       const illum = SunCalc.getMoonIllumination(targetDate).fraction;
-      cachedMoonMagLimitRef.current = effectiveMagLimit(settings.starMagLimit, moonAltDeg, illum);
+      cachedMoonMagLimitRef.current = effectiveMagLimit(baseMagLimit, moonAltDeg, illum);
       cachedMoonMagMsRef.current = targetTimeMs;
+      cachedMoonBaseMagRef.current = baseMagLimit;
     }
     const liveMagLimit = cachedMoonMagLimitRef.current;
 
@@ -3229,6 +3330,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
         //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
         terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
+        buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
@@ -3274,6 +3376,47 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return () => { cancelled = true; };
   }, [location, requestRender, demRetryTick]);
 
+  const bldLat = location?.coords?.latitude;
+  const bldLng = location?.coords?.longitude;
+  const bldEnabled = Boolean(layers.buildings);
+  useEffect(() => {
+    if (!bldEnabled) {
+      if (buildingFieldRef.current) {
+        buildingFieldRef.current.setVisible(false);
+        sceneDirtyRef.current = true;
+        requestRender(3);
+      }
+      return;
+    }
+    if (typeof bldLat !== 'number' || typeof bldLng !== 'number') return;
+    if (!buildingFieldRef.current) return;
+
+    const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
+    if (buildingLoadedKeyRef.current === key) {
+      buildingFieldRef.current.setVisible(true);
+      sceneDirtyRef.current = true;
+      requestRender(4);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetchNearbyBuildings(bldLat, bldLng, { radiusM: BUILDING_RADIUS_M, signal: controller.signal })
+      .then((meshData) => {
+        if (controller.signal.aborted || !buildingFieldRef.current) return;
+        buildingLoadedKeyRef.current = key;
+        buildingFieldRef.current.setBuildings(meshData);
+        buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings));
+        sceneDirtyRef.current = true;
+        requestRender(10);
+      })
+      .catch((e) => {
+        if (controller.signal.aborted) return;
+        if (__DEV__) console.warn('[Buildings] 주변 건물 데이터를 못 받았습니다.', e);
+      });
+
+    return () => controller.abort();
+  }, [bldLat, bldLng, bldEnabled, requestRender, buildingSyncTick]);
+
   useEffect(() => {
     return () => {
       if (animFrameRef.current) {
@@ -3309,6 +3452,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current.dispose();
         terrainFieldRef.current = null;
       }
+      if (buildingFieldRef.current) {
+        buildingFieldRef.current.dispose();
+        buildingFieldRef.current = null;
+      }
+      buildingLoadedKeyRef.current = null;
       if (seaPlaneRef.current) {
         seaPlaneRef.current.dispose();
         seaPlaneRef.current = null;

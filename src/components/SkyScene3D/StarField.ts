@@ -62,6 +62,13 @@ void main() {
   // 한계 등급 부근에서 딱 잘리지 않고 부드럽게 사라지게 합니다.
   norm *= smoothstep(uMagLimit + 0.35, uMagLimit - 0.35, aMag);
 
+  // 광공해·달빛에 따른 배경 산란 세척(Veiling) — 등급이 3.0 쪽으로 내려갈수록
+  // 희미한 별이 지워질 뿐 아니라 밝은 별의 대비·겉보기 밝기·크기도 함께 낮아집니다.
+  float skyClarity = clamp((uMagLimit - 3.0) / 3.5, 0.0, 1.0);
+  float starContrast = mix(0.38, 1.10, pow(skyClarity, 0.75));
+  float planetContrast = mix(0.62, 1.05, skyClarity);
+  float lpGain = mix(starContrast, planetContrast, aKind);
+
   // ── 지평선 근처 대기 소광 ────────────────────────────────────────────────
   float altDeg = degrees(asin(clamp(h.y, -1.0, 1.0)));
   float airmass = 1.0 / max(0.09, sin(radians(max(altDeg, 3.0))));
@@ -74,7 +81,7 @@ void main() {
   // ── 지평선 아래는 그리지 않음 ────────────────────────────────────────────
   float above = smoothstep(-1.5, 1.5, altDeg);
 
-  float vis = norm * extinction * night * above * uBrightness;
+  float vis = norm * extinction * night * above * lpGain * uBrightness;
   // 항성/행성 레이어 토글 — 같은 Points 안에서 종류별로 끕니다.
   vis *= mix(uShowStars, uShowPlanets, aKind);
 

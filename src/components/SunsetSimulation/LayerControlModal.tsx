@@ -4,13 +4,15 @@
  * 3D 시뮬레이션 뷰의 천체 및 환경 레이어(해, 달, 별, 은하수, 행성, 구름, 궤적/그림자)를
  * 각각 ON/OFF 선택하고, 도트 모드와 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, Modal, ScrollView } from 'react-native';
 import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, type Language } from '../../utils/i18n';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
+import { estimateLightPollution } from '../../utils/cityLightMap';
+import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building, Building2 } from 'lucide-react-native';
 import { color, radius, mono, tint, dataColor } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
@@ -25,8 +27,6 @@ interface LayerControlModalProps {
   theme: any;
 }
 
-const MAG_MIN = 3.0;
-const MAG_MAX = 6.5;
 const BRIGHT_MIN = 0.2;
 const BRIGHT_MAX = 2.0;
 
@@ -50,6 +50,30 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(st => st.language);
+  const location = useCelestialStore(st => st.location);
+  const [detectedMag, setDetectedMag] = useState<number | null>(() => {
+    const m = getCachedNightLights();
+    if (!m || !location) return null;
+    return estimateLightPollution(m, location.coords.latitude, location.coords.longitude).magLimit;
+  });
+
+  useEffect(() => {
+    if (!visible || !location) return;
+    const lat = location.coords.latitude;
+    const lon = location.coords.longitude;
+    const cached = getCachedNightLights();
+    if (cached) {
+      setDetectedMag(estimateLightPollution(cached, lat, lon).magLimit);
+      return;
+    }
+    let alive = true;
+    loadNightLights().then((m) => {
+      if (!alive || !m) return;
+      setDetectedMag(estimateLightPollution(m, lat, lon).magLimit);
+    });
+    return () => { alive = false; };
+  }, [visible, location?.coords.latitude, location?.coords.longitude]);
+
   const isDark = theme?.isDark ?? true;
   const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? color.panel : color.text);
   const textColor = theme?.text ?? (isDark ? color.text : color.panel);
@@ -64,11 +88,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
     { key: 'planets', label: t('layerPlanets', language), icon: <Star size={18} color={dataColor.planets} />, iconBg: tint(dataColor.planets) },
     { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={18} color={color.cloud} />, iconBg: tint(color.cloud) },
     { key: 'cityLights', label: t('layerCity', language), icon: <Building2 size={18} color={dataColor.cityLights} />, iconBg: tint(dataColor.cityLights) },
+    { key: 'buildings', label: t('layerBuildings', language), icon: <Building size={18} color={dataColor.qOvercast} />, iconBg: tint(dataColor.qOvercast) },
     { key: 'paths', label: t('layerPaths', language), icon: <Navigation size={18} color={dataColor.paths} />, iconBg: tint(dataColor.paths) },
   ];
 
   const brightnessPct = ((skySettings.starBrightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)) * 100;
-  const magPct = ((skySettings.starMagLimit - MAG_MIN) / (MAG_MAX - MAG_MIN)) * 100;
 
   return (
     <Modal
@@ -207,27 +231,14 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
             </View>
 
             <View style={styles.sliderBlock}>
-              <View style={styles.sliderHeader}>
+              <View style={[styles.sliderHeader, { marginBottom: 4 }]}>
                 <Text style={[styles.sliderLabel, { color: textColor }]}>{t('skyHere', language)}</Text>
-                <Text style={[styles.sliderValue, { color: subTextColor }]}>
-                  {t('magUnit', language).replace('{m}', skySettings.starMagLimit.toFixed(1))} · {skyQualityLabel(skySettings.starMagLimit, language)}
+                <Text style={[styles.sliderValue, { color: color.accent }]}>
+                  {detectedMag != null
+                    ? `${t('magUnit', language).replace('{m}', detectedMag.toFixed(1))} · ${skyQualityLabel(detectedMag, language)}`
+                    : '—'}
                 </Text>
               </View>
-              <GenericSlider
-                value={Math.max(0, Math.min(100, magPct))}
-                onChange={(p: number) =>
-                  onChangeSkySettings({
-                    starMagLimit: MAG_MIN + (p / 100) * (MAG_MAX - MAG_MIN),
-                  })
-                }
-                theme={theme}
-                fillColor={color.accent}
-                knobColor={color.panelRaised}
-              >
-                <Text style={[styles.knobText, { color: color.accent }]}>
-                  {t('magUnit', language).replace('{m}', skySettings.starMagLimit.toFixed(1))}
-                </Text>
-              </GenericSlider>
               <Text style={[styles.sliderHint, { color: subTextColor }]}>
                 {t('skyNote', language)}
               </Text>

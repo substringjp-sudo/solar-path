@@ -27,6 +27,13 @@ export function fromBase64(s: string): Uint8Array {
 }
 
 let cache: Promise<NightLights | null> | null = null;
+let resolvedCache: NightLights | null = null;
+
+/** 이미 로드가 끝난 밤 불빛 지도가 있으면 동기로 반환합니다. */
+export function getCachedNightLights(): NightLights | null {
+  return resolvedCache;
+}
+
 export function loadNightLights(): Promise<NightLights | null> {
   if (!cache) {
     cache = (async () => {
@@ -37,7 +44,8 @@ export function loadNightLights(): Promise<NightLights | null> {
         const bytes = Platform.OS === 'web'
           ? new Uint8Array(await (await fetch(uri)).arrayBuffer())
           : fromBase64(await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }));
-        return decodeGrayPng(bytes);
+        resolvedCache = decodeGrayPng(bytes);
+        return resolvedCache;
       } catch (e) {
         if (__DEV__) console.warn('[nightLights] load failed', e);
         return null;
