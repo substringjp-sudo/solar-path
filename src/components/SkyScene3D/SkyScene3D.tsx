@@ -558,6 +558,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const buildingRetryCountRef = useRef(0);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
+  const demMaskPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
   /**
@@ -1314,6 +1315,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
 
         cityExpCompRef.current = Math.pow(Math.max(1, exposureGain), 0.65) / Math.max(1, exposureGain);
+        volRef.current?.setCityTerrainExpScale?.(cityExpCompRef.current);
         for (let k = 0; k < steps; k++) {
           const frac = steps <= 1 ? 0 : k / (steps - 1);
           const tkMs = startTimeMs + frac * durationSec * 1000;
@@ -1365,6 +1367,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         };
       } finally {
         cityExpCompRef.current = 1;
+        volRef.current?.setCityTerrainExpScale?.(1);
         accumDirectiveRef.current = null;
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
@@ -3289,8 +3292,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (u.uOvercast) u.uOvercast.value = overcast;
       }
       const cityLightsOn = currentLayers.cityLights !== false;
-      const cityField = cityLightsOn && nightLightsRef.current
-        ? cityLightField(nightLightsRef.current, locationRef.current.latitude, locationRef.current.longitude)
+      const locCoords = locationRef.current?.coords;
+      const cityField = cityLightsOn && nightLightsRef.current && locCoords
+        ? cityLightField(nightLightsRef.current, locCoords.latitude, locCoords.longitude)
         : null;
       const localNorm = cityField ? Math.min(1.25, Math.max(0, cityField.local / CITY_REF_LOCAL)) : 0;
       const skyGlow = cityField ? cityField.skyGlow : 0;
@@ -3757,6 +3761,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 구멍이 있는 채로 패치를 돌려줍니다.
         if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
         demPatchRef.current = patch;
+        demMaskPatchRef.current = maskPatch;
         // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
         // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
         //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
@@ -3847,10 +3852,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (!buildingFieldRef.current) return;
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
-    if (buildingLoadedKeyRef.current === key) {
+    if (buildingLoadedKeyRef.current === key && buildingFieldRef.current.hasGeometry()) {
+      if (demPatchRef.current) {
+        buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
+      }
       buildingFieldRef.current.setVisible(true);
       sceneDirtyRef.current = true;
-      requestRender(4);
+      requestRender(6);
       return;
     }
 
@@ -3860,8 +3868,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !buildingFieldRef.current) return;
         buildingLoadedKeyRef.current = key;
         buildingRetryCountRef.current = 0;
+        if (demPatchRef.current) {
+          buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
+        }
         buildingFieldRef.current.setBuildings(meshData);
-        buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings));
+        buildingFieldRef.current.setVisible(true);
         if (__DEV__) {
           console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
         }

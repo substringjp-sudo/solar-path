@@ -1252,16 +1252,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   ]);
 
   const handleToggleFreeze = useCallback(() => {
+    if (viewMode === 'camera') {
+      if (lockedTarget) {
+        Vibration.cancel();
+        setLockedTarget(null);
+      } else {
+        setLockedTarget({ azDeg: effectiveAz, elDeg: effectivePitch });
+      }
+      return;
+    }
     if (frozenView) {
       setFrozenView(null);
       return;
     }
     setFrozenView({ azDeg: effectiveAz, elDeg: effectivePitch, rollDeg: 0 });
     setLockedTarget(null);
-    if (viewMode === 'camera') {
-      setViewMode('sim');
-    }
-  }, [frozenView, effectiveAz, effectivePitch, viewMode]);
+  }, [viewMode, lockedTarget, frozenView, effectiveAz, effectivePitch]);
 
   const handleGuideToFrozenView = useCallback(() => {
     if (!frozenView) return;
@@ -2330,54 +2336,31 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     <X size={18} color={color.text} />
                   </PressScale>
 
-                  <View style={[styles.azBox, viewMode !== 'camera' && (frozenView ? styles.azBoxFrozen : styles.azBoxLive)]}>
-                    <View style={styles.azBoxRow}>
-                      {viewMode !== 'camera' && (
-                        frozenView ? (
-                          <Move size={11} color={color.accent} />
-                        ) : (
-                          <View style={[styles.dot, { backgroundColor: color.success }]} />
-                        )
-                      )}
-                      <Text
-                        style={[
-                          styles.azBoxText,
-                          viewMode !== 'camera' && (frozenView ? { color: color.accent } : { color: color.success }),
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {`${viewMode !== 'camera' ? (frozenView ? L3(language, '수동 · ', 'Manual · ', '手動 · ') : L3(language, '연동 · ', 'Live · ', '連動 · ')) : ''}AZ ${Math.round(displayAz)}° · ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
-                      </Text>
-                    </View>
+                  <View style={[styles.azBox, viewMode !== 'camera' && frozenView && styles.azBoxFrozen]}>
+                    <Text
+                      style={[styles.azBoxText, viewMode !== 'camera' && frozenView && { color: color.accent }]}
+                      numberOfLines={1}
+                    >
+                      {`AZ ${Math.round(displayAz)}° · ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
+                    </Text>
                   </View>
                 </View>
 
                 <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="none">
-                  <View style={[styles.badge, viewMode !== 'camera' && (frozenView ? styles.badgeManual : styles.badgeLive)]}>
+                  <View style={styles.badge}>
                     {viewMode !== 'camera' ? (
                       <>
                         {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering ? (
                           <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
-                        ) : frozenView ? (
-                          <Move size={12} color={color.accent} />
                         ) : (
-                          <Compass size={12} color={color.success} />
+                          <Layers size={12} color={cameraTab === 'astro' ? color.moon : color.accent} />
                         )}
-                        <Text
-                          style={[
-                            styles.badgeText,
-                            cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering
-                              ? { color: color.moon }
-                              : frozenView
-                                ? { color: color.accent }
-                                : { color: color.success },
-                          ]}
-                        >
+                        <Text style={[styles.badgeText, cameraTab === 'astro' && { color: color.moon }]}>
                           {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering
                             ? L3(language, '장노출 렌더링 중…', 'Rendering preview…', '露光計算中…')
-                            : frozenView
-                              ? L3(language, '손가락 드래그 조작 중', 'Manual drag mode', '手動ドラッグ操作中')
-                              : L3(language, '폰 방향 연동 중 · 드래그 시 고정', 'Following phone · drag to lock', 'スマホ連動中 · ドラッグで固定')}
+                            : viewMode === 'blend'
+                              ? L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
+                              : L3(language, '3D 시뮬레이션', '3D Simulation', '3Dシミュレーション')}
                         </Text>
                         <Text style={styles.microText}>
                           {`FOV ${Math.round(optics.vFovDeg)}°`}
@@ -2646,99 +2629,107 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 />
               )}
 
-              {/* 4줄 (도킹): 모드별 맞춤 액션 + 중앙 메인 CTA + 방향 고정/폰 방향 복귀 */}
+              {/* 4줄 (도킹): 좌측(화면 보정·방위 맞춤) · 정중앙(셔터/카메라 전환) · 우측(방향 고정) */}
               <View style={styles.dock}>
-                {viewMode !== 'sim' && (
-                  <PressScale
-                    style={styles.dockBtn}
-                    onPress={handleVisionCalibrate}
-                    onLongPress={handleSunSnap}
-                    disabled={isVisionRunning}
-                    accessibilityRole="button"
-                    accessibilityLabel={L3(language, '화면 보정 — 길게 누르면 해에 맞춤', 'Auto-align — long press to snap to the Sun', '画面補正 — 長押しで太陽に合わせる')}
-                  >
-                    <View style={[styles.dockIcon, isVisionRunning && { opacity: 0.45 }]}>
-                      {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={18} color={color.sun} />}
-                    </View>
-                    <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '화면 보정', 'Align', '画面補正')}</Text>
-                  </PressScale>
-                )}
+                <View style={styles.dockSideLeft}>
+                  {viewMode !== 'sim' && (
+                    <PressScale
+                      style={styles.dockBtn}
+                      onPress={handleVisionCalibrate}
+                      onLongPress={handleSunSnap}
+                      disabled={isVisionRunning}
+                      accessibilityRole="button"
+                      accessibilityLabel={L3(language, '화면 보정 — 길게 누르면 해에 맞춤', 'Auto-align — long press to snap to the Sun', '画面補正 — 長押しで太陽に合わせる')}
+                    >
+                      <View style={[styles.dockIcon, isVisionRunning && { opacity: 0.45 }]}>
+                        {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={18} color={color.sun} />}
+                      </View>
+                      <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '화면 보정', 'Align', '画面補正')}</Text>
+                    </PressScale>
+                  )}
 
-                <PressScale style={styles.dockBtn} onPress={handleCalibrate} accessibilityRole="button" accessibilityLabel={L3(language, '방위 맞춤', 'Calibrate heading', '方位補正')}>
-                  <View style={styles.dockIcon}><RotateCcw size={18} color={color.text} /></View>
-                  <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '방위 맞춤', 'Heading', '方位補正')}</Text>
-                </PressScale>
-
-                {viewMode === 'sim' ? (
-                  <PressScale
-                    style={[styles.dockGuideCta, cameraTab === 'astro' && { backgroundColor: color.moon }]}
-                    onPress={() => {
-                      Vibration.cancel();
-                      if (frozenView) handleGuideToFrozenView();
-                      else setViewMode('camera');
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={frozenView
-                      ? L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')
-                      : L3(language, '실제 카메라로 전환', 'Switch to live camera', '実カメラへ切替')}
-                  >
-                    {frozenView ? (
-                      <Crosshair size={16} color={color.onAccent} />
-                    ) : (
-                      <Camera size={16} color={color.onAccent} />
-                    )}
-                    <Text style={styles.dockGuideCtaText} numberOfLines={1}>
-                      {frozenView
-                        ? L3(language, '이 각도로 맞추기', 'Aim here', 'この角度へ')
-                        : L3(language, '실제 카메라로', 'Live camera', '実カメラへ')}
-                    </Text>
+                  <PressScale style={styles.dockBtn} onPress={handleCalibrate} accessibilityRole="button" accessibilityLabel={L3(language, '방위 맞춤', 'Calibrate heading', '方位補正')}>
+                    <View style={styles.dockIcon}><RotateCcw size={18} color={color.text} /></View>
+                    <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '방위 맞춤', 'Heading', '方位補正')}</Text>
                   </PressScale>
-                ) : (
-                  <PressScale
-                    style={[
-                      styles.shutter,
-                      cameraTab === 'astro' && { borderColor: color.moon },
-                      isCapturing && { opacity: 0.5 },
-                    ]}
-                    onPress={() => {
-                      Vibration.cancel();
-                      if (cameraTab === 'astro') handleAstroStart();
-                      else handleCapturePress();
-                    }}
-                    disabled={isCapturing}
-                    activeOpacity={0.7}
-                    accessibilityRole="button"
-                    accessibilityLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
-                  >
-                    <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
-                      {isCapturing ? (
-                        <ActivityIndicator size="small" color={color.onAccent} />
-                      ) : cameraTab === 'astro' ? (
-                        <Moon size={22} color={color.onAccent} />
-                      ) : (
-                        <Camera size={22} color={color.onAccent} />
-                      )}
-                    </View>
-                  </PressScale>
-                )}
+                </View>
 
                 <PressScale
-                  style={styles.dockBtn}
-                  onPress={handleToggleFreeze}
+                  style={[
+                    styles.shutter,
+                    cameraTab === 'astro' && { borderColor: color.moon },
+                    isCapturing && viewMode !== 'sim' && { opacity: 0.5 },
+                  ]}
+                  onPress={() => {
+                    Vibration.cancel();
+                    if (viewMode === 'sim') {
+                      if (frozenView) handleGuideToFrozenView();
+                      else setViewMode('camera');
+                      return;
+                    }
+                    if (cameraTab === 'astro') handleAstroStart();
+                    else handleCapturePress();
+                  }}
+                  disabled={isCapturing && viewMode !== 'sim'}
+                  activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={frozenView
-                    ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
-                    : L3(language, '현재 방향 고정 후 시뮬레이션 보기', 'Freeze current direction in 3D simulation', '現在の方向を固定して3D表示')}
+                  accessibilityLabel={
+                    viewMode === 'sim'
+                      ? frozenView
+                        ? L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')
+                        : L3(language, '실제 카메라로 전환', 'Switch to live camera', '実カメラへ切替')
+                      : L3(language, '셔터', 'Shutter', 'シャッター')
+                  }
                 >
-                  <View style={[styles.dockIcon, frozenView && styles.dockIconFrozen]}>
-                    {frozenView
-                      ? <Compass size={18} color={color.accent} />
-                      : <Lock size={18} color={color.text} />}
+                  <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
+                    {viewMode === 'sim' ? (
+                      frozenView ? (
+                        <Crosshair size={22} color={color.onAccent} />
+                      ) : (
+                        <Camera size={22} color={color.onAccent} />
+                      )
+                    ) : isCapturing ? (
+                      <ActivityIndicator size="small" color={color.onAccent} />
+                    ) : cameraTab === 'astro' ? (
+                      <Moon size={22} color={color.onAccent} />
+                    ) : (
+                      <Camera size={22} color={color.onAccent} />
+                    )}
                   </View>
-                  <Text style={[styles.dockLabel, frozenView && { color: color.accent }]} numberOfLines={1}>
-                    {frozenView ? L3(language, '폰 방향', 'Follow', 'スマホ連動') : L3(language, '방향 고정', 'Freeze', '方向固定')}
-                  </Text>
                 </PressScale>
+
+                <View style={styles.dockSideRight}>
+                  {(() => {
+                    const isAngleLocked = viewMode === 'camera' ? !!lockedTarget : !!frozenView;
+                    return (
+                      <PressScale
+                        style={styles.dockBtn}
+                        onPress={handleToggleFreeze}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          viewMode === 'camera'
+                            ? lockedTarget
+                              ? L3(language, '저장한 목표 각도 해제', 'Clear saved camera angle', '保存した角度を解除')
+                              : L3(language, '현재 본 각도를 저장해 두고 다시 맞추기', 'Save current angle to re-aim later', '現在の角度を記憶')
+                            : frozenView
+                              ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
+                              : L3(language, '현재 방향 고정하기', 'Freeze current direction', '現在の方向を固定')
+                        }
+                      >
+                        <View style={[styles.dockIcon, isAngleLocked && styles.dockIconFrozen]}>
+                          {isAngleLocked
+                            ? (viewMode === 'camera' ? <Unlock size={18} color={color.accent} /> : <Compass size={18} color={color.accent} />)
+                            : <Lock size={18} color={color.text} />}
+                        </View>
+                        <Text style={[styles.dockLabel, isAngleLocked && { color: color.accent }]} numberOfLines={1}>
+                          {viewMode === 'camera'
+                            ? (lockedTarget ? L3(language, '고정 해제', 'Clear', '固定解除') : L3(language, '방향 고정', 'Save angle', '方向固定'))
+                            : (frozenView ? L3(language, '폰 방향', 'Follow', 'スマホ連動') : L3(language, '방향 고정', 'Freeze', '方向固定'))}
+                        </Text>
+                      </PressScale>
+                    );
+                  })()}
+                </View>
               </View>
             </View>
           </View>
@@ -2802,8 +2793,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dock: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    paddingHorizontal: space.sm, paddingTop: space.xs,
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center',
+    paddingHorizontal: space.xs, paddingTop: space.xs,
+  },
+  dockSideLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-end',
+    gap: space.sm,
+    paddingRight: space.md,
+  },
+  dockSideRight: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    paddingLeft: space.md,
   },
   dockBtn: { width: DOCK_BTN_W, height: DOCK_BTN_H, marginTop: (SHUTTER - DOCK_BTN_H) / 2, alignItems: 'center', gap: space.xs },
   dockIcon: {
