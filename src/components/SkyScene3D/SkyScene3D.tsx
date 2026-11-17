@@ -695,6 +695,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volFailedRef = useRef<string | null>(null);
   const volKeyRef = useRef('');
   const volSizeRef = useRef('');
+  const bufSizeRef = useRef('');
+  const isSnapshottingRef = useRef(false);
   /** §160 가장 가까운 공항 METAR(10 분마다). 오면 볼륨 장면 키를 비워 다시 만들게 합니다. */
   const metarRef = useRef<MetarObs | null>(null);
   /** 장면·시선이 바뀐 뒤 시간 누적(1/16 화소씩)이 차도록 더 그릴 프레임 수 */
@@ -1071,54 +1073,77 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       options: { format?: 'jpeg' | 'png'; compress?: number } = { format: 'jpeg', compress: 0.85 },
     ): Promise<string | null> => {
       lastSnapshotErrorRef.current = null;
-      // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
-      //   있어 첫 시도가 던지는 경우가 있습니다. 한 프레임 쉬고 다시 겁니다.
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 50));
-        try {
-          if (!glRef.current) { lastSnapshotErrorRef.current = 'GL 컨텍스트 없음'; continue; }
-          if (!rendererRef.current || !sceneRef.current || !cameraRef.current) {
-            lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
-            continue;
-          }
-          // ⚠ 두 번 그립니다. takeSnapshotAsync 가 앞버퍼를 읽는지 뒷버퍼를 읽는지는 expo-gl 구현에 달렸고
-          //   기기 없이는 못 정합니다. 한 번 그려 넘기고 한 번 더 그리면 어느 쪽을 읽든 최신 프레임입니다.
-          drawOnce();
-          glRef.current.endFrameEXP();
-          drawOnce();
-          glRef.current.flush();
-
-          let bufMean = -1;
-          try {
-            const g = glRef.current;
-            const w = g.drawingBufferWidth, ch = g.drawingBufferHeight;
-            const n = 32;
-            const px = new Uint8Array(n * n * 4);
-            g.readPixels(Math.max(0, (w >> 1) - (n >> 1)), Math.max(0, (ch >> 1) - (n >> 1)),
-                         n, n, g.RGBA, g.UNSIGNED_BYTE, px);
-            let sum = 0;
-            for (let i = 0; i < n * n; i++) {
-              sum += 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
-            }
-            bufMean = sum / (n * n);
-          } catch (_) { /* readPixels 를 못 해도 스냅샷은 계속합니다 */ }
-          lastBufferMeanRef.current = bufMean;
-
-          const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
-            format: options.format ?? 'jpeg',
-            compress: options.compress ?? 0.85,
-          });
-          const uriStr = snapshot
-            ? (typeof snapshot.uri === 'string' ? snapshot.uri : snapshot.localUri || '')
-            : '';
-          if (uriStr) return uriStr;
-          lastSnapshotErrorRef.current = '스냅샷이 빈 주소를 돌려줌';
-        } catch (e) {
-          lastSnapshotErrorRef.current = e instanceof Error ? e.message : String(e);
-          console.warn(`[SkyScene3D] takeSnapshot failed (시도 ${attempt + 1}/2):`, e);
-        }
+      isSnapshottingRef.current = true;
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = 0;
       }
-      return null;
+      isLoopRunningRef.current = false;
+      try {
+        // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
+        //   있어 첫 시도가 던지는 경우가 있습니다. 한 프레임 쉬고 다시 겁니다.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 50));
+          try {
+            if (!glRef.current) { lastSnapshotErrorRef.current = 'GL 컨텍스트 없음'; continue; }
+            if (!rendererRef.current || !sceneRef.current || !cameraRef.current) {
+              lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
+              continue;
+            }
+            const dw = glRef.current.drawingBufferWidth;
+            const dh = glRef.current.drawingBufferHeight;
+            const bufKey = `${dw}x${dh}`;
+            if (dw > 0 && dh > 0 && bufKey !== bufSizeRef.current) {
+              bufSizeRef.current = bufKey;
+              rendererRef.current.setSize(dw, dh, false);
+              cameraRef.current.aspect = dw / Math.max(1, dh);
+              cameraRef.current.updateProjectionMatrix();
+              composerRef.current?.setSize(dw, dh);
+              volRef.current?.setSize(dw, dh);
+              volSizeRef.current = bufKey;
+              pixelRatioRef.current = Math.max(1, dw / Math.max(1, sceneWidthRef.current));
+            }
+            // ⚠ 두 번 그립니다. takeSnapshotAsync 가 앞버퍼를 읽는지 뒷버퍼를 읽는지는 expo-gl 구현에 달렸고
+            //   기기 없이는 못 정합니다. 한 번 그려 넘기고 한 번 더 그리면 어느 쪽을 읽든 최신 프레임입니다.
+            drawOnce();
+            glRef.current.endFrameEXP();
+            drawOnce();
+            glRef.current.flush();
+
+            let bufMean = -1;
+            try {
+              const g = glRef.current;
+              const w = g.drawingBufferWidth, ch = g.drawingBufferHeight;
+              const n = 32;
+              const px = new Uint8Array(n * n * 4);
+              g.readPixels(Math.max(0, (w >> 1) - (n >> 1)), Math.max(0, (ch >> 1) - (n >> 1)),
+                           n, n, g.RGBA, g.UNSIGNED_BYTE, px);
+              let sum = 0;
+              for (let i = 0; i < n * n; i++) {
+                sum += 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+              }
+              bufMean = sum / (n * n);
+            } catch (_) { /* readPixels 를 못 해도 스냅샷은 계속합니다 */ }
+            lastBufferMeanRef.current = bufMean;
+
+            const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
+              format: options.format ?? 'jpeg',
+              compress: options.compress ?? 0.85,
+            });
+            const uriStr = snapshot
+              ? (typeof snapshot.uri === 'string' ? snapshot.uri : snapshot.localUri || '')
+              : '';
+            if (uriStr) return uriStr;
+            lastSnapshotErrorRef.current = '스냅샷이 빈 주소를 돌려줌';
+          } catch (e) {
+            lastSnapshotErrorRef.current = e instanceof Error ? e.message : String(e);
+            console.warn(`[SkyScene3D] takeSnapshot failed (시도 ${attempt + 1}/2):`, e);
+          }
+        }
+        return null;
+      } finally {
+        isSnapshottingRef.current = false;
+      }
     };
 
     h.takeSnapshot = (options = { format: 'jpeg', compress: 0.85 }) =>
@@ -1928,6 +1953,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+    bufSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
     renderer.setClearColor(0x000000, 1);
     rendererRef.current = renderer;
 
@@ -2177,7 +2203,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     let adaptSettle = 0;
 
     const animate = () => {
-      if (contextLost) {
+      if (contextLost || isSnapshottingRef.current) {
         isLoopRunningRef.current = false;
         return;
       }
@@ -2201,6 +2227,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (lastRenderTsRef.current > 0 && now - lastRenderTsRef.current < 15.5) {
         animFrameRef.current = requestAnimationFrame(animate);
         return;
+      }
+
+      const dw = gl.drawingBufferWidth;
+      const dh = gl.drawingBufferHeight;
+      const bufKey = `${dw}x${dh}`;
+      if (dw > 0 && dh > 0 && bufKey !== bufSizeRef.current) {
+        bufSizeRef.current = bufKey;
+        renderer.setSize(dw, dh, false);
+        camera.aspect = dw / Math.max(1, dh);
+        camera.updateProjectionMatrix();
+        composerRef.current?.setSize(dw, dh);
+        pixelRatioRef.current = Math.max(1, dw / Math.max(1, sceneWidthRef.current));
+        volViewRef.current = '';
+        sceneDirtyRef.current = true;
       }
 
       // ── 프레임 시간 적산 (적응 해상도) ───────────────────────────────────

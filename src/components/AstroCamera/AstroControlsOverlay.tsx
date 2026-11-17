@@ -3,12 +3,12 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CloudAlert, SlidersHorizontal, Sparkles, Timer } from 'lucide-react-native';
 import { color, radius, space, type, TOUCH } from '../../theme/tokens';
 import { PressScale } from '../ui';
+import { ScrubTrack } from '../TimeBar/ScrubTrack';
 import { L3, type Language } from '../../utils/i18n';
 import type { AstroWindowAnalysis } from '../../utils/astroForecast';
 import type { AstroCameraCapabilities } from '../../../modules/astro-camera';
 import {
   COUNTDOWN_PRESETS_SEC,
-  DURATION_PRESETS_SEC,
   ISO_PRESETS,
   formatDurationLabel,
   type AstroShotSummary,
@@ -170,11 +170,15 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
     onChange(s => ({ ...s, countdownDelaySec: next }));
   };
 
-  const stepDuration = (deltaSec: number) => {
-    onChange(s => ({
-      ...s,
-      durationSec: Math.max(60, Math.min(900, s.durationSec + deltaSec)),
-    }));
+  const MIN_DUR_SEC = 60;
+  const MAX_DUR_SEC = 900;
+  const durationPct = Math.max(
+    0,
+    Math.min(100, ((settings.durationSec - MIN_DUR_SEC) / (MAX_DUR_SEC - MIN_DUR_SEC)) * 100),
+  );
+  const durSecFromPct = (pct: number) => {
+    const raw = MIN_DUR_SEC + (Math.max(0, Math.min(100, pct)) / 100) * (MAX_DUR_SEC - MIN_DUR_SEC);
+    return Math.max(MIN_DUR_SEC, Math.min(MAX_DUR_SEC, Math.round(raw / 60) * 60));
   };
 
   const stepManualSub = (delta: number) => {
@@ -288,7 +292,7 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
       )}
 
       <View style={styles.bar}>
-        {/* 1행: 합성 방식 토글 + 총 노출시간(4~10분 프리셋 & ±1분) */}
+        {/* 1행: 합성 방식 토글 + 시뮬 갱신 / 타이머 / ISO·세부설정 */}
         <View style={styles.barRow}>
           <View style={styles.modeSwitch}>
             {(['tracked', 'trails'] as const).map(m => {
@@ -314,42 +318,6 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
                 </PressScale>
               );
             })}
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.durationRow}>
-            <PressScale style={styles.stepMini} onPress={() => stepDuration(-60)}>
-              <Text style={styles.stepMiniText}>-</Text>
-            </PressScale>
-            {DURATION_PRESETS_SEC.map(sec => {
-              const active = settings.durationSec === sec;
-              return (
-                <PressScale
-                  key={sec}
-                  onPress={() => onChange(s => ({ ...s, durationSec: sec }))}
-                  style={[styles.durChip, active && styles.durChipOn]}
-                >
-                  <Text style={[styles.durText, active && styles.durTextOn]}>{formatDurationLabel(sec, language)}</Text>
-                </PressScale>
-              );
-            })}
-            {!DURATION_PRESETS_SEC.includes(settings.durationSec as (typeof DURATION_PRESETS_SEC)[number]) && (
-              <View style={[styles.durChip, styles.durChipOn]}>
-                <Text style={[styles.durText, styles.durTextOn]}>{formatDurationLabel(settings.durationSec, language)}</Text>
-              </View>
-            )}
-            <PressScale style={styles.stepMini} onPress={() => stepDuration(60)}>
-              <Text style={styles.stepMiniText}>+</Text>
-            </PressScale>
-          </ScrollView>
-        </View>
-
-        {/* 2행: 셔터 분할 요약 + 시작 카운트다운 + ISO·세부설정 + 예측 새로고침 */}
-        <View style={styles.barRow}>
-          <View style={styles.summaryPill}>
-            <Sparkles size={12} color={color.moon} />
-            <Text style={styles.summaryText} numberOfLines={1}>
-              {`${summary.subExposureSecUsed}s×${summary.totalFrames}${L3(language, '장', 'f', '枚')} · ${simParams.exposureGain}×`}
-            </Text>
           </View>
 
           <View style={styles.rightActions}>
@@ -382,6 +350,42 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
                 {`ISO ${summary.clampedIso}`}
               </Text>
             </PressScale>
+          </View>
+        </View>
+
+        {/* 2행: 총 장노출 시간 슬라이더 (1~15분) + 셔터 분할 요약 */}
+        <View style={styles.sliderRow}>
+          <Text style={styles.sliderPrefix}>{L3(language, '장노출', 'Exp', '露光')}</Text>
+          <View style={styles.sliderTrackWrap}>
+            <ScrubTrack
+              value={durationPct}
+              height={34}
+              trackHeight={4}
+              knobTone={color.moon}
+              formatLabel={(pct) => formatDurationLabel(durSecFromPct(pct), language)}
+              getDisplayBucket={(pct) => durSecFromPct(pct)}
+              onScrub={(pct) => {
+                const nextSec = durSecFromPct(pct);
+                onChange(s => (s.durationSec === nextSec ? s : { ...s, durationSec: nextSec }));
+              }}
+              onAdjust={(dir) =>
+                onChange(s => ({
+                  ...s,
+                  durationSec: Math.max(MIN_DUR_SEC, Math.min(MAX_DUR_SEC, s.durationSec + dir * 60)),
+                }))
+              }
+              accessibilityLabel={L3(language, '장노출 시간', 'Long exposure duration', '長時間露光時間')}
+            >
+              <View style={styles.durTrackBg}>
+                <View style={[styles.durTrackFill, { width: `${durationPct}%` }]} />
+              </View>
+            </ScrubTrack>
+          </View>
+          <View style={styles.summaryBadge}>
+            <Sparkles size={11} color={color.moon} />
+            <Text style={styles.summaryText} numberOfLines={1}>
+              {`${summary.subExposureSecUsed}s×${summary.totalFrames}${L3(language, '장', 'f', '枚')} · ${simParams.exposureGain}×`}
+            </Text>
           </View>
         </View>
       </View>
@@ -522,30 +526,12 @@ const styles = StyleSheet.create({
   modeBtnOn: { backgroundColor: color.accentSoft },
   modeBtnText: { ...type.micro, color: color.textDim },
   modeBtnTextOn: { color: color.accent },
-  durationRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  stepMini: {
-    width: 24,
-    height: 26,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepMiniText: { ...type.label, color: color.text },
-  durChip: {
-    paddingHorizontal: 7,
-    height: 26,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  durChipOn: { borderColor: color.moon, backgroundColor: 'rgba(165, 180, 252, 0.18)' },
-  durText: { ...type.micro, color: color.textDim },
-  durTextOn: { color: color.moon },
-  summaryPill: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+  sliderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sliderPrefix: { ...type.micro, color: color.moon, fontWeight: '700' },
+  sliderTrackWrap: { flex: 1, minWidth: 0 },
+  durTrackBg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: color.borderStrong, overflow: 'hidden' },
+  durTrackFill: { height: '100%', borderRadius: 2, backgroundColor: color.moon },
+  summaryBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
   summaryText: { ...type.micro, color: color.textDim, flexShrink: 1 },
   rightActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   actionChip: {

@@ -17,7 +17,8 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass } from 'lucide-react-native';
+import { ScrubTrack } from './TimeBar/ScrubTrack';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -1134,6 +1135,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [longExpRefreshTick, setLongExpRefreshTick] = useState(0);
   const longExpFileRef = useRef<string | null>(null);
   const longExpReqIdRef = useRef(0);
+  const displayAzRef = useRef(displayAz);
+  displayAzRef.current = displayAz;
+  const displayElRef = useRef(displayEl);
+  displayElRef.current = displayEl;
+  const longExpAzKey = frozenView ? Math.round(displayAz * 10) : Math.round(displayAz);
+  const longExpElKey = frozenView ? Math.round(displayEl * 10) : Math.round(displayEl);
 
   const longExpTimeKey = isTimeMachineEnabled
     ? Math.floor(currentTime.getTime() / 60_000)
@@ -1170,8 +1177,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             : 'trails';
         const res = await sky.renderLongExposure(
           {
-            az: displayAz,
-            el: displayEl,
+            az: displayAzRef.current,
+            el: displayElRef.current,
             fov: optics.vFovDeg,
             rollDeg: displayRoll,
           },
@@ -1215,8 +1222,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     astroNightPhase,
     astroResult,
     previewUri,
-    displayAz,
-    displayEl,
+    longExpAzKey,
+    longExpElKey,
     displayRoll,
     optics.vFovDeg,
     astroSettings.mode,
@@ -1249,6 +1256,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setLongExpPreviewUri(null);
     setViewMode('camera');
   }, [frozenView]);
+
+  const handleResumeLiveHeading = useCallback(() => {
+    setFrozenView(null);
+    if (viewModeRef.current !== 'camera') {
+      getPrimarySky()?.setCameraView(effectiveAz, effectivePitch, optics.vFovDeg);
+    }
+  }, [effectiveAz, effectivePitch, optics.vFovDeg]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -1957,6 +1971,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const l = new Date(d.getTime() + tzHours * 3_600_000);
     return `${String(l.getUTCHours()).padStart(2, '0')}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
   };
+  const localNowMs = currentTime.getTime() + tzHours * 3_600_000;
+  const dayStartUtcMs = Math.floor(localNowMs / 86_400_000) * 86_400_000 - tzHours * 3_600_000;
+  const timeSliderPct = Math.max(0, Math.min(100, ((currentTime.getTime() - dayStartUtcMs) / 86_400_000) * 100));
+  const scrubDayStartRef = useRef(dayStartUtcMs);
+  if (!isInteracting) scrubDayStartRef.current = dayStartUtcMs;
   // 위쪽 가운데 — "일몰까지 31분". 세 시간 넘게 남았으면 출몰 시각만.
   const countdown = (() => {
     if (!markerEvent) return null;
@@ -2278,6 +2297,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <View style={styles.topRightGroup} pointerEvents="box-none">
                     {frozenView && (
                       <PressScale
+                        style={styles.liveHeadingBtn}
+                        onPress={handleResumeLiveHeading}
+                        accessibilityRole="button"
+                        accessibilityLabel={L3(language, '폰의 현재 방향으로 다시 연동하기', 'Follow live phone direction', 'スマホの向きに再連動')}
+                      >
+                        <Compass size={13} color={color.accent} />
+                        <Text style={styles.liveHeadingBtnText}>
+                          {L3(language, '폰 방향', 'Follow', '連動')}
+                        </Text>
+                      </PressScale>
+                    )}
+                    {frozenView && (
+                      <PressScale
                         style={styles.guideTargetBtn}
                         onPress={handleGuideToFrozenView}
                         accessibilityRole="button"
@@ -2498,7 +2530,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 </View>
               </View>
 
-              {/* 2줄: [ 1x | 2x | 3x | 5x ] + 시간 탐색(시뮬/겹침) 또는 카메라 전환 */}
+              {/* 2줄: [ 1x | 2x | 3x | 5x ] + 현재 시각 복귀 / 카메라 전환 */}
               <View style={styles.deckRow}>
                 <View style={styles.zoomGroup} accessibilityRole="radiogroup">
                   {[1, 2, 3, 5].map((mag) => {
@@ -2518,42 +2550,18 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 </View>
 
                 <View style={styles.deckRowRight}>
-                  {viewMode !== 'camera' && onTimeChange && (
-                    <View style={styles.timeBar}>
-                      <PressScale
-                        style={styles.timeStepBtn}
-                        onPress={() => onTimeChange(new Date(currentTime.getTime() - 3_600_000))}
-                      >
-                        <Text style={styles.timeStepText}>-1h</Text>
-                      </PressScale>
-                      <PressScale
-                        style={styles.timeStepBtn}
-                        onPress={() => onTimeChange(new Date(currentTime.getTime() - 900_000))}
-                      >
-                        <Text style={styles.timeStepText}>-15m</Text>
-                      </PressScale>
-                      <PressScale
-                        style={[styles.timeDisplayBtn, isTimeMachineEnabled && styles.timeDisplayBtnActive]}
-                        onPress={() => { if (isTimeMachineEnabled) onResetTime?.(); }}
-                      >
-                        <Clock size={11} color={isTimeMachineEnabled ? color.accent : color.textDim} />
-                        <Text style={[styles.timeDisplayText, isTimeMachineEnabled && { color: color.accent }]}>
-                          {hhmmAt(currentTime)}
-                        </Text>
-                      </PressScale>
-                      <PressScale
-                        style={styles.timeStepBtn}
-                        onPress={() => onTimeChange(new Date(currentTime.getTime() + 900_000))}
-                      >
-                        <Text style={styles.timeStepText}>+15m</Text>
-                      </PressScale>
-                      <PressScale
-                        style={styles.timeStepBtn}
-                        onPress={() => onTimeChange(new Date(currentTime.getTime() + 3_600_000))}
-                      >
-                        <Text style={styles.timeStepText}>+1h</Text>
-                      </PressScale>
-                    </View>
+                  {viewMode !== 'camera' && onTimeChange && isTimeMachineEnabled && (
+                    <PressScale
+                      style={[styles.timeDisplayBtn, styles.timeDisplayBtnActive]}
+                      onPress={() => onResetTime?.()}
+                      accessibilityRole="button"
+                      accessibilityLabel={L3(language, '현재 시각으로 돌아가기', 'Reset to live time', '現在時刻に戻す')}
+                    >
+                      <Clock size={11} color={color.accent} />
+                      <Text style={[styles.timeDisplayText, { color: color.accent }]}>
+                        {L3(language, '현재', 'Now', '現在')}
+                      </Text>
+                    </PressScale>
                   )}
 
                   {viewMode !== 'sim' && (
@@ -2568,6 +2576,41 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   )}
                 </View>
               </View>
+
+              {/* 촬영 시각 슬라이더 (시뮬/겹침 모드) — 기존 TimeBar 와 동일한 ScrubTrack 레이아웃 */}
+              {viewMode !== 'camera' && onTimeChange && (
+                <View style={styles.timeSliderRow}>
+                  <Clock size={12} color={isTimeMachineEnabled ? color.accent : color.textDim} />
+                  <View style={styles.timeSliderWrap}>
+                    <ScrubTrack
+                      value={timeSliderPct}
+                      height={34}
+                      trackHeight={4}
+                      knobTone={isTimeMachineEnabled ? color.accentLine : color.borderStrong}
+                      formatLabel={(pct) => {
+                        const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
+                        return hhmmAt(new Date(scrubDayStartRef.current + min * 60_000));
+                      }}
+                      getDisplayBucket={(pct) => Math.round((pct / 100) * 1440)}
+                      onScrubStart={() => {
+                        scrubDayStartRef.current = dayStartUtcMs;
+                        setIsInteracting(true);
+                      }}
+                      onScrub={(pct) => {
+                        const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
+                        onTimeChange(new Date(scrubDayStartRef.current + min * 60_000));
+                      }}
+                      onScrubEnd={() => setIsInteracting(false)}
+                      onAdjust={(dir) => onTimeChange(new Date(currentTime.getTime() + dir * 900_000))}
+                      accessibilityLabel={L3(language, '촬영 시각', 'Simulation time', '撮影時刻')}
+                    >
+                      <View style={styles.timeTrackBg}>
+                        <View style={[styles.timeTrackFill, { width: `${timeSliderPct}%` }]} />
+                      </View>
+                    </ScrubTrack>
+                  </View>
+                </View>
+              )}
 
               {/* 3줄 (천체 탭): 천체 전용 조작 바 */}
               {cameraTab === 'astro' && (
@@ -2826,6 +2869,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: color.onAccent,
     fontWeight: '700',
+  },
+  liveHeadingBtn: {
+    height: TOUCH,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.accentLine,
+    backgroundColor: color.overlay,
+  },
+  liveHeadingBtnText: {
+    ...type.label,
+    fontSize: 12,
+    color: color.accent,
+    fontWeight: '700',
+  },
+  timeSliderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.xs,
+    backgroundColor: color.fill,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+  timeSliderWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  timeTrackBg: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: color.borderStrong,
+    overflow: 'hidden',
+  },
+  timeTrackFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: color.accent,
   },
   longExpBadge: {
     height: 24,
