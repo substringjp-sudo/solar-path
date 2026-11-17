@@ -18,7 +18,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass, Move } from 'lucide-react-native';
 import { ScrubTrack } from './TimeBar/ScrubTrack';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
@@ -228,11 +228,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   onViewModeChange,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  // 전체 화면 카메라 — 무대(카메라/3D 씬, flex: 1) + 하단 통합 컨트롤 덱(bottomDeck).
-  const statusBarH = Platform.OS === 'android'
-    ? Math.max(StatusBar.currentHeight ?? 0, Constants.statusBarHeight ?? 0, 38)
-    : Math.max(Constants.statusBarHeight ?? 44, 48);
-  const TOP_INSET = statusBarH + 10;
+  // 전체 화면 카메라 — 안드로이드에서는 App.tsx의 paddingTop(statusBarHeight)과 동일하게 알림바 아래부터 시작해
+  // SkyScene3D와 장노출 스냅샷(longExpPreviewUri)의 시작 y좌표·높이(위상)를 1px 오차 없이 일치시킨다.
+  const androidStatusBarH = Platform.OS === 'android'
+    ? (Constants.statusBarHeight || StatusBar.currentHeight || 0)
+    : 0;
+  const TOP_INSET = Platform.OS === 'ios'
+    ? Math.max(Constants.statusBarHeight ?? 44, 48) + 10
+    : 12;
   const [rootH, setRootH] = useState(H);
   const [stageLayoutH, setStageLayoutH] = useState(Math.max(240, H - 220));
   const stageLayoutHRef = useRef(stageLayoutH);
@@ -1961,7 +1964,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   if (!cameraPermission?.granted) {
     return (
-      <View style={styles.overlayRoot}>
+      <View style={[styles.overlayRoot, androidStatusBarH > 0 && { top: androidStatusBarH }]}>
         <View style={styles.permissionContainer}>
           <Camera size={64} color={color.sun} />
           <Text style={styles.permissionTitle}>{L3(language, '카메라 권한이 필요합니다', 'Camera permission required', 'カメラの許可が必要です')}</Text>
@@ -2020,7 +2023,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   return (
     <View
-      style={[styles.overlayRoot, isTransparentStage && !astroResult && astroNightPhase === null && !previewUri && { backgroundColor: 'transparent' }]}
+      style={[
+        styles.overlayRoot,
+        androidStatusBarH > 0 && { top: androidStatusBarH },
+        isTransparentStage && !astroResult && astroNightPhase === null && !previewUri && { backgroundColor: 'transparent' },
+      ]}
       onLayout={(e) => {
         const h = e.nativeEvent.layout.height;
         if (h > 0 && Math.abs(h - rootH) > 1) setRootH(h);
@@ -2298,6 +2305,24 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 />
               )}
 
+              {/* 폰 연동 vs 손가락 수동 조작 시각 구분 프레임 */}
+              {viewMode !== 'camera' && (
+                frozenView ? (
+                  <View style={styles.manualFrameOverlay} pointerEvents="none">
+                    <View style={[styles.cornerBracket, styles.cornerTL]} />
+                    <View style={[styles.cornerBracket, styles.cornerTR]} />
+                    <View style={[styles.cornerBracket, styles.cornerBL]} />
+                    <View style={[styles.cornerBracket, styles.cornerBR]} />
+                  </View>
+                ) : (
+                  <View style={styles.liveCrosshairWrap} pointerEvents="none">
+                    <View style={styles.liveCrosshairH} />
+                    <View style={styles.liveCrosshairV} />
+                    <View style={styles.liveCrosshairDot} />
+                  </View>
+                )
+              )}
+
               {/* 무대 위 최소 상태 HUD (닫기 · 방위/고도 · 안내 배지 · 노출) */}
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
                 <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
@@ -2305,37 +2330,54 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     <X size={18} color={color.text} />
                   </PressScale>
 
-                  <View style={[styles.azBox, frozenView && styles.azBoxFrozen]}>
-                    <Text style={[styles.azBoxText, frozenView && { color: color.accent }]} numberOfLines={1}>
-                      {`${frozenView ? 'LOCK · ' : ''}AZ ${Math.round(displayAz)}° · ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
-                    </Text>
+                  <View style={[styles.azBox, viewMode !== 'camera' && (frozenView ? styles.azBoxFrozen : styles.azBoxLive)]}>
+                    <View style={styles.azBoxRow}>
+                      {viewMode !== 'camera' && (
+                        frozenView ? (
+                          <Move size={11} color={color.accent} />
+                        ) : (
+                          <View style={[styles.dot, { backgroundColor: color.success }]} />
+                        )
+                      )}
+                      <Text
+                        style={[
+                          styles.azBoxText,
+                          viewMode !== 'camera' && (frozenView ? { color: color.accent } : { color: color.success }),
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {`${viewMode !== 'camera' ? (frozenView ? L3(language, '수동 · ', 'Manual · ', '手動 · ') : L3(language, '연동 · ', 'Live · ', '連動 · ')) : ''}AZ ${Math.round(displayAz)}° · ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
                 <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="none">
-                  <View style={styles.badge}>
+                  <View style={[styles.badge, viewMode !== 'camera' && (frozenView ? styles.badgeManual : styles.badgeLive)]}>
                     {viewMode !== 'camera' ? (
                       <>
                         {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering ? (
                           <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
+                        ) : frozenView ? (
+                          <Move size={12} color={color.accent} />
                         ) : (
-                          <Layers size={12} color={cameraTab === 'astro' ? color.moon : color.accent} />
+                          <Compass size={12} color={color.success} />
                         )}
-                        <Text style={[styles.badgeText, cameraTab === 'astro' && { color: color.moon }]}>
-                          {cameraTab === 'astro'
-                            ? viewMode === 'sim' && isLongExpRendering
-                              ? L3(language, '장노출 렌더링 중…', 'Rendering preview…', '露光計算中…')
-                              : viewMode === 'sim'
-                                ? L3(
-                                    language,
-                                    `${astroSettings.mode === 'tracked' ? '별 추적' : '별 궤적'} 프리뷰 · 드래그 회전`,
-                                    `${astroSettings.mode === 'tracked' ? 'Tracked' : 'Trails'} preview · drag to pan`,
-                                    `${astroSettings.mode === 'tracked' ? '追尾' : '軌跡'}プレビュー`,
-                                  )
-                                : L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
-                            : viewMode === 'blend'
-                              ? L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
-                              : L3(language, '3D 시뮬레이션', '3D Simulation', '3Dシミュレーション')}
+                        <Text
+                          style={[
+                            styles.badgeText,
+                            cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering
+                              ? { color: color.moon }
+                              : frozenView
+                                ? { color: color.accent }
+                                : { color: color.success },
+                          ]}
+                        >
+                          {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering
+                            ? L3(language, '장노출 렌더링 중…', 'Rendering preview…', '露光計算中…')
+                            : frozenView
+                              ? L3(language, '손가락 드래그 조작 중', 'Manual drag mode', '手動ドラッグ操作中')
+                              : L3(language, '폰 방향 연동 중 · 드래그 시 고정', 'Following phone · drag to lock', 'スマホ連動中 · ドラッグで固定')}
                         </Text>
                         <Text style={styles.microText}>
                           {`FOV ${Math.round(optics.vFovDeg)}°`}
@@ -2399,17 +2441,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   )}
                 </View>
 
-                {/* 목표 방향 각도 맞추기 진동·십자 가이드 HUD */}
+                {/* 목표 방향 각도 맞추기 진동·원형 타깃 가이드 HUD */}
                 {lockedTarget && guideState && viewMode === 'camera' && (
                   <DirectionGuideOverlay
                     target={lockedTarget}
                     guide={guideState}
+                    optics={optics}
+                    attitude={overlayAttitude}
                     vibrationEnabled={vibrationGuideOn}
                     onToggleVibration={() => setVibrationGuideOn(v => !v)}
                     onClearTarget={() => {
                       Vibration.cancel();
                       setLockedTarget(null);
                     }}
+                    stageWidth={W}
                     stageHeight={stageLayoutH}
                     language={language}
                   />
@@ -2830,6 +2875,11 @@ const styles = StyleSheet.create({
     borderColor: color.border,
     backgroundColor: color.overlay,
   },
+  azBoxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   azBoxText: {
     ...type.micro,
     fontSize: 10,
@@ -2840,6 +2890,58 @@ const styles = StyleSheet.create({
   azBoxFrozen: {
     borderColor: color.accentLine,
     backgroundColor: color.accentSoft,
+  },
+  azBoxLive: {
+    borderColor: 'rgba(74, 222, 128, 0.45)',
+    backgroundColor: 'rgba(10, 28, 18, 0.78)',
+  },
+  badgeManual: {
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
+  },
+  badgeLive: {
+    borderColor: 'rgba(74, 222, 128, 0.4)',
+    backgroundColor: 'rgba(10, 28, 18, 0.72)',
+  },
+  manualFrameOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1.5,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    margin: 4,
+    borderRadius: radius.md,
+  },
+  cornerBracket: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderColor: color.accent,
+  },
+  cornerTL: { top: -1.5, left: -1.5, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: radius.md },
+  cornerTR: { top: -1.5, right: -1.5, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: radius.md },
+  cornerBL: { bottom: -1.5, left: -1.5, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: radius.md },
+  cornerBR: { bottom: -1.5, right: -1.5, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: radius.md },
+  liveCrosshairWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveCrosshairH: {
+    position: 'absolute',
+    width: 22,
+    height: 1,
+    backgroundColor: 'rgba(74, 222, 128, 0.55)',
+  },
+  liveCrosshairV: {
+    position: 'absolute',
+    width: 1,
+    height: 22,
+    backgroundColor: 'rgba(74, 222, 128, 0.55)',
+  },
+  liveCrosshairDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: color.success,
   },
   modeSegment: {
     flexDirection: 'row',
