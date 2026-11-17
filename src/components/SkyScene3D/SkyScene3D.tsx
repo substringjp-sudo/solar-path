@@ -782,6 +782,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const locationRef = useRef(location);
   const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
   const cityExpCompRef = useRef<number>(1);
+  const overrideStartBucketMsRef = useRef<number | null>(null);
   const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
   const getLightEst = (lat: number, lon: number): LightPollutionEstimate | null => {
     const m = nightLightsRef.current;
@@ -1032,6 +1033,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     getLastBufferMean: () => lastBufferMeanRef.current,
     flyToMap: () => flyToMapRef.current(),
     setCameraView: (azDeg: number, elDeg: number, fovDeg?: number) => {
+      if (overrideSceneTimeMsRef.current !== null || remoteViewRef.current !== null) return;
       cameraAzRef.current = ((azDeg % 360) + 360) % 360;
       setCameraAzimuth(cameraAzRef.current);
       cameraElevRef.current = Math.max(-45, Math.min(85, elDeg));
@@ -1270,6 +1272,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const lon = locationRef.current?.coords?.longitude ?? 127.0;
       const startDate = new Date(startTimeMs);
 
+      overrideStartBucketMsRef.current = Math.floor(startTimeMs / 3600000) * 3600000 + 1800000;
       overrideSceneTimeMsRef.current = startTimeMs;
       starBoostOverrideRef.current = starBoost;
       remoteViewRef.current = { ...view };
@@ -1316,6 +1319,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         cityExpCompRef.current = Math.pow(Math.max(1, exposureGain), 0.65) / Math.max(1, exposureGain);
         volRef.current?.setCityTerrainExpScale?.(cityExpCompRef.current);
+        volRef.current?.setAccumulating?.(true);
         for (let k = 0; k < steps; k++) {
           const frac = steps <= 1 ? 0 : k / (steps - 1);
           const tkMs = startTimeMs + frac * durationSec * 1000;
@@ -1368,6 +1372,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       } finally {
         cityExpCompRef.current = 1;
         volRef.current?.setCityTerrainExpScale?.(1);
+        volRef.current?.setAccumulating?.(false);
+        overrideStartBucketMsRef.current = null;
         accumDirectiveRef.current = null;
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
@@ -2421,6 +2427,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const altitudeM = pose.altitudeM;
         const cameraY = groundY + altitudeM;
         camera.position.set(0, cameraY, 0);
+        if (starFieldRef.current) starFieldRef.current.points.position.set(0, cameraY, 0);
+        if (milkyWayRef.current) milkyWayRef.current.mesh.position.set(0, cameraY, 0);
         const effectiveElev = pose.elevDeg;
         const effectiveAz = pose.azDeg;
         if (Math.abs(camera.fov - pose.fovDeg) > 0.05) {
@@ -2596,7 +2604,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 2026-11-13 구름 배치는 그 시간(정시 + 30 분)의 날씨로 고정 — 분 단위 보간 날씨를 쓰면 운량이 5 % 경계를 넘을 때마다 키가 바뀌어
             // 시간 막대를 놓은 뒤에도 구름이 통째로 새로 그려졌음(수원 11/13, 안개가 걷히며 저층 100 → 10 %). 해·빛·바람 이동은 vol.setDate 가 분 단위로.
             const vPath: CloudPathData[] = simRef.current?.pathData ?? [];
-            const vBucketMs = Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000;
+            const vBucketMs = overrideStartBucketMsRef.current ?? (Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000);
             if (!volBucketWxRef.current || volBucketWxRef.current.ms !== vBucketMs || volBucketWxRef.current.path !== vPath || volBucketWxRef.current.live !== weatherRef.current) {
               volBucketWxRef.current = { ms: vBucketMs, path: vPath, live: weatherRef.current, wx: vPath.length ? getInterpolatedWeather(vPath, new Date(vBucketMs)) : (weatherRef.current ?? []) };
             }
@@ -3079,8 +3087,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const targetDate = evalDate || new Date(renderedTimeMsRef.current);
     const overcast = predictionRef.current?.factors?.overheadOvercast ?? 0;
     const currentLayers = layersRef.current;
-    const lat = location?.coords?.latitude ?? 37.5;
-    const lng = location?.coords?.longitude ?? 127.0;
+    const lat = locationRef.current?.coords?.latitude ?? 37.5;
+    const lng = locationRef.current?.coords?.longitude ?? 127.0;
 
     // 사전 계산된 타임라인이 있으면 **전부 여기서 읽습니다.**
     // 태양 위치·대기·하늘 기둥이 한 번에 나오므로 아래 캐시들이 필요 없습니다.
@@ -3570,7 +3578,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [location]);
 
   const rebuildCloudsForDate = useCallback((targetDate: Date, sampled?: SampledSky | null) => {
-    const lat = location?.coords?.latitude ?? 37.5;
+    const lat = locationRef.current?.coords?.latitude ?? 37.5;
 
     const atmosphere =
       sampled?.atmosphere ??

@@ -7,7 +7,7 @@
  *  - 운량 문턱 τ 는 구운 장의 기둥 최댓값 분포에서 운량만큼 남기는 값입니다.
  * waveOn 이 0 이면 셰이더는 원래 경로 그대로입니다(분기 하나).
  */
-import { ClampToEdgeWrapping, Data3DTexture, DataUtils, HalfFloatType, LinearFilter, RedFormat, RepeatWrapping, Vector4 } from 'three';
+import { ClampToEdgeWrapping, Data3DTexture, DataUtils, HalfFloatType, LinearFilter, RedFormat, RepeatWrapping, Vector2, Vector4 } from 'three';
 import { computeRawWaveOnWorklet } from './skyWorklet';
 
 export interface WaveParams {
@@ -648,6 +648,7 @@ export function patchWaveShader(mat: PatchableMaterial): void {
   if (!src.includes(WEATHER_ANCHOR) || !src.includes(MEDIA_ANCHOR)) throw new Error('cloudWave: shader anchor missing');
   const decl = [
     'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
+    'uniform vec2 waveDriftM;',
     `uniform vec4 waveK[${NSMALL}];`, 'uniform vec3 waveAmp;',
     // 셰이더 안 작은 파동(혹): 단계마다 |합| 을 접어 둥근 혹 사이에 날카로운 골(2|z| − 평균)
     '#define WAVE_FIELD 1',
@@ -655,7 +656,7 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     // 확산광이 레인 종류(ns) 날씨 무늬로 기둥을 세면 실제 덱과 다른 판·절벽 무늬가 그려졌음(2026-11-12).
     'vec2 waveColumn(vec3 position, float hf0) {',
     '  vec3 wd = position - genusOrigin;',
-    '  vec2 wxy = vec2(dot(wd, genusEast), dot(wd, genusNorth)) / (2.0 * waveBox.x) + 0.5;',
+    '  vec2 wxy = (vec2(dot(wd, genusEast), dot(wd, genusNorth)) + waveDriftM) / (2.0 * waveBox.x) + 0.5;',
     '  float a = 0.0, t = 0.0;',
     '  for (int i = 0; i < 12; ++i) {',
     '    float hf = (float(i) + 0.5) / 12.0;',
@@ -690,7 +691,7 @@ export function patchWaveShader(mat: PatchableMaterial): void {
   src = src.replace(MEDIA_ANCHOR, [
     '  if (waveOn > 0.5) {',
     '    vec3 wd = position - genusOrigin;',
-    '    vec2 wxy = vec2(dot(wd, genusEast), dot(wd, genusNorth));',
+    '    vec2 wxy = vec2(dot(wd, genusEast), dot(wd, genusNorth)) + waveDriftM;',
     '    float whf = clamp(weather.heightFraction.x, 0.0, 1.0);',
     '    float wz = mix(minLayerHeights.x, maxLayerHeights.x, whf);',
     '    vec3 wuv = vec3(wxy / (2.0 * waveBox.x) + 0.5, whf);',
@@ -723,9 +724,21 @@ export function patchWaveShader(mat: PatchableMaterial): void {
   mat.uniforms.waveTex = { value: DUMMY };
   mat.uniforms.waveBox = { value: new Vector4(15000, 0, 1000, 0) };
   mat.uniforms.waveP = { value: new Vector4(0, 0, 3, 0) };
+  mat.uniforms.waveDriftM = { value: new Vector2(0, 0) };
   mat.uniforms.waveK = { value: Array.from({ length: NSMALL }, () => new Vector4()) };
   mat.uniforms.waveAmp = { value: [0, 0, 0] };
   mat.needsUpdate = true;
+}
+
+/** 파동 구름(waveOn)의 바람 이동 오프셋(m)을 갱신합니다. */
+export function setWaveDrift(mat: PatchableMaterial, windUKmh: number, windVKmh: number, seconds: number, baseKm?: [number, number] | null): void {
+  const u = mat.uniforms;
+  const spanM = Math.max(1000, 2 * ((u.waveBox?.value as Vector4 | undefined)?.x ?? 15000));
+  const hrs = seconds / 3600;
+  const dx = -windUKmh * hrs * 1000 - (baseKm?.[0] ?? 0) * 1000;
+  const dy = -windVKmh * hrs * 1000 - (baseKm?.[1] ?? 0) * 1000;
+  const wrapM = (v: number) => v - Math.floor(v / spanM) * spanM;
+  (u.waveDriftM.value as Vector2).set(wrapM(dx), wrapM(dy));
 }
 
 /** 장을 켜거나(field) 끕니다(null). baseM·thickM 은 밑면 높이 기준 밀도 단면용. */

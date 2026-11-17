@@ -55,7 +55,7 @@ import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLay
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
-import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
+import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveDrift, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 // §179 검토 반영(회귀 1): 구축기(tsunAtlas.ts)는 하네스(tools/genus-ruler/tsun/tsun-build.ts)만 부름 — 앱 묶음에는 형만(지워지는 import type).
@@ -567,6 +567,8 @@ export interface VolumetricScene {
   setExposureScale(s: number): void;
   /** 장노출 시 지형·건물 도시광 과노출 억제 배율(pow(gain, 0.65)/gain). */
   setCityTerrainExpScale?(s: number): void;
+  /** 장노출 다중 스텝 누적 중 16프레임 TAA 잔상 고정(temporalUpscale)을 잠시 끄고 매 스텝 구름 이동을 즉시 반영합니다. */
+  setAccumulating?(active: boolean): void;
   /** 밤 불빛 지도(cityLightMap.ts). 있으면 도시 쪽 지평선·도심 위 구름만 더 밝게. null 이면 고르게. */
   setCityMap(m: NightLights | null): void;
   /**
@@ -2214,6 +2216,7 @@ export async function createVolumetricScene(
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec - p.date.getTime() / 1000, GENUS_TILE_KM, p.layers.slice(0, 4).map(L => L?.driftKm));
+        setWaveDrift(m, gl[0] ? flowParam(gl[0], 'windU', 0) : 0, gl[0] ? flowParam(gl[0], 'windV', 0) : 0, driftSec - p.date.getTime() / 1000, p.layers[0]?.driftKm);
         // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
@@ -2459,7 +2462,10 @@ export async function createVolumetricScene(
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
       const macroSec = driftSec - (genDate ?? date).getTime() / 1000;
-      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setMacroDrift(m, genLayers, macroSec); }
+      const w0 = genLayers[0];
+      const wu0 = w0 ? flowParam(w0, 'windU', 0) : 0;
+      const wv0 = w0 ? flowParam(w0, 'windV', 0) : 0;
+      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setWaveDrift(m, wu0, wv0, driftSec - (genDate ?? date).getTime() / 1000, lastInput.layers[0]?.driftKm); setMacroDrift(m, genLayers, macroSec); }
       // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다. 잡음 없는 모드(1)는 걸음이 없습니다.
       if (macro && opt.macro === 2) {
         if (macro.lastSec == null) macro.lastSec = driftSec;
@@ -2555,6 +2561,10 @@ export async function createVolumetricScene(
       if (Math.abs(next - cityTerrainExpScale) < 1e-3) return;
       cityTerrainExpScale = next;
       if (lastInput) updateCity(lastInput, lastInput.date);
+    },
+    setAccumulating: (active: boolean) => {
+      clouds.temporalUpscale = active ? false : opt.temporalUpscale;
+      clouds.shadow.temporalPass = active ? false : opt.shadowTemporal;
     },
     setExposureScale: (s: number) => {
       const next = Number.isFinite(s) ? Math.max(0.1, Math.min(8, s)) : 1;
