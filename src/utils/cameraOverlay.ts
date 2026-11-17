@@ -24,8 +24,8 @@ import { sunPosition, sunTimes } from './solarPosition';
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 
-/** 주 카메라 흔한 값(26mm 환산, 4:3)의 짧은 변 화각(도). 세로로 든 사진의 가로 화각입니다. */
-export const DEFAULT_SENSOR_SHORT_FOV_DEG = hfovFromFocal35(26, 3, 4);
+/** 주 카메라 흔한 값(24mm 환산, 4:3)의 짧은 변 화각(도). 세로로 든 사진의 가로 화각입니다. */
+export const DEFAULT_SENSOR_SHORT_FOV_DEG = hfovFromFocal35(24, 3, 4);
 /** 센서 그림의 짧은 변 / 긴 변(4:3). */
 export const SENSOR_ASPECT = 3 / 4;
 

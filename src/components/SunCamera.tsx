@@ -276,7 +276,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const initialZoom = useRef(0);
   const initialDistance = useRef(0);
   const panStartView = useRef<{ azDeg: number; elDeg: number; rollDeg: number } | null>(null);
-  const opticsRef = useRef({ hFovDeg: 50, vFovDeg: 65 });
+  const opticsRef = useRef({ hFovDeg: 50, vFovDeg: 65, simVFovDeg: 85 });
 
   // 1. Pinch Zoom + 1-finger Pan (시뮬/방향고정 시 터치 드래그로 구도 미세 조정)
   const stagePanResponder = useMemo(() => PanResponder.create({
@@ -338,7 +338,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         const nextEl = Math.max(-45, Math.min(85, panStartView.current.elDeg + gs.dy * degPerPxY));
         setFrozenView({ azDeg: nextAz, elDeg: nextEl, rollDeg: 0 });
         if (viewModeRef.current !== 'camera') {
-          getPrimarySky()?.setCameraView(nextAz, nextEl, opticsRef.current.vFovDeg);
+          getPrimarySky()?.setCameraView?.(nextAz, nextEl, opticsRef.current.simVFovDeg);
         }
       }
     },
@@ -781,7 +781,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       if (viewModeRef.current !== 'camera' && !frozenViewRef.current) {
         const liveAz = cameraFacingRef.current === 'front' ? (filteredAz + 180) % 360 : filteredAz;
         const liveEl = cameraFacingRef.current === 'front' ? -filteredPitch : filteredPitch;
-        getPrimarySky()?.setCameraView(liveAz, liveEl, opticsRef.current.vFovDeg);
+        getPrimarySky()?.setCameraView?.(liveAz, liveEl, opticsRef.current.simVFovDeg);
       }
     });
     return () => sub.remove();
@@ -982,17 +982,24 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
     [W, stageLayoutH, measuredHfov, currentMagnification],
   );
-  opticsRef.current = { hFovDeg: optics.hFovDeg, vFovDeg: optics.vFovDeg };
+  // SkyScene3D는 전체 화면(W × rootH)으로 그려지므로, 가로 화각(hFovDeg)이 실카메라 스테이지(W × stageLayoutH)와 일치하도록 세로 FOV를 환산합니다.
+  const simVFovDeg = useMemo(() => {
+    const tanH = Math.tan(((optics.hFovDeg / 2) * Math.PI) / 180);
+    const fullAspect = Math.max(1, rootH) / Math.max(1, W);
+    const vRad = 2 * Math.atan(tanH * fullAspect);
+    return Math.min(120, Math.max(10, (vRad * 180) / Math.PI));
+  }, [optics.hFovDeg, rootH, W]);
+  opticsRef.current = { hFovDeg: optics.hFovDeg, vFovDeg: optics.vFovDeg, simVFovDeg };
 
   remoteViewNowRef.current = () => {
-    return { az: displayAz, el: displayEl, fov: Math.min(120, Math.max(10, optics.vFovDeg)) };
+    return { az: displayAz, el: displayEl, fov: simVFovDeg };
   };
 
   // 'blend' 또는 'sim' 모드에서 고정 시선/배율 변화 시 SkyScene3D 카메라 동기화
   useEffect(() => {
     if (!visible || viewMode === 'camera') return;
-    getPrimarySky()?.setCameraView(displayAz, displayEl, optics.vFovDeg);
-  }, [visible, viewMode, displayAz, displayEl, optics.vFovDeg]);
+    getPrimarySky()?.setCameraView?.(displayAz, displayEl, simVFovDeg);
+  }, [visible, viewMode, displayAz, displayEl, simVFovDeg]);
 
   // 천체 모드 진입 시 Android Camera2 정적 성능(raw 지원 · 노출/ISO 범위 · 초점거리) 조회
   useEffect(() => {
@@ -1179,14 +1186,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           {
             az: displayAzRef.current,
             el: displayElRef.current,
-            fov: optics.vFovDeg,
+            fov: simVFovDeg,
             rollDeg: displayRoll,
           },
           {
             mode: simMode,
             startTimeMs: currentTime.getTime(),
             durationSec: astroSettings.durationSec,
-            steps: Math.min(24, Math.max(8, Math.round(astroSimParams.stepsForFinal * 0.45))),
+            steps: astroSimParams.stepsForPreview,
             exposureGain: astroSimParams.exposureGain,
             starBoost: astroSimParams.starBoost,
             shadowLift: astroSimParams.shadowLift,
@@ -1225,7 +1232,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     longExpAzKey,
     longExpElKey,
     displayRoll,
-    optics.vFovDeg,
+    simVFovDeg,
     astroSettings.mode,
     astroSettings.keepFixedGround,
     astroSettings.durationSec,
@@ -1260,9 +1267,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const handleResumeLiveHeading = useCallback(() => {
     setFrozenView(null);
     if (viewModeRef.current !== 'camera') {
-      getPrimarySky()?.setCameraView(effectiveAz, effectivePitch, optics.vFovDeg);
+      getPrimarySky()?.setCameraView?.(effectiveAz, effectivePitch, simVFovDeg);
     }
-  }, [effectiveAz, effectivePitch, optics.vFovDeg]);
+  }, [effectiveAz, effectivePitch, simVFovDeg]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -1718,7 +1725,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           {
             az: startAtt.yawDeg,
             el: startAtt.pitchDeg,
-            fov: optics.vFovDeg,
+            fov: simVFovDeg,
             rollDeg: startAtt.rollDeg,
           },
           {
@@ -1768,7 +1775,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     currentTime,
     latitude,
     longitude,
-    optics.vFovDeg,
+    simVFovDeg,
   ]);
 
   const handleSaveAstroPng = useCallback(async () => {
@@ -1939,6 +1946,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, uploadAndPostPhoto, onClose, isUploading, language]);
 
   // 권한 요청
+  const scrubDayStartRef = useRef(0);
   useEffect(() => {
     if (visible && !cameraPermission?.granted) {
       requestCameraPermission();
@@ -1974,8 +1982,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const localNowMs = currentTime.getTime() + tzHours * 3_600_000;
   const dayStartUtcMs = Math.floor(localNowMs / 86_400_000) * 86_400_000 - tzHours * 3_600_000;
   const timeSliderPct = Math.max(0, Math.min(100, ((currentTime.getTime() - dayStartUtcMs) / 86_400_000) * 100));
-  const scrubDayStartRef = useRef(dayStartUtcMs);
-  if (!isInteracting) scrubDayStartRef.current = dayStartUtcMs;
+  if (!isInteracting || scrubDayStartRef.current === 0) scrubDayStartRef.current = dayStartUtcMs;
   // 위쪽 가운데 — "일몰까지 31분". 세 시간 넘게 남았으면 출몰 시각만.
   const countdown = (() => {
     if (!markerEvent) return null;

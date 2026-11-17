@@ -1096,6 +1096,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (dw > 0 && dh > 0 && bufKey !== bufSizeRef.current) {
               bufSizeRef.current = bufKey;
               rendererRef.current.setSize(dw, dh, false);
+              rendererRef.current.setViewport(0, 0, dw, dh);
+              rendererRef.current.setScissor(0, 0, dw, dh);
+              rendererRef.current.setScissorTest(false);
               cameraRef.current.aspect = dw / Math.max(1, dh);
               cameraRef.current.updateProjectionMatrix();
               composerRef.current?.setSize(dw, dh);
@@ -1225,7 +1228,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const mode = opts.mode;
       const startTimeMs = opts.startTimeMs ?? targetTimeMsRef.current;
       const durationSec = Math.max(10, Math.min(3600, opts.durationSec ?? 300));
-      const steps = Math.max(4, Math.min(40, Math.round(opts.steps ?? 20)));
+      const steps = Math.max(4, Math.min(96, Math.round(opts.steps ?? 20)));
       const exposureGain = opts.exposureGain ?? Number((1 + Math.log2(1 + durationSec / 90) * 0.72).toFixed(2));
       const shadowLift = opts.shadowLift ?? 0.015;
       const starBoost = opts.starBoost ?? 1.25;
@@ -2235,9 +2238,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (dw > 0 && dh > 0 && bufKey !== bufSizeRef.current) {
         bufSizeRef.current = bufKey;
         renderer.setSize(dw, dh, false);
+        renderer.setViewport(0, 0, dw, dh);
+        renderer.setScissor(0, 0, dw, dh);
+        renderer.setScissorTest(false);
         camera.aspect = dw / Math.max(1, dh);
         camera.updateProjectionMatrix();
         composerRef.current?.setSize(dw, dh);
+        if (volRef.current) {
+          volRef.current.setSize(dw, dh);
+          volSizeRef.current = bufKey;
+        }
         pixelRatioRef.current = Math.max(1, dw / Math.max(1, sceneWidthRef.current));
         volViewRef.current = '';
         sceneDirtyRef.current = true;
@@ -2873,6 +2883,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             }
             accumDir.onDone?.();
           } else {
+            renderer.setViewport(0, 0, dw, dh);
+            renderer.setScissorTest(false);
             composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
           }
 
@@ -2885,6 +2897,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             }
           }
         } else {
+          renderer.setViewport(0, 0, dw, dh);
+          renderer.setScissorTest(false);
           renderer.render(scene, camera);
           if (accumDirectiveRef.current) {
             const cb = accumDirectiveRef.current.onDone;
@@ -4071,6 +4085,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         styles.container,
         fullScreen ? { flex: 1, width: '100%', height: '100%' } : { width: SCENE_WIDTH, height: SCENE_HEIGHT },
       ]}
+      onLayout={(e) => {
+        const lw = e.nativeEvent.layout.width;
+        if (lw > 0) sceneWidthRef.current = lw;
+        requestRender(4);
+      }}
       {...panResponder.panHandlers}
     >
       {/* 지도가 3D 위로 겹쳐 오르는 동안 3D 는 불투명 그대로(둘 다 반투명이면 가운데가 어두워짐).
@@ -4309,6 +4328,8 @@ const styles = StyleSheet.create({
   },
   glView: {
     flex: 1,
+    width: '100%',
+    height: '100%',
   },
   modeBadge: {
     position: 'absolute',
