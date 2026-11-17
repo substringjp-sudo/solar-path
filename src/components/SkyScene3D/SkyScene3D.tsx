@@ -428,8 +428,15 @@ export interface SkyScene3DHandle {
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
    */
   flyToMap: () => void;
-  /** 카메라 뷰파인더 등에서 3D 씬 시선(방위·고도·화각)을 즉시 맞출 때 호출합니다. */
-  setCameraView?: (azDeg: number, elDeg: number, fovDeg?: number) => void;
+  /** 카메라 뷰파인더 등에서 3D 씬 시선(방위·고도·화각·기울기·뷰 오프셋)을 즉시 맞출 때 호출합니다. */
+  setCameraView?: (
+    azDeg: number,
+    elDeg: number,
+    fovDeg?: number,
+    opts?: { rollDeg?: number; centerOffsetYFrac?: number },
+  ) => void;
+  /** 카메라 뷰파인더 종료 시 롤 및 뷰 오프셋만 초기화합니다. */
+  clearCameraLensOverride?: () => void;
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
@@ -602,6 +609,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cameraAzRef = useRef(sunAzimuth);
   const cameraElevRef = useRef(13); // 기본 FOV 60° 기준 땅이 30%를 넘지 않도록 13°로 초기화
   const fovRef = useRef(60);
+  const cameraRollRef = useRef(0);
+  const viewCenterOffsetYFracRef = useRef(0);
   // 무한 줌 스펙트럼 (0~1: 지상 FOV 30°~120°, 1~2: 상공 고도 상승 1.6m~20km 구름 레이더, 2~3: 우주 궤도 3차원 지구본 및 노을 등시선)
   const zoomProgressRef = useRef((60 - 30) / 90);
   const pinchZoomProgressRef = useRef((60 - 30) / 90);
@@ -1032,7 +1041,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
     getLastBufferMean: () => lastBufferMeanRef.current,
     flyToMap: () => flyToMapRef.current(),
-    setCameraView: (azDeg: number, elDeg: number, fovDeg?: number) => {
+    setCameraView: (
+      azDeg: number,
+      elDeg: number,
+      fovDeg?: number,
+      opts?: { rollDeg?: number; centerOffsetYFrac?: number },
+    ) => {
       if (overrideSceneTimeMsRef.current !== null || remoteViewRef.current !== null) return;
       cameraAzRef.current = ((azDeg % 360) + 360) % 360;
       setCameraAzimuth(cameraAzRef.current);
@@ -1049,9 +1063,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       } else if (zoomProgressRef.current > P_FOV_END) {
         zoomProgressRef.current = (fovRef.current - 30) / 90;
       }
+      if (opts?.rollDeg !== undefined && Number.isFinite(opts.rollDeg)) {
+        cameraRollRef.current = opts.rollDeg;
+      }
+      if (opts?.centerOffsetYFrac !== undefined && Number.isFinite(opts.centerOffsetYFrac)) {
+        const nextOff = Math.max(-0.45, Math.min(0.45, opts.centerOffsetYFrac));
+        viewCenterOffsetYFracRef.current = nextOff;
+        if (cameraRef.current) {
+          if (Math.abs(nextOff) > 1e-4) {
+            cameraRef.current.setViewOffset(1000, 1000, 0, nextOff * 1000, 1000, 1000);
+          } else if (cameraRef.current.view?.enabled) {
+            cameraRef.current.clearViewOffset();
+          }
+        }
+      }
       trackingTargetRef.current = null;
       onSelectTrackingTargetRef.current?.(null);
       requestRender(8);
+    },
+    clearCameraLensOverride: () => {
+      cameraRollRef.current = 0;
+      viewCenterOffsetYFracRef.current = 0;
+      if (cameraRef.current?.view?.enabled) {
+        cameraRef.current.clearViewOffset();
+      }
+      requestRender(3);
     },
     getRenderState: () => {
       const cam = cameraRef.current;
@@ -2447,16 +2483,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const elevRad = (effectiveElev * Math.PI) / 180;
         const lookDist = Math.max(100, altitudeM);
 
+        const curOffFrac = camera.view?.enabled ? camera.view.offsetY / camera.view.fullHeight : 0;
+        if (Math.abs(curOffFrac - viewCenterOffsetYFracRef.current) > 1e-4) {
+          if (Math.abs(viewCenterOffsetYFracRef.current) > 1e-4) {
+            camera.setViewOffset(1000, 1000, 0, viewCenterOffsetYFracRef.current * 1000, 1000, 1000);
+          } else {
+            camera.clearViewOffset();
+          }
+        }
         // 화면 위쪽은 시선에 수직인 연속 벡터 — 내려다볼 때 북쪽(−Z)이 위.
         // ⚠ 예전에는 −85° 에서 (0,1,0) → (0,0,−1) 로 바꿔, 그 한 프레임에 화면이 방위각만큼 돌았습니다.
         camera.up.set(pose.up[0], pose.up[1], pose.up[2]);
-        if (rv?.rollDeg && Math.abs(rv.rollDeg) > 1e-4) {
+        const activeRollDeg = rv?.rollDeg ?? cameraRollRef.current;
+        if (activeRollDeg && Math.abs(activeRollDeg) > 1e-4) {
           const fwdRoll = new THREE.Vector3(
             Math.cos(elevRad) * Math.sin(azRad),
             Math.sin(elevRad),
             -Math.cos(elevRad) * Math.cos(azRad),
           ).normalize();
-          camera.up.applyAxisAngle(fwdRoll, (rv.rollDeg * Math.PI) / 180);
+          camera.up.applyAxisAngle(fwdRoll, (activeRollDeg * Math.PI) / 180);
         }
 
         camera.lookAt(

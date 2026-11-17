@@ -345,7 +345,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         const nextEl = Math.max(-45, Math.min(85, panStartView.current.elDeg + gs.dy * degPerPxY));
         setFrozenView({ azDeg: nextAz, elDeg: nextEl, rollDeg: 0 });
         if (viewModeRef.current !== 'camera') {
-          getPrimarySky()?.setCameraView?.(nextAz, nextEl, opticsRef.current.simVFovDeg);
+          getPrimarySky()?.setCameraView?.(nextAz, nextEl, opticsRef.current.simVFovDeg, {
+            rollDeg: 0,
+            centerOffsetYFrac: centerOffsetYFracRef.current,
+          });
         }
       }
     },
@@ -788,7 +791,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       if (viewModeRef.current !== 'camera' && !frozenViewRef.current) {
         const liveAz = cameraFacingRef.current === 'front' ? (filteredAz + 180) % 360 : filteredAz;
         const liveEl = cameraFacingRef.current === 'front' ? -filteredPitch : filteredPitch;
-        getPrimarySky()?.setCameraView?.(liveAz, liveEl, opticsRef.current.simVFovDeg);
+        const liveRoll = attitudeFromEuler(aRad, bRad, gRad).rollDeg;
+        getPrimarySky()?.setCameraView?.(liveAz, liveEl, opticsRef.current.simVFovDeg, {
+          rollDeg: liveRoll,
+          centerOffsetYFrac: centerOffsetYFracRef.current,
+        });
       }
     });
     return () => sub.remove();
@@ -980,7 +987,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 통합 뷰 전환 & 방향 고정(Freeze) & 배율/장노출 프리뷰 ──
   const displayAz = frozenView ? frozenView.azDeg : effectiveAz;
   const displayEl = frozenView ? frozenView.elDeg : effectivePitch;
-  const displayRoll = 0;
+  const displayRoll = frozenView
+    ? frozenView.rollDeg
+    : (rawRotationRef.current ? attitudeFromEuler(rawRotationRef.current.a, rawRotationRef.current.b, rawRotationRef.current.g).rollDeg : 0);
+  const centerOffsetYFrac = rootH > 0 && stageLayoutH > 0 ? (rootH - stageLayoutH) / (2 * rootH) : 0;
+  const centerOffsetYFracRef = useRef(0);
+  centerOffsetYFracRef.current = centerOffsetYFrac;
 
   const remoteViewNowRef = useRef<() => { az: number; el: number; fov: number }>(() => ({ az: 0, el: 0, fov: 60 }));
   const remoteViewNow = useCallback(() => remoteViewNowRef.current(), []);
@@ -1002,11 +1014,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return { az: displayAz, el: displayEl, fov: simVFovDeg };
   };
 
-  // 'blend' 또는 'sim' 모드에서 고정 시선/배율 변화 시 SkyScene3D 카메라 동기화
+  // 'blend' 또는 'sim' 모드에서 고정 시선/배율/스테이지 중심 변화 시 SkyScene3D 카메라 동기화
   useEffect(() => {
-    if (!visible || viewMode === 'camera') return;
-    getPrimarySky()?.setCameraView?.(displayAz, displayEl, simVFovDeg);
-  }, [visible, viewMode, displayAz, displayEl, simVFovDeg]);
+    if (!visible || viewMode === 'camera') {
+      getPrimarySky()?.clearCameraLensOverride?.();
+      return;
+    }
+    getPrimarySky()?.setCameraView?.(displayAz, displayEl, simVFovDeg, {
+      rollDeg: displayRoll,
+      centerOffsetYFrac,
+    });
+    return () => {
+      getPrimarySky()?.clearCameraLensOverride?.();
+    };
+  }, [visible, viewMode, displayAz, displayEl, simVFovDeg, displayRoll, centerOffsetYFrac]);
 
   // 천체 모드 진입 시 Android Camera2 정적 성능(raw 지원 · 노출/ISO 범위 · 초점거리) 조회
   useEffect(() => {
@@ -1280,9 +1301,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const handleResumeLiveHeading = useCallback(() => {
     setFrozenView(null);
     if (viewModeRef.current !== 'camera') {
-      getPrimarySky()?.setCameraView?.(effectiveAz, effectivePitch, simVFovDeg);
+      getPrimarySky()?.setCameraView?.(effectiveAz, effectivePitch, simVFovDeg, {
+        rollDeg: displayRoll,
+        centerOffsetYFrac,
+      });
     }
-  }, [effectiveAz, effectivePitch, simVFovDeg]);
+  }, [effectiveAz, effectivePitch, simVFovDeg, displayRoll, centerOffsetYFrac]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -2012,11 +2036,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       : L3(language, `${word} 뒤`, `Since ${word.toLowerCase()}`, `${word}から`);
     return { label, value };
   })();
-  // 카메라 자세 — 방위·앙각은 현재 표시 시선(고정 시 frozenView, 아니면 실시간 센서)
-  const overlayAttitude: Attitude = (() => {
-    const r = rawRotationRef.current;
-    return { yawDeg: displayAz, pitchDeg: displayEl, rollDeg: frozenView ? frozenView.rollDeg : (r ? attitudeFromEuler(r.a, r.b, r.g).rollDeg : 0) };
-  })();
+  // 카메라 자세 — 방위·앙각·기울기는 현재 표시 시선(고정 시 frozenView, 아니면 실시간 센서)
+  const overlayAttitude: Attitude = { yawDeg: displayAz, pitchDeg: displayEl, rollDeg: displayRoll };
   const headingTone = headingStatus?.seeded && headingStatus.trueNorth ? color.success : color.warning;
   const headingWord = !headingStatus?.seeded
     ? L3(language, '보정 중', 'Calibrating', '補正中')
@@ -2471,6 +2492,76 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </Text>
                   </View>
                 )}
+
+                {( (viewMode !== 'camera' && onTimeChange) || cameraTab === 'astro' ) && (
+                  <View style={styles.stageBottomControls} pointerEvents="box-none">
+                    {viewMode !== 'camera' && onTimeChange && (
+                      <View style={styles.timeSliderRow}>
+                        <Clock size={12} color={isTimeMachineEnabled ? color.accent : color.textDim} />
+                        <View style={styles.timeSliderWrap}>
+                          <ScrubTrack
+                            value={timeSliderPct}
+                            height={34}
+                            trackHeight={4}
+                            knobTone={isTimeMachineEnabled ? color.accentLine : color.borderStrong}
+                            formatLabel={(pct) => {
+                              const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
+                              return hhmmAt(new Date(scrubDayStartRef.current + min * 60_000));
+                            }}
+                            getDisplayBucket={(pct) => Math.round((pct / 100) * 1440)}
+                            onScrubStart={() => {
+                              scrubDayStartRef.current = dayStartUtcMs;
+                              setIsInteracting(true);
+                            }}
+                            onScrub={(pct) => {
+                              const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
+                              onTimeChange(new Date(scrubDayStartRef.current + min * 60_000));
+                            }}
+                            onScrubEnd={() => setIsInteracting(false)}
+                            onAdjust={(dir) => onTimeChange(new Date(currentTime.getTime() + dir * 900_000))}
+                            accessibilityLabel={L3(language, '촬영 시각', 'Simulation time', '撮影時刻')}
+                          >
+                            <View style={styles.timeTrackBg}>
+                              <View style={[styles.timeTrackFill, { width: `${timeSliderPct}%` }]} />
+                            </View>
+                          </ScrubTrack>
+                        </View>
+                        {isTimeMachineEnabled && (
+                          <PressScale
+                            style={[styles.timeDisplayBtn, styles.timeDisplayBtnActive]}
+                            onPress={() => onResetTime?.()}
+                            accessibilityRole="button"
+                            accessibilityLabel={L3(language, '현재 시각으로 돌아가기', 'Reset to live time', '現在時刻に戻す')}
+                          >
+                            <Text style={[styles.timeDisplayText, { color: color.accent }]}>
+                              {L3(language, '현재', 'Now', '現在')}
+                            </Text>
+                          </PressScale>
+                        )}
+                      </View>
+                    )}
+
+                    {cameraTab === 'astro' && (
+                      <AstroControlsOverlay
+                        inline
+                        settings={astroSettings}
+                        onChange={setAstroSettings}
+                        summary={astroShotSummary}
+                        caps={astroCaps}
+                        simParams={astroSimParams}
+                        showPrediction={viewMode !== 'camera'}
+                        isSimRendering={isLongExpRendering}
+                        onRefreshPrediction={() => {
+                          if (viewMode !== 'sim') setViewMode('sim');
+                          else setLongExpRefreshTick(v => v + 1);
+                        }}
+                        drawerOpen={astroDrawerOpen}
+                        onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
+                        language={language}
+                      />
+                    )}
+                  </View>
+                )}
               </View>
             </View>
 
@@ -2561,73 +2652,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 )}
               </View>
 
-              {/* 촬영 시각 슬라이더 (시뮬/겹침 모드) + 우측 [현재] 복귀 버튼 통합 */}
-              {viewMode !== 'camera' && onTimeChange && (
-                <View style={styles.timeSliderRow}>
-                  <Clock size={12} color={isTimeMachineEnabled ? color.accent : color.textDim} />
-                  <View style={styles.timeSliderWrap}>
-                    <ScrubTrack
-                      value={timeSliderPct}
-                      height={34}
-                      trackHeight={4}
-                      knobTone={isTimeMachineEnabled ? color.accentLine : color.borderStrong}
-                      formatLabel={(pct) => {
-                        const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
-                        return hhmmAt(new Date(scrubDayStartRef.current + min * 60_000));
-                      }}
-                      getDisplayBucket={(pct) => Math.round((pct / 100) * 1440)}
-                      onScrubStart={() => {
-                        scrubDayStartRef.current = dayStartUtcMs;
-                        setIsInteracting(true);
-                      }}
-                      onScrub={(pct) => {
-                        const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
-                        onTimeChange(new Date(scrubDayStartRef.current + min * 60_000));
-                      }}
-                      onScrubEnd={() => setIsInteracting(false)}
-                      onAdjust={(dir) => onTimeChange(new Date(currentTime.getTime() + dir * 900_000))}
-                      accessibilityLabel={L3(language, '촬영 시각', 'Simulation time', '撮影時刻')}
-                    >
-                      <View style={styles.timeTrackBg}>
-                        <View style={[styles.timeTrackFill, { width: `${timeSliderPct}%` }]} />
-                      </View>
-                    </ScrubTrack>
-                  </View>
-                  {isTimeMachineEnabled && (
-                    <PressScale
-                      style={[styles.timeDisplayBtn, styles.timeDisplayBtnActive]}
-                      onPress={() => onResetTime?.()}
-                      accessibilityRole="button"
-                      accessibilityLabel={L3(language, '현재 시각으로 돌아가기', 'Reset to live time', '現在時刻に戻す')}
-                    >
-                      <Text style={[styles.timeDisplayText, { color: color.accent }]}>
-                        {L3(language, '현재', 'Now', '現在')}
-                      </Text>
-                    </PressScale>
-                  )}
-                </View>
-              )}
-
-              {/* 3줄 (천체 탭): 천체 전용 조작 바 */}
-              {cameraTab === 'astro' && (
-                <AstroControlsOverlay
-                  inline
-                  settings={astroSettings}
-                  onChange={setAstroSettings}
-                  summary={astroShotSummary}
-                  caps={astroCaps}
-                  simParams={astroSimParams}
-                  showPrediction={viewMode !== 'camera'}
-                  isSimRendering={isLongExpRendering}
-                  onRefreshPrediction={() => {
-                    if (viewMode !== 'sim') setViewMode('sim');
-                    else setLongExpRefreshTick(v => v + 1);
-                  }}
-                  drawerOpen={astroDrawerOpen}
-                  onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
-                  language={language}
-                />
-              )}
 
               {/* 4줄 (도킹): 좌측(화면 보정·방위 맞춤) · 정중앙(셔터/카메라 전환) · 우측(방향 고정) */}
               <View style={styles.dock}>
@@ -3019,15 +3043,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
+  stageBottomControls: {
+    position: 'absolute',
+    left: space.md,
+    right: space.md,
+    bottom: space.sm,
+    gap: space.xs,
+  },
   timeSliderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: space.xs,
-    backgroundColor: color.fill,
-    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    backgroundColor: color.overlay,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: color.border,
+    borderColor: color.borderStrong,
   },
   timeSliderWrap: {
     flex: 1,

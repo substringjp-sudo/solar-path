@@ -1038,6 +1038,7 @@ export async function createVolumetricScene(
       // 해가 지평선 아래 2° 로 내려가면 지구 그림자에 맡깁니다(그 아래는 능선 너머 공기도 이미 그늘 — 두 번 빼지 않게).
       '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
       '}',
+      'uniform vec3 cityTerrainIrr;',
       head.replace('void mainImage(', 'void volBaseImage('),
     ].join('\n'));
     src = src.replace(skyA, [
@@ -1188,7 +1189,7 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform vec3 cityAir;', 'uniform vec3 cityTerrainIrr;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;',
+      '', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
       // 100km 너머 2D 평면·원고리 덱 원근 투영: 3D 레이마칭이 100km에서 끊긴 뒤 지평선까지 이어지는 층을 높은 층→낮은 층 순으로 적층합니다.

@@ -16,6 +16,7 @@
  */
 import * as THREE from 'three';
 import { getSunPath, getMoonPath } from '../../utils/celestial';
+import { getApparentAltitude } from '../../utils/sunsetPhysics';
 
 // ⚠ 지형 링(475) 뒤, 태양(490) 앞에 위치하도록 반경을 478로 설정합니다.
 // 이렇게 해야 지형 산 능선과 지면 뒤로 경로가 자연스럽게 차폐됩니다.
@@ -320,7 +321,11 @@ export function updateCelestialPaths(
 ): void {
   // getSunPath/getMoonPath는 그 지역 자정부터 24시간을 훑으므로,
   // "지금"도 같은 기준(자정 이후 경과 시간)으로 맞춰야 합니다.
-  fillRibbon(paths.sun, getSunPath(date, lat, lng), 0);
+  fillRibbon(
+    paths.sun,
+    getSunPath(date, lat, lng).map(p => ({ ...p, altitude: getApparentAltitude(p.altitude) })),
+    0
+  );
   fillRibbon(paths.moon, getMoonPath(date, lat, lng), 0);
   setCelestialPathsNow(paths, date);
 
