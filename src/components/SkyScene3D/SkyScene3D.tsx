@@ -16,7 +16,7 @@
  */
 import { getPrimarySky, setPrimarySky } from './primarySky';
 import React, { useRef, useCallback, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
-import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated, Platform } from 'react-native';
+import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated, Platform, PixelRatio } from 'react-native';
 import { registerWorkletModule } from '../VolumetricProbe/skyWorklet';
 
 if (Platform.OS !== 'web') {
@@ -716,6 +716,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volQualityRef = useRef('');
   const pixelRatioRef = useRef(1);
   const sceneWidthRef = useRef(SCENE_WIDTH);
+  const layoutSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const glScaleRef = useRef<number>(PixelRatio.get() || 1);
+  const syncGlDrawingBufferSize = (gl: ExpoWebGLRenderingContext | null) => {
+    if (!gl) return;
+    const lw = layoutSizeRef.current.w;
+    const lh = layoutSizeRef.current.h;
+    if (lw <= 0 || lh <= 0) return;
+    const scale = glScaleRef.current > 0 ? glScaleRef.current : (PixelRatio.get() || 1);
+    const nextW = Math.max(1, Math.round(lw * scale));
+    const nextH = Math.max(1, Math.round(lh * scale));
+    if (gl.drawingBufferWidth !== nextW || gl.drawingBufferHeight !== nextH) {
+      (gl as any).drawingBufferWidth = nextW;
+      (gl as any).drawingBufferHeight = nextH;
+    }
+  };
 
   const timelineRef = useRef<SkyTimeline | null>(timeline);
   const isActiveRef = useRef(isActive);
@@ -1090,6 +1105,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
               continue;
             }
+            syncGlDrawingBufferSize(glRef.current);
             const dw = glRef.current.drawingBufferWidth;
             const dh = glRef.current.drawingBufferHeight;
             const bufKey = `${dw}x${dh}`;
@@ -1953,6 +1969,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     buildingLoadedKeyRef.current = null;
     buildingRetryCountRef.current = 0;
     glRef.current = gl;
+    if (layoutSizeRef.current.w > 0 && gl.drawingBufferWidth > 0) {
+      glScaleRef.current = gl.drawingBufferWidth / layoutSizeRef.current.w;
+    } else if (layoutSizeRef.current.h > 0 && gl.drawingBufferHeight > 0) {
+      glScaleRef.current = gl.drawingBufferHeight / layoutSizeRef.current.h;
+    } else {
+      glScaleRef.current = PixelRatio.get() || 1;
+    }
+    syncGlDrawingBufferSize(gl);
 
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
@@ -2232,6 +2256,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         return;
       }
 
+      syncGlDrawingBufferSize(gl);
       const dw = gl.drawingBufferWidth;
       const dh = gl.drawingBufferHeight;
       const bufKey = `${dw}x${dh}`;
@@ -4087,7 +4112,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       ]}
       onLayout={(e) => {
         const lw = e.nativeEvent.layout.width;
+        const lh = e.nativeEvent.layout.height;
         if (lw > 0) sceneWidthRef.current = lw;
+        if (lw > 0 && lh > 0) {
+          layoutSizeRef.current = { w: lw, h: lh };
+          syncGlDrawingBufferSize(glRef.current);
+        }
         requestRender(4);
       }}
       {...panResponder.panHandlers}

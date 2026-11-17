@@ -292,7 +292,7 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
       )}
 
       <View style={styles.bar}>
-        {/* 1행: 합성 방식 토글 + 시뮬 갱신 / 타이머 / ISO·세부설정 */}
+        {/* 1행: 합성 방식 토글 + 타이머 / ISO·세부설정 (슬라이더·드래그 시 자동 갱신되므로 수동 갱신 버튼 생략) */}
         <View style={styles.barRow}>
           <View style={styles.modeSwitch}>
             {(['tracked', 'trails'] as const).map(m => {
@@ -321,18 +321,6 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
           </View>
 
           <View style={styles.rightActions}>
-            {showPrediction && (
-              <PressScale
-                onPress={onRefreshPrediction}
-                style={[styles.actionChip, isSimRendering && { opacity: 0.6 }]}
-              >
-                <Text style={styles.actionChipText}>
-                  {isSimRendering
-                    ? L3(language, '시뮬 중…', 'Sim…', '計算中…')
-                    : L3(language, '시뮬 갱신', 'Sim', '再描画')}
-                </Text>
-              </PressScale>
-            )}
             <PressScale onPress={cycleCountdown} style={styles.actionChip}>
               <Timer size={12} color={color.accent} />
               <Text style={styles.actionChipText}>
