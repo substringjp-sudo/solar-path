@@ -226,13 +226,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   onViewModeChange,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  // 전체 화면 카메라 — 무대(카메라/3D 씬) + 아래 도킹.
+  // 전체 화면 카메라 — 무대(카메라/3D 씬, flex: 1) + 하단 통합 컨트롤 덱(bottomDeck).
   const TOP_INSET = Platform.OS === 'ios' ? 52 : 32;
-  const DOCK_H = Platform.OS === 'ios' ? 152 : 136;
-  const stageH = H - DOCK_H;
-  /** 방위 눈금 · 배율 줄의 자리(무대 아래에서) */
-  const RULER_FROM_BOTTOM = 112;
-  const ZOOM_FROM_BOTTOM = 64;
+  const [rootH, setRootH] = useState(H);
+  const [stageLayoutH, setStageLayoutH] = useState(Math.max(240, H - 220));
+  const stageLayoutHRef = useRef(stageLayoutH);
+  stageLayoutHRef.current = stageLayoutH;
+  /** 방위 눈금 자리(무대 아래에서) */
+  const RULER_FROM_BOTTOM = 44;
 
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   // 3D 예측은 하늘 화면의 장면을 공유해 그립니다(primarySky.ts).
@@ -308,12 +309,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       } else if (touches.length === 1 && (viewModeRef.current !== 'camera' || frozenViewRef.current !== null)) {
         const curAz = frozenViewRef.current
           ? frozenViewRef.current.azDeg
-          : ((cameraFacing === 'front' ? deviceAzimuthRef.current + 180 : deviceAzimuthRef.current) % 360 + 360) % 360;
+          : ((cameraFacingRef.current === 'front' ? deviceAzimuthRef.current + 180 : deviceAzimuthRef.current) % 360 + 360) % 360;
         const curEl = frozenViewRef.current
           ? frozenViewRef.current.elDeg
-          : Math.max(-90, Math.min(90, cameraFacing === 'front' ? -devicePitchRef.current : devicePitchRef.current));
-        const curRoll = frozenViewRef.current?.rollDeg ?? 0;
-        const start = { azDeg: curAz, elDeg: curEl, rollDeg: curRoll };
+          : Math.max(-90, Math.min(90, cameraFacingRef.current === 'front' ? -devicePitchRef.current : devicePitchRef.current));
+        const start = { azDeg: curAz, elDeg: curEl, rollDeg: 0 };
         panStartView.current = start;
         if (!frozenViewRef.current) {
           setFrozenView(start);
@@ -332,10 +332,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         setZoom(newZoom);
       } else if (touches.length === 1 && panStartView.current) {
         const degPerPxX = opticsRef.current.hFovDeg / Math.max(1, W);
-        const degPerPxY = opticsRef.current.vFovDeg / Math.max(1, stageH);
+        const degPerPxY = opticsRef.current.vFovDeg / Math.max(1, stageLayoutHRef.current);
         const nextAz = ((panStartView.current.azDeg - gs.dx * degPerPxX) % 360 + 360) % 360;
-        const nextEl = Math.max(-85, Math.min(89, panStartView.current.elDeg + gs.dy * degPerPxY));
-        setFrozenView({ azDeg: nextAz, elDeg: nextEl, rollDeg: panStartView.current.rollDeg });
+        const nextEl = Math.max(-45, Math.min(85, panStartView.current.elDeg + gs.dy * degPerPxY));
+        setFrozenView({ azDeg: nextAz, elDeg: nextEl, rollDeg: 0 });
+        if (viewModeRef.current !== 'camera') {
+          getPrimarySky()?.setCameraView(nextAz, nextEl, opticsRef.current.vFovDeg);
+        }
       }
     },
     onPanResponderRelease: () => {
@@ -348,7 +351,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       panStartView.current = null;
       setIsInteracting(false);
     }
-  }), [zoom, cameraFacing, W, stageH]);
+  }), [zoom, W]);
 
   // 2. Exposure Vertical Slider PanResponder
   const EXPOSURE_SLIDER_HEIGHT = EXPOSURE_TRACK_H;
@@ -969,14 +972,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 통합 뷰 전환 & 방향 고정(Freeze) & 배율/장노출 프리뷰 ──
   const displayAz = frozenView ? frozenView.azDeg : effectiveAz;
   const displayEl = frozenView ? frozenView.elDeg : effectivePitch;
-  const displayRoll = frozenView ? frozenView.rollDeg : 0;
+  const displayRoll = 0;
 
   const remoteViewNowRef = useRef<() => { az: number; el: number; fov: number }>(() => ({ az: 0, el: 0, fov: 60 }));
   const remoteViewNow = useCallback(() => remoteViewNowRef.current(), []);
   const tzHours = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
   const optics = useMemo(
-    () => previewOptics(W, stageH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
-    [W, stageH, measuredHfov, currentMagnification],
+    () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
+    [W, stageLayoutH, measuredHfov, currentMagnification],
   );
   opticsRef.current = { hFovDeg: optics.hFovDeg, vFovDeg: optics.vFovDeg };
 
@@ -1132,6 +1135,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const longExpFileRef = useRef<string | null>(null);
   const longExpReqIdRef = useRef(0);
 
+  const longExpTimeKey = isTimeMachineEnabled
+    ? Math.floor(currentTime.getTime() / 60_000)
+    : Math.floor(currentTime.getTime() / 300_000);
+
   useEffect(() => {
     // 조작 중이거나 천체+3D시뮬 모드가 아니면 이전 장노출 스틸을 즉시 걷어 60fps 3D가 보이게 합니다.
     const shouldRender =
@@ -1145,9 +1152,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     longExpReqIdRef.current += 1;
     const reqId = longExpReqIdRef.current;
-    setLongExpPreviewUri(null);
 
     if (!shouldRender) {
+      setLongExpPreviewUri(null);
       setIsLongExpRendering(false);
       return;
     }
@@ -1219,7 +1226,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     astroSimParams.exposureGain,
     astroSimParams.starBoost,
     astroSimParams.shadowLift,
-    currentTime,
+    longExpTimeKey,
     longExpRefreshTick,
   ]);
 
@@ -1228,9 +1235,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setFrozenView(null);
       return;
     }
-    const r = rawRotationRef.current;
-    const rollDeg = r ? attitudeFromEuler(r.a, r.b, r.g).rollDeg : 0;
-    setFrozenView({ azDeg: effectiveAz, elDeg: effectivePitch, rollDeg });
+    setFrozenView({ azDeg: effectiveAz, elDeg: effectivePitch, rollDeg: 0 });
     setLockedTarget(null);
     if (viewMode === 'camera') {
       setViewMode('sim');
@@ -1984,7 +1989,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const isTransparentStage = viewMode !== 'camera';
 
   return (
-    <View style={[styles.overlayRoot, isTransparentStage && !astroResult && astroNightPhase === null && !previewUri && { backgroundColor: 'transparent' }]}>
+    <View
+      style={[styles.overlayRoot, isTransparentStage && !astroResult && astroNightPhase === null && !previewUri && { backgroundColor: 'transparent' }]}
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 0 && Math.abs(h - rootH) > 1) setRootH(h);
+      }}
+    >
       <View style={[styles.container, isTransparentStage && !astroResult && astroNightPhase === null && !previewUri && { backgroundColor: 'transparent' }]}>
         {astroResult ? (
           <AstroResultView
@@ -2201,7 +2212,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           // 카메라 위에 해 경로가 없었습니다. 이제 카메라가 화면을 채우고 그 위에 해 경로를 겹칩니다(`SunPathOverlay`).
           // 3D 예측은 **같은 크기로 늘 붙어 있고**(GL 버퍼 크기를 바꾸지 않게) 평소에는 "예측 보기" 단추 안으로 줄여 둡니다.
           <View style={[styles.liveRoot, isTransparentStage && { backgroundColor: 'transparent' }]}>
-            <View style={[styles.stage, { height: stageH }, isTransparentStage && { backgroundColor: 'transparent' }]}>
+            <View
+              style={[styles.stage, isTransparentStage && { backgroundColor: 'transparent' }]}
+              onLayout={(e) => {
+                const h = e.nativeEvent.layout.height;
+                if (h > 0 && Math.abs(h - stageLayoutH) > 1) setStageLayoutH(h);
+              }}
+            >
               {viewMode !== 'sim' && astroNightPhase === null && !astroResult && !previewUri && (
                 <View style={[StyleSheet.absoluteFill, viewMode === 'blend' && { opacity: 0.45 }]} pointerEvents="none">
                   <CameraView
@@ -2212,11 +2229,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 </View>
               )}
-              {/* 천체 3D 시뮬레이션 정지 시 자동 장노출 프리뷰 */}
+              {/* 천체 3D 시뮬레이션 정지 시 자동 장노출 프리뷰 — SkyScene3D와 동일한 전체 높이(rootH) 기준으로 배치해 잘림/들썩임 방지 */}
               {cameraTab === 'astro' && viewMode === 'sim' && longExpPreviewUri && (
                 <Image
                   source={{ uri: longExpPreviewUri }}
-                  style={[StyleSheet.absoluteFill, { width: W, height: stageH }]}
+                  style={{ position: 'absolute', top: 0, left: 0, width: W, height: rootH }}
                   resizeMode="cover"
                   fadeDuration={120}
                 />
@@ -2236,105 +2253,201 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   pointerEvents="none"
                 />
               )}
-              <View style={StyleSheet.absoluteFill} {...stagePanResponder.panHandlers} pointerEvents="box-none" />
+              <View style={StyleSheet.absoluteFill} {...stagePanResponder.panHandlers} pointerEvents="auto" />
               {cameraFacing === 'back' && viewMode !== 'sim' && (
                 <SunPathOverlay
                   width={W}
-                  height={stageH}
+                  height={stageLayoutH}
                   optics={optics}
                   attitude={overlayAttitude}
                   path={sunDayPathPts}
                   sun={{ az: sunPos.azimuth, alt: apparentAltitude(sunPos.altitude) }}
                   sunLabel={`${L3(language, '태양', 'Sun', '太陽')} ${apparentAltitude(sunPos.altitude) >= 0 ? '+' : ''}${apparentAltitude(sunPos.altitude).toFixed(1)}°`}
                   event={markerEvent ? { az: markerEvent.az, label: `${t(markerEvent.type, language)} ${hhmmAt(markerEvent.at)}` } : null}
-                  rulerY={stageH - RULER_FROM_BOTTOM}
+                  rulerY={stageLayoutH - RULER_FROM_BOTTOM}
                 />
               )}
-            </View>
 
-            {/* 아래 도킹 — 화면 보정 · 방위 맞춤 · 셔터 · 방향 고정 */}
-            <View style={[styles.dock, { height: DOCK_H }]}>
-              <PressScale
-                style={styles.dockBtn}
-                onPress={handleVisionCalibrate}
-                onLongPress={handleSunSnap}
-                disabled={isVisionRunning || viewMode === 'sim'}
-                accessibilityRole="button"
-                accessibilityLabel={L3(language, '화면 보정 — 길게 누르면 해에 맞춤', 'Auto-align — long press to snap to the Sun', '画面補正 — 長押しで太陽に合わせる')}
-              >
-                <View style={[styles.dockIcon, (isVisionRunning || viewMode === 'sim') && { opacity: 0.45 }]}>
-                  {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={18} color={color.sun} />}
+              {/* 무대 위 최소 상태 HUD (닫기 · 방위/고도 · 안내 배지 · 노출) */}
+              <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+                <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
+                  <PressScale style={styles.hudBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close', language)}>
+                    <X size={18} color={color.text} />
+                  </PressScale>
+
+                  <View style={styles.topRightGroup} pointerEvents="box-none">
+                    {frozenView && (
+                      <PressScale
+                        style={styles.guideTargetBtn}
+                        onPress={handleGuideToFrozenView}
+                        accessibilityRole="button"
+                        accessibilityLabel={L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')}
+                      >
+                        <Crosshair size={13} color={color.onAccent} />
+                        <Text style={styles.guideTargetBtnText}>
+                          {L3(language, '이 각도로 맞추기', 'Aim here', 'この角度へ')}
+                        </Text>
+                      </PressScale>
+                    )}
+
+                    <View style={[styles.azBox, frozenView && styles.azBoxFrozen]}>
+                      <Text style={[styles.microText, frozenView && { color: color.accent }]}>
+                        {`${frozenView ? 'LOCK ' : ''}AZ ${Math.round(displayAz)}°`}
+                      </Text>
+                      <Text style={[styles.microText, frozenView && { color: color.accent }]}>
+                        {`ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-                <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '화면 보정', 'Align', '画面補正')}</Text>
-              </PressScale>
 
-              <PressScale style={styles.dockBtn} onPress={handleCalibrate} accessibilityRole="button" accessibilityLabel={L3(language, '방위 맞춤', 'Calibrate heading', '方位補正')}>
-                <View style={styles.dockIcon}><RotateCcw size={18} color={color.text} /></View>
-                <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '방위 맞춤', 'Heading', '方位補正')}</Text>
-              </PressScale>
+                <View style={[styles.statusCol, { top: TOP_INSET + TOUCH + space.sm }]} pointerEvents="none">
+                  <View style={styles.badge}>
+                    {viewMode !== 'camera' ? (
+                      <>
+                        <Layers size={12} color={color.accent} />
+                        <Text style={styles.badgeText}>
+                          {cameraTab === 'astro'
+                            ? L3(language, `장노출 ${Math.round(astroSettings.durationSec / 60)}m`, `Long Exp ${Math.round(astroSettings.durationSec / 60)}m`, `長時間 ${Math.round(astroSettings.durationSec / 60)}m`)
+                            : viewMode === 'blend'
+                              ? L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
+                              : L3(language, '3D 시뮬레이션', '3D Simulation', '3Dシミュレーション')}
+                        </Text>
+                        <Text style={styles.microText}>
+                          {`${currentMagnification.toFixed(1)}x · FOV ${Math.round(optics.vFovDeg)}°`}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.badgeText}>{L3(language, '실제 카메라', 'Live camera', '実カメラ')}</Text>
+                        <View style={[styles.dot, { backgroundColor: headingTone }]} />
+                        <Text style={styles.microText}>{headingWord}</Text>
+                      </>
+                    )}
+                  </View>
 
-              <PressScale
-                style={[
-                  styles.shutter,
-                  cameraTab === 'astro' && { borderColor: color.moon },
-                  isCapturing && { opacity: 0.5 },
-                ]}
-                onPress={() => {
-                  Vibration.cancel();
-                  if (viewMode === 'sim') {
-                    if (frozenView) handleGuideToFrozenView();
-                    else setViewMode('camera');
-                    return;
-                  }
-                  if (cameraTab === 'astro') handleAstroStart();
-                  else handleCapturePress();
-                }}
-                disabled={isCapturing}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
-              >
-                <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
-                  {isCapturing ? (
-                    <ActivityIndicator size="small" color={color.onAccent} />
-                  ) : viewMode === 'sim' ? (
-                    <Camera size={22} color={color.onAccent} />
-                  ) : cameraTab === 'astro' ? (
-                    <Moon size={22} color={color.onAccent} />
-                  ) : (
-                    <Camera size={22} color={color.onAccent} />
+                  {cameraTab === 'astro' && viewMode === 'sim' && (isLongExpRendering || longExpPreviewUri) && (
+                    <View style={styles.longExpBadge}>
+                      {isLongExpRendering ? (
+                        <>
+                          <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
+                          <Text style={[styles.microText, { color: color.moon }]}>
+                            {L3(language, '장노출 결과 렌더링 중…', 'Rendering long-exposure preview…', '長時間露光を計算中…')}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={[styles.microText, { color: color.moon }]}>
+                          {L3(
+                            language,
+                            `${astroSettings.mode === 'tracked' ? '별 추적' : '별 궤적'} ${Math.round(astroSettings.durationSec / 60)}분 프리뷰 · 드래그하면 3D로 회전`,
+                            `${astroSettings.mode === 'tracked' ? 'Tracked' : 'Trails'} ${Math.round(astroSettings.durationSec / 60)}m preview · drag to pan`,
+                            `${astroSettings.mode === 'tracked' ? '追尾' : '軌跡'} ${Math.round(astroSettings.durationSec / 60)}分プレビュー`,
+                          )}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {cameraTab === 'sunset' && countdown && (
+                    <View style={styles.countdownInline}>
+                      <View style={[styles.dot, { backgroundColor: color.sun }]} />
+                      <Text style={styles.countdownInlineLabel}>{countdown.label}</Text>
+                      <Text style={styles.countdownInlineVal}>{countdown.value}</Text>
+                    </View>
+                  )}
+
+                  {cameraTab === 'astro' && (
+                    <AstroForecastBanner
+                      analysis={astroAnalysis}
+                      durationSec={astroSettings.durationSec}
+                      language={language}
+                    />
+                  )}
+                  {hasInterference && viewMode !== 'sim' && (
+                    <View style={styles.banner}>
+                      <Text style={[styles.bannerText, { color: color.warning }]}>
+                        {L3(language, '자기 간섭! 폰을 8자로 움직여 주세요', 'Magnetic interference! Move the phone in a figure 8', '磁気干渉!スマホを8の字に動かしてください')}
+                      </Text>
+                    </View>
+                  )}
+                  {visionStatus && (
+                    <View style={styles.banner}>
+                      <Text style={styles.bannerText}>
+                        {`${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
+                      </Text>
+                    </View>
+                  )}
+                  {viewMode !== 'sim' && headingStatus && !headingStatus.seeded && (
+                    <View style={styles.banner}>
+                      <Text style={styles.bannerText}>
+                        {headingStatus.lastReject === 'ill-pose'
+                          ? L3(language, '방위 보정 중 — 폰을 세워 지평선을 향해 주세요', 'Calibrating — hold the phone upright toward the horizon', '方位補正中 — スマホを立てて地平線に向けてください')
+                          : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
+                            ? L3(language, '자이로 신호를 기다리는 중', 'Waiting for motion sensor', 'ジャイロ信号を待っています')
+                            : L3(language, `방위 보정 중 (${headingStatus.seedCount}/8)`, `Calibrating heading (${headingStatus.seedCount}/8)`, `方位補正中 (${headingStatus.seedCount}/8)`)}
+                      </Text>
+                    </View>
+                  )}
+                  {viewMode !== 'sim' && headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
+                    <View style={styles.banner}>
+                      <Text style={styles.bannerText}>
+                        {L3(language, '자북 기준입니다 — 약 8° 어긋납니다. 화면 보정을 길게 눌러 해에 맞추세요', 'Magnetic north only (~8° off). Long-press Align to snap to the Sun', '磁北基準です — 約8°ずれます。画面補正を長押しして太陽に合わせてください')}
+                      </Text>
+                    </View>
                   )}
                 </View>
-              </PressScale>
 
-              {/* 방향 고정(Freeze) / 해제 — 폰을 내려도 해당 방향의 배율·장노출 결과를 탐색 */}
-              <PressScale
-                style={styles.dockBtn}
-                onPress={handleToggleFreeze}
-                accessibilityRole="button"
-                accessibilityLabel={frozenView
-                  ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
-                  : L3(language, '현재 방향 고정 후 시뮬레이션 보기', 'Freeze current direction in 3D simulation', '現在の方向を固定して3D表示')}
-              >
-                <View style={[styles.dockIcon, frozenView && styles.dockIconFrozen]}>
-                  {frozenView
-                    ? <Unlock size={18} color={color.accent} />
-                    : <Lock size={18} color={color.text} />}
-                </View>
-                <Text style={[styles.dockLabel, frozenView && { color: color.accent }]} numberOfLines={1}>
-                  {frozenView ? L3(language, '내 각도로', 'Live', '現在角') : L3(language, '방향 고정', 'Freeze', '方向固定')}
-                </Text>
-              </PressScale>
+                {/* 목표 방향 각도 맞추기 진동·십자 가이드 HUD */}
+                {lockedTarget && guideState && viewMode === 'camera' && (
+                  <DirectionGuideOverlay
+                    target={lockedTarget}
+                    guide={guideState}
+                    vibrationEnabled={vibrationGuideOn}
+                    onToggleVibration={() => setVibrationGuideOn(v => !v)}
+                    onClearTarget={() => {
+                      Vibration.cancel();
+                      setLockedTarget(null);
+                    }}
+                    stageHeight={stageLayoutH}
+                    language={language}
+                  />
+                )}
+
+                {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 */}
+                {viewMode !== 'sim' && (
+                  <View style={[styles.exposure, { top: TOP_INSET + TOUCH + space.sm }]}>
+                    <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
+                    <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
+                      <View style={styles.exposureLine} />
+                      <View
+                        style={[
+                          styles.exposureFill,
+                          cameraTab === 'astro' && { backgroundColor: color.moon },
+                          { height: `${((exposure + 1) / 2) * 100}%` },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.exposureThumb,
+                          cameraTab === 'astro' && { borderColor: color.moon },
+                          { bottom: `${((exposure + 1) / 2) * 100}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.microText}>
+                      {cameraTab === 'astro'
+                        ? `${exposure >= 0 ? '+' : ''}${Math.round(exposure * 100)}%`
+                        : `${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
 
-            {/* 무대 위 조작 — 카메라 / 겹침 / 3D 모두에서 일관되게 유지 */}
-            <View style={[styles.hud, { height: stageH }]} pointerEvents="box-none">
-              <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
-                <PressScale style={styles.hudBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close', language)}>
-                  <X size={18} color={color.text} />
-                </PressScale>
-
-                {/* 상단 [ 노을 | 천체 ] 카메라 모드 탭 */}
+            {/* 하단 통합 컨트롤 덱 — 뷰파인더 위에 떠 있지 않도록 모든 조작을 아래 패널에 정돈 */}
+            <View style={styles.bottomDeck}>
+              {/* 1줄: [ 노을 | 천체 ] + [ 카메라 | 겹침 | 3D 시뮬 ] */}
+              <View style={styles.deckRow}>
                 <View style={styles.tabGroup} accessibilityRole="tablist">
                   <PressScale
                     style={[styles.tabPill, cameraTab === 'sunset' && styles.tabPillOn]}
@@ -2342,7 +2455,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     accessibilityRole="tab"
                     accessibilityState={{ selected: cameraTab === 'sunset' }}
                   >
-                    <Sun size={13} color={cameraTab === 'sunset' ? color.sun : color.textDim} />
+                    <Sun size={12} color={cameraTab === 'sunset' ? color.sun : color.textDim} />
                     <Text style={[styles.tabPillText, cameraTab === 'sunset' && { color: color.text }]}>
                       {L3(language, '노을', 'Sunset', '夕焼け')}
                     </Text>
@@ -2353,25 +2466,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     accessibilityRole="tab"
                     accessibilityState={{ selected: cameraTab === 'astro' }}
                   >
-                    <Moon size={13} color={cameraTab === 'astro' ? color.moon : color.textDim} />
+                    <Moon size={12} color={cameraTab === 'astro' ? color.moon : color.textDim} />
                     <Text style={[styles.tabPillText, cameraTab === 'astro' && { color: color.moon }]}>
                       {L3(language, '천체', 'Astro', '天体')}
                     </Text>
                   </PressScale>
                 </View>
 
-                <View style={[styles.azBox, frozenView && styles.azBoxFrozen]}>
-                  <Text style={[styles.microText, frozenView && { color: color.accent }]}>
-                    {`${frozenView ? 'LOCK ' : ''}AZ ${Math.round(displayAz)}°`}
-                  </Text>
-                  <Text style={[styles.microText, frozenView && { color: color.accent }]}>
-                    {`ALT ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(1)}°`}
-                  </Text>
-                </View>
-              </View>
-
-              {/* 3단 뷰 전환 [ 카메라 | 겹침 | 3D ] + 고정 각도 맞추기 버튼 */}
-              <View style={[styles.modeRow, { top: TOP_INSET + TOUCH + space.sm }]} pointerEvents="box-none">
                 <View style={styles.modeSegment} accessibilityRole="tablist">
                   {([
                     { key: 'camera' as const, label: L3(language, '카메라', 'Camera', 'カメラ') },
@@ -2395,230 +2496,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     );
                   })}
                 </View>
-
-                {frozenView && (
-                  <PressScale
-                    style={styles.guideTargetBtn}
-                    onPress={handleGuideToFrozenView}
-                    accessibilityRole="button"
-                    accessibilityLabel={L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')}
-                  >
-                    <Crosshair size={13} color={color.onAccent} />
-                    <Text style={styles.guideTargetBtnText}>
-                      {L3(language, '이 각도로 맞추기', 'Aim here', 'この角度へ')}
-                    </Text>
-                  </PressScale>
-                )}
               </View>
 
-              <View style={[styles.statusCol, { top: TOP_INSET + TOUCH + space.sm + 38 }]} pointerEvents="none">
-                <View style={styles.badge}>
-                  {viewMode !== 'camera' ? (
-                    <>
-                      <Layers size={12} color={color.accent} />
-                      <Text style={styles.badgeText}>
-                        {cameraTab === 'astro'
-                          ? L3(language, `장노출 ${Math.round(astroSettings.durationSec / 60)}m`, `Long Exp ${Math.round(astroSettings.durationSec / 60)}m`, `長時間 ${Math.round(astroSettings.durationSec / 60)}m`)
-                          : viewMode === 'blend'
-                            ? L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
-                            : L3(language, '3D 시뮬레이션', '3D Simulation', '3Dシミュレーション')}
-                      </Text>
-                      <Text style={styles.microText}>
-                        {`${currentMagnification.toFixed(1)}x · FOV ${Math.round(optics.vFovDeg)}°`}
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.badgeText}>{L3(language, '실제 카메라', 'Live camera', '実カメラ')}</Text>
-                      <View style={[styles.dot, { backgroundColor: headingTone }]} />
-                      <Text style={styles.microText}>{headingWord}</Text>
-                    </>
-                  )}
-                </View>
-
-                {cameraTab === 'astro' && viewMode === 'sim' && (isLongExpRendering || longExpPreviewUri) && (
-                  <View style={styles.longExpBadge}>
-                    {isLongExpRendering ? (
-                      <>
-                        <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
-                        <Text style={[styles.microText, { color: color.moon }]}>
-                          {L3(language, '장노출 결과 렌더링 중…', 'Rendering long-exposure preview…', '長時間露光を計算中…')}
-                        </Text>
-                      </>
-                    ) : (
-                      <Text style={[styles.microText, { color: color.moon }]}>
-                        {L3(
-                          language,
-                          `${astroSettings.mode === 'tracked' ? '별 추적' : '별 궤적'} ${Math.round(astroSettings.durationSec / 60)}분 프리뷰 · 드래그하면 3D로 회전`,
-                          `${astroSettings.mode === 'tracked' ? 'Tracked' : 'Trails'} ${Math.round(astroSettings.durationSec / 60)}m preview · drag to pan`,
-                          `${astroSettings.mode === 'tracked' ? '追尾' : '軌跡'} ${Math.round(astroSettings.durationSec / 60)}分プレビュー`,
-                        )}
-                      </Text>
-                    )}
-                  </View>
-                )}
-
-                {cameraTab === 'sunset' && countdown && (
-                  <View style={styles.countdownInline}>
-                    <View style={[styles.dot, { backgroundColor: color.sun }]} />
-                    <Text style={styles.countdownInlineLabel}>{countdown.label}</Text>
-                    <Text style={styles.countdownInlineVal}>{countdown.value}</Text>
-                  </View>
-                )}
-
-                {cameraTab === 'astro' && (
-                  <AstroForecastBanner
-                    analysis={astroAnalysis}
-                    durationSec={astroSettings.durationSec}
-                    language={language}
-                  />
-                )}
-                {hasInterference && viewMode !== 'sim' && (
-                  <View style={styles.banner}>
-                    <Text style={[styles.bannerText, { color: color.warning }]}>
-                      {L3(language, '자기 간섭! 폰을 8자로 움직여 주세요', 'Magnetic interference! Move the phone in a figure 8', '磁気干渉!スマホを8の字に動かしてください')}
-                    </Text>
-                  </View>
-                )}
-                {visionStatus && (
-                  <View style={styles.banner}>
-                    <Text style={styles.bannerText}>
-                      {`${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
-                    </Text>
-                  </View>
-                )}
-                {viewMode !== 'sim' && headingStatus && !headingStatus.seeded && (
-                  <View style={styles.banner}>
-                    <Text style={styles.bannerText}>
-                      {headingStatus.lastReject === 'ill-pose'
-                        ? L3(language, '방위 보정 중 — 폰을 세워 지평선을 향해 주세요', 'Calibrating — hold the phone upright toward the horizon', '方位補正中 — スマホを立てて地平線に向けてください')
-                        : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
-                          ? L3(language, '자이로 신호를 기다리는 중', 'Waiting for motion sensor', 'ジャイロ信号を待っています')
-                          : L3(language, `방위 보정 중 (${headingStatus.seedCount}/8)`, `Calibrating heading (${headingStatus.seedCount}/8)`, `方位補正中 (${headingStatus.seedCount}/8)`)}
-                    </Text>
-                  </View>
-                )}
-                {viewMode !== 'sim' && headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
-                  <View style={styles.banner}>
-                    <Text style={styles.bannerText}>
-                      {L3(language, '자북 기준입니다 — 약 8° 어긋납니다. 화면 보정을 길게 눌러 해에 맞추세요', 'Magnetic north only (~8° off). Long-press Align to snap to the Sun', '磁北基準です — 約8°ずれます。画面補正を長押しして太陽に合わせてください')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* 목표 방향 각도 맞추기 진동·십자 가이드 HUD */}
-              {lockedTarget && guideState && viewMode === 'camera' && (
-                <DirectionGuideOverlay
-                  target={lockedTarget}
-                  guide={guideState}
-                  vibrationEnabled={vibrationGuideOn}
-                  onToggleVibration={() => setVibrationGuideOn(v => !v)}
-                  onClearTarget={() => {
-                    Vibration.cancel();
-                    setLockedTarget(null);
-                  }}
-                  stageHeight={stageH}
-                  language={language}
-                />
-              )}
-
-              {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 */}
-              {viewMode !== 'sim' && (
-                <View style={[styles.exposure, { top: TOP_INSET + TOUCH + 92 }]}>
-                  <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
-                  <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
-                    <View style={styles.exposureLine} />
-                    <View
-                      style={[
-                        styles.exposureFill,
-                        cameraTab === 'astro' && { backgroundColor: color.moon },
-                        { height: `${((exposure + 1) / 2) * 100}%` },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.exposureThumb,
-                        cameraTab === 'astro' && { borderColor: color.moon },
-                        { bottom: `${((exposure + 1) / 2) * 100}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.microText}>
-                    {cameraTab === 'astro'
-                      ? `${exposure >= 0 ? '+' : ''}${Math.round(exposure * 100)}%`
-                      : `${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}
-                  </Text>
-                </View>
-              )}
-
-              {/* 시뮬레이션 시간 탐색 바 (겹침 / 3D 시뮬 시 미래·과거 시각 바로 이동) */}
-              {viewMode !== 'camera' && onTimeChange && (
-                <View
-                  style={[
-                    styles.timeBar,
-                    { bottom: cameraTab === 'astro' ? RULER_FROM_BOTTOM + 96 : RULER_FROM_BOTTOM + 8 },
-                  ]}
-                >
-                  <PressScale
-                    style={styles.timeStepBtn}
-                    onPress={() => onTimeChange(new Date(currentTime.getTime() - 3_600_000))}
-                  >
-                    <Text style={styles.timeStepText}>-1h</Text>
-                  </PressScale>
-                  <PressScale
-                    style={styles.timeStepBtn}
-                    onPress={() => onTimeChange(new Date(currentTime.getTime() - 900_000))}
-                  >
-                    <Text style={styles.timeStepText}>-15m</Text>
-                  </PressScale>
-                  <PressScale
-                    style={[styles.timeDisplayBtn, isTimeMachineEnabled && styles.timeDisplayBtnActive]}
-                    onPress={() => { if (isTimeMachineEnabled) onResetTime?.(); }}
-                  >
-                    <Clock size={12} color={isTimeMachineEnabled ? color.accent : color.textDim} />
-                    <Text style={[styles.timeDisplayText, isTimeMachineEnabled && { color: color.accent }]}>
-                      {hhmmAt(currentTime)}
-                    </Text>
-                  </PressScale>
-                  <PressScale
-                    style={styles.timeStepBtn}
-                    onPress={() => onTimeChange(new Date(currentTime.getTime() + 900_000))}
-                  >
-                    <Text style={styles.timeStepText}>+15m</Text>
-                  </PressScale>
-                  <PressScale
-                    style={styles.timeStepBtn}
-                    onPress={() => onTimeChange(new Date(currentTime.getTime() + 3_600_000))}
-                  >
-                    <Text style={styles.timeStepText}>+1h</Text>
-                  </PressScale>
-                </View>
-              )}
-
-              {/* 천체 모드 전용 조작 바 (구름 방해·노출시간·합성방식·ISO·카운트다운·세부설정 — 시뮬 중에도 유지) */}
-              {cameraTab === 'astro' && (
-                <AstroControlsOverlay
-                  settings={astroSettings}
-                  onChange={setAstroSettings}
-                  summary={astroShotSummary}
-                  caps={astroCaps}
-                  simParams={astroSimParams}
-                  showPrediction={viewMode !== 'camera'}
-                  isSimRendering={isLongExpRendering}
-                  onRefreshPrediction={() => {
-                    if (viewMode !== 'sim') setViewMode('sim');
-                    else setLongExpRefreshTick(v => v + 1);
-                  }}
-                  drawerOpen={astroDrawerOpen}
-                  onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
-                  language={language}
-                  bottomOffset={RULER_FROM_BOTTOM + 12}
-                />
-              )}
-
-              {/* 배율 · 카메라 전환 */}
-              <View style={[styles.zoomRow, { top: stageH - ZOOM_FROM_BOTTOM }]} pointerEvents="box-none">
+              {/* 2줄: [ 1x | 2x | 3x | 5x ] + 시간 탐색(시뮬/겹침) 또는 카메라 전환 */}
+              <View style={styles.deckRow}>
                 <View style={styles.zoomGroup} accessibilityRole="radiogroup">
                   {[1, 2, 3, 5].map((mag) => {
                     const sel = Math.abs(currentMagnification - mag) < 0.25;
@@ -2635,13 +2516,151 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     );
                   })}
                 </View>
+
+                <View style={styles.deckRowRight}>
+                  {viewMode !== 'camera' && onTimeChange && (
+                    <View style={styles.timeBar}>
+                      <PressScale
+                        style={styles.timeStepBtn}
+                        onPress={() => onTimeChange(new Date(currentTime.getTime() - 3_600_000))}
+                      >
+                        <Text style={styles.timeStepText}>-1h</Text>
+                      </PressScale>
+                      <PressScale
+                        style={styles.timeStepBtn}
+                        onPress={() => onTimeChange(new Date(currentTime.getTime() - 900_000))}
+                      >
+                        <Text style={styles.timeStepText}>-15m</Text>
+                      </PressScale>
+                      <PressScale
+                        style={[styles.timeDisplayBtn, isTimeMachineEnabled && styles.timeDisplayBtnActive]}
+                        onPress={() => { if (isTimeMachineEnabled) onResetTime?.(); }}
+                      >
+                        <Clock size={11} color={isTimeMachineEnabled ? color.accent : color.textDim} />
+                        <Text style={[styles.timeDisplayText, isTimeMachineEnabled && { color: color.accent }]}>
+                          {hhmmAt(currentTime)}
+                        </Text>
+                      </PressScale>
+                      <PressScale
+                        style={styles.timeStepBtn}
+                        onPress={() => onTimeChange(new Date(currentTime.getTime() + 900_000))}
+                      >
+                        <Text style={styles.timeStepText}>+15m</Text>
+                      </PressScale>
+                      <PressScale
+                        style={styles.timeStepBtn}
+                        onPress={() => onTimeChange(new Date(currentTime.getTime() + 3_600_000))}
+                      >
+                        <Text style={styles.timeStepText}>+1h</Text>
+                      </PressScale>
+                    </View>
+                  )}
+
+                  {viewMode !== 'sim' && (
+                    <PressScale
+                      style={styles.deckFlipBtn}
+                      onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
+                      accessibilityRole="button"
+                      accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
+                    >
+                      <RefreshCw size={15} color={color.text} />
+                    </PressScale>
+                  )}
+                </View>
+              </View>
+
+              {/* 3줄 (천체 탭): 천체 전용 조작 바 */}
+              {cameraTab === 'astro' && (
+                <AstroControlsOverlay
+                  inline
+                  settings={astroSettings}
+                  onChange={setAstroSettings}
+                  summary={astroShotSummary}
+                  caps={astroCaps}
+                  simParams={astroSimParams}
+                  showPrediction={viewMode !== 'camera'}
+                  isSimRendering={isLongExpRendering}
+                  onRefreshPrediction={() => {
+                    if (viewMode !== 'sim') setViewMode('sim');
+                    else setLongExpRefreshTick(v => v + 1);
+                  }}
+                  drawerOpen={astroDrawerOpen}
+                  onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
+                  language={language}
+                />
+              )}
+
+              {/* 4줄 (도킹): 화면 보정 · 방위 맞춤 · 셔터 · 방향 고정 */}
+              <View style={styles.dock}>
                 <PressScale
-                  style={styles.hudBtn}
-                  onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
+                  style={styles.dockBtn}
+                  onPress={handleVisionCalibrate}
+                  onLongPress={handleSunSnap}
+                  disabled={isVisionRunning || viewMode === 'sim'}
                   accessibilityRole="button"
-                  accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
+                  accessibilityLabel={L3(language, '화면 보정 — 길게 누르면 해에 맞춤', 'Auto-align — long press to snap to the Sun', '画面補正 — 長押しで太陽に合わせる')}
                 >
-                  <RefreshCw size={16} color={color.text} />
+                  <View style={[styles.dockIcon, (isVisionRunning || viewMode === 'sim') && { opacity: 0.45 }]}>
+                    {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={18} color={color.sun} />}
+                  </View>
+                  <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '화면 보정', 'Align', '画面補正')}</Text>
+                </PressScale>
+
+                <PressScale style={styles.dockBtn} onPress={handleCalibrate} accessibilityRole="button" accessibilityLabel={L3(language, '방위 맞춤', 'Calibrate heading', '方位補正')}>
+                  <View style={styles.dockIcon}><RotateCcw size={18} color={color.text} /></View>
+                  <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '방위 맞춤', 'Heading', '方位補正')}</Text>
+                </PressScale>
+
+                <PressScale
+                  style={[
+                    styles.shutter,
+                    cameraTab === 'astro' && { borderColor: color.moon },
+                    isCapturing && { opacity: 0.5 },
+                  ]}
+                  onPress={() => {
+                    Vibration.cancel();
+                    if (viewMode === 'sim') {
+                      if (frozenView) handleGuideToFrozenView();
+                      else setViewMode('camera');
+                      return;
+                    }
+                    if (cameraTab === 'astro') handleAstroStart();
+                    else handleCapturePress();
+                  }}
+                  disabled={isCapturing}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
+                >
+                  <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
+                    {isCapturing ? (
+                      <ActivityIndicator size="small" color={color.onAccent} />
+                    ) : viewMode === 'sim' ? (
+                      <Camera size={22} color={color.onAccent} />
+                    ) : cameraTab === 'astro' ? (
+                      <Moon size={22} color={color.onAccent} />
+                    ) : (
+                      <Camera size={22} color={color.onAccent} />
+                    )}
+                  </View>
+                </PressScale>
+
+                <PressScale
+                  style={styles.dockBtn}
+                  onPress={handleToggleFreeze}
+                  accessibilityRole="button"
+                  accessibilityLabel={frozenView
+                    ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
+                    : L3(language, '현재 방향 고정 후 시뮬레이션 보기', 'Freeze current direction in 3D simulation', '現在の方向を固定して3D表示')}
+                >
+                  <View style={[styles.dockIcon, frozenView && styles.dockIconFrozen]}>
+                    {frozenView
+                      ? <Unlock size={18} color={color.accent} />
+                      : <Lock size={18} color={color.text} />}
+                  </View>
+                  <Text style={[styles.dockLabel, frozenView && { color: color.accent }]} numberOfLines={1}>
+                    {frozenView ? L3(language, '내 각도로', 'Live', '現在角') : L3(language, '방향 고정', 'Freeze', '方向固定')}
+                  </Text>
                 </PressScale>
               </View>
             </View>
@@ -2672,12 +2691,42 @@ const styles = StyleSheet.create({
   },
   // ── 전체 화면 카메라(2026-10-25) ──
   liveRoot: { flex: 1, backgroundColor: '#000' },
-  stage: { width: '100%', overflow: 'hidden', backgroundColor: '#000' },
+  stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
+  bottomDeck: {
+    backgroundColor: color.panel,
+    borderTopWidth: 1,
+    borderColor: color.border,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingTop: space.sm,
+    paddingHorizontal: space.md,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 12,
+    gap: space.xs + 2,
+  },
+  deckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.xs,
+  },
+  deckRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+  },
+  deckFlipBtn: {
+    width: 34,
+    height: 32,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.fill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   dock: {
     flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    paddingHorizontal: space.lg, paddingTop: DOCK_PAD_TOP,
-    backgroundColor: color.panel, borderTopWidth: 1, borderColor: color.border,
-    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
+    paddingHorizontal: space.sm, paddingTop: space.xs,
   },
   dockBtn: { width: DOCK_BTN_W, height: DOCK_BTN_H, marginTop: (SHUTTER - DOCK_BTN_H) / 2, alignItems: 'center', gap: space.xs },
   dockIcon: {
@@ -2694,8 +2743,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: color.accent, alignItems: 'center', justifyContent: 'center' },
-  hud: { position: 'absolute', left: 0, right: 0, top: 0 },
   topRow: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space.sm },
+  topRightGroup: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   hudBtn: {
     width: TOUCH, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
     backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center',
@@ -2705,16 +2754,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
   },
   tabGroup: {
-    height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: 2, padding: 3,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong, backgroundColor: color.overlay,
+    height: 32, flexDirection: 'row', alignItems: 'center', gap: 2, padding: 2,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong, backgroundColor: color.fill,
   },
   tabPill: {
-    height: TOUCH - 8, paddingHorizontal: space.md, borderRadius: radius.xs,
-    flexDirection: 'row', alignItems: 'center', gap: 5,
+    height: 26, paddingHorizontal: space.sm + 2, borderRadius: radius.xs,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
   },
   tabPillOn: { backgroundColor: color.glowSoft, borderWidth: 1, borderColor: color.sun },
   tabPillAstroOn: { backgroundColor: 'rgba(165, 180, 252, 0.16)', borderWidth: 1, borderColor: color.moon },
-  tabPillText: { ...type.label, color: color.textDim },
+  tabPillText: { ...type.label, fontSize: 12, color: color.textDim },
   countdownInline: {
     height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
     borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
@@ -2732,15 +2781,6 @@ const styles = StyleSheet.create({
     borderColor: color.accentLine,
     backgroundColor: color.accentSoft,
   },
-  modeRow: {
-    position: 'absolute',
-    left: space.md,
-    right: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.sm,
-  },
   modeSegment: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2748,12 +2788,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: color.borderStrong,
-    backgroundColor: color.overlay,
+    backgroundColor: color.fill,
     gap: 2,
   },
   modeSegBtn: {
-    height: 28,
-    paddingHorizontal: space.sm + 2,
+    height: 26,
+    paddingHorizontal: space.sm,
     borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2765,7 +2805,7 @@ const styles = StyleSheet.create({
   },
   modeSegText: {
     ...type.label,
-    fontSize: 12,
+    fontSize: 11,
     color: color.textDim,
   },
   modeSegTextOn: {
@@ -2773,12 +2813,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   guideTargetBtn: {
-    height: 32,
+    height: TOUCH,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: space.sm + 2,
-    borderRadius: radius.sm,
+    borderRadius: radius.xs,
     backgroundColor: color.accent,
   },
   guideTargetBtnText: {
@@ -2799,36 +2839,35 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.82)',
   },
   timeBar: {
-    position: 'absolute',
-    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    padding: 4,
+    gap: 3,
+    padding: 2,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: color.borderStrong,
-    backgroundColor: color.overlay,
+    backgroundColor: color.fill,
   },
   timeStepBtn: {
-    height: 28,
-    paddingHorizontal: space.sm,
+    height: 26,
+    paddingHorizontal: 6,
     borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: color.fill,
+    backgroundColor: color.panelRaised,
   },
   timeStepText: {
     ...type.micro,
+    fontSize: 10,
     color: color.text,
     fontWeight: '700',
   },
   timeDisplayBtn: {
-    height: 28,
+    height: 26,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: space.sm + 2,
+    gap: 3,
+    paddingHorizontal: 6,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
@@ -2839,7 +2878,7 @@ const styles = StyleSheet.create({
   },
   timeDisplayText: {
     ...type.label,
-    fontSize: 12,
+    fontSize: 11,
     color: color.text,
   },
   microText: { ...type.micro, color: color.textDim },
@@ -2865,14 +2904,13 @@ const styles = StyleSheet.create({
     position: 'absolute', width: 20, height: 20, marginBottom: -10, borderRadius: 10,
     borderWidth: 2, borderColor: color.sun, backgroundColor: color.panelRaised,
   },
-  zoomRow: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  zoomGroup: { flexDirection: 'row', gap: space.sm },
+  zoomGroup: { flexDirection: 'row', gap: 4 },
   zoomBtn: {
-    width: 48, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
-    backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center',
+    width: 38, height: 32, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
+    backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center',
   },
   zoomBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
-  zoomText: { ...type.label, color: color.text },
+  zoomText: { ...type.label, fontSize: 11, color: color.text },
 
   container: {
     flex: 1,

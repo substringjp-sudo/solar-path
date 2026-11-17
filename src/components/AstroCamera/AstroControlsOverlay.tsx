@@ -137,7 +137,8 @@ interface AstroControlsOverlayProps {
   drawerOpen: boolean;
   onToggleDrawer: () => void;
   language: Language;
-  bottomOffset: number;
+  bottomOffset?: number;
+  inline?: boolean;
 }
 
 /**
@@ -155,7 +156,8 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
   drawerOpen,
   onToggleDrawer,
   language,
-  bottomOffset,
+  bottomOffset = 0,
+  inline = false,
 }) => {
   const minSubSec = caps.available ? Math.max(0.5, Number((caps.minExposureMs / 1000).toFixed(1))) : 1;
   const maxSubSec = caps.available ? Math.max(1, Math.floor(caps.maxExposureMs / 1000)) : 30;
@@ -184,9 +186,9 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
   };
 
   return (
-    <View style={[styles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
+    <View style={inline ? styles.wrapInline : [styles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
       {drawerOpen && (
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, inline && styles.drawerInline]}>
           <View style={styles.drawerSection}>
             <Text style={styles.drawerLabel}>
               {L3(language, `ISO 감도 (${summary.clampedIso})`, `ISO (${summary.clampedIso})`, `ISO (${summary.clampedIso})`)}
@@ -433,6 +435,10 @@ const styles = StyleSheet.create({
     right: TOUCH + space.md * 2,
     gap: space.xs,
   },
+  wrapInline: {
+    width: '100%',
+    gap: space.xs,
+  },
   drawer: {
     padding: space.sm,
     borderRadius: radius.md,
@@ -440,6 +446,14 @@ const styles = StyleSheet.create({
     borderColor: color.borderStrong,
     backgroundColor: color.overlay,
     gap: space.sm,
+  },
+  drawerInline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: '100%',
+    marginBottom: space.xs,
+    zIndex: 50,
   },
   drawerSection: { gap: 4 },
   drawerHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.xs },
