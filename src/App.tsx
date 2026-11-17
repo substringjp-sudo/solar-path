@@ -9,9 +9,7 @@ import { AppHeader, type AppTab } from './components/AppHeader';
 import { TabNavigator } from './components/TabNavigator';
 import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
 import { MapPicker } from './components/MapPicker';
-import { SunCamera } from './components/SunCamera';
-import { SimPickerOverlay } from './components/AstroCamera/SimPickerOverlay';
-import { createDefaultAstroSettings, type AstroSettingsState, type CameraTabMode, type DirectionTarget } from './utils/astroCameraUi';
+import { SunCamera, type CameraViewMode } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
@@ -261,29 +259,13 @@ export default function App() {
 
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
-  const [simPickerActive, setSimPickerActive] = React.useState(false);
-  const [simPickerMeta, setSimPickerMeta] = React.useState<{ cameraTab: CameraTabMode; astroSettings: AstroSettingsState }>(() => ({
-    cameraTab: 'sunset',
-    astroSettings: createDefaultAstroSettings(),
-  }));
-  const [cameraLockedTarget, setCameraLockedTarget] = React.useState<(DirectionTarget & { nonce: number }) | null>(null);
-  const phoneViewGetterRef = React.useRef<() => { az: number; el: number }>(() => ({ az: 0, el: 0 }));
+  const [cameraViewMode, setCameraViewMode] = React.useState<CameraViewMode>('camera');
 
   useEffect(() => {
     if (!isSunCameraVisible) {
-      setSimPickerActive(false);
-      setCameraLockedTarget(null);
+      setCameraViewMode('camera');
     }
   }, [isSunCameraVisible]);
-
-  useEffect(() => {
-    if (!isSunCameraVisible || !simPickerActive) return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setSimPickerActive(false);
-      return true;
-    });
-    return () => sub.remove();
-  }, [isSunCameraVisible, simPickerActive]);
 
   // 권한 체크 후 권한 거부 시 권한 요청 화면 렌더링
   if (locationPermission !== 'granted' && locationPermission !== null) {
@@ -308,12 +290,14 @@ export default function App() {
         <StatusBar barStyle={scheme === 'light' ? 'dark-content' : 'light-content'} translucent backgroundColor="transparent" />
         
         <View style={styles.mainContent}>
-        <AppHeader
-          activeTab={activeTab as AppTab}
-          setActiveTab={setActiveTab}
-          setSettingsVisible={setSettingsVisible}
-          setMapVisible={setMapVisible}
-        />
+        {!isSunCameraVisible && (
+          <AppHeader
+            activeTab={activeTab as AppTab}
+            setActiveTab={setActiveTab}
+            setSettingsVisible={setSettingsVisible}
+            setMapVisible={setMapVisible}
+          />
+        )}
 
         <TabNavigator
           activeTab={activeTab as AppTab}
@@ -332,14 +316,12 @@ export default function App() {
           removeGlobalPhoto={removeGlobalPhoto}
           setMapVisible={setMapVisible}
           onCameraPress={() => {
-            if (isSunCameraVisible && simPickerActive) {
-              setSimPickerActive(false);
-            } else {
-              setSunCameraVisible(true);
-            }
+            setActiveTab('sky');
+            setSunCameraVisible(true);
           }}
           onOpenDatePicker={() => setShowDatePicker(true)}
-          isSuspended={!isAppActive || (isSunCameraVisible && !simPickerActive) || isMapVisible || isSettingsVisible || isSavedListVisible}
+          isCameraOverlayActive={isSunCameraVisible}
+          isSuspended={!isAppActive || (isSunCameraVisible && cameraViewMode === 'camera') || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
       </View>
 
@@ -422,22 +404,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* 60fps 3D 시뮬레이션 구도·미래 시간 탐색 플로팅 오버레이 (카메라는 일시 언마운트) */}
-      <SimPickerOverlay
-        visible={isSunCameraVisible && simPickerActive}
-        cameraTab={simPickerMeta.cameraTab}
-        astroSettings={simPickerMeta.astroSettings}
-        currentTime={currentTime}
-        currentPhoneView={() => phoneViewGetterRef.current()}
-        onCloseToCamera={() => setSimPickerActive(false)}
-        onLockTarget={(t) => {
-          setCameraLockedTarget({ ...t, nonce: Date.now() });
-          setSimPickerActive(false);
-        }}
-        language={language}
-      />
-
-      {/* AR 노을 촬영 카메라 (닫힐 때 메모리/GPU/센서 완전 해제) */}
+      {/* AR 노을·천체 촬영 카메라 (단일 스테이지 오버레이 — 3D 씬을 공유하여 끊김 없이 전환) */}
       {isSunCameraVisible && (
         <SunCamera
           visible={isSunCameraVisible}
@@ -445,14 +412,11 @@ export default function App() {
           latitude={location?.coords.latitude || defaultCoords.latitude}
           longitude={location?.coords.longitude || defaultCoords.longitude}
           currentTime={currentTime}
+          onTimeChange={handleTimeChange}
+          isTimeMachineEnabled={isTimeMachineEnabled}
+          onResetTime={() => handleToggleTimeMachine(false)}
           goldenTimeInfo={goldenTimeInfo!}
-          simPickerActive={simPickerActive}
-          onEnterSimPicker={() => setSimPickerActive(true)}
-          lockedTargetProp={cameraLockedTarget}
-          onSyncPickerMeta={setSimPickerMeta}
-          onRegisterPhoneViewGetter={(fn) => {
-            phoneViewGetterRef.current = fn;
-          }}
+          onViewModeChange={setCameraViewMode}
         />
       )}
 

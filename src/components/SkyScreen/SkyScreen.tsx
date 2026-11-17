@@ -81,6 +81,7 @@ interface SkyScreenProps {
   onCameraPress?: () => void;
   /** 하단 막대의 날짜 글자를 누르면 — 달력 창(App 이 엽니다). */
   onOpenDatePicker?: () => void;
+  isCameraOverlayActive?: boolean;
 }
 
 export interface EventItem {
@@ -104,6 +105,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
   onOpenDatePicker,
+  isCameraOverlayActive = false,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
@@ -712,7 +714,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
       {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
       <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
-      <View style={styles.sceneWrapper}>
+      <View style={[styles.sceneWrapper, isCameraOverlayActive && { bottom: 0 }]}>
         <SkyScene3D
           ref={sceneRef}
           onAscendedChange={setAscended}
@@ -732,6 +734,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           timeline={timelineValid ? timeline : null}
           isActive={isActive}
           isSliding={isSliding}
+          disableGestures={isCameraOverlayActive}
+          hideHudOverlay={isCameraOverlayActive}
+          hideCompassBar={isCameraOverlayActive}
           registerPrimary
         />
 
@@ -750,6 +755,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         )}
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
+        {!isCameraOverlayActive && (
         <View style={overlayStyles.sceneOverlayButtons}>
           {/* 3D 요소 표시 설정 모달 */}
           <OverlayButton
@@ -778,6 +784,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </OverlayButton>
           )}
         </View>
+        )}
 
         {/* 날씨 수신 또는 백그라운드 24시간 하늘 사전 계산 진행률 배너 (터치 통과) */}
         {!weatherError && (isWeatherLoading || volPrewarm?.active) && (() => {
@@ -852,6 +859,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </View>
 
       {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
+      {!isCameraOverlayActive && (
       <PeekSheet
         theme={theme}
         maxHeight={stageH || undefined}
@@ -989,10 +997,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         </ScrollView>
       </PeekSheet>
+      )}
       </View>
 
       {/* ── 상시 노출: 날짜 + 시간 막대 한 벌(§143) ─────────────────────────
              ±1일 · ±1시간 · ±1년, 리드타임 정확도 띠, 데이터 기간 — `TimeBar/DateTimeBar.tsx`. */}
+      {!isCameraOverlayActive && (
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
         <DateTimeBar
           currentTime={currentTime}
@@ -1009,6 +1019,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onToggleTrackingSun={() => setTrackingTarget(prev => prev === 'sun' ? null : 'sun')}
         />
       </View>
+      )}
 
       <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
 

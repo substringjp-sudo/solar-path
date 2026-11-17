@@ -40,6 +40,7 @@ interface TabNavigatorProps {
   /** 하단 막대의 날짜 글자를 누르면 여는 달력 창 */
   onOpenDatePicker?: () => void;
   isSuspended?: boolean;
+  isCameraOverlayActive?: boolean;
 }
 
 export const TabNavigator: React.FC<TabNavigatorProps> = ({
@@ -60,6 +61,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   onCameraPress,
   onOpenDatePicker,
   isSuspended = false,
+  isCameraOverlayActive = false,
 }) => {
   const { width } = Dimensions.get('window');
 
@@ -142,6 +144,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           onCameraPress={onCameraPress}
           onOpenDatePicker={onOpenDatePicker}
           isActive={activeTab === 'sky' && !isSuspended}
+          isCameraOverlayActive={isCameraOverlayActive}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'forecast' && styles.hiddenPage]}>

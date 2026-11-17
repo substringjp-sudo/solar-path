@@ -335,6 +335,8 @@ interface SkyScene3DProps {
   cameraElevationProp?: number;
   /** 외부에서 강제 주입하는 카메라 시야각 FOV (카메라 줌 배율 연동 시 사용) */
   fovProp?: number;
+  /** 외부(카메라 오버레이 등)에서 제스처를 직접 처리할 때 씬 내부 PanResponder 비활성화 */
+  disableGestures?: boolean;
   /** 내부 FOV HUD 배지 숨김 여부 */
   hideHudOverlay?: boolean;
   /** 내부 하단 나침반 눈금자 Bar 숨김 여부 */
@@ -510,6 +512,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     registerPrimary = false,
     cameraElevationProp,
     fovProp,
+    disableGestures = false,
     hideHudOverlay = false,
     hideCompassBar = false,
     onAscendedChange,
@@ -1015,12 +1018,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cameraElevRef.current = Math.max(-45, Math.min(85, elDeg));
       setCameraElevation(cameraElevRef.current);
       if (fovDeg !== undefined && Number.isFinite(fovDeg)) {
-        fovRef.current = Math.max(20, Math.min(120, fovDeg));
+        fovRef.current = Math.max(10, Math.min(120, fovDeg));
+        zoomProgressRef.current = Math.max(0, Math.min(P_FOV_END, (fovRef.current - 30) / 90));
         if (cameraRef.current) {
           cameraRef.current.fov = fovRef.current;
           cameraRef.current.updateProjectionMatrix();
         }
         setCameraFov(fovRef.current);
+      } else if (zoomProgressRef.current > P_FOV_END) {
+        zoomProgressRef.current = (fovRef.current - 30) / 90;
       }
       trackingTargetRef.current = null;
       onSelectTrackingTargetRef.current?.(null);
@@ -1465,6 +1471,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cameraAzimuthPropRef = useRef(cameraAzimuthProp);
   const cameraElevationPropRef = useRef(cameraElevationProp);
   const fovPropRef = useRef(fovProp);
+  const disableGesturesRef = useRef(disableGestures);
+  disableGesturesRef.current = disableGestures;
 
   useEffect(() => {
     cameraAzimuthPropRef.current = cameraAzimuthProp;
@@ -1724,10 +1732,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
-      onMoveShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
-      onStartShouldSetPanResponderCapture: (evt) => evt.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponderCapture: (evt) => evt.nativeEvent.touches.length >= 2,
+      onStartShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
+      onMoveShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
+      onStartShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
+      onMoveShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
       /**
        * 씬을 잡은 동안에는 아무에게도 responder를 넘기지 않습니다.
        *
