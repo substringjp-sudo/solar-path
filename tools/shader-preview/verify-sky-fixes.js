@@ -37,9 +37,12 @@ const balancedBraces = (s) => {
     import { EffectComposer } from 'postprocessing';
     import { createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/volumetricScene.ts'))};
     import { hazeFromObs, buildLiveScene } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/liveScene.ts'))};
+    import { makeGenusWeather } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/cloudGenus.ts'))};
+    import { macroThresholdTable } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/macroShader.ts'))};
+    import { GENUS_FLOW } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/cloudFlow.ts'))};
     import { ICE_DIFFUSE_SCALE } from ${JSON.stringify(path.join(ROOT, 'src/components/VolumetricProbe/cloudDiffuse.ts'))};
     import { aerosolOpticsFromObs } from ${JSON.stringify(path.join(ROOT, 'src/utils/sunVisibility.ts'))};
-    (globalThis as any).__SKY_MOD = { Vector2, EffectComposer, createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS, hazeFromObs, buildLiveScene, ICE_DIFFUSE_SCALE, aerosolOpticsFromObs };
+    (globalThis as any).__SKY_MOD = { Vector2, EffectComposer, createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS, hazeFromObs, buildLiveScene, makeGenusWeather, macroThresholdTable, GENUS_FLOW, ICE_DIFFUSE_SCALE, aerosolOpticsFromObs };
   `);
   execFileSync('npx', [
     'esbuild', entry, '--bundle', '--format=cjs', '--platform=node',
@@ -120,6 +123,82 @@ const balancedBraces = (s) => {
   });
   const lowLayer = sceneStacked.input.layers[0];
   ok((lowLayer?.opts?.beamTransmittance ?? 1) < 0.9, `중·상층 덮개 아래 저층 beamTransmittance 감쇠 (${lowLayer?.opts?.beamTransmittance})`);
+
+  console.log('\n[6] 99%·강수 0.1mm 흐림 덮임 · flowCarve 고운량 감쇠 · 완전 덮임 0% 구멍');
+  await vol.setScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, az: 219.4, el: 15.2, fov: 67.3, date: qrDate,
+    layers: [{ genus: 'sc', cover: 0.5, baseKm: 1.1, thicknessM: 750, band: 'low' }],
+  });
+  const carveAt50 = vol.debug.clouds.cloudsPass.currentMaterial.uniforms.genusCarve.value.x;
+  ok(Math.abs(carveAt50 - 1.4) < 0.05, `저운량 sc 50%는 기존 flowCarve=${carveAt50.toFixed(2)} 유지`);
+
+  await vol.setScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, az: 219.4, el: 15.2, fov: 67.3, date: qrDate,
+    layers: [{ genus: 'sc', cover: 1.0, baseKm: 1.1, thicknessM: 750, band: 'low' }],
+  });
+  const carveAt100 = vol.debug.clouds.cloudsPass.currentMaterial.uniforms.genusCarve.value.x;
+  ok(carveAt100 === 0, `완전 흐림 100%는 flowCarve=${carveAt100} (파란 하늘 파냄 방지)`);
+
+  const fullTile = M.makeGenusWeather([{ genus: 'sc', cover: 1.0, opts: { flow: 1, windU: 15, windV: 5 } }], 64, 24, 7, [0], { seed: 7, n: 64, steps: 10, hours: 0.5, vrms: 2, specPow: 2.5, kmax: 8, psiEvery: 2, windDeg: 260, aniso: 1, rollDeg: 0, qPow: 2, kq: 12, qCorr: 0.5 });
+  const tileBytes = fullTile.image.data;
+  let zeroCount = 0;
+  for (let i = 0; i < 64 * 64; i++) if (tileBytes[i * 4] === 0) zeroCount++;
+  fullTile.dispose();
+  ok(zeroCount === 0, `흐름 타일 100% 덮임 시 음수 꼬리 누락 0px (zeroCount=${zeroCount})`);
+
+  const rainyNoProf = M.buildLiveScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, date: qrDate,
+    obs: { low: 99, mid: 20, high: 0, precipitation: 0.1, capeJkg: 400 },
+  });
+  ok(rainyNoProf.input.layers[0]?.cover === 1, `99%+강수 0.1mm(단면 없음/대류) → fullCover=${rainyNoProf.input.layers[0]?.cover}`);
+
+  const rainyOneLevel = M.buildLiveScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, date: qrDate,
+    obs: {
+      low: 99, mid: 20, high: 0, precipitation: 0.1, capeJkg: 50,
+      profileHeightM: [150, 760, 1460, 3000],
+      profileCoverPct: [10, 90, 35, 10],
+    },
+  });
+  ok(Boolean((rainyOneLevel.input.layers[0]?.opts)?.wave) && rainyOneLevel.input.layers[0]?.cover === 1,
+    `99%+강수 0.1mm+단일 습윤 기압면 → 비구름 wave 채우기 활성(cover=${rainyOneLevel.input.layers[0]?.cover})`);
+
+  const drizzleScattered = M.buildLiveScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, date: qrDate,
+    obs: { low: 24, mid: 10, high: 0, precipitation: 0.1 },
+  });
+  ok(Math.abs((drizzleScattered.input.layers[0]?.cover ?? 0) - 0.24) < 1e-6 && !(drizzleScattered.input.layers[0]?.opts)?.wave,
+    `음성 대조: 24%+강수 0.1mm는 흐림으로 부풀리지 않음 (cover=${drizzleScattered.input.layers[0]?.cover})`);
+
+  const rainyNearFull = M.buildLiveScene({
+    lat: 34.8155, lon: 137.2331, heightM: 4, date: qrDate,
+    obs: {
+      low: 89.8, mid: 40, high: 20, total: 100, precipitation: 0.25, capeJkg: 50,
+      profileHeightM: [150, 760, 1460, 3000],
+      profileCoverPct: [10, 88, 35, 10],
+    },
+  });
+  ok(rainyNearFull.input.layers[0]?.cover === 1 && Boolean((rainyNearFull.input.layers[0]?.opts)?.wave),
+    `저층 89.8%·전운 100%·강수 0.25mm → 만운/비구름 승격 (cover=${rainyNearFull.input.layers[0]?.cover})`);
+
+  const waveTile = M.makeGenusWeather([{ genus: 'ns', cover: 1.0, opts: { wave: 0.14, flow: 1, windU: 15, windV: 5 } }], 64, 24, 7, [0], { seed: 7, n: 64, steps: 10, hours: 0.5, vrms: 2, specPow: 2.5, kmax: 8, psiEvery: 2, windDeg: 260, aniso: 1, rollDeg: 0, qPow: 2, kq: 12, qCorr: 0.5 });
+  const waveBytes = waveTile.image.data;
+  const waveLut = M.macroThresholdTable(waveBytes, 64, 0);
+  let waveMin = 255, waveMax = 0;
+  for (let i = 0; i < 64 * 64; i++) { const v = waveBytes[i * 4]; if (v < waveMin) waveMin = v; if (v > waveMax) waveMax = v; }
+  waveTile.dispose();
+  ok(waveMax > waveMin && waveLut[48] < 0.99,
+    `ns+wave 타일 2D 명암 및 macro LUT 보존 (R=[${waveMin},${waveMax}], lut[48]=${waveLut[48].toFixed(3)})`);
+
+  const nonFlowFull = M.makeGenusWeather([{ genus: 'ns', cover: 1.0 }], 64, 24, 7);
+  const nonFlowBytes = nonFlowFull.image.data;
+  let nonFlowZeros = 0;
+  for (let i = 0; i < 64 * 64; i++) if (nonFlowBytes[i * 4] === 0) nonFlowZeros++;
+  nonFlowFull.dispose();
+  ok(nonFlowZeros === 0, `비흐름 ns 100% 덮임 시 음수/NaN 누락 0px (zeroCount=${nonFlowZeros})`);
+
+  ok((M.GENUS_FLOW.as?.flowErode ?? 0) >= 0.5 && (M.GENUS_FLOW.as?.flowCarve ?? 0) > 0,
+    `GENUS_FLOW.as 가장자리 침식/카빙 활성 (erode=${M.GENUS_FLOW.as?.flowErode}, carve=${M.GENUS_FLOW.as?.flowCarve})`);
 
   M.EffectComposer.prototype.addPass = origAdd;
   vol.dispose();

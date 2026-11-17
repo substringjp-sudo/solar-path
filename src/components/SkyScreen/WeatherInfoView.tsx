@@ -13,13 +13,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import {
-  Cloud,
   Wind,
-  Eye,
-  Droplets,
-  Sun,
   Flame,
   Activity,
   Code2,
@@ -28,6 +25,8 @@ import {
   Compass,
   Layers,
   Thermometer,
+  Clock,
+  RefreshCw,
 } from 'lucide-react-native';
 import {
   CloudData,
@@ -37,29 +36,45 @@ import {
   subscribeRawWeather,
   RawWeatherSnapshot,
 } from '../../utils/weather';
+import {
+  resolveWeatherDownloadInfo,
+  formatWeatherDownloadClock,
+  formatWeatherDownloadAge,
+} from '../../utils/cachePolicy';
+import { localDateString } from '../../utils/localDate';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useThemeColors } from '../../theme/useTheme';
 import { radius, mono } from '../../theme/tokens';
-import { t, Language } from '../../utils/i18n';
+import { t, L3, Language } from '../../utils/i18n';
 
 interface WeatherInfoViewProps {
   currentTime: Date;
+  targetDateStr?: string;
   interpolatedWeather: CloudData[];
   pathData: CloudPathData[];
   prediction?: SunsetPrediction | null;
   latitude: number;
   longitude: number;
+  cachedTimestampMs?: number | null;
+  isRefreshing?: boolean;
+  refreshError?: string | null;
+  onForceRefresh?: () => void;
   theme: any;
   language: Language;
 }
 
 export const WeatherInfoView: React.FC<WeatherInfoViewProps> = ({
   currentTime,
+  targetDateStr,
   interpolatedWeather,
   pathData,
   prediction,
   latitude,
   longitude,
+  cachedTimestampMs,
+  isRefreshing = false,
+  refreshError = null,
+  onForceRefresh,
   theme,
   language,
 }) => {
@@ -67,14 +82,41 @@ export const WeatherInfoView: React.FC<WeatherInfoViewProps> = ({
   const [subTab, setSubTab] = useState<'processed' | 'raw'>('processed');
   const [rawSnapshot, setRawSnapshot] = useState<RawWeatherSnapshot | null>(getLastRawWeather());
   const [showFullJson, setShowFullJson] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     setRawSnapshot(getLastRawWeather());
     const unsubscribe = subscribeRawWeather((snap) => {
       setRawSnapshot(snap);
+      setNowMs(Date.now());
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const effectiveDateStr = useMemo(
+    () => targetDateStr ?? localDateString(currentTime),
+    [targetDateStr, currentTime]
+  );
+
+  const downloadInfo = useMemo(
+    () =>
+      resolveWeatherDownloadInfo({
+        cacheEntry: cachedTimestampMs ? { timestamp: cachedTimestampMs, data: pathData } : null,
+        rawSnapshot,
+        pathData,
+        targetDateStr: effectiveDateStr,
+        latitude,
+        longitude,
+      }),
+    [cachedTimestampMs, pathData, rawSnapshot, effectiveDateStr, latitude, longitude]
+  );
+
+  const matchingRaw = downloadInfo.hasMatchingRawSnapshot ? rawSnapshot : null;
 
   // 관측점 (distance === 0) 현재 시각 보간 데이터
   const obs = interpolatedWeather[0] as CloudData | undefined;
@@ -85,7 +127,7 @@ export const WeatherInfoView: React.FC<WeatherInfoViewProps> = ({
   const timeStr = `${hh}:${mm}`;
 
   // Raw 데이터에서 현재 시각에 가장 가까운 시간 인덱스 데이터 찾기
-  const rawHourlyData = rawSnapshot?.mainForecast?.hourly || pathData[0]?.hourly;
+  const rawHourlyData = matchingRaw?.mainForecast?.hourly || pathData[0]?.hourly;
   const rawCurrentIndex = useMemo(() => {
     if (!rawHourlyData?.time || !Array.isArray(rawHourlyData.time)) return -1;
     const currentMs = currentTime.getTime();
@@ -103,17 +145,93 @@ export const WeatherInfoView: React.FC<WeatherInfoViewProps> = ({
   }, [rawHourlyData, currentTime]);
 
   const rawJsonString = useMemo(() => {
-    const targetObj = rawSnapshot?.mainForecast || (pathData[0]?.hourly ? { observerHourly: pathData[0].hourly } : null);
+    const targetObj = matchingRaw?.mainForecast || (pathData[0]?.hourly ? { observerHourly: pathData[0].hourly } : null);
     if (!targetObj) return null;
     try {
       return JSON.stringify(targetObj, null, 2);
     } catch {
       return String(targetObj);
     }
-  }, [rawSnapshot, pathData]);
+  }, [matchingRaw, pathData]);
+
+  const downloadTimeDisplay = downloadInfo.downloadedAtMs != null
+    ? `${formatWeatherDownloadClock(downloadInfo.downloadedAtMs)} · ${formatWeatherDownloadAge(downloadInfo.downloadedAtMs, nowMs, language)}`
+    : downloadInfo.sourceKind === 'fallback'
+      ? L3(language, '합성 맑음 폴백 (API 한도)', 'Synthetic fallback (rate limit)', '合成フォールバック (制限)')
+      : L3(language, '아직 수신 기록 없음', 'Not downloaded yet', '未取得');
+
+  const sourceBadgeLabel =
+    downloadInfo.sourceKind === 'network'
+      ? L3(language, '신규 수신', 'Fresh', '新規取得')
+      : downloadInfo.sourceKind === 'cache'
+        ? L3(language, '캐시 보관분', 'Cached', 'キャッシュ')
+        : downloadInfo.sourceKind === 'fallback'
+          ? L3(language, '폴백', 'Fallback', '代替')
+          : null;
 
   return (
     <View style={styles.container}>
+      {/* 다운로드 시점 및 캐시 우회 강제 갱신 바 */}
+      <View style={[styles.syncCard, { borderColor: theme.border, backgroundColor: theme.glass || 'rgba(255,255,255,0.03)' }]}>
+        <View style={styles.syncRow}>
+          <View style={styles.syncInfo}>
+            <View style={styles.syncTitleRow}>
+              <Clock size={12} color={color.accent} style={{ marginRight: 5 }} />
+              <Text style={[styles.syncLabel, { color: color.textDim }]}>
+                {L3(language, '다운로드 시점', 'Downloaded at', '取得時刻')}
+              </Text>
+              {sourceBadgeLabel && (
+                <View style={[styles.sourcePill, { borderColor: theme.border }]}>
+                  <Text style={[styles.sourcePillText, { color: color.textDim }]}>{sourceBadgeLabel}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.syncTimeValue, { color: theme.text }]} numberOfLines={1}>
+              {downloadTimeDisplay}
+            </Text>
+          </View>
+
+          {onForceRefresh && (
+            <TouchableOpacity
+              style={[
+                styles.refreshBtn,
+                { borderColor: 'rgba(56, 189, 248, 0.45)', backgroundColor: 'rgba(56, 189, 248, 0.14)' },
+                isRefreshing && styles.refreshBtnDisabled,
+              ]}
+              onPress={onForceRefresh}
+              disabled={isRefreshing}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={L3(language, '주변 기상정보 강제 다운로드', 'Force refresh nearby weather', '周辺の気象情報を強制更新')}
+            >
+              {isRefreshing ? (
+                <ActivityIndicator size="small" color={color.accent} style={{ marginRight: 5 }} />
+              ) : (
+                <RefreshCw size={12} color={color.accent} style={{ marginRight: 5 }} />
+              )}
+              <Text style={[styles.refreshBtnText, { color: color.accent }]}>
+                {isRefreshing
+                  ? L3(language, '받는 중…', 'Fetching…', '取得中…')
+                  : L3(language, '강제 갱신', 'Force Refresh', '強制更新')}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {refreshError ? (
+          <Text style={styles.syncErrorText}>{refreshError}</Text>
+        ) : (
+          <Text style={[styles.syncHintText, { color: color.textDim }]}>
+            {L3(
+              language,
+              '캐시·모델 지문이 같아도 내 주변 360° 예보를 새로 받습니다',
+              'Bypass cache & canary check to re-download nearby 360° forecast',
+              'キャッシュ一致時も周辺360°予報を強制的に再取得します',
+            )}
+          </Text>
+        )}
+      </View>
+
       {/* 서브 탭: 가공 데이터 vs 로우데이터 */}
       <View style={[styles.subTabContainer, { backgroundColor: theme.panelRaised || 'rgba(255,255,255,0.06)' }]}>
         <TouchableOpacity
@@ -298,13 +416,13 @@ export const WeatherInfoView: React.FC<WeatherInfoViewProps> = ({
               <View style={styles.tableRow}>
                 <Text style={[styles.tableLabel, { color: color.textDim }]}>대상 일자</Text>
                 <Text style={[styles.tableVal, { color: theme.text }]}>
-                  {rawSnapshot?.targetDate || currentTime.toISOString().slice(0, 10)}
+                  {effectiveDateStr}
                 </Text>
               </View>
               <View style={styles.tableRow}>
                 <Text style={[styles.tableLabel, { color: color.textDim }]}>수집 시각 (로컬)</Text>
                 <Text style={[styles.tableVal, { color: theme.text }]}>
-                  {rawSnapshot?.fetchedAt ? new Date(rawSnapshot.fetchedAt).toLocaleTimeString() : '캐시 로드됨'}
+                  {downloadTimeDisplay}
                 </Text>
               </View>
             </View>
@@ -401,6 +519,74 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     paddingBottom: 24,
+  },
+  syncCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    gap: 6,
+  },
+  syncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  syncInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  syncTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sourcePill: {
+    marginLeft: 6,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  sourcePillText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  syncTimeValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: mono,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  refreshBtnDisabled: {
+    opacity: 0.65,
+  },
+  refreshBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  syncHintText: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  syncErrorText: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#F87171',
+    fontWeight: '600',
   },
   subTabContainer: {
     flexDirection: 'row',

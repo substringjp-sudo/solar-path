@@ -972,18 +972,36 @@ function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer)
   const wu = o.windU ?? 0, wv = o.windV ?? 0;
   const dirDeg = dU > 1 ? ((Math.atan2(su, sv) * 180) / Math.PI + 360) % 360 : ((Math.atan2(wu, wv) * 180) / Math.PI + 360) % 360;
   const A = Math.min(8, Math.max(2, 2 + dU / 3));
-  const moist = spectralNoise(Math.max(1, tileKm / 30), 1, null, seed + 1);
+  // 24 km 타일이 k=1 단일 사인파(한쪽은 맑음·반대쪽은 매끈한 거대 벽)로 갈라지지 않게 2~3파장 + 도메인 워프 + 중/소규모 패치를 섞습니다.
+  const moist = spectralNoise(Math.max(2, tileKm / 12), 1, null, seed + 1);
+  const macroWarpU = makeFbm2Data(2, 2, 2, seed + 11, 101), macroWarpV = makeFbm2Data(2, 2, 2, seed + 13, 101);
+  const WG = 64, WM = 63;
+  const warpDu = new Float32Array(WG * WG), warpDv = new Float32Array(WG * WG);
+  for (let gy = 0; gy < WG; gy++) {
+    const v0 = gy / WG;
+    for (let gx = 0; gx < WG; gx++) {
+      const u0 = gx / WG, idx = gy * WG + gx;
+      warpDu[idx] = (evalFbm2(macroWarpU, u0, v0) - 0.5) * 0.14;
+      warpDv[idx] = (evalFbm2(macroWarpV, u0, v0) - 0.5) * 0.14;
+    }
+  }
+  const patch = makeFbm2Data(Math.max(3, Math.round(tileKm / 6)), Math.max(3, Math.round(tileKm / 6)), 3, seed + 17, 101);
+  const fine = makeFbm2Data(Math.max(6, Math.round(tileKm / 2.5)), Math.max(6, Math.round(tileKm / 2.5)), 3, seed + 29, 101);
   // 주기 격자 기반 비등방 fbm 으로 수백 개 사인파 적분(spectralNoise)을 대체해 CPU 비용을 크게 줄임.
   const stria = alignedFbm(dirDeg, Math.min(24, 4 * A), 4, tileKm, 3, seed + 3);
   const lamKm = Math.min(15, Math.max(2, (2 * Math.PI * Math.max(dU, 3)) / N / 1000));
   const [a, b] = intDir(dirDeg), kk = Math.max(1, Math.round(tileKm / lamKm / Math.hypot(a, b)));
-  const wA = 0.3 * smoothstep(3, 0.5, Ri);
+  const wA = 0.22 * smoothstep(3, 0.5, Ri);
   const ph = rng(seed + 5)() * 6.2832;
   return (x, y) => {
-    const u = (x + 0.5) / S, v = (y + 0.5) / S;
+    const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+    const u = u0 + bilinearPow2(warpDu, WG, WM, u0, v0);
+    const v = v0 + bilinearPow2(warpDv, WG, WM, u0, v0);
     const m = moist(u, v);
+    const p = evalFbm2(patch, u, v);
+    const fn = evalFbm2(fine, u, v);
     const w = wA > 0 ? wA * (0.5 + 0.5 * Math.cos(6.2831853 * kk * (a * u + b * v) + ph)) : 0;
-    return 0.8 * m + 0.12 * stria(u, v) + w * (0.4 + m);
+    return 0.46 * m + 0.24 * p + 0.18 * fn + 0.12 * stria(u, v) + w * (0.35 + 0.65 * m);
   };
 }
 
@@ -1108,11 +1126,8 @@ function* genusWeatherSteps(
   for (let k = 0; k < layers.length; k++) {
     const L = layers[k];
     if (!L || !(L.cover > 0) || k > 3) continue;
-    // 레인 0이 3D 파동 장(waveOn > 0.5)으로 구동되면 셰이더가 2D 날씨 R 채널을 1.0으로 덮어쓰므로 2D 합성을 생략합니다.
-    if (k === 0 && (L.opts as { wave?: unknown } | undefined)?.wave) {
-      for (let i = 0; i < S * S; i++) data[i * 4] = 255;
-      continue;
-    }
+    // Note: 3D wave 레이어는 근거리 셰이더에서 R 채널을 덮어쓰지만, 원거리 2D(far2D) 및 macroThresholdTable LUT는
+    // localWeather R 채널 분포를 그대로 읽으므로(모두 255면 gMS=1.0이 되어 L0 소멸) 정상 2D 합성을 수행합니다.
     const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
     const pKey = layerPatternKey(L, S, tileKm, seed, k, flow);
     let baseEntry = layerBaseFieldCache.get(pKey);
@@ -1229,7 +1244,8 @@ function* genusWeatherSteps(
       }
       f = baseEntry.grown;
     }
-    const th = L.cover >= 0.999 ? -1 : qf(f, 1 - L.cover);
+    // 흐름 원시장(FlowCore)은 평균 0인 음수(-3~+3)를 포함하므로 -1이 아닌 -Infinity여야 100% 덮임에서 음수 꼬리(~16%)가 빠지지 않습니다.
+    const th = L.cover >= 0.999 ? -Infinity : qf(f, 1 - L.cover);
     yield;
     if (useFlow) {
       // §130 흐름 층: d = 구름 화소 순위^flowDPow(cloudFlow.rankNormalize) — 운량·속과 무관하게 같은 히스토그램. 면적 = 운량 그대로.
@@ -1242,8 +1258,15 @@ function* genusWeatherSteps(
     }
     const top = qf(f, param(L, 'topQuantile') ?? 0.997);
     yield;
+    // 비흐름 경로에서 cover >= 0.999 일 때 -Infinity 를 그대로 빼면 Infinity/Infinity = NaN 이 되므로 유한 바닥값으로 보정.
+    let minF = th;
+    if (!Number.isFinite(minF)) {
+      let lo = Infinity;
+      for (let i = 0; i < f.length; i++) if (f[i] < lo) lo = f[i];
+      minF = lo - 1e-4;
+    }
     for (let i = 0; i < S * S; i++) {
-      const d = f[i] > th ? Math.min(1, Math.max(1 / 255, (f[i] - th) / Math.max(1e-6, top - th))) : 0;
+      const d = f[i] > minF ? Math.min(1, Math.max(1 / 255, (f[i] - minF) / Math.max(1e-6, top - minF))) : 0;
       data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
     }
   }

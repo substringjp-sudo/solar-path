@@ -346,3 +346,119 @@ export const CANARY_MIN_DISTINCT = 3;
 
 export const canaryIsUsable = (series: ReadonlyArray<number | null> | null): boolean =>
   !!series && series.length >= 12 && canaryDistinctValues(series) >= CANARY_MIN_DISTINCT;
+
+/* ── 다운로드 시점 · 강제 갱신 판정 ─────────────────────────────────────────── */
+
+export type WeatherSkipReason =
+  | 'force_refresh'
+  | 'no_cache'
+  | 'canary_match'
+  | 'canary_fallback_keep'
+  | 'canary_changed'
+  | 'no_stored_canary';
+
+/**
+ * 저장된 캐시·카나리아 지문과 사용자의 강제 갱신 여부를 종합해
+ * 대용량 360° 날씨 다운로드를 건너뛸지 결정합니다.
+ */
+export const shouldSkipWeatherDownload = (opts: {
+  hasValidCache: boolean;
+  forceRefresh: boolean;
+  storedCanary?: string | null;
+  canarySeries?: ReadonlyArray<number | null> | null;
+}): { skip: boolean; reason: WeatherSkipReason } => {
+  if (opts.forceRefresh) return { skip: false, reason: 'force_refresh' };
+  if (!opts.hasValidCache) return { skip: false, reason: 'no_cache' };
+  if (!opts.storedCanary) return { skip: true, reason: 'no_stored_canary' };
+  if (!opts.canarySeries || !canaryIsUsable(opts.canarySeries)) {
+    return { skip: true, reason: 'canary_fallback_keep' };
+  }
+  return canarySaysSkip(opts.storedCanary, opts.canarySeries)
+    ? { skip: true, reason: 'canary_match' }
+    : { skip: false, reason: 'canary_changed' };
+};
+
+export interface WeatherDownloadInfo {
+  downloadedAtMs: number | null;
+  sourceKind: 'network' | 'cache' | 'fallback' | 'none';
+  hasMatchingRawSnapshot: boolean;
+}
+
+/**
+ * 디스크 캐시 엔트리와 세션 내 rawSnapshot 가운데 현재 (위치, 날짜)와
+ * 실제로 일치하는 마지막 다운로드 시점과 출처를 계산합니다.
+ */
+export const resolveWeatherDownloadInfo = (opts: {
+  cacheEntry?: { timestamp?: number; data?: any[] } | null;
+  rawSnapshot?: { fetchedAt: number; latitude: number; longitude: number; targetDate: string } | null;
+  pathData?: any[] | null;
+  targetDateStr: string;
+  latitude: number;
+  longitude: number;
+}): WeatherDownloadInfo => {
+  const { cacheEntry, rawSnapshot, pathData, targetDateStr, latitude, longitude } = opts;
+  const cacheData = cacheEntry?.data;
+  const validCache =
+    !!cacheEntry &&
+    typeof cacheEntry.timestamp === 'number' &&
+    Number.isFinite(cacheEntry.timestamp) &&
+    cacheEntry.timestamp > 0 &&
+    Array.isArray(cacheData) &&
+    cacheData.length > 0 &&
+    !cacheData[0]?.isFallback;
+
+  const matchingRaw =
+    !!rawSnapshot &&
+    typeof rawSnapshot.fetchedAt === 'number' &&
+    rawSnapshot.fetchedAt > 0 &&
+    rawSnapshot.targetDate === targetDateStr &&
+    sameBucket(rawSnapshot.latitude, rawSnapshot.longitude, latitude, longitude);
+
+  const pathIsFallback =
+    Array.isArray(pathData) && pathData.length > 0 && Boolean(pathData[0]?.isFallback);
+
+  const cacheTs = validCache ? (cacheEntry!.timestamp as number) : 0;
+  const rawTs = matchingRaw ? rawSnapshot!.fetchedAt : 0;
+  const latestTs = Math.max(cacheTs, rawTs);
+
+  if (latestTs > 0) {
+    return {
+      downloadedAtMs: latestTs,
+      sourceKind: rawTs >= cacheTs && rawTs > 0 ? 'network' : 'cache',
+      hasMatchingRawSnapshot: matchingRaw,
+    };
+  }
+  if (pathIsFallback) {
+    return { downloadedAtMs: null, sourceKind: 'fallback', hasMatchingRawSnapshot: false };
+  }
+  return { downloadedAtMs: null, sourceKind: 'none', hasMatchingRawSnapshot: false };
+};
+
+/** 다운로드 시각을 로컬 MM/DD HH:mm:ss 문자열로 포맷합니다. */
+export const formatWeatherDownloadClock = (downloadedAtMs: number): string => {
+  const d = new Date(downloadedAtMs);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+/** 다운로드 후 지난 시간을 짧은 한국어/영어/일본어 상대 표기로 반환합니다. */
+export const formatWeatherDownloadAge = (
+  downloadedAtMs: number,
+  nowMs: number,
+  language: 'ko' | 'en' | 'ja' = 'ko',
+): string => {
+  const diffSec = Math.max(0, Math.floor((nowMs - downloadedAtMs) / 1000));
+  if (diffSec < 60) {
+    return language === 'en' ? 'Just now' : language === 'ja' ? 'たった今' : '방금 전';
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return language === 'en' ? `${diffMin}m ago` : language === 'ja' ? `${diffMin}分前` : `${diffMin}분 전`;
+  }
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) {
+    return language === 'en' ? `${diffHr}h ago` : language === 'ja' ? `${diffHr}時間前` : `${diffHr}시간 전`;
+  }
+  const diffDay = Math.floor(diffHr / 24);
+  return language === 'en' ? `${diffDay}d ago` : language === 'ja' ? `${diffDay}日前` : `${diffDay}일 전`;
+};

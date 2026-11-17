@@ -126,10 +126,16 @@ export function fillProfileOf(obs: CloudData): { zM: number; cover: number }[] |
   if (obs.capeJkg != null && Number.isFinite(obs.capeJkg) && obs.capeJkg >= FILL_RULE.capeMax) return null;
   const lv = hs.map((z, i) => ({ zM: z, c: cs[i] })).filter(q => Number.isFinite(q.zM) && Number.isFinite(q.c) && q.zM <= FILL_RULE.maxZ).sort((a, b) => a.zM - b.zM);
   if (!lv.length) return null;
-  const peak = Math.max(...lv.map(q => q.c)), wet = lv.filter(q => q.c >= FILL_RULE.wetPct).length;
-  if (peak < FILL_RULE.peak || wet < FILL_RULE.wetLevels) return null;
-  // 비가 오면(시간당 0.1 mm 이상) 덱의 주요 높이(운량 50 % 이상)는 다 덮인 것으로 — 실제 난층운 아래는 거의 다 덮여 보임(2026-11-12).
+  // 비가 오고(>= 0.1mm) 저층 예보 운량이 90% 이상(또는 총운량 95%+ 동반 저층 88%+)이면 best_match 단면이 1개 기압면(>= 50%)만 높아도 비구름 파동 채우기를 켭니다.
   const raining = (obs.precipitation ?? 0) >= 0.1;
+  const rainyOvercast =
+    raining &&
+    ((obs.low ?? 0) >= 90 || ((obs.low ?? 0) >= 88 && (obs.total ?? 0) >= 95));
+  const minPeak = rainyOvercast ? FILL_RULE.wetPct : FILL_RULE.peak;
+  const minWet = rainyOvercast ? 1 : FILL_RULE.wetLevels;
+  const peak = Math.max(...lv.map(q => q.c)), wet = lv.filter(q => q.c >= FILL_RULE.wetPct).length;
+  if (peak < minPeak || wet < minWet) return null;
+  // 비가 오면(시간당 0.1 mm 이상) 덱의 주요 높이(운량 50 % 이상)는 다 덮인 것으로 — 실제 난층운 아래는 거의 다 덮여 보임(2026-11-12).
   return lv.map(q => {
     const c = Math.round(Math.min(100, Math.max(0, q.c))) / 100;
     return { zM: Math.round(q.zM), cover: raining && c >= 0.5 ? 1 : c };
@@ -509,8 +515,13 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const g = renderGenusFor(forecast.low);
       // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
       const spacingKm = g === 'cu' || g === 'sc' ? aspectSpacingKm(g, thicknessM ?? GENUS[g].height) : undefined;
-      // §144·§147 층운(st)·난층운(ns)은 운량 보정표가 없어 예보 84% 가 화면 21~30%(머리 위)로 그려졌음 — 덮임 80% 이상이면 구름 한 장(관측 용어 '흐림')으로 그림.
-      const lowCover = (g === 'st' || g === 'ns') && obs.low >= 80 ? Math.max(obs.low / 100, 0.99) : obs.low / 100;
+      // §144·§147 층운(st)·난층운(ns) 및 완전 흐림(>= 98% 또는 강수+90%+)은 fullCover(>= 0.999) 이상인 1.0으로 두어
+      // 0.99에서 타일 분위수 문턱이 맑은 틈(1%)을 남기지 않도록 합니다.
+      const overcastLow =
+        obs.low >= 98 ||
+        ((g === 'st' || g === 'ns') && obs.low >= 80) ||
+        ((obs.precipitation ?? 0) >= 0.1 && (obs.low >= 90 || (obs.low >= 88 && (obs.total ?? 0) >= 95)));
+      const lowCover = overcastLow ? 1.0 : obs.low / 100;
       layers.push({ genus: g, cover: lowCover, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });

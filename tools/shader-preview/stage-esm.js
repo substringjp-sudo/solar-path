@@ -103,6 +103,8 @@ const ENTRIES = [
   'src/utils/astroStackMath.ts',
   // 시간 슬라이더 해제 후 단일 수렴 · 24시간 예열 버킷 (verify-slider-settle.js).
   'src/utils/sliderSettle.ts',
+  // 천체 촬영 뷰파인더 · 야간 적색 화면 · 흔들림 감지 · 노출 스케일 (verify-astro-camera-ui.js).
+  'src/utils/astroCameraUi.ts',
 ];
 // 지워진 파일(예: de80a00 이 CloudSlabPrev.ts 를 없앴습니다)이 목록에 남아 있으면 tsc 가 그 항목만 못 만들고 스테이징 전체가
 // 죽습니다 — 그 파일을 쓰는 낡은 습작(build-slab-ab 등)만 실패하게 하고 나머지 하네스는 돌게 합니다.

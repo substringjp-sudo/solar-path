@@ -685,11 +685,12 @@ export const fetchAirQuality = async (
   lat: number,
   lon: number,
   targetDate: Date = new Date(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  forceRefresh: boolean = false,
 ): Promise<AirQualityHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `aq_${gridBucket(lat, lon)}_${dateStr}`;
-  if (airCache.has(key)) return airCache.get(key) ?? null;
+  if (!forceRefresh && airCache.has(key)) return airCache.get(key) ?? null;
 
   const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
     `&hourly=aerosol_optical_depth,dust,pm2_5,pm10&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
@@ -712,6 +713,7 @@ export const fetchAirQuality = async (
     return out;
   } catch (error) {
     if (__DEV__) console.warn('대기질을 받지 못했습니다. 시정으로 진행합니다:', error);
+    if (forceRefresh && airCache.get(key)) return airCache.get(key) ?? null;
     airCache.set(key, null);
     return null;
   }
@@ -770,14 +772,16 @@ export const fetchThermoProfile = async (
   lon: number,
   targetDate: Date = new Date(),
   signal?: AbortSignal,
-  nowMs?: number
+  nowMs?: number,
+  forceRefresh: boolean = false,
 ): Promise<ThermoHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `thermo_${gridBucket(lat, lon)}_${dateStr}`;
-  if (thermoCache.has(key)) return thermoCache.get(key) ?? null;
+  if (forceRefresh) thermoMiss.delete(key);
+  else if (thermoCache.has(key)) return thermoCache.get(key) ?? null;
   // 403·429·네트워크 오류는 날짜 단위로 기억하지 않고 30 초만 쉽니다(RULER-source §2) — 음성 캐시는 '값이 전부 없음' 에만.
   const missAt = thermoMiss.get(key);
-  if (missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
+  if (!forceRefresh && missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
   const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height', 'wind_gusts_10m', 'weather_code']
     .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
@@ -821,6 +825,7 @@ export const fetchThermoProfile = async (
   } catch (error) {
     // 열역학은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다(소비자는 예전 상수로 진행).
     if (__DEV__) console.warn('열역학 입력을 받지 못했습니다. 예전 상수로 진행합니다:', error);
+    if (forceRefresh && thermoCache.get(key)) return thermoCache.get(key) ?? null;
     if (/no values|empty/.test(String((error as Error)?.message ?? ''))) thermoCache.set(key, null);
     else thermoMiss.set(key, Date.now());
     return null;
@@ -868,13 +873,15 @@ export const fetchLayerWinds = async (
   lon: number,
   targetDate: Date = new Date(),
   signal?: AbortSignal,
-  nowMs?: number
+  nowMs?: number,
+  forceRefresh: boolean = false,
 ): Promise<LayerWindHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `wind_${gridBucket(lat, lon)}_${dateStr}`;
-  if (windCache.has(key)) return windCache.get(key) ?? null;
+  if (forceRefresh) windMiss.delete(key);
+  else if (windCache.has(key)) return windCache.get(key) ?? null;
   const missAt = windMiss.get(key);
-  if (missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
+  if (!forceRefresh && missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
   // 바람 6 + 시정 1 + 기압면 단면 20 = 27개 → 가중치 2.7회. **관측점 1점**
   // 요청이라 절대량은 미미합니다(§58 의 합계 186 에 2.7). 팬에는 안 붙입니다 —
@@ -965,6 +972,7 @@ export const fetchLayerWinds = async (
   } catch (error) {
     // 바람은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다.
     console.warn('층별 바람을 받지 못했습니다. 대용 상수로 진행합니다:', error);
+    if (forceRefresh && windCache.get(key)) return windCache.get(key) ?? null;
     if (/missing level|empty/.test(String((error as Error)?.message ?? ''))) windCache.set(key, null);
     else windMiss.set(key, Date.now());
     return null;
@@ -1057,8 +1065,11 @@ export const fetchDayWeatherRing = async (
   //   같은 부류의 세 번째 자리입니다. 111m 움직일 때마다 139KB 를 다시 받습니다.
   const cacheKey = ringCacheKey(lat, lon, targetDateStr);
   if (forceRefresh) {
+    const wAlias = cacheKey.replace(/^ring_/, 'w_');
     MEM_RING_CACHE.delete(cacheKey);
+    MEM_RING_CACHE.delete(wAlias);
     ringCache.delete(cacheKey);
+    ringCache.delete(wAlias);
     INFLIGHT_REQUESTS.delete(cacheKey);
   } else {
     const cachedEntry = MEM_RING_CACHE.get(cacheKey) || MEM_RING_CACHE.get(cacheKey.replace(/^ring_/, 'w_'));
@@ -1187,10 +1198,10 @@ export const fetchDayWeatherRing = async (
 
     // 2) 메인 링이 성공했을 때만 바람 및 대기질을 이어서 요청 (429일 때 불필요한 추가 요청 폭주 방지)
     const [winds, air, thermo, satIrr] = await Promise.all([
-      fetchLayerWinds(lat, lon, targetDate, signal),
-      fetchAirQuality(lat, lon, targetDate, signal),
-      fetchThermoProfile(lat, lon, targetDate, signal),
-      fetchSatelliteIrradiance(lat, lon, targetDate, signal),
+      fetchLayerWinds(lat, lon, targetDate, signal, nowMs, forceRefresh),
+      fetchAirQuality(lat, lon, targetDate, signal, forceRefresh),
+      fetchThermoProfile(lat, lon, targetDate, signal, nowMs, forceRefresh),
+      fetchSatelliteIrradiance(lat, lon, targetDate, signal, forceRefresh),
     ]);
     const results = Array.isArray(data) ? data : [data];
     const observerRaw = results[0] || (Array.isArray(data) ? data[0] : data);

@@ -1933,9 +1933,17 @@ export async function createVolumetricScene(
       if (!useFlow) return { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, qc) : qc, opts: L.opts };
       // §130 흐름 층: 종류별 흐름 기본값(GENUS_FLOW)을 opts 에 합치고(캐시 키에 자동 포함) 운량 역표는 흐름용(항등으로 시작 —
       // 가산 장은 0 인 곳이 없어 chamfer 스커트가 안 생기므로 §127 표가 맞지 않음). 전단은 바로 위 층까지의 고도 차로 잽니다.
+      // 고운량 흐림(0.80→0.96)에서는 덩어리가 이어진 시트가 되므로 가장자리 깎기(flowCarve)를 0으로 줄여 파란 틈이 파이지 않게 합니다.
       const above = inputs.slice(i + 1).find(o => o.baseKm > L.baseKm);
       const shearDzKm = L.opts?.shearDzKm ?? Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
-      return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
+      const merged = mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
+      const origCover = quantCover(p.layers[i]?.cover ?? L.cover);
+      const rawCarve = (merged.opts as { flowCarve?: number } | undefined)?.flowCarve;
+      if (typeof rawCarve === 'number' && rawCarve > 0 && origCover > 0.8) {
+        const carveScale = Math.max(0, Math.min(1, (0.96 - origCover) / 0.16));
+        merged.opts = { ...merged.opts, flowCarve: Math.round(rawCarve * carveScale * 100) / 100 };
+      }
+      return merged;
     });
     // §139 뼈대: cu·cg·sc 층의 자리·폭·깊이·층 높이를 열역학에서(cloudSkeleton). 1 = 층 높이만(K0h), 2·3 = 뼈대(원 운량, 역표 건너뜀). opts 에 넣어 캐시 키에 포함.
     const skel = opt.genus ? opt.skeleton : 0;

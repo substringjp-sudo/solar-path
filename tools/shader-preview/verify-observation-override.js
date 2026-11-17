@@ -52,6 +52,9 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
   ok(M.applyMetarToObs(obs, { ...k, distanceKm: 30 }, T0 + 2 * 3600_000, 100) === null, '2 시간 뒤 → 무시');
   ok(M.applyMetarToObs(obs, { ...k, distanceKm: 80 }, T0, 100) === null, '80 km → 무시');
   ok(M.applyMetarToObs(obs, null, T0, 100) === null, 'METAR 없음 → null');
+  const ovRain = M.applyMetarToObs({ ...obs, low: 94.3, total: 98.8, precipitation: 0.45 }, { ...k, distanceKm: 39 }, T0, 4);
+  ok(ovRain && ovRain.obs.low >= 88 && near(ovRain.obs.lowDeckBaseKm, 0.461, 0.01) && /METAR RJNK/.test(ovRain.note),
+    `강수+만운 예보 유지: 공항 BKN 도 저 ${ovRain?.obs.low}%·밑면 ${ovRain?.obs.lowDeckBaseKm?.toFixed(3)} km 유지`);
   console.log('[4] CAVOK·강수');
   const obs2 = { ...obs, low: 60, precipitation: 0.5, profileHeightM: [200, 800, 1500, 3000, 5000], profileCoverPct: [10, 60, 40, 30, 0] };
   const ov2 = M.applyMetarToObs(obs2, { ...i, distanceKm: 10 }, T0, 50);

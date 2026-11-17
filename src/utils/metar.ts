@@ -127,8 +127,16 @@ export function applyMetarToObs(obs: CloudData, m: MetarObs | null | undefined, 
   const out: CloudData = { ...obs };
   const parts: string[] = [];
   if (sky.lowCoverPct != null) {
-    out.low = sky.lowCoverPct; parts.push(`저 ${sky.lowCoverPct}%`);
-    if (sky.lowBaseKmAgl != null && sky.lowCoverPct > 0) {
+    // 비·눈 관측과 함께 공항 METAR 가 BKN(5~7 옥타 = 62.5~87.5%)이고 원 예보가 이미 흐림(>= 85% / 총운량 >= 90%)이면
+    // 최대 60 km 떨어진 공항의 BKN 대푯값 75%로 내려 비구름 채우기가 깨지지 않도록 하한(88%)을 유지합니다.
+    const keepOvercastRain =
+      (sky.raining || sky.snowing) &&
+      sky.lowCoverPct === OKTA_PCT.BKN &&
+      (obs.low ?? 0) >= 85 &&
+      (obs.total ?? obs.low ?? 0) >= 90;
+    const effectiveLow = keepOvercastRain ? Math.max(88, Math.min(95, obs.low)) : sky.lowCoverPct;
+    out.low = effectiveLow; parts.push(`저 ${Math.round(effectiveLow)}%`);
+    if (sky.lowBaseKmAgl != null && effectiveLow > 0) {
       const base = groundM / 1000 + sky.lowBaseKmAgl;
       const oldThick = obs.lowDeckBaseKm != null && obs.lowDeckTopKm != null ? obs.lowDeckTopKm - obs.lowDeckBaseKm : NaN;
       out.lowDeckBaseKm = base;

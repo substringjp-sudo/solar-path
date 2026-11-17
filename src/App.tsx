@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking, AppState } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking, AppState, BackHandler } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -10,6 +10,8 @@ import { TabNavigator } from './components/TabNavigator';
 import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
 import { MapPicker } from './components/MapPicker';
 import { SunCamera } from './components/SunCamera';
+import { SimPickerOverlay } from './components/AstroCamera/SimPickerOverlay';
+import { createDefaultAstroSettings, type AstroSettingsState, type CameraTabMode, type DirectionTarget } from './utils/astroCameraUi';
 import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
@@ -259,6 +261,29 @@ export default function App() {
 
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
+  const [simPickerActive, setSimPickerActive] = React.useState(false);
+  const [simPickerMeta, setSimPickerMeta] = React.useState<{ cameraTab: CameraTabMode; astroSettings: AstroSettingsState }>(() => ({
+    cameraTab: 'sunset',
+    astroSettings: createDefaultAstroSettings(),
+  }));
+  const [cameraLockedTarget, setCameraLockedTarget] = React.useState<(DirectionTarget & { nonce: number }) | null>(null);
+  const phoneViewGetterRef = React.useRef<() => { az: number; el: number }>(() => ({ az: 0, el: 0 }));
+
+  useEffect(() => {
+    if (!isSunCameraVisible) {
+      setSimPickerActive(false);
+      setCameraLockedTarget(null);
+    }
+  }, [isSunCameraVisible]);
+
+  useEffect(() => {
+    if (!isSunCameraVisible || !simPickerActive) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSimPickerActive(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [isSunCameraVisible, simPickerActive]);
 
   // 권한 체크 후 권한 거부 시 권한 요청 화면 렌더링
   if (locationPermission !== 'granted' && locationPermission !== null) {
@@ -306,9 +331,15 @@ export default function App() {
           myPhotos={myPhotos}
           removeGlobalPhoto={removeGlobalPhoto}
           setMapVisible={setMapVisible}
-          onCameraPress={() => setSunCameraVisible(true)}
+          onCameraPress={() => {
+            if (isSunCameraVisible && simPickerActive) {
+              setSimPickerActive(false);
+            } else {
+              setSunCameraVisible(true);
+            }
+          }}
           onOpenDatePicker={() => setShowDatePicker(true)}
-          isSuspended={!isAppActive || isSunCameraVisible || isMapVisible || isSettingsVisible || isSavedListVisible}
+          isSuspended={!isAppActive || (isSunCameraVisible && !simPickerActive) || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
       </View>
 
@@ -391,6 +422,21 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* 60fps 3D 시뮬레이션 구도·미래 시간 탐색 플로팅 오버레이 (카메라는 일시 언마운트) */}
+      <SimPickerOverlay
+        visible={isSunCameraVisible && simPickerActive}
+        cameraTab={simPickerMeta.cameraTab}
+        astroSettings={simPickerMeta.astroSettings}
+        currentTime={currentTime}
+        currentPhoneView={() => phoneViewGetterRef.current()}
+        onCloseToCamera={() => setSimPickerActive(false)}
+        onLockTarget={(t) => {
+          setCameraLockedTarget({ ...t, nonce: Date.now() });
+          setSimPickerActive(false);
+        }}
+        language={language}
+      />
+
       {/* AR 노을 촬영 카메라 (닫힐 때 메모리/GPU/센서 완전 해제) */}
       {isSunCameraVisible && (
         <SunCamera
@@ -400,6 +446,13 @@ export default function App() {
           longitude={location?.coords.longitude || defaultCoords.longitude}
           currentTime={currentTime}
           goldenTimeInfo={goldenTimeInfo!}
+          simPickerActive={simPickerActive}
+          onEnterSimPicker={() => setSimPickerActive(true)}
+          lockedTargetProp={cameraLockedTarget}
+          onSyncPickerMeta={setSimPickerMeta}
+          onRegisterPhoneViewGetter={(fn) => {
+            phoneViewGetterRef.current = fn;
+          }}
         />
       )}
 

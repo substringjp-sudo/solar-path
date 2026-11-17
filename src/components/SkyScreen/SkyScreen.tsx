@@ -36,8 +36,7 @@ import { scenePrediction } from '../../utils/scenePrediction';
 import {
   weatherCacheKey,
   sameBucket,
-  canarySaysSkip,
-  canaryIsUsable,
+  shouldSkipWeatherDownload,
   canaryPrint,
 } from '../../utils/cachePolicy';
 import {
@@ -229,20 +228,25 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const moonAzimuth = (moonPos.azimuth * 180) / Math.PI + 180;
 
   // ── 실제 기상 데이터 (스플래시 캐시 및 저장된 캐시 우선 초기화) ──────────────────────────
-  const initialWeather = useMemo(() => {
-    const cached = weatherCacheList.find(c => 
-      c.key.includes(currentDateStr) && 
+  const matchedWeatherCache = useMemo(() => {
+    return weatherCacheList.find(c =>
+      c.key.includes(currentDateStr) &&
       sameBucket(c.latitude, c.longitude, latitude, longitude)
-    );
-    if (cached?.data && Array.isArray(cached.data)) {
-      return cached.data as CloudPathData[];
+    ) ?? null;
+  }, [weatherCacheList, currentDateStr, latitude, longitude]);
+
+  const initialWeather = useMemo(() => {
+    if (matchedWeatherCache?.data && Array.isArray(matchedWeatherCache.data)) {
+      return matchedWeatherCache.data as CloudPathData[];
     }
     return [];
-  }, [weatherCacheList, currentDateStr, latitude, longitude]);
+  }, [matchedWeatherCache]);
 
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
+  const [isForceRefreshing, setIsForceRefreshing] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [weatherRefreshError, setWeatherRefreshError] = useState<string | null>(null);
   const [volPrewarm, setVolPrewarm] = useState<VolumetricPrewarmStatus | null>(() => getVolumetricStatus().prewarm);
 
   useEffect(() => {
@@ -293,6 +297,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const loadWeather = useCallback(async (forceRefresh: boolean = false) => {
     if (!latitude || !longitude) return;
 
+    if (forceRefresh && weatherDebounceTimerRef.current) {
+      clearTimeout(weatherDebounceTimerRef.current);
+      weatherDebounceTimerRef.current = null;
+    }
+
     // 이전 진행 중이던 요청이 있으면 즉시 중단(Abort)
     if (weatherAbortControllerRef.current) {
       weatherAbortControllerRef.current.abort();
@@ -307,14 +316,25 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const reqDate = currentDateStr;
 
     // 1) 캐시 조회 (동일 격자, 동일 날짜)
-    const existingCache = weatherCacheList.find(c => 
-      c.key.includes(reqDate) && 
+    const existingCache = weatherCacheList.find(c =>
+      c.key.includes(reqDate) &&
       sameBucket(c.latitude, c.longitude, reqLat, reqLon)
     );
+    const hasValidCache = Boolean(
+      existingCache?.data &&
+      Array.isArray(existingCache.data) &&
+      existingCache.data.length > 0 &&
+      !(existingCache.data as any)[0]?.isFallback
+    );
+
+    if (forceRefresh) {
+      setIsForceRefreshing(true);
+      setWeatherRefreshError(null);
+    }
 
     // 2) 이미 유효한 캐시 데이터가 있고 강제 새로고침이 아닌 경우 -> 1개 점 카나리아 지문 검사
-    if (existingCache?.data && Array.isArray(existingCache.data) && existingCache.data.length > 0 && !(existingCache.data as any)[0]?.isFallback && !forceRefresh) {
-      const storedCanary = (existingCache as any).canaryPrint as string | undefined;
+    if (!forceRefresh && hasValidCache) {
+      const storedCanary = (existingCache as any)?.canaryPrint as string | undefined;
 
       if (storedCanary) {
         try {
@@ -322,16 +342,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             console.log(`[Weather] 1개 점 카나리아 지문 검사 중... (${reqLat.toFixed(4)}, ${reqLon.toFixed(4)}, ${reqDate})`);
           }
           const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal);
-          
+
           if (controller.signal.aborted) return;
 
-          // 카나리아 지문이 일치하거나, 카나리아 조회가 실패(429/네트워크 오류)한 경우에도
-          // 기존 캐시가 유효하므로 대용량 요청을 생략하고 기존 캐시를 유지합니다!
-          if (!canarySeries || (canaryIsUsable(canarySeries) && canarySaysSkip(storedCanary, canarySeries))) {
+          const decision = shouldSkipWeatherDownload({
+            hasValidCache,
+            forceRefresh: false,
+            storedCanary,
+            canarySeries,
+          });
+          if (decision.skip) {
             if (__DEV__) {
-              console.log('[Weather] 카나리아 지문 일치 또는 캐시 유지 — 대용량 요청 생략!');
+              console.log(`[Weather] 카나리아 (${decision.reason}) — 대용량 요청 생략!`);
             }
-            setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
+            setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
             setIsWeatherLoading(false);
             setWeatherError(null);
             return;
@@ -339,17 +363,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           if (__DEV__) {
             console.log('[Weather] 카나리아 지문 불일치 또는 새 모델 런 감지 — 360° 전체 날씨 갱신 진행');
           }
-        } catch (err: any) {
+        } catch {
           if (controller.signal.aborted) return;
           // 에러(타임아웃 포함) 시에도 기존 캐시 안전하게 유지
-          setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
+          setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
           setIsWeatherLoading(false);
           setWeatherError(null);
           return;
         }
       } else {
         // 저장된 지문이 없더라도 캐시 데이터가 있으므로 화면에 즉시 띄우고 불필요한 재요청 생략
-        setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
+        setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
         setIsWeatherLoading(false);
         setWeatherError(null);
         return;
@@ -370,17 +394,34 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         throw new Error(t('weatherLoadFailed', language));
       }
 
+      const returnedFallback = Boolean((ringData as any)[0]?.isFallback);
+      if (returnedFallback && hasValidCache && existingCache?.data) {
+        // 강제 갱신 중 API 한도(429)로 폴백이 내려온 경우 기존 실제 캐시를 유지하고 사용자에게 알립니다.
+        setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
+        setWeatherRefreshError(
+          L3(
+            language,
+            '요청 한도(429)로 새 수신을 못해 기존 캐시를 유지했습니다',
+            'Rate limited (429) — kept existing cached weather',
+            'リクエスト制限(429)のため既存キャッシュを維持しました',
+          )
+        );
+        return;
+      }
+
+      const downloadedAt = Date.now();
       // 링 수신 직후 화면에 바로 반영하고, 카나리아 지문 조회는 뒤에서 순차 실행해 연결 경쟁을 피합니다.
       setPathData(ringData);
       setWeatherError(null);
+      setWeatherRefreshError(null);
       setIsWeatherLoading(false);
 
-      if (!(ringData as any)[0]?.isFallback) {
+      if (!returnedFallback) {
         const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal).catch(() => null);
         addWeatherCache({
           key: weatherCacheKey(reqLat, reqLon, reqDate),
           data: ringData,
-          timestamp: Date.now(),
+          timestamp: downloadedAt,
           latitude: reqLat,
           longitude: reqLon,
           canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
@@ -395,12 +436,15 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       console.warn(`3D weather fetch error: ${msg}`);
       if (pathData.length === 0) {
         setWeatherError(msg);
-        hapticError();
+      } else if (forceRefresh) {
+        setWeatherRefreshError(msg);
       }
+      hapticError();
     } finally {
       if (weatherAbortControllerRef.current === controller) {
         weatherAbortControllerRef.current = null;
         setIsWeatherLoading(false);
+        setIsForceRefreshing(false);
       }
     }
   }, [latitude, longitude, currentDateStr, weatherCacheList, addWeatherCache, language, pathData.length]);
@@ -520,6 +564,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
 
     if (isDateChanged || isLocChanged) {
+      setWeatherRefreshError(null);
       // 캐시에 데이터가 있으면 즉시 교체
       const cached = weatherCacheList.find(c => 
         c.key.includes(currentDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
@@ -897,11 +942,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             ) : (
               <WeatherInfoView
                 currentTime={currentTime}
+                targetDateStr={currentDateStr}
                 interpolatedWeather={interpolatedWeather}
                 pathData={pathData}
                 prediction={prediction}
                 latitude={latitude}
                 longitude={longitude}
+                cachedTimestampMs={matchedWeatherCache?.timestamp ?? null}
+                isRefreshing={isWeatherLoading || isForceRefreshing}
+                refreshError={weatherRefreshError}
+                onForceRefresh={() => loadWeather(true)}
                 theme={theme}
                 language={language}
               />

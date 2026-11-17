@@ -366,6 +366,10 @@ export interface LongExposureSimOptions {
   shadowLift?: number;
   /** 천체 밝기 추가 배율 (기본 1.25). */
   starBoost?: number;
+  /** 장노출 누적 전 볼륨 하늘 안정화 프레임 수 (기본 20, 프리뷰 연동 시 4~8로 단축 가능). */
+  settleFrames?: number;
+  /** 볼륨 준비 완료 필수 여부 (기본 true, 뷰파인더 프리뷰 시 false 허용). */
+  requireReady?: boolean;
   waitMs?: number;
   format?: 'jpeg' | 'png';
   compress?: number;
@@ -422,6 +426,8 @@ export interface SkyScene3DHandle {
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
    */
   flyToMap: () => void;
+  /** 카메라 뷰파인더 등에서 3D 씬 시선(방위·고도·화각)을 즉시 맞출 때 호출합니다. */
+  setCameraView?: (azDeg: number, elDeg: number, fovDeg?: number) => void;
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
@@ -1003,6 +1009,23 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
     getLastBufferMean: () => lastBufferMeanRef.current,
     flyToMap: () => flyToMapRef.current(),
+    setCameraView: (azDeg: number, elDeg: number, fovDeg?: number) => {
+      cameraAzRef.current = ((azDeg % 360) + 360) % 360;
+      setCameraAzimuth(cameraAzRef.current);
+      cameraElevRef.current = Math.max(-45, Math.min(85, elDeg));
+      setCameraElevation(cameraElevRef.current);
+      if (fovDeg !== undefined && Number.isFinite(fovDeg)) {
+        fovRef.current = Math.max(20, Math.min(120, fovDeg));
+        if (cameraRef.current) {
+          cameraRef.current.fov = fovRef.current;
+          cameraRef.current.updateProjectionMatrix();
+        }
+        setCameraFov(fovRef.current);
+      }
+      trackingTargetRef.current = null;
+      onSelectTrackingTargetRef.current?.(null);
+      requestRender(8);
+    },
     getRenderState: () => {
       const cam = cameraRef.current;
       if (!cam) return null;
@@ -1175,6 +1198,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const exposureGain = opts.exposureGain ?? Number((1 + Math.log2(1 + durationSec / 90) * 0.72).toFixed(2));
       const shadowLift = opts.shadowLift ?? 0.015;
       const starBoost = opts.starBoost ?? 1.25;
+      const settleFrames = Math.max(1, Math.min(REMOTE_SETTLE_FRAMES, Math.round(opts.settleFrames ?? REMOTE_SETTLE_FRAMES)));
+      const requireReady = opts.requireReady ?? true;
       const waitMs = opts.waitMs ?? 5000;
 
       const wasActive = isActiveRef.current;
@@ -1206,9 +1231,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           requestRender(3);
           await new Promise(r => setTimeout(r, 60));
           const ready = h.isVolumetricReady();
-          if (remoteFramesRef.current >= REMOTE_SETTLE_FRAMES && ready) break;
+          if (remoteFramesRef.current >= settleFrames && (ready || !requireReady)) break;
           if (Date.now() - t0 > waitMs) {
-            if (!ready) {
+            if (requireReady && !ready) {
               return {
                 uri: null,
                 ready: false,
@@ -3337,7 +3362,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedMoonMagMsRef.current = targetTimeMs;
       cachedMoonBaseMagRef.current = baseMagLimit;
     }
-    const liveMagLimit = cachedMoonMagLimitRef.current;
+    // 장노출 시뮬레이션 시 노출시간·감도 배율에 비례해 어두운 한계등급 별까지 드러나도록 보너스 부여
+    const exposureMagBonus =
+      starBoostOverrideRef.current > 1
+        ? Math.min(2.0, Math.log2(starBoostOverrideRef.current) * 1.15)
+        : 0;
+    const liveMagLimit = cachedMoonMagLimitRef.current + exposureMagBonus;
 
     if (starFieldRef.current) {
       updateStarField(starFieldRef.current, {

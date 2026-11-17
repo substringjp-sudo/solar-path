@@ -49,13 +49,14 @@ export const fetchSatelliteIrradiance = async (
   lon: number,
   targetDate: Date = new Date(),
   signal?: AbortSignal,
+  forceRefresh: boolean = false,
 ): Promise<SatelliteIrradianceHourly | null> => {
   const dateStr = localDateString(targetDate);
   // 미래 날짜(내일 이후)는 위성에 없습니다 — 요청하지 않습니다.
   if (targetDate.getTime() - Date.now() > 36 * 3600_000) return null;
   const slot = Math.floor(Date.now() / CACHE_SLOT_MS);
   const key = `sati_${gridBucket(lat, lon)}_${dateStr}_${slot}`;
-  if (cache.has(key)) return cache.get(key) ?? null;
+  if (!forceRefresh && cache.has(key)) return cache.get(key) ?? null;
 
   const start = new Date(targetDate.getTime() - 86400_000);
   const url = `https://satellite-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
@@ -78,12 +79,16 @@ export const fetchSatelliteIrradiance = async (
     for (let i = time.length - 1; i >= 0; i--) {
       if (ghi[i] != null) { observedUntilMs = Date.parse(time[i] + 'Z') - offsetMs; break; }
     }
-    if (!time.length || observedUntilMs === 0) { cache.set(key, null); return null; }
+    if (!time.length || observedUntilMs === 0) {
+      if (!forceRefresh || !cache.has(key)) cache.set(key, null);
+      return null;
+    }
     const out: SatelliteIrradianceHourly = { time, dni, ghi, observedUntilMs };
     cache.set(key, out);
     return out;
   } catch (error) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('위성 일사를 받지 못했습니다. 예보 DNI 로 진행합니다:', error);
+    if (forceRefresh && cache.has(key)) return cache.get(key) ?? null;
     cache.set(key, null);
     return null;
   }

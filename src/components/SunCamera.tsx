@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
   StyleSheet, View, Text, Modal,
-  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
+  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView, Vibration
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { localDateString } from '../utils/localDate';
@@ -17,7 +17,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -44,6 +44,33 @@ import { color, radius, space, type, TOUCH } from '../theme/tokens';
 import { SunPathOverlay } from './SunPathOverlay';
 import { hapticShutter, hapticError } from '../utils/haptics';
 import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
+import {
+  getAstroCapabilitiesAsync,
+  isAstroCameraAvailable,
+  renderAstroStackPreviewAsync,
+  type AstroCameraCapabilities,
+} from '../../modules/astro-camera';
+import { analyzeAstroWindow, type AstroWindowAnalysis } from '../utils/astroForecast';
+import { buildSkyTimeline, type SkyTimeline } from '../utils/skyTimeline';
+import {
+  runAstroCaptureStack,
+  type AstroCaptureProgress,
+  type AstroCaptureRunResult,
+} from '../utils/astroCapturePipeline';
+import {
+  computeAstroSimExposureParams,
+  createDefaultAstroSettings,
+  evaluateDirectionGuide,
+  planAstroShotSummary,
+  type AstroSettingsState,
+  type CameraTabMode,
+  type DirectionGuideState,
+  type DirectionTarget,
+} from '../utils/astroCameraUi';
+import { AstroControlsOverlay, AstroForecastBanner } from './AstroCamera/AstroControlsOverlay';
+import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/AstroCaptureNightOverlay';
+import { AstroResultView } from './AstroCamera/AstroResultView';
+import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
@@ -59,6 +86,11 @@ interface SunCameraProps {
   longitude: number;
   currentTime: Date;
   goldenTimeInfo: GoldenTimeInfo;
+  simPickerActive?: boolean;
+  onEnterSimPicker?: () => void;
+  lockedTargetProp?: (DirectionTarget & { nonce: number }) | null;
+  onSyncPickerMeta?: (meta: { cameraTab: CameraTabMode; astroSettings: AstroSettingsState }) => void;
+  onRegisterPhoneViewGetter?: (fn: () => { az: number; el: number }) => void;
 }
 
 const stampPhoto = async (
@@ -181,7 +213,17 @@ const SHUTTER = 72;
 const EXPOSURE_TRACK_H = 160;
 
 export const SunCamera: React.FC<SunCameraProps> = ({
-  visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
+  visible,
+  onClose,
+  latitude,
+  longitude,
+  currentTime,
+  goldenTimeInfo,
+  simPickerActive = false,
+  onEnterSimPicker,
+  lockedTargetProp,
+  onSyncPickerMeta,
+  onRegisterPhoneViewGetter,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
   // 전체 화면 카메라 — 무대(카메라) + 아래 도킹. 무대 크기는 3D 예측의 GL 크기이기도 해서 바뀌지 않게 둡니다.
@@ -318,6 +360,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 원시 회전값(보정 전 α)과 자이로 속도 — 사진을 찍는 순간의 센서 자세를 기록하려고 둡니다.
   const rawRotationRef = useRef<{ a: number; b: number; g: number } | null>(null);
   const angularSpeedRef = useRef(0);
+  const gyroBaselineRef = useRef(0);
+  const smoothedGyroRef = useRef(0);
+  const gyroBurstPeakRef = useRef(0);
+  const lastUiSensorMsRef = useRef(0);
   const horizonRef = useRef<HorizonProfile | null>(null);
   const [visionStatus, setVisionStatus] = useState<string | null>(null);
   const [isVisionRunning, setIsVisionRunning] = useState(false);
@@ -338,6 +384,61 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [isCapturing, setIsCapturing] = useState(false);
   const isCapturingRef = useRef(false);
   isCapturingRef.current = isCapturing;
+
+  // 천체 모드 상태 · 야간 암적응 촬영 화면 · 천체 전용 결과
+  const [cameraTab, setCameraTab] = useState<CameraTabMode>('sunset');
+  const [astroSettings, setAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
+  const [astroCaps, setAstroCaps] = useState<AstroCameraCapabilities>({
+    available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
+    minExposureMs: 100, maxExposureMs: 30000, minIso: 100, maxIso: 6400,
+    focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
+    supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
+  });
+  const [astroDrawerOpen, setAstroDrawerOpen] = useState(false);
+  const [astroNightPhase, setAstroNightPhase] = useState<AstroNightPhase | null>(null);
+  const [astroCountdownSec, setAstroCountdownSec] = useState(0);
+  const [astroProgress, setAstroProgress] = useState<AstroCaptureProgress | null>(null);
+  const [astroMonochromeRed, setAstroMonochromeRed] = useState(true);
+  const astroMonochromeRedRef = useRef(true);
+  astroMonochromeRedRef.current = astroMonochromeRed;
+  const [astroStopEarlyReq, setAstroStopEarlyReq] = useState(false);
+  const astroAbortRef = useRef(false);
+  const astroStopEarlyRef = useRef(false);
+  const astroCountdownSkipRef = useRef(false);
+  const [astroResult, setAstroResult] = useState<AstroCaptureRunResult | null>(null);
+  const [astroResultIso, setAstroResultIso] = useState(1600);
+  const [astroSaving, setAstroSaving] = useState(false);
+  const [astroSaved, setAstroSaved] = useState(false);
+  const [astroTimeline, setAstroTimeline] = useState<SkyTimeline | null>(null);
+  const cameraTabRef = useRef(cameraTab);
+  cameraTabRef.current = cameraTab;
+  const astroSettingsRef = useRef(astroSettings);
+  astroSettingsRef.current = astroSettings;
+  const astroBusyRef = useRef(false);
+  astroBusyRef.current = astroNightPhase !== null;
+  const [lockedTarget, setLockedTarget] = useState<DirectionTarget | null>(null);
+  const [vibrationGuideOn, setVibrationGuideOn] = useState(true);
+  const [guideState, setGuideState] = useState<DirectionGuideState | null>(null);
+  const onTargetHystRef = useRef(false);
+  useEffect(() => {
+    if (!visible) astroAbortRef.current = true;
+  }, [visible]);
+  useEffect(() => () => { astroAbortRef.current = true; Vibration.cancel(); }, []);
+  useEffect(() => {
+    if (lockedTargetProp) {
+      setLockedTarget({ azDeg: lockedTargetProp.azDeg, elDeg: lockedTargetProp.elDeg });
+      setShowPrediction(false);
+    }
+  }, [lockedTargetProp]);
+  useEffect(() => {
+    onSyncPickerMeta?.({ cameraTab, astroSettings });
+  }, [cameraTab, astroSettings, onSyncPickerMeta]);
+  useEffect(() => {
+    onRegisterPhoneViewGetter?.(() => ({
+      az: (cameraFacing === 'front' ? deviceAzimuthRef.current + 180 : deviceAzimuthRef.current + 360) % 360,
+      el: cameraFacing === 'front' ? -devicePitchRef.current : devicePitchRef.current,
+    }));
+  }, [cameraFacing, onRegisterPhoneViewGetter]);
 
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
@@ -495,7 +596,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const { alpha: aRad, beta: bRad, gamma: gRad } = dm.rotation;
       rawRotationRef.current = { a: aRad, b: bRad, g: gRad };
       const rr = dm.rotationRate;
-      if (rr) angularSpeedRef.current = Math.hypot(rr.alpha ?? 0, rr.beta ?? 0, rr.gamma ?? 0);
+      if (rr) {
+        const inst = Math.hypot(rr.alpha ?? 0, rr.beta ?? 0, rr.gamma ?? 0);
+        angularSpeedRef.current = inst;
+        // 정지 상태 MEMS 자이로 DC 오프셋을 천천히 추적해 순수 충격분만 추출
+        if (inst < 1.8) {
+          gyroBaselineRef.current = gyroBaselineRef.current * 0.96 + inst * 0.04;
+        }
+        const netSpeed = Math.max(0, inst - gyroBaselineRef.current);
+        smoothedGyroRef.current = smoothedGyroRef.current * 0.7 + netSpeed * 0.3;
+        if (smoothedGyroRef.current > gyroBurstPeakRef.current) {
+          gyroBurstPeakRef.current = smoothedGyroRef.current;
+        }
+      }
 
       // W3C Rotation Matrix: R = Rz(α) * Rx(β) * Ry(γ)
       const sa = Math.sin(aRad), ca = Math.cos(aRad);
@@ -586,11 +699,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
       const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
 
-      // Update refs and trigger re-render
+      // 60Hz Ref 는 즉시 갱신하고, 무거운 React UI 트리는 ~15Hz(66ms)로만 반영해 뷰파인더 버벅임을 차단
       deviceAzimuthRef.current = filteredAz;
-      setDeviceAzimuth(filteredAz);
       devicePitchRef.current = filteredPitch;
-      setDevicePitch(filteredPitch);
+      if (now - lastUiSensorMsRef.current >= 66) {
+        lastUiSensorMsRef.current = now;
+        setDeviceAzimuth(filteredAz);
+        setDevicePitch(filteredPitch);
+      }
 
       // 진북 보정 각도로 보정된 3D Rotation Matrix 각도 세트 전개
       const radOffset = (((fusionRef.current.status().offsetDeg) * Math.PI) / 180);
@@ -818,35 +934,182 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
     return { az: effectiveAz, el: effectivePitch, fov: Math.min(150, fov) };
   };
+  // 천체 모드 진입 시 Android Camera2 정적 성능(raw 지원 · 노출/ISO 범위 · 초점거리) 조회
   useEffect(() => {
-    if (!visible) return;
-    let stop = false, busy = false, last: { az: number; el: number; fov: number; at: number } | null = null;
+    if (!visible || cameraTab !== 'astro') return;
+    let cancelled = false;
+    getAstroCapabilitiesAsync('back').then(caps => {
+      if (!cancelled) setAstroCaps(caps);
+    });
+    return () => { cancelled = true; };
+  }, [visible, cameraTab]);
+
+  // 천체 모드 30분 앞당김 구름 타임라인(3분 간격 11프레임) 계산
+  useEffect(() => {
+    if (!visible || cameraTab !== 'astro' || !camWeatherData || camWeatherData.length === 0) return;
+    let cancelled = false;
+    const obsElev = Number(cameraSimState.terrain?.observerElevation) || 0;
+    buildSkyTimeline({
+      latitude,
+      longitude,
+      date: currentTime,
+      observerElevM: obsElev,
+      stepMinutes: 3,
+      windowStartMs: currentTime.getTime(),
+      windowDurationMin: 30,
+      pathData: camWeatherData,
+      isCancelled: () => cancelled,
+      language,
+    }).then(tl => {
+      if (!cancelled) setAstroTimeline(tl);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [visible, cameraTab, camWeatherData, currentTime, latitude, longitude, cameraSimState.terrain?.observerElevation, language]);
+
+  const astroShotSummary = useMemo(
+    () => planAstroShotSummary({
+      settings: astroSettings,
+      caps: astroCaps,
+      latitudeDeg: latitude,
+      azDeg: effectiveAz,
+      elDeg: effectivePitch,
+    }),
+    [astroSettings, astroCaps, latitude, effectiveAz, effectivePitch],
+  );
+
+  const astroSimParams = useMemo(
+    () => computeAstroSimExposureParams(astroSettings.durationSec, astroShotSummary.clampedIso),
+    [astroSettings.durationSec, astroShotSummary.clampedIso],
+  );
+  const astroSimParamsRef = useRef(astroSimParams);
+  astroSimParamsRef.current = astroSimParams;
+  const astroResultRef = useRef(astroResult);
+  astroResultRef.current = astroResult;
+  const previewUriRef = useRef(previewUri);
+  previewUriRef.current = previewUri;
+
+  const astroAnalysis: AstroWindowAnalysis | null = useMemo(() => {
+    if (cameraTab !== 'astro') return null;
+    const obsData = camInterpolated[0];
+    return analyzeAstroWindow({
+      timeline: astroTimeline,
+      view: {
+        azDeg: effectiveAz,
+        elDeg: effectivePitch,
+        hfovDeg: optics.hFovDeg,
+        vfovDeg: optics.vFovDeg,
+      },
+      startMs: currentTime.getTime(),
+      exposureSec: astroSettings.durationSec,
+      lookaheadMin: 30,
+      layerWinds: resolveLayerWinds(obsData).winds,
+    });
+  }, [cameraTab, astroTimeline, camInterpolated, effectiveAz, effectivePitch, optics.hFovDeg, optics.vFovDeg, currentTime, astroSettings.durationSec]);
+
+  // 목표 방향 진동·화면 가이드 루프 (안 맞으면 진동, 정렬 ≤2.5° 진입 시 진동 완전 정지)
+  useEffect(() => {
+    const active =
+      visible &&
+      !simPickerActive &&
+      !!lockedTarget &&
+      !isCapturing &&
+      astroNightPhase === null &&
+      astroResult === null &&
+      previewUri === null;
+
+    if (!active || !lockedTarget) {
+      Vibration.cancel();
+      onTargetHystRef.current = false;
+      if (!lockedTarget) setGuideState(null);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const step = () => {
+      if (cancelled) return;
+      const curAz =
+        cameraFacing === 'front'
+          ? (deviceAzimuthRef.current + 180) % 360
+          : (deviceAzimuthRef.current + 360) % 360;
+      const curEl = cameraFacing === 'front' ? -devicePitchRef.current : devicePitchRef.current;
+      const g = evaluateDirectionGuide({
+        currentAzDeg: curAz,
+        currentElDeg: curEl,
+        target: lockedTarget,
+        wasOnTarget: onTargetHystRef.current,
+      });
+      onTargetHystRef.current = g.onTarget;
+      setGuideState(g);
+
+      if (!vibrationGuideOn || g.onTarget || g.pulseMs <= 0) {
+        Vibration.cancel();
+        timer = setTimeout(step, 180);
+      } else {
+        Vibration.vibrate(g.pulseMs);
+        timer = setTimeout(step, g.intervalMs);
+      }
+    };
+    step();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      Vibration.cancel();
+    };
+  }, [
+    visible,
+    simPickerActive,
+    lockedTarget,
+    vibrationGuideOn,
+    isCapturing,
+    astroNightPhase,
+    astroResult,
+    previewUri,
+    cameraFacing,
+  ]);
+
+  useEffect(() => {
+    // 60fps 시뮬레이션 탐색(simPickerActive) 중에는 메인 SkyScene3D 가 직접 그려지므로
+    // 여기서 JPEG 스냅샷 루프를 돌리지 않는다.
+    if (!visible || simPickerActive) return;
+    let stop = false, busy = false;
+    let last: { az: number; el: number; fov: number; at: number } | null = null;
+    const updatePredFile = (uri: string) => {
+      const prev = predFileRef.current;
+      predFileRef.current = uri;
+      if (prev && prev !== uri) FileSystem.deleteAsync(prev, { idempotent: true }).catch(() => {});
+      setPredUri(uri);
+    };
     const tick = async () => {
-      if (stop || busy || isCapturingRef.current) return;
+      if (stop || busy || isCapturingRef.current || astroBusyRef.current || astroResultRef.current || previewUriRef.current) return;
       const sky = getPrimarySky();
       if (!sky) { setPredNote(L3(language, '하늘 화면의 3D 가 없음', 'Sky screen 3D not available', '空画面の3Dがありません')); return; }
       const v = remoteViewNowRef.current();
-      const moved = !last || Math.abs(((v.az - last.az + 540) % 360) - 180) > 1 || Math.abs(v.el - last.el) > 1 || Math.abs(v.fov - last.fov) > 1;
-      if (!moved && last && Date.now() - last.at < 5000) return;
+      const deadbandDeg = cameraTabRef.current === 'astro' ? 4.5 : 3.0;
+      const moved =
+        !last ||
+        Math.abs(((v.az - last.az + 540) % 360) - 180) > deadbandDeg ||
+        Math.abs(v.el - last.el) > deadbandDeg ||
+        Math.abs(v.fov - last.fov) > 2;
+      if (!moved && last && Date.now() - last.at < 4000) return;
       busy = true;
       try {
-        const r = await sky.renderRemote(v, { waitMs: 2500, requireReady: false, compress: 0.6 });
+        const r = await sky.renderRemote(v, { waitMs: 2000, requireReady: false, compress: 0.55 });
         if (stop) return;
         if (r.state?.view.aspect) predAspectRef.current = r.state.view.aspect;
         if (r.uri) {
-          // 미리보기 그림은 계속 새로 생기므로 앞 파일은 지웁니다(캐시 폴더에 쌓이지 않게).
-          const prev = predFileRef.current; predFileRef.current = r.uri;
-          if (prev && prev !== r.uri) FileSystem.deleteAsync(prev, { idempotent: true }).catch(() => {});
-          setPredUri(r.uri); setPredNote(r.ready ? null : L3(language, '구름 준비 중', 'Clouds loading', '雲を準備中'));
+          updatePredFile(r.uri);
+          setPredNote(r.ready ? null : L3(language, '구름 준비 중', 'Clouds loading', '雲を準備中'));
         }
         last = { ...v, at: Date.now() };
       } finally { busy = false; }
     };
-    const id = setInterval(tick, showPrediction ? 400 : 1500);
+    const id = setInterval(tick, showPrediction ? 600 : 2500);
     tick();
     return () => { stop = true; clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, showPrediction, language]);
+  }, [visible, simPickerActive, showPrediction, language, currentTime]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -1171,6 +1434,216 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState]);
 
+  const handleAstroToggleRed = useCallback(() => {
+    const next = !astroMonochromeRedRef.current;
+    astroMonochromeRedRef.current = next;
+    setAstroMonochromeRed(next);
+    const sp = astroSimParamsRef.current;
+    renderAstroStackPreviewAsync({
+      maxLongEdge: 640,
+      stretchGain: Math.min(2.6, sp.exposureGain * 0.85),
+      asinhStrength: 10.0,
+      subtractBlackPercentile: 0.2,
+      monochromeRed: next,
+    })
+      .then(res => {
+        if (res?.uri) {
+          setAstroProgress(prev => (prev ? { ...prev, previewUri: res.uri } : prev));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAstroStart = useCallback(async () => {
+    if (isCapturing || astroBusyRef.current) return;
+    if (!isAstroCameraAvailable()) {
+      Alert.alert(
+        L3(language, '네이티브 천체 모듈 필요', 'Astro native module required', 'ネイティブ天体モジュールが必要'),
+        L3(
+          language,
+          '16-bit Bayer RAW / 수동 장노출 합성은 Android 네이티브 빌드에서만 실행됩니다.',
+          'Manual RAW long-exposure stacking requires the Android native build.',
+          'RAW長時間露光の合成はAndroidネイティブビルドでのみ動作します。',
+        ),
+      );
+      return;
+    }
+
+    Vibration.cancel();
+    hapticShutter();
+    astroAbortRef.current = false;
+    astroStopEarlyRef.current = false;
+    astroCountdownSkipRef.current = false;
+    setAstroStopEarlyReq(false);
+    setAstroProgress(null);
+    setAstroResult(null);
+    setSimPreviewUri(null);
+    setSimPreviewError(null);
+    setAstroSaved(false);
+    setIsCapturing(true);
+
+    // 1) CameraView를 먼저 내리고 검은색+빨간색 암적응 카운트다운 화면으로 전환
+    const settingsSnap = { ...astroSettingsRef.current };
+    const summarySnap = astroShotSummary;
+    const simParamsSnap = computeAstroSimExposureParams(settingsSnap.durationSec, summarySnap.clampedIso);
+    const delaySec = settingsSnap.countdownDelaySec;
+    setAstroNightPhase('countdown');
+    setAstroCountdownSec(delaySec);
+
+    try {
+      if (delaySec > 0) {
+        const waitEnd = Date.now() + delaySec * 1000;
+        while (Date.now() < waitEnd) {
+          if (astroAbortRef.current) throw new Error('ASTRO_ABORTED');
+          if (astroCountdownSkipRef.current) break;
+          setAstroCountdownSec(Math.max(0.1, (waitEnd - Date.now()) / 1000));
+          await new Promise(r => setTimeout(r, 120));
+        }
+      } else {
+        // Android CameraView 언마운트가 Camera2 해제까지 닿도록 한 박자 양보
+        await new Promise(r => setTimeout(r, 220));
+      }
+      if (astroAbortRef.current) throw new Error('ASTRO_ABORTED');
+
+      setAstroNightPhase('capturing');
+      gyroBurstPeakRef.current = 0;
+
+      const startAtt = sensorAttitudeNow() ?? {
+        yawDeg: effectiveAz,
+        pitchDeg: effectivePitch,
+        rollDeg: 0,
+      };
+      const startTimeMs = currentTime.getTime();
+      const simMode =
+        settingsSnap.mode === 'tracked'
+          ? (settingsSnap.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
+          : 'trails';
+      const horizonSnap = horizonRef.current ?? await loadHorizon(latitude, longitude).catch(() => null);
+      if (horizonSnap && !horizonRef.current) horizonRef.current = horizonSnap;
+
+      const runRes = await runAstroCaptureStack({
+        mode: settingsSnap.mode,
+        totalExposureSec: settingsSnap.durationSec,
+        iso: summarySnap.clampedIso,
+        subExposureSec: summarySnap.subExposureSecUsed,
+        latitudeDeg: latitude,
+        longitudeDeg: longitude,
+        getAttitudeNow: () =>
+          sensorAttitudeNow() ?? { yawDeg: effectiveAz, pitchDeg: effectivePitch, rollDeg: 0 },
+        horizon: horizonSnap,
+        preferRaw: settingsSnap.preferRaw,
+        keepFixedGround: settingsSnap.keepFixedGround,
+        lockFocusInfinity: settingsSnap.lockFocusInfinity,
+        maxTrailPx: settingsSnap.maxTrailPx,
+        rejectCloudyFrames: settingsSnap.rejectCloudyFrames,
+        outputFormat: 'png',
+        stretchGain: Math.min(2.6, simParamsSnap.exposureGain * 0.85),
+        asinhStrength: 10.0,
+        consumeGyroPeakDegPerSec: () => {
+          const peak = gyroBurstPeakRef.current;
+          gyroBurstPeakRef.current = 0;
+          return peak;
+        },
+        getPreviewMonochromeRed: () => astroMonochromeRedRef.current,
+        previewIntervalFrames: 1,
+        shouldAbort: () => astroAbortRef.current,
+        shouldStopEarly: () => astroStopEarlyRef.current,
+        onProgress: (p) => {
+          setAstroProgress(p);
+          if (p.lastShake?.severity === 'severe') hapticError();
+        },
+      });
+
+      setAstroNightPhase('finalizing');
+
+      // 시작 시선·시각·실제 노출시간 기준으로 3D 장노출 예측 스냅샷 생성 (별·달·구름 포함)
+      let finalSimUri: string | null = null;
+      let finalSimErr: string | null = null;
+      const sky = getPrimarySky();
+      if (sky) {
+        const simRes = await sky.renderLongExposure(
+          {
+            az: startAtt.yawDeg,
+            el: startAtt.pitchDeg,
+            fov: optics.vFovDeg,
+            rollDeg: startAtt.rollDeg,
+          },
+          {
+            mode: simMode,
+            startTimeMs,
+            durationSec: Math.max(10, runRes.actualDurationSec || settingsSnap.durationSec),
+            steps: simParamsSnap.stepsForFinal,
+            exposureGain: simParamsSnap.exposureGain,
+            starBoost: simParamsSnap.starBoost,
+            shadowLift: simParamsSnap.shadowLift,
+            settleFrames: 8,
+            requireReady: false,
+            waitMs: 5000,
+            format: 'jpeg',
+            compress: 0.9,
+          },
+        );
+        finalSimUri = simRes.uri;
+        finalSimErr = simRes.error;
+      }
+
+      setSimPreviewUri(finalSimUri);
+      setSimPreviewError(finalSimErr);
+      setAstroResultIso(summarySnap.clampedIso);
+      setAstroResult(runRes);
+      setAstroNightPhase(null);
+    } catch (err: any) {
+      setAstroNightPhase(null);
+      if (err?.message !== 'ASTRO_ABORTED' && !astroAbortRef.current) {
+        console.warn('[SunCamera] Astro capture error:', err);
+        hapticError();
+        Alert.alert(
+          L3(language, '천체 촬영 오류', 'Astro Capture Error', '天体撮影エラー'),
+          err?.message || L3(language, '촬영에 실패했습니다.', 'Capture failed.', '撮影に失敗しました。'),
+        );
+      }
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [
+    isCapturing,
+    language,
+    astroShotSummary,
+    sensorAttitudeNow,
+    effectiveAz,
+    effectivePitch,
+    currentTime,
+    latitude,
+    longitude,
+    optics.vFovDeg,
+  ]);
+
+  const handleSaveAstroPng = useCallback(async () => {
+    if (!astroResult || astroSaving || astroSaved) return;
+    setAstroSaving(true);
+    try {
+      const granted = mediaPermission?.granted || (await requestMediaPermission()).granted;
+      if (!granted) {
+        Alert.alert(
+          L3(language, '저장 권한 필요', 'Permission required', '保存権限が必要'),
+          L3(language, '무손실 PNG를 저장하려면 사진 라이브러리 권한을 허용해 주세요.', 'Allow photo library permission to save the lossless PNG.', '無損失PNGの保存には写真ライブラリの権限が必要です。'),
+        );
+        return;
+      }
+      await MediaLibrary.saveToLibraryAsync(astroResult.uri);
+      setAstroSaved(true);
+      hapticShutter();
+    } catch (e: any) {
+      hapticError();
+      Alert.alert(
+        L3(language, 'PNG 저장 실패', 'Failed to save PNG', 'PNG保存失敗'),
+        e?.message || 'Unknown error',
+      );
+    } finally {
+      setAstroSaving(false);
+    }
+  }, [astroResult, astroSaving, astroSaved, mediaPermission, requestMediaPermission, language]);
+
   // 업로드 및 공유 처리
   const handleUpload = useCallback(async () => {
     if (!previewUri || isUploading) return;
@@ -1375,10 +1848,59 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       ? L3(language, '보정됨', 'Calibrated', '補正済み')
       : L3(language, '자북 기준', 'Magnetic N', '磁北基準');
 
+  const handleCapturePress = handleCapture;
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible && !simPickerActive}
+      animationType="slide"
+      onRequestClose={() => {
+        if (astroNightPhase !== null) {
+          astroAbortRef.current = true;
+          return;
+        }
+        Vibration.cancel();
+        onClose();
+      }}
+    >
       <View style={styles.container}>
-        {previewUri ? (
+        {astroResult ? (
+          <AstroResultView
+            result={astroResult}
+            simPreviewUri={simPreviewUri}
+            simError={simPreviewError}
+            isoUsed={astroResultIso}
+            isSaving={astroSaving}
+            hasSaved={astroSaved}
+            onSavePng={handleSaveAstroPng}
+            onRetake={() => {
+              setAstroResult(null);
+              setSimPreviewUri(null);
+              setSimPreviewError(null);
+              setAstroSaved(false);
+            }}
+            language={language}
+          />
+        ) : astroNightPhase !== null ? (
+          <AstroCaptureNightOverlay
+            phase={astroNightPhase}
+            mode={astroSettings.mode}
+            summary={astroShotSummary}
+            totalTargetDurationSec={astroSettings.durationSec}
+            countdownRemainingSec={astroCountdownSec}
+            progress={astroProgress}
+            monochromeRed={astroMonochromeRed}
+            onToggleMonochromeRed={handleAstroToggleRed}
+            onSkipCountdown={() => { astroCountdownSkipRef.current = true; }}
+            onStopEarlyAndSave={() => {
+              astroStopEarlyRef.current = true;
+              setAstroStopEarlyReq(true);
+            }}
+            onCancelAbort={() => { astroAbortRef.current = true; }}
+            stopEarlyRequested={astroStopEarlyReq}
+            language={language}
+          />
+        ) : previewUri ? (
           // 촬영 후 미리보기 & 평가 입력 화면
           <View style={{ flex: 1, backgroundColor: color.bg }}>
             <ScrollView 
@@ -1558,16 +2080,26 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           // 3D 예측은 **같은 크기로 늘 붙어 있고**(GL 버퍼 크기를 바꾸지 않게) 평소에는 "예측 보기" 단추 안으로 줄여 둡니다.
           <View style={styles.liveRoot}>
             <View style={[styles.stage, { height: stageH }]}>
-              <CameraView
-                ref={cameraRef}
-                style={StyleSheet.absoluteFill}
-                facing={cameraFacing}
-                zoom={zoom}
-              />
-              {/* 소프트웨어 노출 — 카메라 그림에만 */}
+              {!simPickerActive && astroNightPhase === null && !astroResult && !previewUri && (
+                <CameraView
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFill}
+                  facing={cameraFacing}
+                  zoom={zoom}
+                />
+              )}
+              {/* 소프트웨어 노출(밝기 부스트) — 카메라 그림에만 (천체 PNG 원본에는 미적용) */}
               {exposure !== 0 && (
                 <View
-                  style={[StyleSheet.absoluteFill, { backgroundColor: exposure < 0 ? `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` : `rgba(255, 255, 255, ${exposure * 0.4})` }]}
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      backgroundColor:
+                        exposure < 0
+                          ? `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})`
+                          : `rgba(255, 255, 255, ${exposure * (cameraTab === 'astro' ? 0.28 : 0.4)})`,
+                    },
+                  ]}
                   pointerEvents="none"
                 />
               )}
@@ -1610,30 +2142,51 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </PressScale>
 
               <PressScale
-                style={[styles.shutter, isCapturing && { opacity: 0.5 }]}
-                onPress={handleCapture}
+                style={[
+                  styles.shutter,
+                  cameraTab === 'astro' && { borderColor: color.moon },
+                  isCapturing && { opacity: 0.5 },
+                ]}
+                onPress={() => {
+                  Vibration.cancel();
+                  if (cameraTab === 'astro') handleAstroStart();
+                  else handleCapturePress();
+                }}
                 disabled={isCapturing}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
               >
-                <View style={styles.shutterInner}>
-                  {isCapturing ? <ActivityIndicator size="small" color={color.onAccent} /> : <Camera size={22} color={color.onAccent} />}
+                <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
+                  {isCapturing ? (
+                    <ActivityIndicator size="small" color={color.onAccent} />
+                  ) : cameraTab === 'astro' ? (
+                    <Moon size={22} color={color.onAccent} />
+                  ) : (
+                    <Camera size={22} color={color.onAccent} />
+                  )}
                 </View>
               </PressScale>
 
-              {/* 예측 보기 — 아이콘 칸이 살아 있는 3D 예측(아래 simWrap 이 그 자리로 줄어듭니다). */}
+              {/* 예측 보기(3D 구도·미래시간 탐색) — 누르면 카메라를 끄고 메인 60fps 3D 하늘 시뮬로 전환합니다. */}
               <PressScale
                 style={styles.dockBtn}
-                onPress={() => setShowPrediction(v => !v)}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: showPrediction }}
-                accessibilityLabel={showPrediction ? L3(language, '카메라 보기', 'Show camera', 'カメラを表示') : L3(language, '예측 보기', 'Show prediction', '予測を表示')}
+                onPress={() => {
+                  if (onEnterSimPicker) {
+                    Vibration.cancel();
+                    setAstroDrawerOpen(false);
+                    onEnterSimPicker();
+                  } else {
+                    setShowPrediction(v => !v);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, '3D 시뮬레이션 구도·시간 탐색 열기', 'Open 3D composition & time simulator', '3Dシミュレーション構図・時刻を開く')}
               >
                 <View style={styles.dockIcon}>
                   {showPrediction && <Camera size={18} color={color.text} />}
                 </View>
-                <Text style={styles.dockLabel} numberOfLines={1}>{showPrediction ? L3(language, '카메라', 'Camera', 'カメラ') : L3(language, '예측 보기', 'Predict', '予測')}</Text>
+                <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '3D 시뮬', '3D Sim', '3D予測')}</Text>
               </PressScale>
             </View>
 
@@ -1646,7 +2199,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Image source={{ uri: predUri }} style={{ width: W, height: stageH }} resizeMode="cover" fadeDuration={0} />
                 ) : (
                   <View style={{ width: W, height: stageH, alignItems: 'center', justifyContent: 'center' }}>
-                    {showPrediction && <Text style={styles.microText}>{predNote ?? L3(language, '3D 예측 준비 중', 'Preparing 3D prediction', '3D予測を準備中')}</Text>}
+                    {showPrediction && (
+                      <Text style={styles.microText}>
+                        {predNote ?? L3(language, '3D 예측 준비 중', 'Preparing 3D prediction', '3D予測を準備中')}
+                      </Text>
+                    )}
                   </View>
                 )}
               </View>
@@ -1658,13 +2215,33 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 <PressScale style={styles.hudBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close', language)}>
                   <X size={18} color={color.text} />
                 </PressScale>
-                {countdown && (
-                  <View style={styles.countdown}>
-                    <View style={[styles.dot, { backgroundColor: color.sun }]} />
-                    <Text style={styles.countdownLabel}>{countdown.label}</Text>
-                    <Text style={styles.countdownValue}>{countdown.value}</Text>
-                  </View>
-                )}
+
+                {/* 상단 [ 노을 | 천체 ] 카메라 모드 탭 */}
+                <View style={styles.tabGroup} accessibilityRole="tablist">
+                  <PressScale
+                    style={[styles.tabPill, cameraTab === 'sunset' && styles.tabPillOn]}
+                    onPress={() => { setCameraTab('sunset'); setAstroDrawerOpen(false); }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: cameraTab === 'sunset' }}
+                  >
+                    <Sun size={13} color={cameraTab === 'sunset' ? color.sun : color.textDim} />
+                    <Text style={[styles.tabPillText, cameraTab === 'sunset' && { color: color.text }]}>
+                      {L3(language, '노을', 'Sunset', '夕焼け')}
+                    </Text>
+                  </PressScale>
+                  <PressScale
+                    style={[styles.tabPill, cameraTab === 'astro' && styles.tabPillAstroOn]}
+                    onPress={() => setCameraTab('astro')}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: cameraTab === 'astro' }}
+                  >
+                    <Moon size={13} color={cameraTab === 'astro' ? color.moon : color.textDim} />
+                    <Text style={[styles.tabPillText, cameraTab === 'astro' && { color: color.moon }]}>
+                      {L3(language, '천체', 'Astro', '天体')}
+                    </Text>
+                  </PressScale>
+                </View>
+
                 <View style={styles.azBox}>
                   <Text style={styles.microText}>{`AZ ${Math.round(effectiveAz)}°`}</Text>
                   <Text style={styles.microText}>{`ALT ${effectivePitch >= 0 ? '+' : ''}${effectivePitch.toFixed(1)}°`}</Text>
@@ -1675,8 +2252,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 <View style={styles.badge}>
                   {showPrediction ? (
                     <>
-                      <Text style={styles.badgeText}>{L3(language, '3D 예측', '3D prediction', '3D予測')}</Text>
-                      <Text style={styles.microText}>{`${L3(language, '화각', 'FOV', '画角')} ${Math.round(optics.vFovDeg)}°`}</Text>
+                      <Text style={styles.badgeText}>
+                        {cameraTab === 'astro'
+                          ? L3(language, `3D 장노출 (${Math.round(astroSettings.durationSec / 60)}m)`, `3D Long Exp (${Math.round(astroSettings.durationSec / 60)}m)`, `3D 長時間 (${Math.round(astroSettings.durationSec / 60)}m)`)
+                          : L3(language, '3D 예측', '3D prediction', '3D予測')}
+                      </Text>
+                      <Text style={styles.microText}>
+                        {cameraTab === 'astro'
+                          ? `${astroSettings.mode === 'tracked' ? L3(language, '추적', 'Track', '追尾') : L3(language, '궤적', 'Trail', '軌跡')} · FOV ${Math.round(optics.vFovDeg)}°`
+                          : `${L3(language, '화각', 'FOV', '画角')} ${Math.round(optics.vFovDeg)}°`}
+                      </Text>
                     </>
                   ) : (
                     <>
@@ -1686,6 +2271,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </>
                   )}
                 </View>
+
+                {cameraTab === 'sunset' && countdown && (
+                  <View style={styles.countdownInline}>
+                    <View style={[styles.dot, { backgroundColor: color.sun }]} />
+                    <Text style={styles.countdownInlineLabel}>{countdown.label}</Text>
+                    <Text style={styles.countdownInlineVal}>{countdown.value}</Text>
+                  </View>
+                )}
+
+                {cameraTab === 'astro' && (
+                  <AstroForecastBanner
+                    analysis={astroAnalysis}
+                    durationSec={astroSettings.durationSec}
+                    language={language}
+                  />
+                )}
                 {hasInterference && (
                   <View style={styles.banner}>
                     <Text style={[styles.bannerText, { color: color.warning }]}>
@@ -1722,16 +2323,66 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 )}
               </View>
 
-              {/* 노출 — 오른쪽 세로 막대 */}
+              {/* 목표 방향 각도 맞추기 진동·십자 가이드 HUD */}
+              {lockedTarget && guideState && (
+                <DirectionGuideOverlay
+                  target={lockedTarget}
+                  guide={guideState}
+                  vibrationEnabled={vibrationGuideOn}
+                  onToggleVibration={() => setVibrationGuideOn(v => !v)}
+                  onClearTarget={() => {
+                    Vibration.cancel();
+                    setLockedTarget(null);
+                  }}
+                  stageHeight={stageH}
+                  language={language}
+                />
+              )}
+
+              {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 */}
               <View style={[styles.exposure, { top: TOP_INSET + TOUCH + 64 }]}>
-                <Sun size={12} color={color.sun} />
+                <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
                 <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
                   <View style={styles.exposureLine} />
-                  <View style={[styles.exposureFill, { height: `${((exposure + 1) / 2) * 100}%` }]} />
-                  <View style={[styles.exposureThumb, { bottom: `${((exposure + 1) / 2) * 100}%` }]} />
+                  <View
+                    style={[
+                      styles.exposureFill,
+                      cameraTab === 'astro' && { backgroundColor: color.moon },
+                      { height: `${((exposure + 1) / 2) * 100}%` },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.exposureThumb,
+                      cameraTab === 'astro' && { borderColor: color.moon },
+                      { bottom: `${((exposure + 1) / 2) * 100}%` },
+                    ]}
+                  />
                 </View>
-                <Text style={styles.microText}>{`${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}</Text>
+                <Text style={styles.microText}>
+                  {cameraTab === 'astro'
+                    ? `${exposure >= 0 ? '+' : ''}${Math.round(exposure * 100)}%`
+                    : `${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}
+                </Text>
               </View>
+
+              {/* 천체 모드 전용 조작 바 (구름 방해·노출시간·합성방식·ISO·카운트다운·세부설정) */}
+              {cameraTab === 'astro' && (
+                <AstroControlsOverlay
+                  settings={astroSettings}
+                  onChange={setAstroSettings}
+                  summary={astroShotSummary}
+                  caps={astroCaps}
+                  simParams={astroSimParams}
+                  showPrediction={showPrediction}
+                  isSimRendering={false}
+                  onRefreshPrediction={() => { onEnterSimPicker?.(); }}
+                  drawerOpen={astroDrawerOpen}
+                  onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
+                  language={language}
+                  bottomOffset={RULER_FROM_BOTTOM + 12}
+                />
+              )}
 
               {/* 배율 · 카메라 전환 */}
               <View style={[styles.zoomRow, { top: stageH - ZOOM_FROM_BOTTOM }]} pointerEvents="box-none">
@@ -1813,6 +2464,23 @@ const styles = StyleSheet.create({
     height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, flexShrink: 1,
     borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
   },
+  tabGroup: {
+    height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: 2, padding: 3,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong, backgroundColor: color.overlay,
+  },
+  tabPill: {
+    height: TOUCH - 8, paddingHorizontal: space.md, borderRadius: radius.xs,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+  },
+  tabPillOn: { backgroundColor: color.glowSoft, borderWidth: 1, borderColor: color.sun },
+  tabPillAstroOn: { backgroundColor: 'rgba(165, 180, 252, 0.16)', borderWidth: 1, borderColor: color.moon },
+  tabPillText: { ...type.label, color: color.textDim },
+  countdownInline: {
+    height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
+    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  countdownInlineLabel: { ...type.micro, color: color.textDim },
+  countdownInlineVal: { ...type.label, color: color.text },
   dot: { width: 6, height: 6, borderRadius: 3 },
   countdownLabel: { ...type.body, color: color.textDim, flexShrink: 1 },
   countdownValue: { ...type.display, color: color.text },

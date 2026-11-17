@@ -93,6 +93,14 @@ interface AstroCameraNative {
     subtractBlackPercentile?: number;
     jpegQuality?: number;
   }): Promise<AstroStackFinalizeResult>;
+  renderStackPreviewAsync(opts: {
+    maxLongEdge?: number;
+    stretchGain?: number;
+    asinhStrength?: number;
+    subtractBlackPercentile?: number;
+    jpegQuality?: number;
+    monochromeRed?: boolean;
+  }): Promise<AstroStackFinalizeResult | null>;
 }
 
 const NativeAstroCamera = requireOptionalNativeModule<AstroCameraNative>('AstroCamera');
@@ -180,6 +188,18 @@ export async function addAstroStackFrameAsync(opts: {
     throw new Error('AstroCamera native module is not available in this build');
   }
   return NativeAstroCamera.addStackFrameAsync(opts);
+}
+
+export async function renderAstroStackPreviewAsync(opts: {
+  maxLongEdge?: number;
+  stretchGain?: number;
+  asinhStrength?: number;
+  subtractBlackPercentile?: number;
+  jpegQuality?: number;
+  monochromeRed?: boolean;
+} = {}): Promise<AstroStackFinalizeResult | null> {
+  if (!NativeAstroCamera) return null;
+  return NativeAstroCamera.renderStackPreviewAsync(opts);
 }
 
 export async function finalizeAstroStackAsync(opts: {

@@ -657,23 +657,8 @@ export function useCelestialApp() {
     animateContent();
   };
 
-  useEffect(() => {
-    if (locationPermission === 'granted') {
-      // Force immediate default location mock in emulator to bypass GPS lock freeze
-      setLocation({
-        coords: {
-          latitude: 37.5665,
-          longitude: 126.9780,
-          altitude: 0,
-          accuracy: 0,
-          altitudeAccuracy: 0,
-          heading: 0,
-          speed: 0
-        },
-        timestamp: Date.now()
-      });
-    }
-  }, [locationPermission, setLocation]);
+  // 위치 초기화는 preloadInitialData / requestLocationPermission 의 실제 GPS 결과를 유지합니다.
+  // (예전 에뮬레이터용 서울 시청 좌표 덮어쓰기는 실기 GPS 위치를 덮어 재다운로드를 유발해 제거했습니다.)
 
   // 시계를 따라가는 중이면 1분마다, 그리고 앱이 다시 활성화될 때 지금으로 맞춥니다(utils/liveClock.ts).
   // ⚠ 탭을 묻지 않습니다 — 예전 `activeTab !== 'sky'` 조건 때문에 기본 탭에서 시계가 멈췄습니다.

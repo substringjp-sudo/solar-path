@@ -150,6 +150,10 @@ export interface BuildTimelineParams {
   isCancelled?: () => boolean;
   /** 이미 받은 360° 고리 날씨가 있으면 네트워크/캐시 재조회를 건너뜁니다. */
   pathData?: CloudPathData[];
+  /** 선택적 부분 창 시작 시각(ms) — 야간 구름 방해 30분 창 등 짧은 타임라인 계산용. */
+  windowStartMs?: number;
+  /** 선택적 부분 창 길이(분). 미지정 시 하루 1440분 전체. */
+  windowDurationMin?: number;
 }
 
 export const DEFAULT_STEP_MINUTES = 5;
@@ -187,11 +191,13 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
   if (isCancelled?.()) throw new Error('CANCELLED');
   report(0.18, L3('하늘 격자를 세우는 중…', 'Building the sky grid…', '空のグリッドを作成中…'));
 
-  // 그 날 00:00 로컬부터 24시간
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const startMs = start.getTime();
-  const frameCount = Math.max(2, Math.round((24 * 60) / stepMinutes) + 1);
+  // 기본값은 그 날 00:00 로컬부터 24시간, 부분 창 지정 시 해당 구간만 계산
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const startMs = params.windowStartMs ?? dayStartMs;
+  const spanMin = Math.max(stepMinutes, params.windowDurationMin ?? 24 * 60);
+  const frameCount = Math.max(2, Math.round(spanMin / stepMinutes) + 1);
   const endMs = startMs + (frameCount - 1) * stepMinutes * 60000;
 
   const dayOfYear = Math.floor((date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 0)) / 86400000);
@@ -234,7 +240,7 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
       fan,
       // 이류는 그 날 00:00 기준 경과 분으로 둡니다 — 시간이 흐르면 구조가
       // 하늘을 가로질러 흐르고, 같은 시각이면 항상 같은 그림이 나옵니다.
-      driftMinutes: i * stepMinutes,
+      driftMinutes: (tMs - dayStartMs) / 60000,
       windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
       windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
       // 층별 바람 — 관측점 기압면 실측(850/600/250 hPa)이 있으면 그것,

@@ -31,6 +31,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     MAX_CACHE_ENTRIES, LOOKUP_TOLERANCE_DEG, GRID_BUCKET_DEG,
     CANARY_VARIABLE, canaryPrint, canarySaysSkip, canaryDistinctValues,
     canaryIsUsable, CANARY_MIN_DISTINCT, ringCacheKey, MAX_RING_ENTRIES,
+    shouldSkipWeatherDownload, resolveWeatherDownloadInfo,
+    formatWeatherDownloadClock, formatWeatherDownloadAge,
   } = M;
 
   const LAT = 35.3606, LON = 136.1875;   // 사용자가 사진 찍은 곳 근처
@@ -377,6 +379,83 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     ok(!findEntry(list, 36.0464, 138.109, D), `대조: 5km 옮기면 findEntry 는 오늘 것을 못 찾는다`);
     ok(findNearestEntry(list, 36.0464, 138.109, D)?.data === 'A', `가장 가까운 같은 날 예보를 고른다 — 바로 여기 있는 어제 것이 아니라`);
     ok(findNearestEntry(list, 35.1, 129.0, D) === undefined, `30km 밖(부산에서 서울)은 고르지 않는다`);
+  }
+
+  console.log('\n[10] 기상정보 다운로드 시점 추적 · 카나리아 일치 시 강제 갱신 바이패스');
+  {
+    const D = '2026-11-17';
+    const sampleSeries = Array.from({ length: 24 }, (_, h) => Number((8 + 6 * Math.sin(h / 4)).toFixed(1)));
+    const storedPrint = canaryPrint(sampleSeries);
+
+    const normalSkip = shouldSkipWeatherDownload({
+      hasValidCache: true,
+      forceRefresh: false,
+      storedCanary: storedPrint,
+      canarySeries: sampleSeries,
+    });
+    ok(normalSkip.skip === true && normalSkip.reason === 'canary_match',
+      `평소 카나리아 지문이 같으면 다운로드 생략 (${normalSkip.reason})`);
+
+    const forced = shouldSkipWeatherDownload({
+      hasValidCache: true,
+      forceRefresh: true,
+      storedCanary: storedPrint,
+      canarySeries: sampleSeries,
+    });
+    ok(forced.skip === false && forced.reason === 'force_refresh',
+      `카나리아·캐시가 모두 일치해도 forceRefresh=true 면 강제 다운로드 (${forced.reason})`);
+
+    const diskLoaded = resolveWeatherDownloadInfo({
+      cacheEntry: { timestamp: 1763340000_000, data: [{ distance: 0, hourly: { time: [`${D}T00:00`] } }] },
+      rawSnapshot: null,
+      pathData: [{ distance: 0 }],
+      targetDateStr: D,
+      latitude: LAT,
+      longitude: LON,
+    });
+    ok(diskLoaded.downloadedAtMs === 1763340000_000 && diskLoaded.sourceKind === 'cache',
+      `디스크 캐시만 있을 때도 저장된 다운로드 시점 보존 (${diskLoaded.downloadedAtMs})`);
+
+    const staleRawIgnored = resolveWeatherDownloadInfo({
+      cacheEntry: { timestamp: 1763340000_000, data: [{ distance: 0 }] },
+      rawSnapshot: { fetchedAt: 1763345000_000, latitude: 35.1, longitude: 129.0, targetDate: D },
+      pathData: [{ distance: 0 }],
+      targetDateStr: D,
+      latitude: LAT,
+      longitude: LON,
+    });
+    ok(!staleRawIgnored.hasMatchingRawSnapshot && staleRawIgnored.downloadedAtMs === 1763340000_000,
+      `다른 장소의 rawSnapshot 시점으로 덮어쓰지 않음`);
+
+    const freshNetwork = resolveWeatherDownloadInfo({
+      cacheEntry: { timestamp: 1763340000_000, data: [{ distance: 0 }] },
+      rawSnapshot: { fetchedAt: 1763345000_000, latitude: LAT, longitude: LON, targetDate: D },
+      pathData: [{ distance: 0 }],
+      targetDateStr: D,
+      latitude: LAT,
+      longitude: LON,
+    });
+    ok(freshNetwork.hasMatchingRawSnapshot && freshNetwork.sourceKind === 'network' && freshNetwork.downloadedAtMs === 1763345000_000,
+      `강제/신규 수신 시 최신 fetchedAt 즉시 반영 (${freshNetwork.sourceKind})`);
+
+    const fallbackOnly = resolveWeatherDownloadInfo({
+      cacheEntry: null,
+      rawSnapshot: null,
+      pathData: [{ distance: 0, isFallback: true }],
+      targetDateStr: D,
+      latitude: LAT,
+      longitude: LON,
+    });
+    ok(fallbackOnly.downloadedAtMs === null && fallbackOnly.sourceKind === 'fallback',
+      `합성 폴백은 다운로드 시각을 가짜로 채우지 않음`);
+
+    const base = Date.UTC(2026, 10, 17, 1, 30, 0);
+    const clk = formatWeatherDownloadClock(base);
+    ok(/^\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/.test(clk), `시각 포맷 MM/DD HH:mm:ss 확인 (${clk})`);
+    ok(formatWeatherDownloadAge(base, base + 20_000, 'ko') === '방금 전', `20초 경과 -> 방금 전`);
+    ok(formatWeatherDownloadAge(base, base + 5 * 60_000, 'ko') === '5분 전', `5분 경과 -> 5분 전`);
+    ok(formatWeatherDownloadAge(base, base + 3 * 3600_000, 'ko') === '3시간 전', `3시간 경과 -> 3시간 전`);
+    ok(formatWeatherDownloadAge(base, base + 2 * 86400_000, 'en') === '2d ago', `2일 경과(EN) -> 2d ago`);
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
