@@ -2715,7 +2715,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lastVolDateSyncRef.current.targetMs = null;
                 volSettleRef.current = 18;
                 volFreshRef.current = false;
-              } else if (!isSlidingNow) {
+              } else if (!isSlidingNow || nowPerf - lastSlidingVolBuildTimeRef.current > 250) {
+                // 2026-11-17 드래그 중에도 미리 구워 두지 않은 시간대는 바로 만들기 시작(250 ms 쓰로틀, 앞선 생성은 순번으로 버림).
+                // 예전에는 드래그 중에 만들지 않아 이전 시간대 장면을 바람으로 몇 시간치 밀어 보여 주다가, 손을 떼면 다른 장면으로 바뀌었음
+                // (사용자: 미리보기와 손 뗀 뒤 구름의 크기·위치가 다름). 만드는 판은 손 뗀 뒤와 같은 판이라 결과가 같음.
                 const isFirstCloudScene = !volHasSceneRef.current;
                 if (isFirstCloudScene) {
                   vol.setScene({ ...built.input, layers: [], macro: undefined });
