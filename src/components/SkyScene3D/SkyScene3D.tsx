@@ -93,7 +93,7 @@ import {
 import { computeTrackedAttitudeAt } from '../../utils/astroStackMath';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
 import { loadNightLights, getCachedNightLights } from '../../utils/nightLightsAsset';
-import { estimateLightPollution, type LightPollutionEstimate, type NightLights } from '../../utils/cityLightMap';
+import { CITY_REF_LOCAL, cityGlowDirection, cityLightField, estimateLightPollution, type LightPollutionEstimate, type NightLights } from '../../utils/cityLightMap';
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
@@ -780,6 +780,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastAppliedTuningRef = useRef<unknown>(null);
   const locationRef = useRef(location);
   const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
+  const cityExpCompRef = useRef<number>(1);
   const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
   const getLightEst = (lat: number, lon: number): LightPollutionEstimate | null => {
     const m = nightLightsRef.current;
@@ -1312,6 +1313,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
         }
 
+        cityExpCompRef.current = Math.pow(Math.max(1, exposureGain), 0.65) / Math.max(1, exposureGain);
         for (let k = 0; k < steps; k++) {
           const frac = steps <= 1 ? 0 : k / (steps - 1);
           const tkMs = startTimeMs + frac * durationSec * 1000;
@@ -1362,6 +1364,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           state,
         };
       } finally {
+        cityExpCompRef.current = 1;
         accumDirectiveRef.current = null;
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
@@ -3285,10 +3288,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
         if (u.uOvercast) u.uOvercast.value = overcast;
       }
+      const cityLightsOn = currentLayers.cityLights !== false;
+      const cityField = cityLightsOn && nightLightsRef.current
+        ? cityLightField(nightLightsRef.current, locationRef.current.latitude, locationRef.current.longitude)
+        : null;
+      const localNorm = cityField ? Math.min(1.25, Math.max(0, cityField.local / CITY_REF_LOCAL)) : 0;
+      const skyGlow = cityField ? cityField.skyGlow : 0;
+      const cityDir = cityField ? cityGlowDirection(cityField.azGain) : { x: 0, z: -1 };
+      const nightT = Math.max(0, Math.min(1, (2.0 - sunAltRef.current) / 8.0));
+      const nightFade = nightT * nightT * (3 - 2 * nightT);
+      const cloudBounce = 1.0 + 0.65 * Math.min(1, Math.max(0, overcast));
+      const expComp = cityExpCompRef.current;
+      const cityTerrainGain = cityLightsOn ? 0.028 * (0.55 * skyGlow + 0.45 * localNorm) * cloudBounce * nightFade * expComp : 0;
+      const cityWallGain = cityLightsOn ? 0.045 * skyGlow * cloudBounce * nightFade * expComp : 0;
+
+      if (terrainFieldRef.current) {
+        const tu = terrainFieldRef.current.material.uniforms;
+        if (tu.uCityTerrainGain) tu.uCityTerrainGain.value = cityTerrainGain;
+        if (tu.uCityDirXZ?.value) (tu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
+      }
       if (buildingFieldRef.current) {
-        if (buildingFieldRef.current.material.uniforms.uObsElevM) {
-          buildingFieldRef.current.material.uniforms.uObsElevM.value =
-            simRef.current?.terrain?.observerElevation ?? 0;
+        const bu = buildingFieldRef.current.material.uniforms;
+        if (bu.uCityWallGain) bu.uCityWallGain.value = cityWallGain;
+        if (bu.uCityDirXZ?.value) (bu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
+        if (bu.uObsElevM) {
+          bu.uObsElevM.value = simRef.current?.terrain?.observerElevation ?? 0;
         }
         const tzOffsetHours =
           useCelestialStore.getState().timezoneOffsetHours ??
@@ -3298,7 +3322,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           localD.getUTCHours() + localD.getUTCMinutes() / 60 + localD.getUTCSeconds() / 3600;
         buildingFieldRef.current.setWindowLighting(
           computeNightWindowRate(localHour),
-          computeNightWindowGlow(sunAltRef.current, currentLayers.cityLights !== false),
+          computeNightWindowGlow(sunAltRef.current, cityLightsOn, localNorm),
         );
       }
       if (seaPlaneRef.current) {

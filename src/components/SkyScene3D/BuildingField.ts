@@ -45,10 +45,11 @@ export function computeNightWindowRate(localHour: number): number {
   return 0.24 + (0.46 - 0.24) * smooth01((h - 8.5) / 7.5);
 }
 
-/** 태양 고도(°) 및 도시 불빛 옵션에 따른 창문 발광 세기 (0=주간/꺼짐 ~ 1=야간). */
-export function computeNightWindowGlow(sunAltDeg: number, cityLightsEnabled: boolean = true): number {
+/** 태양 고도(°), 도시 불빛 옵션 및 지역 빛지도 밝기(localNorm)에 따른 창문 발광 세기. */
+export function computeNightWindowGlow(sunAltDeg: number, cityLightsEnabled: boolean = true, localNorm: number = 1): number {
   if (!cityLightsEnabled || !Number.isFinite(sunAltDeg)) return 0;
-  return smooth01((2.0 - sunAltDeg) / 8.0);
+  const regionScale = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
+  return smooth01((2.0 - sunAltDeg) / 8.0) * regionScale;
 }
 
 const BUILDING_VERT = /* glsl */ `
@@ -251,6 +252,8 @@ uniform float uElevScale;
 uniform float uOzoneDU;
 uniform float uOvercast;
 uniform float uDiagRaw;
+uniform float uCityWallGain;
+uniform vec2  uCityDirXZ;
 
 void main() {
   if (uDepthOnly > 0.5) {
@@ -279,6 +282,13 @@ void main() {
   float hemi = 0.72 + 0.28 * n.y;
   vec3 alb = vec3(0.20, 0.205, 0.215) * hemi;
   vec3 col = alb * (skyIrr + directLit);
+
+  // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광)
+  if (uCityWallGain > 1e-5) {
+    float cDir = 0.35 + 0.65 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
+    float wallSlope = 0.40 + 0.60 * (1.0 - abs(n.y));
+    col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDir * wallSlope);
+  }
 
   if (uAerial > 0.5) {
     vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
@@ -340,6 +350,8 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     uOzoneDU: { value: 300 },
     uOvercast: { value: 0 },
     uDiagRaw: { value: 0 },
+    uCityWallGain: { value: 0 },
+    uCityDirXZ: { value: new THREE.Vector2(0, -1) },
     uWinRate: { value: 0.46 },
     uWinGlow: { value: 0 },
   };

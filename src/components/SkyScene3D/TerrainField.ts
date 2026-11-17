@@ -384,6 +384,8 @@ uniform sampler2D uUrbanTex;
 uniform float uUrbanValid;
 uniform float uUrbanHalfM;
 uniform float uFarUrban;
+uniform float uCityTerrainGain;
+uniform vec2  uCityDirXZ;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -979,6 +981,12 @@ void main() {
     col += uMoonRadiance * spec * f0 * 1.5;
   }
 
+  // ── 지역 빛지도 기반 야간 지형 간접 반사 (2900~3100K 도시광) ───────────
+  if (uCityTerrainGain > 1e-5) {
+    float cSlope = 0.70 + 0.30 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
+    col += alb * vec3(1.00, 0.787, 0.573) * (uCityTerrainGain * cSlope);
+  }
+
   // ── 공기원근 ─────────────────────────────────────────────────────────────
   //
   // ⚠ 연무의 끝색은 **그 방향의 하늘**이어야 합니다. 예전에는 방위 여섯 곳의
@@ -1271,6 +1279,8 @@ export function createTerrainField(opts: {
       uHazeShadow: { value: 1.0 },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
+      uCityTerrainGain: { value: 0.0 },
+      uCityDirXZ: { value: new THREE.Vector2(0, -1) },
       uDemDespike: { value: opts.despike ? 1 : 0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },

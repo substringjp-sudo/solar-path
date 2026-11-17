@@ -231,3 +231,20 @@ export function cityLightField(m: NightLights, lat: number, lon: number, n = 48,
     magLimit: stats.magLimit,
   });
 }
+
+/**
+ * azGain[36](10° 방위 칸)에서 주 도심 방향 수평 벡터(Three.js 월드 좌표 +X=동, -Z=북)를 추출한다.
+ */
+export function cityGlowDirection(azGain: Float32Array): { x: number; z: number } {
+  let sx = 0;
+  let sz = 0;
+  for (let i = 0; i < 36; i++) {
+    const azRad = ((i + 0.5) * 10 * Math.PI) / 180;
+    const w = Math.max(0, azGain[i] - 0.2);
+    sx += w * Math.sin(azRad);
+    sz += w * -Math.cos(azRad);
+  }
+  const len = Math.hypot(sx, sz);
+  if (len < 1e-4) return { x: 0, z: -1 };
+  return { x: sx / len, z: sz / len };
+}
