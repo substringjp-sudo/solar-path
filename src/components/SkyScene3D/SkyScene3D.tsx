@@ -2820,8 +2820,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
                 const metarSnap = metarRef.current;
                 const fillSnap = skySettingsRef.current.volumetricFill ?? true;
+                // 2026-11-18 우주(지도·지구본) 단계에서는 구름을 미리 굽지 않습니다 — 3D 가 안 보이고, 착륙하면 그 시각으로 다시 셉니다(사용자 요청).
                 const shouldPausePrewarm = () =>
                   !isActiveRef.current ||
+                  !glVisibleForProgress(zoomProgressRef.current) ||
                   isSlidingRef.current ||
                   useCelestialStore.getState().isGestureBlocked ||
                   volPendingRef.current ||

@@ -4,7 +4,8 @@ import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { IsochronePoint } from '../../utils/celestial';
+import { IsochronePoint, getSubsolarPoint, getTerminatorSegments, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
+import { subscribeScrubTime } from '../../utils/liveClock';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
@@ -94,8 +95,8 @@ export interface MapGlobeHandle {
 }
 
 export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
-  subsolar,
-  terminator,
+  subsolar: subsolarProp,
+  terminator: terminatorProp,
   allTerminators = [],
   lat,
   lon,
@@ -111,16 +112,42 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   onViewChange,
   radar = null,
   topView = null,
-  selectedDate,
+  selectedDate: selectedDateProp,
   onSelectLocation,
   pickPin = null,
-  sublunar = null,
-  moonFraction = 0.5,
+  sublunar: sublunarProp = null,
+  moonFraction: moonFractionProp = 0.5,
   visible = true,
   interactive,
   initialMorph = 1,
   onViewChanging,
 }, ref) => {
+  // 2026-11-18 시간 막대를 끄는 동안에도 해·달·밤 경계가 따라 움직이게(사용자 요청). 막대는 손을 뗄 때만
+  // 시각을 커밋하므로(createIdleCommit) 그동안은 emitScrubTime 의 시각으로 직접 셉니다. 분이 바뀔 때만,
+  // 한 프레임에 한 번. 커밋된 시각(부모 props)이 바뀌면 그쪽으로 돌아갑니다.
+  const [scrubMin, setScrubMin] = useState<number | null>(null);
+  useEffect(() => { setScrubMin(null); }, [subsolarProp]);
+  useEffect(() => {
+    if (!isActive) return;
+    let raf: number | null = null;
+    let want: number | null = null;
+    const unsub = subscribeScrubTime((ms) => {
+      want = Math.floor(ms / 60000);
+      if (raf == null) raf = requestAnimationFrame(() => { raf = null; if (want != null) setScrubMin(want); });
+    });
+    return () => { unsub(); if (raf != null) cancelAnimationFrame(raf); };
+  }, [isActive]);
+  const scrubLive = useMemo(() => {
+    if (scrubMin == null) return null;
+    const d = new Date(scrubMin * 60000);
+    return { date: d, subsolar: getSubsolarPoint(d), terminator: getTerminatorSegments(d), sublunar: getSublunarPoint(d), moonFraction: getMoonPhase(d).fraction };
+  }, [scrubMin]);
+  const subsolar = scrubLive?.subsolar ?? subsolarProp;
+  const terminator = scrubLive?.terminator ?? terminatorProp;
+  const sublunar = scrubLive?.sublunar ?? sublunarProp;
+  const moonFraction = scrubLive?.moonFraction ?? moonFractionProp;
+  const selectedDate = scrubLive?.date ?? selectedDateProp;
+
   const W = Math.max(1, width);
   const H = Math.max(1, height);
   const CX = W / 2;
