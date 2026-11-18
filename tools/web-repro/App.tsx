@@ -19,6 +19,7 @@ import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
+import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments } from '../../src/utils/celestial';
 
 const Q = (() => {
@@ -106,18 +107,25 @@ export default function App() {
   const sunAz = dyn.sunAz ?? Q.sunAz;
   const wx = dyn.wx ?? Q.wx;
   const lat = dyn.lat ?? Q.lat, lon = dyn.lon ?? Q.lon, elevM = dyn.elevM ?? Q.elevM;
+  // ring:1 — 앱처럼 고리 예보(시간별 바람 포함)를 받아 sim.pathData 와 분 단위 보간 날씨로 넘깁니다(구름 이동 재현, 2026-11-18).
+  const [ring, setRing] = React.useState<any[] | null>(null);
+  React.useEffect(() => {
+    if (!Q.ring) return;
+    fetchDayWeatherRing(lat ?? 37.5, lon ?? 127, new Date(tNow ?? Date.now()), true).then(p => { setRing(p as any[]); (globalThis as any).__ringReady = (p as any[]).length; }).catch(e => { (globalThis as any).__ringReady = 'err ' + String(e); });
+  }, []);
+  const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
   if (Q.bar) return <BarRepro W={W} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>
       <SkyScene3D
-        sim={{ terrain: { observerElevation: elevM ?? 0 } }}
+        sim={{ terrain: { observerElevation: elevM ?? 0 }, ...(ring ? { pathData: ring } : {}) } as any}
         currentTime={new Date(tNow ?? Date.now())}
         sunAltitude={sunAlt ?? 30}
         sunAzimuth={sunAz ?? 180}
         prediction={null}
         location={{ coords: { latitude: lat ?? 37.5, longitude: lon ?? 127 } }}
-        interpolatedWeather={wx ?? []}
+        interpolatedWeather={ringWx ?? wx ?? []}
         theme={{ accent: '#FF9800' }}
         cameraAzimuthProp={view?.az}
         cameraElevationProp={view?.el}
