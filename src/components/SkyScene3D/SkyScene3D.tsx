@@ -559,6 +559,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const urbanLoadedKeyRef = useRef<string | null>(null);
+  // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
+  const urbanSerialRef = useRef(0);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
   const buildingLoadedKeyRef = useRef<string | null>(null);
   const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2888,7 +2890,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
               const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
               const bldSerial = buildingsOn ? buildingFieldRef.current!.geomSerial() : -1;
-              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}`;
+              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}`;
               composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
@@ -3882,6 +3884,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
+        urbanSerialRef.current += 1;
         sceneDirtyRef.current = true;
         requestRender(6);
       })

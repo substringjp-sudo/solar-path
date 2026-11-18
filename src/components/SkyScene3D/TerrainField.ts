@@ -386,6 +386,14 @@ uniform float uUrbanHalfM;
 uniform sampler2D uPaveTex;
 uniform float uPaveValid;
 uniform float uPaveHalfM;
+// 포장 지도(R 시멘트, G 아스팔트)를 읽습니다. 범위 밖과 가장자리는 0 으로 줄입니다.
+vec2 paveRaw(vec2 g) {
+  // (켜짐 값 없이 읽습니다. 지도가 없을 때 묶인 빈 텍스처는 0 입니다.)
+  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return vec2(0.0);
+  float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
+  return texture2D(uPaveTex, pUv).rg * edge;
+}
 uniform float uFarUrban;
 uniform float uCityTerrainGain;
 uniform vec2  uCityDirXZ;
@@ -633,6 +641,11 @@ void main() {
   vec3 nMacro = n;
   float ny = max(nMacro.y, 1e-3);
   float slope = sqrt(max(0.0, 1.0 - ny * ny)) / ny;   // = tanθ
+  // 2026-11-18 포장된 곳은 법선을 위로 많이 눕힙니다. 도심 고도 자료(SRTM 계열)에는 건물 높이가 섞여 평지가
+  // tan 1~2 로 울퉁불퉁하게 나오는데(나고야역 둘레에서 잼), 도로·광장은 실제로 평평합니다.
+  vec2 pvN = paveRaw(vGround);
+  float paveN = max(pvN.r, pvN.g);
+  n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.75 * paveN));
 #ifdef TERRAIN_LIT_OUT
   // §157 **미세 기복 + 초근접(cm~dm) 지표 디테일** — 자료(15m)가 모르는 요철과 발밑(0.6~95m)의 풀·자갈·암반 질감.
   //
@@ -723,7 +736,8 @@ void main() {
         }
       }
     }
-    vec2 g0 = vec2(-n.x, -n.z) / max(n.y, 1e-3) + gm;
+    // 포장 위는 풀·자갈 요철을 거의 지웁니다(도로가 풀밭과 같은 결로 보이지 않게).
+    vec2 g0 = vec2(-n.x, -n.z) / max(n.y, 1e-3) + gm * (1.0 - 0.9 * paveN);
     n = normalize(vec3(-g0.x, 1.0, -g0.y));
   }
 #endif
@@ -809,6 +823,7 @@ void main() {
   // ── 도시·거주지 포장 지반(회색 콘크리트/아스팔트) ────────────────────────
   // MVT 토지이용 마스크(±3km)가 있으면 구역별로, 밖이나 로드 전엔 불빛 지도(uFarUrban)로 보조합니다.
   float urbanRaw = clamp(uFarUrban * 0.65, 0.0, 1.0);
+  float urbanMapW = 0.0;   // 토지이용 지도가 이 자리를 덮는 정도
   if (uUrbanValid > 0.5) {
     vec2 uUv = (vGround + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
     float inBox = step(0.0, uUv.x) * step(uUv.x, 1.0) * step(0.0, uUv.y) * step(uUv.y, 1.0);
@@ -816,22 +831,21 @@ void main() {
       float edgeFade = 1.0 - smoothstep(0.82, 0.99, max(abs(uUv.x * 2.0 - 1.0), abs(uUv.y * 2.0 - 1.0)));
       float mapUrban = texture2D(uUrbanTex, uUv).r;
       urbanRaw = mix(urbanRaw, mapUrban, edgeFade);
+      urbanMapW = edgeFade;
     }
   }
-  float urbanSlopeGuard = 1.0 - smoothstep(0.16, 0.38, slope);
+  // 경사로 도시 지반을 끄는 제한은 불빛 지도로 짐작할 때만 빡빡하게 씁니다. 토지이용 지도가 도시라고 하면
+  // 도심 고도 자료의 건물 요철(tan 1~2)에 지지 않게 절벽 수준까지 둡니다.
+  float urbanSlopeGuard = 1.0 - smoothstep(mix(0.16, 1.5, urbanMapW), mix(0.38, 3.0, urbanMapW), slope);
   float urbanMask = clamp(urbanRaw * urbanSlopeGuard * (1.0 - wet), 0.0, 1.0);
   vec3 albUrban = vec3(dot(uAlbedo, vec3(0.30, 0.59, 0.11)));
   alb = mix(alb, albUrban, urbanMask);
   // 2026-11-18 포장(±1.6 km, 약 3 m 칸): 건물 둘레·도로 가장자리는 밝은 시멘트, 도로 가운데는 어두운 아스팔트 — 흙이 비치지 않게.
-  float paveC = 0.0, paveA = 0.0;
-  if (uPaveValid > 0.5) {
-    vec2 pUv = (vGround + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
-    if (pUv.x > 0.0 && pUv.x < 1.0 && pUv.y > 0.0 && pUv.y < 1.0) {
-      float pFade = (1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)))) * urbanSlopeGuard * (1.0 - wet);
-      vec2 pv = texture2D(uPaveTex, pUv).rg;
-      paveC = pv.r * pFade; paveA = pv.g * pFade;
-    }
-  }
+  // 포장은 도시 경사 제한(tan 0.16~0.38)을 쓰지 않습니다. 도심 고도 자료는 건물 높이가 섞여 평지가 tan 1~2 로
+  // 나오므로, 그 제한을 쓰면 도심 한가운데 포장이 꺼집니다(나고야역 둘레에서 확인). 지도에 있으면 칠합니다.
+  vec2 pv = pvN * ((1.0 - smoothstep(2.5, 4.0, slope)) * (1.0 - wet));
+  float paveC = pv.r, paveA = pv.g;
+  float paveAny = max(paveC, paveA);
   vec3 albConcrete = albUrban * vec3(1.75, 1.72, 1.66);
   vec3 albAsphalt = albUrban * vec3(0.52, 0.52, 0.55);
   alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
@@ -881,7 +895,7 @@ void main() {
     convex = mix(0.5, ambSample.g, fadeAmb);
   }
   vec3 albL = alb;
-  albL *= 1.0 + uLookMottle * mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask) * mot;   // 도시 지반은 무채색 콘크리트 농담
+  albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.06), paveAny) * mot;   // 도시 지반은 무채색 콘크리트 농담
   // 군락: 근거리에서는 Height-Based Blending 으로 큰 패치(46m·9.5m·23m) 경계를 자잘한 풀·자갈·틈새로 쪼갭니다.
   vec2 patchG = vGround + nearWarp * (1.2 * nearW);
   float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
@@ -891,7 +905,7 @@ void main() {
     shrub = mix(shrub, tn_hblend(shrub, detailH * 0.85, detailGrain), nearW);
     bare = mix(bare, tn_hblend(bare, detailH, detailRockH), nearW);
   }
-  float natVeg = slopeFlat0 * (1.0 - urbanMask * 0.85);
+  float natVeg = slopeFlat0 * (1.0 - urbanMask * 0.85) * (1.0 - paveAny);
   albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * natVeg);
   albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * natVeg);
   if (nearW > 0.001) {
@@ -901,6 +915,7 @@ void main() {
     float rockFissure = 1.0 - 0.28 * clamp(rockCrack, 0.0, 1.0);
     float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
     float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
+    grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.10, paveAny);   // 포장: 고운 알갱이만
     float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi);
     albL *= mix(1.0, grainFactor, dryNear * clamp(uLookMottle, 0.0, 1.2));
   }
@@ -912,7 +927,7 @@ void main() {
   // ── 방안 C: 근거리 Micro Cavity AO + Oren-Nayar 거칠기 음영 ──────────────
   // 풀·자갈·바위 틈새에 하늘빛/직달 미세 차폐를 걸고, 건조 지표에 거친 표면 음영과 약한 광물 반짝임을 더합니다.
   // 평균 밝기는 보존(0.5 전후 대칭 보정)해 기존 노출·색감 교정(VOLUMETRIC_TERRAIN_ALBEDO)이 틀어지지 않게 합니다.
-  float microStrength = nearW * (1.0 - wet) * (0.40 + 0.60 * uLookMicro);
+  float microStrength = nearW * (1.0 - wet) * (0.40 + 0.60 * uLookMicro) * (1.0 - 0.85 * paveAny);
   float crackOcc = clamp(rockCrack * 0.55 * mix(0.4, 1.0, rockMaskHi), 0.0, 0.45);
   float microAo = mix(1.0, clamp(mix(0.76, 1.16, detailH) - crackOcc * 0.20, 0.60, 1.14), microStrength);
   float microDirect = mix(1.0, clamp(mix(0.80, 1.16, detailH) - crackOcc * 0.16, 0.64, 1.14), microStrength);
@@ -958,7 +973,14 @@ void main() {
   vec3 natLitAlb = albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4)));
   float urbLumaScale = clamp(dot(albL, vec3(0.30, 0.59, 0.11)) / max(dot(uAlbedo, vec3(0.30, 0.59, 0.11)), 1e-4), 0.70, 1.30);
   vec3 urbLitAlb = vec3(0.056, 0.058, 0.062) * urbLumaScale;
-  gl_FragColor = vec4(sqrt(clamp(mix(natLitAlb, urbLitAlb, urbanMask), 0.0, 1.0)), litOut);
+  // 포장은 도시 평균 회색(urbLitAlb, 밝기 ±30% 로 묶임)을 거치지 않고 제 색을 씁니다.
+  // 풀밭 0.05 안팎에 견줘 시멘트는 약 1.7배, 아스팔트는 약 0.45배입니다.
+  float paveGrain = 1.0 + 0.12 * mot + (nearW > 0.001 ? (detailGrain - 0.5) * 0.10 * nearW : 0.0);
+  vec3 concreteLit = vec3(0.088, 0.087, 0.083) * paveGrain;
+  vec3 asphaltLit = vec3(0.024, 0.024, 0.026) * paveGrain;
+  vec3 outLitAlb = mix(natLitAlb, urbLitAlb, urbanMask);
+  outLitAlb = mix(mix(outLitAlb, concreteLit, paveC), asphaltLit, paveA);
+  gl_FragColor = vec4(sqrt(clamp(outLitAlb, 0.0, 1.0)), litOut);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
   pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
   return;
