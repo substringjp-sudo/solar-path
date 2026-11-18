@@ -306,20 +306,6 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
               geodesic
             />
           )}
-          <Polyline
-            coordinates={sunOverlay.isoLine}
-            strokeColor="#38BDF8"
-            strokeWidth={2.5}
-            geodesic
-          />
-          {/* 해가 떠 있으면 실선, 지평선 아래면 흐린 점선 */}
-          <Polyline
-            coordinates={sunOverlay.nowRay}
-            strokeColor={sunOverlay.fan.nowAlt > 0 ? '#FB923C' : 'rgba(251, 146, 60, 0.35)'}
-            strokeWidth={3.5}
-            lineDashPattern={sunOverlay.fan.nowAlt > 0 ? undefined : [7, 6]}
-            geodesic
-          />
           {sunOverlay.riseRay && (
             <Marker coordinate={sunOverlay.riseRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelRise}>
@@ -338,13 +324,6 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
               </View>
             </Marker>
           )}
-          <Marker coordinate={sunOverlay.nowRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.fanLabelNow}>
-              <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
-                {sunOverlay.fan.nowAlt > 0 ? L('지금', 'Now', '現在') : L('지평선 아래', 'Below horizon', '地平線の下')} {Math.round(sunOverlay.fan.nowAz)}°
-              </Text>
-            </View>
-          </Marker>
         </>
       )}
 
