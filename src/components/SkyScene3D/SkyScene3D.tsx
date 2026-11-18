@@ -1857,7 +1857,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
-      onMoveShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
+      onMoveShouldSetPanResponder: (evt, gs) =>
+        !disableGesturesRef.current &&
+        cameraAzimuthPropRef.current === undefined &&
+        (Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4 || evt.nativeEvent.touches.length >= 2),
       onStartShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
       onMoveShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
       /**
