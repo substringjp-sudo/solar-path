@@ -1,0 +1,19 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.pplaner.astrocamera'
+version = '0.1.0'
+
+android {
+  namespace "com.pplaner.astrocamera"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  api "androidx.annotation:annotation:1.7.1"
+}
