@@ -32,6 +32,8 @@ export interface MapCanvasProps {
   zoomEnabled?: boolean;
   /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
   pickPin?: { latitude: number; longitude: number } | null;
+  /** 야간일 때 다크/야간 지도 스타일 적용 */
+  isNight?: boolean;
 }
 
 /** 리렌더 없이 지도를 옮깁니다(웹 미리보기는 고정 도법이라 아무 일도 안 함). */

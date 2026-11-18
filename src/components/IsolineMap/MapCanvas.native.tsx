@@ -34,7 +34,20 @@ interface MapCanvasProps {
   zoomEnabled?: boolean;
   /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
   pickPin?: { latitude: number; longitude: number } | null;
+  isNight?: boolean;
 }
+
+const NIGHT_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#1b2434' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0f172a' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#334155' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#273449' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
+];
 
 /** 리렌더 없이 지도를 옮깁니다 — 하늘 탭의 줌이 손가락 이벤트마다 부릅니다. */
 export interface MapCanvasHandle {
@@ -74,6 +87,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
   onLongPress,
   zoomEnabled = true,
   pickPin = null,
+  isNight = false,
 }, ref) => {
   const mapRef = React.useRef<MapView>(null);
 
@@ -110,6 +124,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
     <MapView
       ref={mapRef}
       provider={PROVIDER_GOOGLE}
+      customMapStyle={isNight ? NIGHT_MAP_STYLE : undefined}
       style={StyleSheet.absoluteFillObject}
       // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
       //   가로보다 먼저 차지 않아 **경도 폭이 축척을 정합니다**. 구에서 돌아올 때

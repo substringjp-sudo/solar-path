@@ -1651,21 +1651,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const d0 = lonDeltaForProgress(p0, homeRef.current.latitude, aspect0);
       zoomProgressRef.current = progressForLonDelta(d0, targetLat, aspect0);
     }
-    // 1. 전역 위치 갱신 (일출·일몰 시간, 날씨, 지형 자동 재계산)
+    // 1. 위치가 실제로 달라졌을 때만 전역 위치 갱신 (같은 자리 착륙 시 불필요한 재로딩/프레임 끊김 방지)
+    const prevLat = locationRef.current?.coords?.latitude;
+    const prevLon = locationRef.current?.coords?.longitude;
+    const moved = prevLat === undefined || prevLon === undefined
+      || Math.abs(prevLat - targetLat) > 1e-5
+      || Math.abs(prevLon - targetLon) > 1e-5;
     homeRef.current = { latitude: targetLat, longitude: targetLon };
     setDivingLocation({ latitude: targetLat, longitude: targetLon });
-    useCelestialStore.getState().setLocation({
-      coords: {
-        latitude: targetLat,
-        longitude: targetLon,
-        altitude: 0,
-        accuracy: 0,
-        altitudeAccuracy: 0,
-        heading: 0,
-        speed: 0,
-      },
-      timestamp: Date.now(),
-    });
+    if (moved) {
+      useCelestialStore.getState().setLocation({
+        coords: {
+          latitude: targetLat,
+          longitude: targetLon,
+          altitude: 0,
+          accuracy: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          speed: 0,
+        },
+        timestamp: Date.now(),
+      });
+    }
 
     // 2. 부드러운 다이빙 착륙 애니메이션 — 지상 시선은 처음부터 저장해 둔 값으로
     //    (내려오며 서서히 들림. 예전에는 끝 프레임에 한 번에 튀었습니다).
@@ -4379,6 +4386,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             sunOverlay={sunOverlay}
             topView={topView}
             theme={theme}
+            isNight={(sunOverlay?.fan?.nowAlt ?? 0) < 0}
             selectedDate={globeCelestialData.date}
             startRegion={mapStartRegion}
             // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
@@ -4452,6 +4460,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           </Text>
           <TouchableOpacity
             style={styles.radarHudResetBtn}
+            hitSlop={10}
             onPress={() => {
               const cLat = location?.coords?.latitude ?? 37.5;
               const cLon = location?.coords?.longitude ?? 127.0;
