@@ -54,7 +54,18 @@ export interface TopViewInput {
   driftHours: number;
   /** 층 높이(km, 저·중·상) — 권운 줄무늬의 시어가 씁니다. */
   layerAltKm: [number, number, number];
+  /**
+   * 2026-11-18 빛(밤에 구름을 어둡게, 사용자 요청). 그림 중심 위경도와 해·달 직하점(°), 달 밝은 비율.
+   * 없으면 예전처럼 늘 낮(흰 구름)입니다.
+   */
+  light?: { centerLat: number; centerLon: number; sunLat: number; sunLon: number; moonLat: number; moonLon: number; moonFraction: number };
 }
+
+/** 위경도(°) → 지구 중심 단위 벡터. */
+const llToVec = (latDeg: number, lonDeg: number): [number, number, number] => {
+  const la = (latDeg * Math.PI) / 180, lo = (lonDeg * Math.PI) / 180;
+  return [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+};
 
 /**
  * 고리 자료와 시각에서 하늘 탭과 같은 운량장을 만듭니다. 순수 함수라 GL 없이 부릅니다.
@@ -64,7 +75,7 @@ export function buildTopViewInput(
   ring: CloudPathData[] | null | undefined,
   timeMs: number,
   /** 'skyColumns' 는 판정의 **대조**용 — 하늘 탭의 방향 잡음 운량장(방사형 줄이 나던 것). */
-  opts: { coverage?: 'forecast' | 'skyColumns' } = {},
+  opts: { coverage?: 'forecast' | 'skyColumns'; light?: TopViewInput['light'] } = {},
 ): TopViewInput | null {
   if (!ring || ring.length < 2) return null;
   const weather = getInterpolatedWeather(ring, new Date(timeMs));
@@ -91,7 +102,7 @@ export function buildTopViewInput(
   });
   // 층 높이는 하늘 탭이 예보 단면이 없을 때 쓰는 기본값입니다(권운 줄무늬의 시어만 씁니다).
   return { cover, genus, winds, driftHours,
-    layerAltKm: [LAYER_ALTITUDE_KM.low, LAYER_ALTITUDE_KM.mid, LAYER_ALTITUDE_KM.high] };
+    layerAltKm: [LAYER_ALTITUDE_KM.low, LAYER_ALTITUDE_KM.mid, LAYER_ALTITUDE_KM.high], light: opts.light };
 }
 
 const VERT = `
@@ -108,6 +119,11 @@ uniform float uDriftHours;
 uniform float uPixelKm;
 uniform float uClusterAmt, uClusterMul;
 uniform float uMesoMode;
+// 빛(2026-11-18): 그림 중심(라디안 위·경도), 해·달 방향(지구 중심 단위 벡터), 달 밝은 비율. uLightOn 0 이면 늘 낮.
+uniform float uLightOn;
+uniform vec2  uCenterLL;
+uniform vec3  uSunDir, uMoonDir;
+uniform float uMoonFrac;
 uniform vec3  uMesoMean, uMesoSig;   // x 저 · y 중 · z 상
 ${CLOUD_SLAB_GLSL}
 // ── 위에서 본 덩어리(§120.10) ────────────────────────────────────────────────
@@ -185,6 +201,22 @@ void main(){
     trans *= 1.0 - a;
   }
   float alpha = 1.0 - trans;
+  if (uLightOn > 0.5 && alpha > 1e-4) {
+    // 이 화소의 위경도(작은 각 근사) → 그 자리에서 본 해·달 고도의 sin.
+    float lat = uCenterLL.x - km.y / 6371.0;
+    float lon = uCenterLL.y + km.x / (6371.0 * max(0.1, cos(uCenterLL.x)));
+    vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+    float sinSun = dot(n, uSunDir);
+    float sinMoon = dot(n, uMoonDir);
+    // 낮 몫: 해 −6° 에서 0, +3° 에서 1. 해 질 녘(−2°~+8°)은 윗면이 주황으로 물듦.
+    float day = smoothstep(-0.105, 0.052, sinSun);
+    float dusk = smoothstep(-0.035, 0.02, sinSun) * (1.0 - smoothstep(0.05, 0.14, sinSun));
+    vec3 dayCol = mix(vec3(1.0), vec3(1.0, 0.72, 0.52), 0.7 * dusk);
+    // 밤: 달이 떠 있으면 밝은 비율만큼 푸른 회색으로, 아니면 거의 검게(별·대기광).
+    float moonUp = smoothstep(-0.03, 0.12, sinMoon) * uMoonFrac;
+    vec3 nightCol = vec3(0.55, 0.62, 0.78) * (0.05 + 0.24 * moonUp);
+    col *= mix(nightCol, dayCol, day);
+  }
   gl_FragColor = alpha > 1e-4 ? vec4(col / alpha, alpha) : vec4(0.0);
 }
 `;
@@ -275,6 +307,11 @@ export function createCloudTopView(
       uWindHigh: { value: new THREE.Vector2() },
       uObserverAltKm: { value: 0 },
       uLowDeckKm: { value: new THREE.Vector2(-1, -1) },
+      uLightOn: { value: 0 },
+      uCenterLL: { value: new THREE.Vector2() },
+      uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+      uMoonDir: { value: new THREE.Vector3(1, 0, 0) },
+      uMoonFrac: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: substituteSlabConstants(FRAG, {
@@ -320,6 +357,14 @@ export function createCloudTopView(
       setWind(u.uWindHigh.value, input.winds.high);
       u.uDriftHours.value = input.driftHours;
       (u.uLayerAltKm.value as THREE.Vector3).set(...input.layerAltKm);
+      const lt = input.light;
+      u.uLightOn.value = lt ? 1 : 0;
+      if (lt) {
+        (u.uCenterLL.value as THREE.Vector2).set((lt.centerLat * Math.PI) / 180, (lt.centerLon * Math.PI) / 180);
+        (u.uSunDir.value as THREE.Vector3).set(...llToVec(lt.sunLat, lt.sunLon));
+        (u.uMoonDir.value as THREE.Vector3).set(...llToVec(lt.moonLat, lt.moonLon));
+        u.uMoonFrac.value = lt.moonFraction;
+      }
       const prev = renderer.getRenderTarget();
       renderer.setRenderTarget(target);
       renderer.render(scene, cam);

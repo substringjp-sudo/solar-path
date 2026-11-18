@@ -70,8 +70,8 @@ varying vec3  vNormalW;
 varying float vDistM;
 varying float vSlantM;
 varying vec3  vViewDir;
-#ifdef TERRAIN_WINDOW_OUT
 varying vec2  vBuildPos;
+#ifdef TERRAIN_WINDOW_OUT
 varying vec4  vWallCoord;
 #endif
 
@@ -120,8 +120,8 @@ void main() {
   vDistM = d;
   vNormalW = normalize(normal);
   vViewDir = normalize(p);
-#ifdef TERRAIN_WINDOW_OUT
   vBuildPos = aGroundPos;
+#ifdef TERRAIN_WINDOW_OUT
   vWallCoord = aWallCoord;
 #endif
 
@@ -137,6 +137,9 @@ varying vec3  vNormalW;
 varying float vDistM;
 varying float vSlantM;
 varying vec3  vViewDir;
+// 건물 자리(건물마다 다른 씨앗). 창문·빛 판·기본 세 갈래가 모두 씁니다 — 2026-11-18 전에는 창문 갈래에만 선언돼
+// 빛 판·기본 갈래 셰이더가 컴파일되지 않아(bSeed 미선언) 외벽이 통째로 안 그려졌습니다.
+varying vec2  vBuildPos;
 
 #ifdef TERRAIN_DIST_OUT
 ${TERRAIN_DIST_GLSL}
@@ -146,7 +149,6 @@ void main() {
 #elif defined(TERRAIN_WINDOW_OUT)
 ${ATMOSPHERE_GLSL}
 
-varying vec2 vBuildPos;
 varying vec4 vWallCoord;
 
 uniform float uWinRate;

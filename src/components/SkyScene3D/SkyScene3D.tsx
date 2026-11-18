@@ -1798,7 +1798,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return () => { alive = false; };
   }, [isActive, zoomProgressState > P_FOV_END]);
 
-  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END);
+  // 고리 중심 — 위에서 본 구름을 그 자리의 해·달 고도로 칠합니다(밤엔 어둡게, 2026-11-18).
+  const cloudRingCenter = cloudRingFetchRef.current;
+  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END,
+    cloudRingCenter ? { lat: cloudRingCenter.lat, lon: cloudRingCenter.lon } : null);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
@@ -2822,8 +2825,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
                 const metarSnap = metarRef.current;
                 const fillSnap = skySettingsRef.current.volumetricFill ?? true;
+                // 2026-11-18 우주(지도·지구본) 단계에서는 구름을 미리 굽지 않습니다 — 3D 가 안 보이고, 착륙하면 그 시각으로 다시 셉니다(사용자 요청).
                 const shouldPausePrewarm = () =>
                   !isActiveRef.current ||
+                  !glVisibleForProgress(zoomProgressRef.current) ||
                   isSlidingRef.current ||
                   useCelestialStore.getState().isGestureBlocked ||
                   volPendingRef.current ||
@@ -2833,6 +2838,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   // 첫 장면 렌더링과 스플래시 전환이 먼저 안정화되도록 잠깐 대기합니다.
                   await new Promise(r => setTimeout(r, 150));
                   let reportedActive = false;
+                  const readyMs: number[] = [];
+                  setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
                   for (let idx = 0; idx < totalHours; idx++) {
                     if (aborted) return;
                     while (shouldPausePrewarm() && !aborted) {
@@ -2857,22 +2864,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                       if (!reportedActive) {
                         reportedActive = true;
                         setVolumetricStatus({
-                          prewarm: { active: true, done: idx, total: totalHours },
+                          prewarm: { active: true, done: idx, total: totalHours, readyMs: readyMs.slice() },
                         });
                       }
                       await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm);
                       if (aborted) return;
                     }
                     const done = idx + 1;
-                    if (reportedActive || done === totalHours) {
-                      setVolumetricStatus({
-                        prewarm: {
-                          active: reportedActive && done < totalHours,
-                          done,
-                          total: totalHours,
-                        },
-                      });
-                    }
+                    readyMs.push(bMs);
+                    setVolumetricStatus({
+                      prewarm: {
+                        active: reportedActive && done < totalHours,
+                        done,
+                        total: totalHours,
+                        readyMs: readyMs.slice(),
+                      },
+                    });
                   }
                 })().catch(() => {
                   if (!aborted) {

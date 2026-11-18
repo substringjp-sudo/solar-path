@@ -15,6 +15,7 @@ import type * as THREE from 'three';
 import type { CloudPathData } from '../../utils/weather';
 import { createCloudTopView, buildTopViewInput, type CloudTopViewHandle } from '../SkyScene3D/CloudTopView';
 import { encodePngRgba, toBase64 } from '../../utils/png';
+import { getSubsolarPoint, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 
 export interface CloudTopViewImage {
   /**
@@ -51,16 +52,18 @@ export function useCloudTopView(
   ring: CloudPathData[] | null,
   timeMs: number,
   enabled: boolean,
+  /** 그림 중심(고리 관측점) — 있으면 밤에 구름을 어둡게 칠합니다. */
+  center?: { lat: number; lon: number } | null,
 ): CloudTopViewImage | null {
   const [img, setImg] = useState<CloudTopViewImage | null>(null);
   const busy = useRef(false);
   const mounted = useRef(true);
-  const pending = useRef<{ ring: CloudPathData[]; timeMs: number } | null>(null);
+  const pending = useRef<{ ring: CloudPathData[]; timeMs: number; center?: { lat: number; lon: number } | null } | null>(null);
   useEffect(() => () => { mounted.current = false; }, []);
 
   useEffect(() => {
     if (!enabled || !ring) return;
-    pending.current = { ring, timeMs };
+    pending.current = { ring, timeMs, center };
     // ⚠ 도는 중이면 새 일감만 남겨 둡니다 — 도는 고리가 끝나기 전에 집어 갑니다.
     //   (효과의 정리 함수로 고리를 끊으면, 그 사이 들어온 마지막 일감이 버려집니다.)
     if (busy.current) return;
@@ -71,7 +74,13 @@ export function useCloudTopView(
         while (mounted.current && pending.current && ctx) {
           const job = pending.current;
           pending.current = null;
-          const input = buildTopViewInput(job.ring, job.timeMs);
+          let light;
+          if (job.center) {
+            const d = new Date(job.timeMs), sun = getSubsolarPoint(d), moon = getSublunarPoint(d);
+            light = { centerLat: job.center.lat, centerLon: job.center.lon, sunLat: sun.latitude, sunLon: sun.longitude,
+              moonLat: moon.latitude, moonLon: moon.longitude, moonFraction: getMoonPhase(d).fraction };
+          }
+          const input = buildTopViewInput(job.ring, job.timeMs, { light });
           if (!input) { setImg(null); continue; }
           const px = ctx.tv.render(ctx.renderer, input);
           ctx.gl.endFrameEXP?.();
@@ -96,7 +105,7 @@ export function useCloudTopView(
       }
     };
     run();
-  }, [ring, timeMs, enabled]);
+  }, [ring, timeMs, enabled, center?.lat, center?.lon]);
 
   return enabled ? img : null;
 }

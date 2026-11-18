@@ -10,6 +10,8 @@ export interface VolumetricPrewarmStatus {
   active: boolean;
   done: number;
   total: number;
+  /** 2026-11-18 다 구운 시간대(버킷 가운데 시각, ms). 시간 막대 아래 선으로 칠합니다(팝업 대신, 사용자 요청). */
+  readyMs?: number[];
 }
 
 export interface VolumetricStatus {
@@ -39,7 +41,8 @@ export function setVolumetricStatus(patch: Partial<VolumetricStatus>): void {
       status.prewarm != null &&
       next.prewarm.active === status.prewarm.active &&
       next.prewarm.done === status.prewarm.done &&
-      next.prewarm.total === status.prewarm.total);
+      next.prewarm.total === status.prewarm.total &&
+      (next.prewarm.readyMs?.length ?? 0) === (status.prewarm.readyMs?.length ?? 0));
   if (
     next.phase === status.phase &&
     next.error === status.error &&

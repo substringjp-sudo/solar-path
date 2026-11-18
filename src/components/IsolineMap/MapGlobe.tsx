@@ -4,7 +4,8 @@ import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { IsochronePoint } from '../../utils/celestial';
+import { IsochronePoint, getSubsolarPoint, getTerminatorSegments, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
+import { subscribeScrubTime } from '../../utils/liveClock';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
@@ -94,8 +95,8 @@ export interface MapGlobeHandle {
 }
 
 export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
-  subsolar,
-  terminator,
+  subsolar: subsolarProp,
+  terminator: terminatorProp,
   allTerminators = [],
   lat,
   lon,
@@ -111,16 +112,42 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   onViewChange,
   radar = null,
   topView = null,
-  selectedDate,
+  selectedDate: selectedDateProp,
   onSelectLocation,
   pickPin = null,
-  sublunar = null,
-  moonFraction = 0.5,
+  sublunar: sublunarProp = null,
+  moonFraction: moonFractionProp = 0.5,
   visible = true,
   interactive,
   initialMorph = 1,
   onViewChanging,
 }, ref) => {
+  // 2026-11-18 시간 막대를 끄는 동안에도 해·달·밤 경계가 따라 움직이게(사용자 요청). 막대는 손을 뗄 때만
+  // 시각을 커밋하므로(createIdleCommit) 그동안은 emitScrubTime 의 시각으로 직접 셉니다. 분이 바뀔 때만,
+  // 한 프레임에 한 번. 커밋된 시각(부모 props)이 바뀌면 그쪽으로 돌아갑니다.
+  const [scrubMin, setScrubMin] = useState<number | null>(null);
+  useEffect(() => { setScrubMin(null); }, [subsolarProp]);
+  useEffect(() => {
+    if (!isActive) return;
+    let raf: number | null = null;
+    let want: number | null = null;
+    const unsub = subscribeScrubTime((ms) => {
+      want = Math.floor(ms / 60000);
+      if (raf == null) raf = requestAnimationFrame(() => { raf = null; if (want != null) setScrubMin(want); });
+    });
+    return () => { unsub(); if (raf != null) cancelAnimationFrame(raf); };
+  }, [isActive]);
+  const scrubLive = useMemo(() => {
+    if (scrubMin == null) return null;
+    const d = new Date(scrubMin * 60000);
+    return { date: d, subsolar: getSubsolarPoint(d), terminator: getTerminatorSegments(d), sublunar: getSublunarPoint(d), moonFraction: getMoonPhase(d).fraction };
+  }, [scrubMin]);
+  const subsolar = scrubLive?.subsolar ?? subsolarProp;
+  const terminator = scrubLive?.terminator ?? terminatorProp;
+  const sublunar = scrubLive?.sublunar ?? sublunarProp;
+  const moonFraction = scrubLive?.moonFraction ?? moonFractionProp;
+  const selectedDate = scrubLive?.date ?? selectedDateProp;
+
   const W = Math.max(1, width);
   const H = Math.max(1, height);
   const CX = W / 2;
@@ -467,6 +494,19 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       return null;
     }
   }, [subsolar, geoPath]);
+
+  /**
+   * 2026-11-18 달빛 받는 땅(사용자 요청: 달에 밝아지는 위상) — 달이 지평선 위에 있는 반구(달 직하점 둘레 90°)를
+   * 밤 쪽에서만 옅게 밝힙니다. 세기는 달의 밝은 비율(위상)에 비례 — 그믐엔 안 보이고 보름엔 밤 그늘이 꽤 걷힙니다.
+   */
+  const moonLitPath = useMemo(() => {
+    if (!sublunar || moonFraction < 0.03) return null;
+    try {
+      return geoPath(d3.geoCircle().center([sublunar.longitude, sublunar.latitude]).radius(90)());
+    } catch (e) {
+      return null;
+    }
+  }, [sublunar, moonFraction, geoPath]);
 
   /**
    * 등시선을 구 위에 그립니다. d3 가 구의 가장자리(지평)에서 선을 정확히 자르고,
@@ -838,6 +878,21 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               fill="rgba(3, 7, 18, 0.38)"
               stroke="none"
             />
+          )}
+          {nightCirclePath && moonLitPath && (
+            <>
+              <Defs>
+                <ClipPath id="nightClip">
+                  <Path d={nightCirclePath} />
+                </ClipPath>
+              </Defs>
+              <Path
+                d={moonLitPath}
+                clipPath="url(#nightClip)"
+                fill={`rgba(170, 190, 225, ${(0.20 * Math.min(1, moonFraction)).toFixed(3)})`}
+                stroke="none"
+              />
+            </>
           )}
           {/* 시간별 서브 등시선 (allTerminators) - 조작 중(isInteracting)일 때는 성능 극대화를 위해 렌더 생략 */}
           {subTerminatorPaths.map((paths) => (

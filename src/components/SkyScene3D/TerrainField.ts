@@ -528,10 +528,9 @@ void main() {
   //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
   //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   //
-#ifdef TERRAIN_LIT_OUT
   // 화면 화소 발자국(m): 2x2 쿼드 미분이 discard 경계에서 깨지지 않게 먼저 잽니다. 발밑(3mm)까지 풀리도록 하한을 낮춤.
+  // ⚠ 두 경로 모두에서 선언합니다 — 포장 경계 샤프닝(pvSharp)이 원래 경로에서도 씁니다(볼륨 전용으로 두면 원래 경로 셰이더가 컴파일되지 않음).
   float pixG = max(0.003, 0.5 * length(fwidth(vGround)));
-#endif
   // 광역 외해 연결 마스크가 있으면 바다와 단절된 내륙 0m 이하 저지대는 잘라내지 않고 육지로 남깁니다.
   bool isSeaZone =
       uDemFarSeaValid > 0.5 ? (demFar_seaAt(vGround) > 0.5)
