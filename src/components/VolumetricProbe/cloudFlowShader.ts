@@ -68,7 +68,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   }
   // S1 균일변수
   src = src.replace(decl, decl + '\n' + FLOW_VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
-    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;\nuniform float genusLsAmt;');
+    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;\nuniform float genusLsAmt;\nuniform vec4 genusLife;   // xy = 이번 무늬 오프셋, zw = 다음 무늬 오프셋(타일)\nuniform float genusLifeW;');
   // 층별 찢긴 결 UV 오프셋 헬퍼 — 각 레인이 자기 바람 방향(genusGrainDir)과 활성 고도에서만 자기 UV 를 뒤틀게 합니다.
   const weatherDecl = 'WeatherSample sampleWeather(';
   if (!src.includes(weatherDecl)) throw new Error('cloudFlow: sampleWeather anchor missing');
@@ -79,6 +79,14 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  float b = sin(dot(pKm, vec2(-0.3420, 0.9397)) * (6.2831853 / 89.0) + 4.1);',
     '  float c = sin(dot(pKm, vec2(0.9945, -0.1045)) * (6.2831853 / 144.0) + 2.7);',
     '  return 0.5 + 0.5 * (0.45 * a + 0.33 * b + 0.22 * c);',
+    '}',
+    // 2026-11-18 구름 생애: 이번 무늬(A)와 다음 무늬(B, 다른 자리에서 읽은 같은 타일)를 genusLifeW 로 섞음. 섞으면 분산이 줄어 문턱 위 면적(운량)이 줄므로
+    //   평균 0.5 둘레로 분산을 되살림(1/√((1−w)²+w²)). w = 0 이면 A 그대로.
+    'vec4 genusLifeMix(const vec4 a, const vec4 b) {',
+    '  float w = genusLifeW;',
+    '  if (w <= 0.0) return a;',
+    '  vec4 m = mix(a, b, w);',
+    '  return clamp(vec4(0.5) + (m - vec4(0.5)) / sqrt((1.0 - w) * (1.0 - w) + w * w), vec4(0.0), vec4(1.0));',
     '}',
     'vec2 flowWispWarp(const vec2 uv, const float dirRad, const float h, const float amt) {',
     '  if (amt <= 0.0) return vec2(0.0);',
@@ -125,13 +133,19 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '    vec2 d1 = genusUvOn > 0.5 ? vec2(genusDriftU.y + genusTiltU.y * gHA.y, genusDriftV.y + genusTiltV.y * gHA.y) : vec2(0.0);',
     '    vec2 d2 = genusUvOn > 0.5 ? vec2(genusDriftU.z + genusTiltU.z * gHA.z, genusDriftV.z + genusTiltV.z * gHA.z) : vec2(0.0);',
     '    vec2 d3 = genusUvOn > 0.5 ? vec2(genusDriftU.w + genusTiltU.w * gHA.w, genusDriftV.w + genusTiltV.w * gHA.w) : vec2(0.0);',
-    '    vec4 gT0 = textureLod(localWeatherTexture, gUv0 + gW0 + d0, mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT1 = textureLod(localWeatherTexture, gUv0 + gW1 + d1, mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT2 = textureLod(localWeatherTexture, gUv0 + gW2 + d2, mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    vec4 gT3 = textureLod(localWeatherTexture, gUv0 + gW3 + d3, mipLevel).LOCAL_WEATHER_CHANNELS;',
-    '    localWeather = pow(vec4(gT0.x, gT1.y, gT2.z, gT3.w), weatherExponents);',
+    '    vec4 gT0 = textureLod(localWeatherTexture, gUv0 + gW0 + d0 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT1 = textureLod(localWeatherTexture, gUv0 + gW1 + d1 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT2 = textureLod(localWeatherTexture, gUv0 + gW2 + d2 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gT3 = textureLod(localWeatherTexture, gUv0 + gW3 + d3 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gU0 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW0 + d0 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT0;',
+    '    vec4 gU1 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW1 + d1 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT1;',
+    '    vec4 gU2 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW2 + d2 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT2;',
+    '    vec4 gU3 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW3 + d3 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT3;',
+    '    localWeather = pow(genusLifeMix(vec4(gT0.x, gT1.y, gT2.z, gT3.w), vec4(gU0.x, gU1.y, gU2.z, gU3.w)), weatherExponents);',
     '  } else {',
-    '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
+    '    vec4 gA = textureLod(localWeatherTexture, gUv0 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '    vec4 gB = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gA;',
+    '    localWeather = pow(genusLifeMix(gA, gB), weatherExponents);',
     '  }',
     // 2026-11-18 큰 무늬로 날씨 값을 곱해 바꿈(평균 1, ±genusLsAmt). 자리는 감싸지 않은 바람 이동(km, genusDriftKm)으로 — 타일(24 km)이 감싸는 이동만으론
     //   바람이 한 시간에 타일 한 칸쯤이면(나고야 11/18 북서풍 37 km/h → 동 27.5·남 24.8 km) 무늬가 거의 같은 자리로 돌아와 먼 구름이 멈춘 듯했음.
@@ -207,6 +221,8 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   mat.uniforms.genusTexelM = { value: 24000 / 512 };
   mat.uniforms.genusMacroOn = { value: 0 };
   mat.uniforms.genusLsAmt = { value: GENUS_LS_AMT };
+  mat.uniforms.genusLife = { value: new Vector4() };
+  mat.uniforms.genusLifeW = { value: 0 };
   mat.needsUpdate = true;
 }
 
@@ -290,6 +306,23 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
  * §155 **모든 층**에 겁니다(바람 opts 가 있는 층). 예전에는 흐름 모형 층(cu·sc, 그것도 흐름 uv 옵션이 켜졌을 때)만 움직여,
  * 흐름을 기본으로 끈 뒤(S0-1) 비늘구름(ac) 같은 층은 하늘에 붙박여 전혀 흐르지 않았습니다. 드리프트가 있으면 층별 fetch 를 켭니다.
  */
+/** 구름 생애 주기(초) — 적운의 수명(15~30 분)보다 조금 길게. 이 간격마다 무늬를 읽는 자리를 새로 뽑아 이전 자리에서 서서히 넘어감. */
+export const GENUS_LIFE_SEC = 2400;
+const lifeHash = (n: number, k: number) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+/**
+ * 2026-11-18 구름 생애 — 24 km 타일을 바람으로 밀기만 하면, 바람이 주기마다 타일 한 칸쯤 가는 날(나고야 저층 39 km/h × 38 분 ≈ 24 km)
+ * 같은 구름이 같은 자리로 돌아와 멈춘 듯 보였음. 주기 n 마다 타일 안 읽는 자리(오프셋)를 해시로 뽑고, n → n+1 을 smoothstep 으로 섞음.
+ * 시각(초)은 장면 시각 + 흐른 시간(드리프트 시계) — 시간 막대를 끌어도 이어짐.
+ */
+export function setGenusLife(mat: PatchableMaterial, absSec: number): void {
+  const u = mat.uniforms.genusLife?.value as Vector4 | undefined;
+  if (!u) return;
+  const f = absSec / GENUS_LIFE_SEC, n = Math.floor(f), t = f - n;
+  const w = t * t * (3 - 2 * t);
+  u.set(lifeHash(n, 1), lifeHash(n, 2), lifeHash(n + 1, 1), lifeHash(n + 1, 2));
+  mat.uniforms.genusLifeW.value = w;
+}
+
 /** 큰 무늬 세기(날씨 값 곱 1 ± 이 값). 0 이면 끔. */
 export const GENUS_LS_AMT = 0.45;
 
