@@ -1796,7 +1796,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return () => { alive = false; };
   }, [isActive, zoomProgressState > P_FOV_END]);
 
-  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END);
+  // 고리 중심 — 위에서 본 구름을 그 자리의 해·달 고도로 칠합니다(밤엔 어둡게, 2026-11-18).
+  const cloudRingCenter = cloudRingFetchRef.current;
+  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END,
+    cloudRingCenter ? { lat: cloudRingCenter.lat, lon: cloudRingCenter.lon } : null);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
