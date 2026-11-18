@@ -63,7 +63,7 @@ import type { TsunBuildInput, TsunLaneInput } from './tsunAtlas';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
-import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT } from './cloudFlowShader';
+import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT, GENUS_SHEET_B_GLSL } from './cloudFlowShader';
 import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
@@ -923,6 +923,7 @@ export async function createVolumetricScene(
       'uniform vec3 farCityUp;', 'uniform float farCutKm;',
       // 100km 너머 단일 구름 층 2D 평면 투영 + 원고리 격자 적층 (높은 층→낮은 층 순)
     // 2026-11-18 큰 무늬(비주기): 파장 55·89·144 km 사인 셋을 서로 다른 방향으로 — 24 km 타일 반복을 깹니다. 0..1.
+    ...GENUS_SHEET_B_GLSL,
     'float farLsField(const vec2 pKm) {',
     '  float a = sin(dot(pKm, vec2(0.8090, 0.5878)) * (6.2831853 / 55.0) + 1.3);',
     '  float b = sin(dot(pKm, vec2(-0.3420, 0.9397)) * (6.2831853 / 89.0) + 4.1);',
@@ -957,6 +958,14 @@ export async function createVolumetricScene(
       '    float fB = farLifeW > 0.0 ? dot(texture(farWeatherTex, wUv + farLife.zw), wMask) : fA;',
       // 가까운 구름과 같은 생애 섞기(cloudFlowShader genusLifeMix — 분산 되살림).
       '    dens = farLifeW > 0.0 ? clamp(0.5 + (mix(fA, fB, farLifeW) - 0.5) / sqrt((1.0 - farLifeW) * (1.0 - farLifeW) + farLifeW * farLifeW), 0.0, 1.0) : fA;',
+      // 2026-11-18 가까운 구름과 같은 둘째 무늬판(cloudFlowShader GENUS_SHEET_B_GLSL) — 먼 구름도 24 km 마다 같은 빈 곳이 서지 않게.
+      '    {',
+      '      vec2 bUv = genusSheetB((planeKm + dKm) / max(farTileKm, 0.5));',
+      '      float gA2 = dot(texture(farWeatherTex, bUv + farLife.xy), wMask);',
+      '      float gB2 = farLifeW > 0.0 ? dot(texture(farWeatherTex, bUv + farLife.zw), wMask) : gA2;',
+      '      float densB = farLifeW > 0.0 ? clamp(0.5 + (mix(gA2, gB2, farLifeW) - 0.5) / sqrt((1.0 - farLifeW) * (1.0 - farLifeW) + farLifeW * farLifeW), 0.0, 1.0) : gA2;',
+      '      dens = genusSheetMix(vec4(dens), vec4(densB), vec4(genusSheetW(planeKm + dKm))).x;',
+      '    }',
       // 가까운 구름과 같은 큰 무늬(cloudFlowShader genusLsField) — 100 km 너머도 바람에 실려 움직이고 24 km 반복이 덜 보이게.
       '    if (farLsAmt > 0.0) dens = clamp(dens * (1.0 + farLsAmt * (2.0 * farLsField(planeKm + dKm) - 1.0)), 0.0, 1.0);',
       '    if (farMacroOn > 0.5) {',

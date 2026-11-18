@@ -68,7 +68,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   }
   // S1 균일변수
   src = src.replace(decl, decl + '\n' + FLOW_VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
-    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;\nuniform float genusLsAmt;\nuniform vec4 genusLife;   // xy = 이번 무늬 오프셋, zw = 다음 무늬 오프셋(타일)\nuniform float genusLifeW;');
+    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;\nuniform float genusLsAmt;\nuniform vec4 genusLife;   // xy = 이번 무늬 오프셋, zw = 다음 무늬 오프셋(타일)\nuniform float genusLifeW;\nuniform float genusSheetOn;');
   // 층별 찢긴 결 UV 오프셋 헬퍼 — 각 레인이 자기 바람 방향(genusGrainDir)과 활성 고도에서만 자기 UV 를 뒤틀게 합니다.
   const weatherDecl = 'WeatherSample sampleWeather(';
   if (!src.includes(weatherDecl)) throw new Error('cloudFlow: sampleWeather anchor missing');
@@ -82,6 +82,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '}',
     // 2026-11-18 구름 생애: 이번 무늬(A)와 다음 무늬(B, 다른 자리에서 읽은 같은 타일)를 genusLifeW 로 섞음. 섞으면 분산이 줄어 문턱 위 면적(운량)이 줄므로
     //   평균 0.5 둘레로 분산을 되살림(1/√((1−w)²+w²)). w = 0 이면 A 그대로.
+    ...GENUS_SHEET_B_GLSL,
     'vec4 genusLifeMix(const vec4 a, const vec4 b) {',
     '  float w = genusLifeW;',
     '  if (w <= 0.0) return a;',
@@ -141,11 +142,42 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '    vec4 gU1 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW1 + d1 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT1;',
     '    vec4 gU2 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW2 + d2 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT2;',
     '    vec4 gU3 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + gW3 + d3 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gT3;',
-    '    localWeather = pow(genusLifeMix(vec4(gT0.x, gT1.y, gT2.z, gT3.w), vec4(gU0.x, gU1.y, gU2.z, gU3.w)), weatherExponents);',
+    '    vec4 gLA = genusLifeMix(vec4(gT0.x, gT1.y, gT2.z, gT3.w), vec4(gU0.x, gU1.y, gU2.z, gU3.w));',
+    // 2026-11-18 둘째 무늬판(B): 같은 타일을 37° 돌리고 1.618 배로 키워 읽고, 비주기 무게로 A 와 섞음 — 24 km 마다 같은 자리에 빈 곳이 서던 것.
+    //   자리는 감싸지 않은 바람 이동(km)으로 — B 의 주기(38.8 km, 돌아감)는 A 와 맞지 않아 둘을 섞은 무늬는 반복하지 않습니다.
+    '    vec4 gSw = vec4(0.0);',
+    '    if (genusSheetOn > 0.5) {',
+    '      float gInvT = 1000.0 / genusTileM;',
+    '      vec2 gK0 = vec2(genusDriftKmU.x, genusDriftKmV.x), gK1 = vec2(genusDriftKmU.y, genusDriftKmV.y), gK2 = vec2(genusDriftKmU.z, genusDriftKmV.z), gK3 = vec2(genusDriftKmU.w, genusDriftKmV.w);',
+    '      vec2 gB0 = genusSheetB(gUv0 + gW0 + gK0 * gInvT + vec2(genusTiltU.x, genusTiltV.x) * gHA.x);',
+    '      vec2 gB1 = genusSheetB(gUv0 + gW1 + gK1 * gInvT + vec2(genusTiltU.y, genusTiltV.y) * gHA.y);',
+    '      vec2 gB2 = genusSheetB(gUv0 + gW2 + gK2 * gInvT + vec2(genusTiltU.z, genusTiltV.z) * gHA.z);',
+    '      vec2 gB3 = genusSheetB(gUv0 + gW3 + gK3 * gInvT + vec2(genusTiltU.w, genusTiltV.w) * gHA.w);',
+    '      vec4 gV0 = textureLod(localWeatherTexture, gB0 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '      vec4 gV1 = textureLod(localWeatherTexture, gB1 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '      vec4 gV2 = textureLod(localWeatherTexture, gB2 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '      vec4 gV3 = textureLod(localWeatherTexture, gB3 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '      vec4 gX0 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gB0 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gV0;',
+    '      vec4 gX1 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gB1 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gV1;',
+    '      vec4 gX2 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gB2 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gV2;',
+    '      vec4 gX3 = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gB3 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gV3;',
+    '      vec4 gLB = genusLifeMix(vec4(gV0.x, gV1.y, gV2.z, gV3.w), vec4(gX0.x, gX1.y, gX2.z, gX3.w));',
+    '      vec2 gPk0 = uv * (genusTileM * 0.001);',
+    '      gSw = vec4(genusSheetW(gPk0 + gK0), genusSheetW(gPk0 + gK1), genusSheetW(gPk0 + gK2), genusSheetW(gPk0 + gK3));',
+    '      gLA = genusSheetMix(gLA, gLB, gSw);',
+    '    }',
+    '    localWeather = pow(gLA, weatherExponents);',
     '  } else {',
     '    vec4 gA = textureLod(localWeatherTexture, gUv0 + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
     '    vec4 gB = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gUv0 + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gA;',
-    '    localWeather = pow(genusLifeMix(gA, gB), weatherExponents);',
+    '    vec4 gLA = genusLifeMix(gA, gB);',
+    '    if (genusSheetOn > 0.5) {',
+    '      vec2 gBs = genusSheetB(gUv0);',
+    '      vec4 gC = textureLod(localWeatherTexture, gBs + genusLife.xy, mipLevel).LOCAL_WEATHER_CHANNELS;',
+    '      vec4 gD = genusLifeW > 0.0 ? textureLod(localWeatherTexture, gBs + genusLife.zw, mipLevel).LOCAL_WEATHER_CHANNELS : gC;',
+    '      gLA = genusSheetMix(gLA, genusLifeMix(gC, gD), vec4(genusSheetW(uv * (genusTileM * 0.001))));',
+    '    }',
+    '    localWeather = pow(gLA, weatherExponents);',
     '  }',
     // 2026-11-18 큰 무늬로 날씨 값을 곱해 바꿈(평균 1, ±genusLsAmt). 자리는 감싸지 않은 바람 이동(km, genusDriftKm)으로 — 타일(24 km)이 감싸는 이동만으론
     //   바람이 한 시간에 타일 한 칸쯤이면(나고야 11/18 북서풍 37 km/h → 동 27.5·남 24.8 km) 무늬가 거의 같은 자리로 돌아와 먼 구름이 멈춘 듯했음.
@@ -223,6 +255,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   mat.uniforms.genusLsAmt = { value: GENUS_LS_AMT };
   mat.uniforms.genusLife = { value: new Vector4() };
   mat.uniforms.genusLifeW = { value: 0 };
+  mat.uniforms.genusSheetOn = { value: 1 };
   mat.needsUpdate = true;
 }
 
@@ -325,6 +358,23 @@ export function setGenusLife(mat: PatchableMaterial, absSec: number): void {
 
 /** 큰 무늬 세기(날씨 값 곱 1 ± 이 값). 0 이면 끔. */
 export const GENUS_LS_AMT = 0.45;
+/**
+ * 2026-11-18 둘째 무늬판(B) — 24 km 타일만 깔면 구름 없는 자리가 24 km 마다 같은 곳에 서서, 줌아웃하면 빈 곳이 주기적으로 보였습니다(사용자 보고, 도코나메).
+ * 같은 타일을 37° 돌리고 1.618 배로 키워(주기 38.8 km) 한 번 더 읽고, 파장 37·61 km 의 비주기 무게로 A 와 섞습니다. 두 주기가 맞지 않아 섞은 무늬는 반복하지 않습니다.
+ * 섞으면 분산이 줄어 운량이 줄므로 생애 섞기와 같이 평균 0.5 둘레로 분산을 되살립니다. 먼 구름 경로(volumetricScene volEvalFarLayer)도 같은 함수를 씁니다.
+ */
+export const GENUS_SHEET_B_GLSL: string[] = [
+  'vec2 genusSheetB(const vec2 uvT) { return mat2(0.7986355, 0.6018150, -0.6018150, 0.7986355) * uvT * 0.6180340 + vec2(0.3712, 0.7139); }',
+  'float genusSheetW(const vec2 pKm) {',
+  '  float a = sin(dot(pKm, vec2(0.2588, 0.9659)) * (6.2831853 / 37.0) + 0.7);',
+  '  float b = sin(dot(pKm, vec2(0.9063, -0.4226)) * (6.2831853 / 61.0) + 2.2);',
+  '  return smoothstep(-0.45, 0.45, 0.6 * a + 0.4 * b);',
+  '}',
+  'vec4 genusSheetMix(const vec4 a, const vec4 b, const vec4 w) {',
+  '  vec4 m = mix(a, b, w);',
+  '  return clamp(vec4(0.5) + (m - vec4(0.5)) / sqrt((vec4(1.0) - w) * (vec4(1.0) - w) + w * w), vec4(0.0), vec4(1.0));',
+  '}',
+];
 
 export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null)[], seconds: number, tileKm: number, baseKm?: ([number, number] | null | undefined)[]): void {
   const s = seconds / 3600 / tileKm;
