@@ -112,7 +112,8 @@ export default function App() {
   const [ring, setRing] = React.useState<any[] | null>(null);
   React.useEffect(() => {
     if (!Q.ring) return;
-    fetchDayWeatherRing(lat ?? 37.5, lon ?? 127, new Date(tNow ?? Date.now()), true).then(p => { setRing(p as any[]); (globalThis as any).__ringReady = (p as any[]).length; }).catch(e => { (globalThis as any).__ringReady = 'err ' + String(e); });
+    // ringFile: 미리 받아 둔 고리(JSON)를 같은 폴더에서 읽음 — 예보 서버 한도와 모델 런 차이 없이 같은 자료로 재현(2026-11-19).
+    (Q.ringFile ? fetch(Q.ringFile).then(r => r.json()).then(j => j.map((d: any) => ({ ...d, hourly: { ...d.hourly, time: d.hourly.time } }))) : fetchDayWeatherRing(lat ?? 37.5, lon ?? 127, new Date(tNow ?? Date.now()), true)).then(p => { setRing(p as any[]); (globalThis as any).__ringReady = (p as any[]).length; }).catch(e => { (globalThis as any).__ringReady = 'err ' + String(e); });
   }, []);
   const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
   if (Q.bar) return <BarRepro W={W} />;

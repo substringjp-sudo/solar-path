@@ -1711,12 +1711,18 @@ export async function createVolumetricScene(
     }
     return makeMacroTexture(m.n, { low: m.fields.low?.cover, mid: m.fields.mid?.cover, high: m.fields.high?.cover });
   };
-  /** 띠 표본의 150 km 안 상위 분위수(p75) — 타일 운량을 이만큼 올려 잡아 셰이더 문턱이 깎을 여지를 둡니다. */
+  /**
+   * 띠 표본의 상위 분위수 — 타일 운량을 이만큼 올려 잡아 셰이더 문턱이 깎을 여지를 둡니다(문턱은 타일 운량 위로는 못 올림).
+   * 150 km 안 p75 에 더해 2026-11-19 테두리 덱(50~385 km) 몫으로 400 km 안 p90 — 서울 일출에서 동쪽 70~130 km 저층 47~76 % 가
+   * 관측점 운량(11 %)짜리 타일에 막혀 지평선에 거의 안 그려졌음.
+   */
   const macroTileCover = (pts: MacroRingPoint[] | undefined, cover: number) => {
     if (!pts || pts.length < 12) return cover;
-    const near = pts.filter(q => q.distance <= 150).map(q => Math.min(1, Math.max(0, q.cover))).sort((a, b) => a - b);
-    if (near.length < 6) return cover;
-    return Math.max(cover, near[Math.min(near.length - 1, Math.floor(near.length * 0.75))]);
+    const pick = (maxKm: number, q: number) => {
+      const v = pts.filter(x => x.distance <= maxKm).map(x => Math.min(1, Math.max(0, x.cover))).sort((a, b) => a - b);
+      return v.length < 6 ? 0 : v[Math.min(v.length - 1, Math.floor(v.length * q))];
+    };
+    return Math.max(cover, pick(150, 0.75), pick(400, 0.9));
   };
   /** §155 하늘 화면이 준 드리프트 시각(초) — `setDate` 의 두 번째 인자. 없으면 씬 시각. */
   let driftSecOverride: number | null = null;
