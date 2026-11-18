@@ -668,6 +668,35 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
    * 화면에서의 그 방향은 달 자리에서 해 쪽으로 대원을 따라 조금 간 점을 투영해 얻습니다.
    * 밝은 부분: 해 쪽 반원 + 명암 경계 반타원(가로 반지름 r·|2f−1|, 반달보다 차면 어두운 쪽으로 부풂).
    */
+  const spaceBodies = useMemo(() => {
+    if (morph < 0.9 || RADIUS <= 1) return null;
+    const cLat = -rotate[1];
+    const cLon = -rotate[0];
+    const RAD = Math.PI / 180;
+    const f = Math.max(width, height) * 0.9;
+    const camZ = f / RADIUS;
+
+    const projectBody = (lat: number, lon: number, distR: number, radR: number) => {
+      const dLon = (lon - cLon) * RAD;
+      const cosLat = Math.cos(lat * RAD), sinLat = Math.sin(lat * RAD);
+      const cosCLat = Math.cos(cLat * RAD), sinCLat = Math.sin(cLat * RAD);
+      const x = cosLat * Math.sin(dLon);
+      const y = cosCLat * sinLat - sinCLat * cosLat * Math.cos(dLon);
+      const z = sinCLat * sinLat + cosCLat * cosLat * Math.cos(dLon);
+      const cz = camZ - z * distR;
+      if (cz <= 0.1) return null;
+      const sx = CX + ((x * distR) / cz) * f;
+      const sy = CY - ((y * distR) / cz) * f;
+      const sr = Math.max(1.5, (radR / cz) * f);
+      if (sx < -sr - 50 || sx > width + sr + 50 || sy < -sr - 50 || sy > height + sr + 50) return null;
+      return { sx, sy, sr, inFront: z >= 0 };
+    };
+
+    const sun = projectBody(subsolar.latitude, subsolar.longitude, 23480, 109.2);
+    const moon = sublunar ? projectBody(sublunar.latitude, sublunar.longitude, 60.3, 0.2725) : null;
+    return { sun, moon };
+  }, [morph, RADIUS, rotate, width, height, CX, CY, subsolar, sublunar]);
+
   const MOON_R = 7;
   const moonMarker = useMemo(() => {
     if (!sublunar) return null;
@@ -734,7 +763,27 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="30%" stopColor={dataColor.sunrise} stopOpacity="0.8" />
               <Stop offset="100%" stopColor={dataColor.sunrise} stopOpacity="0" />
             </RadialGradient>
+            <RadialGradient id="spaceSunGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="35%" stopColor="#FEF08A" stopOpacity="0.95" />
+              <Stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
+            </RadialGradient>
           </Defs>
+
+          {spaceBodies?.sun && !spaceBodies.sun.inFront && (
+            <G pointerEvents="none">
+              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr * 3.2} fill="url(#spaceSunGlow)" />
+              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
+            </G>
+          )}
+          {spaceBodies?.moon && !spaceBodies.moon.inFront && (
+            <Circle
+              cx={spaceBodies.moon.sx}
+              cy={spaceBodies.moon.sy}
+              r={spaceBodies.moon.sr}
+              fill={`rgba(226, 232, 240, ${(0.25 + 0.75 * moonFraction).toFixed(2)})`}
+            />
+          )}
 
           {morph >= 1
             ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
@@ -942,6 +991,20 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             morph >= 1
               ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
+          )}
+          {spaceBodies?.sun && spaceBodies.sun.inFront && (
+            <G pointerEvents="none">
+              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr * 3.2} fill="url(#spaceSunGlow)" />
+              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
+            </G>
+          )}
+          {spaceBodies?.moon && spaceBodies.moon.inFront && (
+            <Circle
+              cx={spaceBodies.moon.sx}
+              cy={spaceBodies.moon.sy}
+              r={spaceBodies.moon.sr}
+              fill={`rgba(226, 232, 240, ${(0.25 + 0.75 * moonFraction).toFixed(2)})`}
+            />
           )}
         </Svg>
       </View>

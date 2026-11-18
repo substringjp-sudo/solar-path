@@ -46,8 +46,8 @@ export const EYE_ALT_M = 1.6;
 export const HANDOFF_ALT_M = 20000;
 /** 내려다볼 때의 세로 시야각(°). */
 export const NADIR_FOV_DEG = 90;
-/** 진행도 끝(P_MAX)의 지도 폭(경도, °). */
-export const MAX_LON_DELTA = 180;
+/** 진행도 끝(P_MAX)의 지도 폭(경도, °) — 지구본을 더 멀리 줌아웃해 우주 거리 천체를 볼 수 있게 260°까지 허용. */
+export const MAX_LON_DELTA = 260;
 
 const RAD = Math.PI / 180;
 const KM_PER_DEG = 111.32;
