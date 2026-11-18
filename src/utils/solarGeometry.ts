@@ -207,8 +207,8 @@ export const buildSunOverlay = (
 ): SunOverlay | null => {
   if (isIsolineScale(longitudeDeltaDeg)) return null;
 
-  // 계단식 줌 반올림(최대 ×1.41)과 고위도 cos(lat) 축소를 감안해 화면 반폭 안쪽에 머물도록 0.28 배율 사용
-  const spanDeg = Math.max(0.015, longitudeDeltaDeg * 0.28);
+  // 계단식 줌 반올림(최대 ×1.41)과 고위도 cos(lat) 축소를 감안해 라벨이 화면 가장자리에 걸리지 않도록 0.22 배율 사용
+  const spanDeg = Math.max(0.015, longitudeDeltaDeg * 0.22);
   const fan = getSunFan(date, lat, lon);
   const s = getSubsolarPoint(date);
 

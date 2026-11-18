@@ -574,6 +574,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const urbanLoadedKeyRef = useRef<string | null>(null);
   // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
   const urbanSerialRef = useRef(0);
+  // DEM 패치·건물 패치가 바뀔 때마다 올립니다. 건물/지형 빛 판 캐시 키에 넣어, 패치가 늦게 와도 건물 외벽이 누락되지 않게 합니다.
+  const demSerialRef = useRef(0);
   // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
   const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
@@ -1858,7 +1860,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
-      onMoveShouldSetPanResponder: () => !disableGesturesRef.current && cameraAzimuthPropRef.current === undefined,
+      onMoveShouldSetPanResponder: (evt, gs) =>
+        !disableGesturesRef.current &&
+        cameraAzimuthPropRef.current === undefined &&
+        (Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4 || evt.nativeEvent.touches.length >= 2),
       onStartShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
       onMoveShouldSetPanResponderCapture: (evt) => !disableGesturesRef.current && evt.nativeEvent.touches.length >= 2,
       /**
@@ -2930,7 +2935,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
               const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
               const bldSerial = buildingsOn ? buildingFieldRef.current!.geomSerial() : -1;
-              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}`;
+              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}|${demSerialRef.current}`;
               composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
@@ -3881,6 +3886,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
+        demSerialRef.current += 1;
+        volSettleRef.current = Math.max(volSettleRef.current, 18);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
@@ -3939,6 +3946,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
+        seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
         if (mask.bld) {
@@ -3949,6 +3957,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             terrainFieldRef.current.setPatch(patch, patch, maskPatch);
             buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
             seaPlaneRef.current?.setPatch(patch, maskPatch);
+            demSerialRef.current += 1;
           }
         }
         sceneDirtyRef.current = true;
@@ -3980,8 +3989,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (buildingLoadedKeyRef.current === key && buildingFieldRef.current.hasGeometry()) {
       if (demPatchRef.current) {
         buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
+        demSerialRef.current += 1;
       }
       buildingFieldRef.current.setVisible(true);
+      volSettleRef.current = Math.max(volSettleRef.current, 18);
       sceneDirtyRef.current = true;
       requestRender(6);
       return;
@@ -3998,6 +4009,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
         buildingFieldRef.current.setBuildings(meshData);
         buildingFieldRef.current.setVisible(true);
+        demSerialRef.current += 1;
+        volSettleRef.current = Math.max(volSettleRef.current, 18);
         if (__DEV__) {
           console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
         }
@@ -4337,8 +4350,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         return celestialLabels.map(lbl => {
           const isTrackingThis = trackingTarget === lbl.id;
-          const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 24));
-          const preferredY = lbl.y >= 38 ? lbl.y - 28 : lbl.y + 12;
+          const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 18));
+          const preferredY = lbl.y >= 46 ? lbl.y - 34 : lbl.y + 18;
           const rawY = Math.max(8, Math.min(maxY - LBL_H - 6, preferredY));
           const finalY = resolveY(rawX, rawY);
           placed.push({ x: rawX, y: finalY, w: LBL_W, h: LBL_H });
@@ -4353,8 +4366,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 {
                   left: rawX,
                   top: finalY,
-                  borderColor: isTrackingThis ? '#38BDF8' : lbl.color,
-                  backgroundColor: isTrackingThis ? 'rgba(56, 189, 248, 0.35)' : 'rgba(15, 23, 42, 0.8)',
+                  backgroundColor: isTrackingThis ? 'rgba(56, 189, 248, 0.35)' : 'rgba(15, 23, 42, 0.58)',
                 },
               ]}
             >
@@ -4543,28 +4555,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
     zIndex: 30,
   },
   labelDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginRight: 3,
   },
   labelText: {
     color: '#F8FAFC',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 9.5,
+    fontWeight: '700',
   },
   radarHudPill: {
     position: 'absolute',

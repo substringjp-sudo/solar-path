@@ -135,7 +135,7 @@ export function computeAstroSimExposureParams(
     exposureGain: Number(clamp(0.95 + durationFactor * 0.62 * isoFactor, 1.0, 4.5).toFixed(2)),
     starBoost: Number(clamp(1.0 + durationFactor * 0.36 * isoFactor, 1.05, 3.2).toFixed(2)),
     shadowLift: 0.015,
-    stepsForPreview: Math.round(clamp(safeDur / 24, 16, 48)),
+    stepsForPreview: Math.round(clamp(safeDur / 32, 12, 32)),
     stepsForFinal: Math.round(clamp(safeDur / 16, 20, 72)),
   };
 }

@@ -386,13 +386,20 @@ uniform float uUrbanHalfM;
 uniform sampler2D uPaveTex;
 uniform float uPaveValid;
 uniform float uPaveHalfM;
-// 포장 지도(R 시멘트, G 아스팔트)를 읽습니다. 범위 밖과 가장자리는 0 으로 줄입니다.
+// 포장 지도(R 시멘트, G 아스팔트, B 고해상도 물)를 읽습니다. 범위 밖과 가장자리는 0 으로 줄입니다.
 vec2 paveRaw(vec2 g) {
   // (켜짐 값 없이 읽습니다. 지도가 없을 때 묶인 빈 텍스처는 0 입니다.)
   vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
   if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return vec2(0.0);
   float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
   return texture2D(uPaveTex, pUv).rg * edge;
+}
+float waterHiRaw(vec2 g) {
+  if (uPaveValid < 0.5) return 0.0;
+  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return 0.0;
+  float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
+  return texture2D(uPaveTex, pUv).b * edge;
 }
 uniform float uFarUrban;
 uniform float uCityTerrainGain;
@@ -521,16 +528,23 @@ void main() {
   //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
   //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   //
-#ifdef TERRAIN_LIT_OUT
   // 화면 화소 발자국(m): 2x2 쿼드 미분이 discard 경계에서 깨지지 않게 먼저 잽니다. 발밑(3mm)까지 풀리도록 하한을 낮춤.
+  // ⚠ 두 경로 모두에서 선언합니다 — 포장 경계 샤프닝(pvSharp)이 원래 경로에서도 씁니다(볼륨 전용으로 두면 원래 경로 셰이더가 컴파일되지 않음).
   float pixG = max(0.003, 0.5 * length(fwidth(vGround)));
-#endif
   // 광역 외해 연결 마스크가 있으면 바다와 단절된 내륙 0m 이하 저지대는 잘라내지 않고 육지로 남깁니다.
   bool isSeaZone =
       uDemFarSeaValid > 0.5 ? (demFar_seaAt(vGround) > 0.5)
     : uDemSeaValid > 0.5    ? (dem_seaAt(vGround) > 0.5)
     :                         true;
-  if (uDemValid > 0.5 && isSeaZone && vElevM <= 0.0) discard;
+  float mvtWaterHere = -1.0;
+  if (uUrbanValid > 0.5) {
+    vec2 wUv = (vGround + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
+    if (wUv.x > 0.02 && wUv.x < 0.98 && wUv.y > 0.02 && wUv.y < 0.98) {
+      mvtWaterHere = texture2D(uUrbanTex, wUv).g;
+    }
+  }
+  bool mvtDryLand = mvtWaterHere >= 0.0 && mvtWaterHere < 0.25;
+  if (uDemValid > 0.5 && isSeaZone && !mvtDryLand && vElevM <= 0.0) discard;
 #ifdef TERRAIN_DIST_OUT
   // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
   gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
@@ -844,11 +858,17 @@ void main() {
   // 포장은 도시 경사 제한(tan 0.16~0.38)을 쓰지 않습니다. 도심 고도 자료는 건물 높이가 섞여 평지가 tan 1~2 로
   // 나오므로, 그 제한을 쓰면 도심 한가운데 포장이 꺼집니다(나고야역 둘레에서 확인). 지도에 있으면 칠합니다.
   vec2 pv = pvN * ((1.0 - smoothstep(2.5, 4.0, slope)) * (1.0 - wet));
-  float paveC = pv.r, paveA = pv.g;
+  // 3m 격자 포장 텍스처 확대 시 경계가 흐릿하게 번지지 않도록 smoothstep으로 경계선 샤프닝
+  float pvSharp = clamp(pixG * 0.025, 0.035, 0.14);
+  float paveC = smoothstep(0.42 - pvSharp, 0.42 + pvSharp, pv.r);
+  float paveA = smoothstep(0.45 - pvSharp, 0.45 + pvSharp, pv.g);
   float paveAny = max(paveC, paveA);
   vec3 albConcrete = albUrban * vec3(1.75, 1.72, 1.66);
   vec3 albAsphalt = albUrban * vec3(0.52, 0.52, 0.55);
   alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
+  float waterRaw = max(waterHiRaw(vGround), max(0.0, mvtWaterHere));
+  waterRaw *= (1.0 - smoothstep(0.45, 0.75, paveAny)) * (1.0 - smoothstep(0.8, 1.8, slope));
+  float waterMix = smoothstep(0.25, 0.65, waterRaw);
 
 #ifdef TERRAIN_LIT_OUT
   // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §157 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
@@ -910,9 +930,9 @@ void main() {
   albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * natVeg);
   if (nearW > 0.001) {
     float dryNear = nearW * (1.0 - wet);
-    float soilMicro = (detailCellId - 0.5) * 0.28 + (detailGrain - 0.5) * 0.26;
-    float tuftTip = mix(0.84, 1.18, detailH);
-    float rockFissure = 1.0 - 0.28 * clamp(rockCrack, 0.0, 1.0);
+    float soilMicro = (detailCellId - 0.5) * 0.06 + (detailGrain - 0.5) * 0.28;
+    float tuftTip = mix(0.86, 1.14, detailH);
+    float rockFissure = 1.0 - 0.10 * clamp(rockCrack, 0.0, 1.0);
     float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
     float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
     grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.10, paveAny);   // 포장: 고운 알갱이만
@@ -980,9 +1000,14 @@ void main() {
   vec3 asphaltLit = vec3(0.024, 0.024, 0.026) * paveGrain;
   vec3 outLitAlb = mix(natLitAlb, urbLitAlb, urbanMask);
   outLitAlb = mix(mix(outLitAlb, concreteLit, paveC), asphaltLit, paveA);
+  outLitAlb = mix(outLitAlb, vec3(0.012, 0.042, 0.056), waterMix);
+  amb = mix(amb, 1.0, waterMix);
+  sheen = mix(sheen, 0.0, waterMix);
   gl_FragColor = vec4(sqrt(clamp(outLitAlb, 0.0, 1.0)), litOut);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
-  pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
+  vec4 distOut = terrainDistEncode(vSlantM / 1000.0);
+  if (waterMix > 0.5) distOut.b = 1.0;
+  pc_fragColor2 = distOut;
   return;
 #endif
 
@@ -1007,6 +1032,13 @@ void main() {
   vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
   vec3 directLit = (uSunRadiance * ndl + uMoonRadiance * ndlMoon) / 3.14159265;
   vec3 col = alb * (skyIrr + directLit);
+  if (waterMix > 0.01) {
+    vec3 wV = normalize(vViewDir);
+    float fres = 0.02 + 0.98 * pow(1.0 - clamp(abs(wV.y), 0.0, 1.0), 5.0);
+    vec3 wBody = vec3(0.012, 0.042, 0.056) * uSurfaceIrr;
+    vec3 wRefl = uHazeRadiance * fres;
+    col = mix(col, wBody + wRefl, waterMix);
+  }
 
   // ── 달빛 반사광 (Moon Specular Sheen) ──────────────────────────────────
   // 달을 향한 사면 및 젖은 모래/암반의 스펙큘러 하이라이트
@@ -1209,6 +1241,8 @@ export interface TerrainFieldHandle {
   ) => void;
   /** 도시·거주지 토지이용(MVT) 마스크를 적용합니다. null 이면 끄고 uFarUrban 으로 물러납니다. */
   setUrbanMask: (mask: UrbanMaskResult | null) => void;
+  /** 현재 업로드된 MVT 도시/물 텍스처(G 채널 = 물)를 반환합니다. */
+  waterMaskTex: () => THREE.Texture | null;
   /** 빛지도 등 거시 도시 밀도(0~1)를 전달해 원경(3km 밖) 및 로드 전 바닥 회색 톤을 조절합니다. */
   setFarUrban: (farUrban: number) => void;
   /**
@@ -1519,11 +1553,12 @@ export function createTerrainField(opts: {
       }
       const n = mask.size;
       const rgba = new Uint8Array(n * n * 4);
+      const wData = mask.water;
       for (let i = 0; i < n * n; i++) {
         const v = mask.data[i];
         const o = i * 4;
         rgba[o] = v;
-        rgba[o + 1] = v;
+        rgba[o + 1] = wData ? wData[i] : 0;
         rgba[o + 2] = v;
         rgba[o + 3] = 255;
       }
@@ -1542,11 +1577,17 @@ export function createTerrainField(opts: {
       material.uniforms.uUrbanTex.value = activeUrbanTex;
       material.uniforms.uUrbanHalfM.value = mask.halfM;
       material.uniforms.uUrbanValid.value = 1;
-      // 포장 지도(시멘트·아스팔트 두 채널 → R·G)
+      // 포장 지도(시멘트·아스팔트·고해상도 물 → R·G·B)
       if (mask.pave) {
         const pn = mask.pave.size, pd = mask.pave.data;
+        const wh = mask.waterHi && mask.waterHi.size === pn ? mask.waterHi.data : null;
         const prgba = new Uint8Array(pn * pn * 4);
-        for (let i = 0; i < pn * pn; i++) { prgba[i * 4] = pd[i * 2]; prgba[i * 4 + 1] = pd[i * 2 + 1]; prgba[i * 4 + 3] = 255; }
+        for (let i = 0; i < pn * pn; i++) {
+          prgba[i * 4] = pd[i * 2];
+          prgba[i * 4 + 1] = pd[i * 2 + 1];
+          prgba[i * 4 + 2] = wh ? wh[i] : 0;
+          prgba[i * 4 + 3] = 255;
+        }
         activePaveTex?.dispose();
         activePaveTex = new THREE.DataTexture(prgba, pn, pn, THREE.RGBAFormat);
         activePaveTex.colorSpace = THREE.NoColorSpace;
@@ -1562,6 +1603,7 @@ export function createTerrainField(opts: {
         material.uniforms.uPaveValid.value = 0;
       }
     },
+    waterMaskTex: () => activeUrbanTex,
     setFarUrban: (farUrban) => {
       material.uniforms.uFarUrban.value = Math.max(0, Math.min(1, Number.isFinite(farUrban) ? farUrban : 0));
     },
