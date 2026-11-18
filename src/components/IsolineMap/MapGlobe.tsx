@@ -496,6 +496,19 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   }, [subsolar, geoPath]);
 
   /**
+   * 2026-11-18 달빛 받는 땅(사용자 요청: 달에 밝아지는 위상) — 달이 지평선 위에 있는 반구(달 직하점 둘레 90°)를
+   * 밤 쪽에서만 옅게 밝힙니다. 세기는 달의 밝은 비율(위상)에 비례 — 그믐엔 안 보이고 보름엔 밤 그늘이 꽤 걷힙니다.
+   */
+  const moonLitPath = useMemo(() => {
+    if (!sublunar || moonFraction < 0.03) return null;
+    try {
+      return geoPath(d3.geoCircle().center([sublunar.longitude, sublunar.latitude]).radius(90)());
+    } catch (e) {
+      return null;
+    }
+  }, [sublunar, moonFraction, geoPath]);
+
+  /**
    * 등시선을 구 위에 그립니다. d3 가 구의 가장자리(지평)에서 선을 정확히 자르고,
    * 날짜변경선은 `joinOnSphere` 가 이어 둡니다. 예전에는 점마다 보이는지 따로
    * 재고 ±178.5° 를 빼서, 가장자리에서 선이 한 칸씩 모자랐고 날짜변경선에 틈이
@@ -816,6 +829,21 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               fill="rgba(3, 7, 18, 0.38)"
               stroke="none"
             />
+          )}
+          {nightCirclePath && moonLitPath && (
+            <>
+              <Defs>
+                <ClipPath id="nightClip">
+                  <Path d={nightCirclePath} />
+                </ClipPath>
+              </Defs>
+              <Path
+                d={moonLitPath}
+                clipPath="url(#nightClip)"
+                fill={`rgba(170, 190, 225, ${(0.20 * Math.min(1, moonFraction)).toFixed(3)})`}
+                stroke="none"
+              />
+            </>
           )}
           {/* 시간별 서브 등시선 (allTerminators) - 조작 중(isInteracting)일 때는 성능 극대화를 위해 렌더 생략 */}
           {subTerminatorPaths.map((paths) => (
