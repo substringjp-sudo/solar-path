@@ -28,6 +28,7 @@ const FLOW_VEC_UNIFORMS = [
   'genusTiltU', 'genusTiltV', 'genusErode', 'genusTauRef',
   'genusMacroGradX', 'genusMacroGradY',
   'genusCarve', 'genusGrain', 'genusGrainDir', 'genusWisp',
+  'genusDriftKmU', 'genusDriftKmV',
 ] as const;
 
 /** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW, 그것도 없으면 기본값. */
@@ -67,11 +68,18 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   }
   // S1 균일변수
   src = src.replace(decl, decl + '\n' + FLOW_VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
-    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;');
+    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;\nuniform float genusLsAmt;');
   // 층별 찢긴 결 UV 오프셋 헬퍼 — 각 레인이 자기 바람 방향(genusGrainDir)과 활성 고도에서만 자기 UV 를 뒤틀게 합니다.
   const weatherDecl = 'WeatherSample sampleWeather(';
   if (!src.includes(weatherDecl)) throw new Error('cloudFlow: sampleWeather anchor missing');
   src = src.replace(weatherDecl, [
+    // 2026-11-18 큰 무늬(비주기): 파장 55·89·144 km 사인 셋을 서로 다른 방향으로 — 24 km 타일 반복을 깹니다. 0..1.
+    'float genusLsField(const vec2 pKm) {',
+    '  float a = sin(dot(pKm, vec2(0.8090, 0.5878)) * (6.2831853 / 55.0) + 1.3);',
+    '  float b = sin(dot(pKm, vec2(-0.3420, 0.9397)) * (6.2831853 / 89.0) + 4.1);',
+    '  float c = sin(dot(pKm, vec2(0.9945, -0.1045)) * (6.2831853 / 144.0) + 2.7);',
+    '  return 0.5 + 0.5 * (0.45 * a + 0.33 * b + 0.22 * c);',
+    '}',
     'vec2 flowWispWarp(const vec2 uv, const float dirRad, const float h, const float amt) {',
     '  if (amt <= 0.0) return vec2(0.0);',
     '  vec2 gPw = uv * genusTileM;',
@@ -124,6 +132,14 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '    localWeather = pow(vec4(gT0.x, gT1.y, gT2.z, gT3.w), weatherExponents);',
     '  } else {',
     '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
+    '  }',
+    // 2026-11-18 큰 무늬로 날씨 값을 곱해 바꿈(평균 1, ±genusLsAmt). 자리는 감싸지 않은 바람 이동(km, genusDriftKm)으로 — 타일(24 km)이 감싸는 이동만으론
+    //   바람이 한 시간에 타일 한 칸쯤이면(나고야 11/18 북서풍 37 km/h → 동 27.5·남 24.8 km) 무늬가 거의 같은 자리로 돌아와 먼 구름이 멈춘 듯했음.
+    '  if (genusLsAmt > 0.0) {',
+    '    vec2 gPk = uv * (genusTileM * 0.001);',
+    '    vec4 gLs = vec4(genusLsField(gPk + vec2(genusDriftKmU.x, genusDriftKmV.x)), genusLsField(gPk + vec2(genusDriftKmU.y, genusDriftKmV.y)),',
+    '                    genusLsField(gPk + vec2(genusDriftKmU.z, genusDriftKmV.z)), genusLsField(gPk + vec2(genusDriftKmU.w, genusDriftKmV.w)));',
+    '    localWeather = clamp(localWeather * (vec4(1.0) + genusLsAmt * (2.0 * gLs - 1.0)), vec4(0.0), vec4(1.0));',
     '  }',
     '  // §132 거시 상태장: 주변 좌표의 2D 운량 기울기로 구름을 변조. §135: 더하지 않고 **곱합니다** — 더하면 빈 하늘(0)에',
     '  // 구름이 생겨 하늘 위쪽을 얇은 막이 덮었습니다. 곱하면 이미 있는 구름만 옅어지거나(기울기 음의 쪽) 조금 짙어집니다(양의 쪽).',
@@ -190,6 +206,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   mat.uniforms.genusUvOn = { value: 0 };
   mat.uniforms.genusTexelM = { value: 24000 / 512 };
   mat.uniforms.genusMacroOn = { value: 0 };
+  mat.uniforms.genusLsAmt = { value: GENUS_LS_AMT };
   mat.needsUpdate = true;
 }
 
@@ -273,6 +290,9 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
  * §155 **모든 층**에 겁니다(바람 opts 가 있는 층). 예전에는 흐름 모형 층(cu·sc, 그것도 흐름 uv 옵션이 켜졌을 때)만 움직여,
  * 흐름을 기본으로 끈 뒤(S0-1) 비늘구름(ac) 같은 층은 하늘에 붙박여 전혀 흐르지 않았습니다. 드리프트가 있으면 층별 fetch 를 켭니다.
  */
+/** 큰 무늬 세기(날씨 값 곱 1 ± 이 값). 0 이면 끔. */
+export const GENUS_LS_AMT = 0.45;
+
 export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null)[], seconds: number, tileKm: number, baseKm?: ([number, number] | null | undefined)[]): void {
   const s = seconds / 3600 / tileKm;
   // baseKm: 장면 시각까지 이미 밀려간 거리(동·북 km, 시간별 바람 적분 — liveScene). seconds 는 그 뒤 흐른 시간.
@@ -283,6 +303,9 @@ export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null
   const du = lane('windU'), dv = lane('windV');
   set('genusDriftU', wrap(du));
   set('genusDriftV', wrap(dv));
+  // 감싸지 않은 이동(km) — 큰 무늬(genusLsField)용. 같은 부호(무늬를 −U·t − 적분 이동만큼 읽음).
+  set('genusDriftKmU', du.map(x => x * tileKm));
+  set('genusDriftKmV', dv.map(x => x * tileKm));
   if (layers.some((L, i) => !!L && (flowParam(L, 'windU', 0) !== 0 || flowParam(L, 'windV', 0) !== 0) && Number.isFinite(du[i] + dv[i]))) {
     mat.uniforms.genusUvOn.value = 1;
   }

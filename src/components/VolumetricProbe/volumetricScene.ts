@@ -63,7 +63,7 @@ import type { TsunBuildInput, TsunLaneInput } from './tsunAtlas';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
-import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
+import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt, GENUS_LS_AMT } from './cloudFlowShader';
 import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
@@ -917,13 +917,20 @@ export async function createVolumetricScene(
       'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
       'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
       'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
-      'uniform vec4 farDriftU;', 'uniform vec4 farDriftV;', 'uniform vec4 farMacroDriftU;', 'uniform vec4 farMacroDriftV;', 'uniform vec4 farLutCol;',
+      'uniform vec4 farDriftU;', 'uniform vec4 farDriftV;', 'uniform vec4 farDriftKmU;', 'uniform vec4 farDriftKmV;', 'uniform float farLsAmt;', 'uniform vec4 farMacroDriftU;', 'uniform vec4 farMacroDriftV;', 'uniform vec4 farLutCol;',
       'uniform vec3 farCityUp;', 'uniform float farCutKm;',
       // 100km 너머 단일 구름 층 2D 평면 투영 + 원고리 격자 적층 (높은 층→낮은 층 순)
+    // 2026-11-18 큰 무늬(비주기): 파장 55·89·144 km 사인 셋을 서로 다른 방향으로 — 24 km 타일 반복을 깹니다. 0..1.
+    'float farLsField(const vec2 pKm) {',
+    '  float a = sin(dot(pKm, vec2(0.8090, 0.5878)) * (6.2831853 / 55.0) + 1.3);',
+    '  float b = sin(dot(pKm, vec2(-0.3420, 0.9397)) * (6.2831853 / 89.0) + 4.1);',
+    '  float c = sin(dot(pKm, vec2(0.9945, -0.1045)) * (6.2831853 / 144.0) + 2.7);',
+    '  return 0.5 + 0.5 * (0.45 * a + 0.33 * b + 0.22 * c);',
+    '}',
       'void volEvalFarLayer(',
       '  const vec3 camPosKm, const vec3 rayDir, const float rCam,',
       '  const float baseKm, const float thickKm, const float tauV, const float densPow, const float isIce, const float coverFb,',
-      '  const vec4 wMask, const vec4 mMask, const vec2 wDrift, const vec2 mDrift, const float lutCol,',
+      '  const vec4 wMask, const vec4 mMask, const vec2 wDrift, const vec2 mDrift, const vec2 dKm, const float lutCol,',
       '  inout vec3 accRgb, inout float accAlpha, inout float firstHitKm',
       ') {',
       '  if (baseKm < -0.5 || tauV <= 1e-4) return;',
@@ -945,6 +952,8 @@ export async function createVolumetricScene(
       '    vec2 planeKm = vec2(dot(dRel, farEast), dot(dRel, farNorth));',
       '    vec2 wUv = planeKm / max(farTileKm, 0.5) + wDrift;',
       '    dens = dot(texture(farWeatherTex, wUv), wMask);',
+      // 가까운 구름과 같은 큰 무늬(cloudFlowShader genusLsField) — 100 km 너머도 바람에 실려 움직이고 24 km 반복이 덜 보이게.
+      '    if (farLsAmt > 0.0) dens = clamp(dens * (1.0 + farLsAmt * (2.0 * farLsField(planeKm + dKm) - 1.0)), 0.0, 1.0);',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
       '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(texture(farMacroTex, mUv), mMask);',
@@ -1211,10 +1220,10 @@ export async function createVolumetricScene(
       '      vec3 accRgb = vec3(0.0);',
       '      float accA = 0.0;',
       '      float firstHit = 0.0;',
-      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.x, farThickKm.x, farTauV.x, farDensPow.x, farIce.x, farCoverFb.x, farWeatherMask[0], farMacroMask[0], vec2(farDriftU.x, farDriftV.x), vec2(farMacroDriftU.x, farMacroDriftV.x), farLutCol.x, accRgb, accA, firstHit);',
-      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.y, farThickKm.y, farTauV.y, farDensPow.y, farIce.y, farCoverFb.y, farWeatherMask[1], farMacroMask[1], vec2(farDriftU.y, farDriftV.y), vec2(farMacroDriftU.y, farMacroDriftV.y), farLutCol.y, accRgb, accA, firstHit);',
-      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.z, farThickKm.z, farTauV.z, farDensPow.z, farIce.z, farCoverFb.z, farWeatherMask[2], farMacroMask[2], vec2(farDriftU.z, farDriftV.z), vec2(farMacroDriftU.z, farMacroDriftV.z), farLutCol.z, accRgb, accA, firstHit);',
-      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.w, farThickKm.w, farTauV.w, farDensPow.w, farIce.w, farCoverFb.w, farWeatherMask[3], farMacroMask[3], vec2(farDriftU.w, farDriftV.w), vec2(farMacroDriftU.w, farMacroDriftV.w), farLutCol.w, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.x, farThickKm.x, farTauV.x, farDensPow.x, farIce.x, farCoverFb.x, farWeatherMask[0], farMacroMask[0], vec2(farDriftU.x, farDriftV.x), vec2(farMacroDriftU.x, farMacroDriftV.x), vec2(farDriftKmU.x, farDriftKmV.x), farLutCol.x, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.y, farThickKm.y, farTauV.y, farDensPow.y, farIce.y, farCoverFb.y, farWeatherMask[1], farMacroMask[1], vec2(farDriftU.y, farDriftV.y), vec2(farMacroDriftU.y, farMacroDriftV.y), vec2(farDriftKmU.y, farDriftKmV.y), farLutCol.y, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.z, farThickKm.z, farTauV.z, farDensPow.z, farIce.z, farCoverFb.z, farWeatherMask[2], farMacroMask[2], vec2(farDriftU.z, farDriftV.z), vec2(farMacroDriftU.z, farMacroDriftV.z), vec2(farDriftKmU.z, farDriftKmV.z), farLutCol.z, accRgb, accA, firstHit);',
+      '      volEvalFarLayer(vCameraPosition, fRd, rCam, farBaseKm.w, farThickKm.w, farTauV.w, farDensPow.w, farIce.w, farCoverFb.w, farWeatherMask[3], farMacroMask[3], vec2(farDriftU.w, farDriftV.w), vec2(farMacroDriftU.w, farMacroDriftV.w), vec2(farDriftKmU.w, farDriftKmV.w), farLutCol.w, accRgb, accA, firstHit);',
       '      float visA = accA * (1.0 - fOv.a);',
       '      if (visA > 0.004) {',
       '        vec3 skyVis = max(outputColor.rgb - fOv.rgb, vec3(0.0));',
@@ -1321,6 +1330,9 @@ export async function createVolumetricScene(
     fx.uniforms.set('farIce', new Uniform(new Vector4()));
     fx.uniforms.set('farCoverFb', new Uniform(new Vector4()));
     fx.uniforms.set('farDriftU', new Uniform(new Vector4()));
+    fx.uniforms.set('farDriftKmU', new Uniform(new Vector4()));
+    fx.uniforms.set('farDriftKmV', new Uniform(new Vector4()));
+    fx.uniforms.set('farLsAmt', new Uniform(GENUS_LS_AMT));
     fx.uniforms.set('farDriftV', new Uniform(new Vector4()));
     fx.uniforms.set('farMacroDriftU', new Uniform(new Vector4()));
     fx.uniforms.set('farMacroDriftV', new Uniform(new Vector4()));
@@ -2043,6 +2055,9 @@ export async function createVolumetricScene(
     const s = farSortedLanes;
     (au.get('farDriftU')!.value as Vector4).set(pick(gdu, s[0]), pick(gdu, s[1]), pick(gdu, s[2]), pick(gdu, s[3]));
     (au.get('farDriftV')!.value as Vector4).set(pick(gdv, s[0]), pick(gdv, s[1]), pick(gdv, s[2]), pick(gdv, s[3]));
+    const kdu = cu.genusDriftKmU?.value as Vector4 | undefined, kdv = cu.genusDriftKmV?.value as Vector4 | undefined;
+    (au.get('farDriftKmU')!.value as Vector4).set(pick(kdu, s[0]), pick(kdu, s[1]), pick(kdu, s[2]), pick(kdu, s[3]));
+    (au.get('farDriftKmV')!.value as Vector4).set(pick(kdv, s[0]), pick(kdv, s[1]), pick(kdv, s[2]), pick(kdv, s[3]));
     (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
     (au.get('farMacroDriftV')!.value as Vector4).set(pick(mdv, s[0]), pick(mdv, s[1]), pick(mdv, s[2]), pick(mdv, s[3]));
     au.get('farMacroTex')!.value = macro ? macro.texB : null;
