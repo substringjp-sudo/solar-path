@@ -290,6 +290,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const weatherAbortControllerRef = useRef<AbortController | null>(null);
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
+  // 맑은 하늘 대체 자료(429 등)를 쓰는 중인지 — 알림을 띄우고 뒤에서 다시 받습니다(1·2·4·5 분 간격).
+  const usingFallbackSky = Boolean((pathData as any)?.[0]?.isFallback);
+  const fallbackRetryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; n: number }>({ timer: null, n: 0 });
 
   /**
    * 360° 전방위 날씨 로드 함수 (태양 방위와 무관)
@@ -489,6 +492,19 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setPathData(prev => (prev === cached.data ? prev : (cached.data as CloudPathData[])));
     }
   }, [weatherCacheList, latitude, longitude]);
+
+  useEffect(() => {
+    const st = fallbackRetryRef.current;
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    if (!usingFallbackSky) { st.n = 0; return; }
+    const waitMs = Math.min(300_000, 60_000 * 2 ** st.n);
+    st.timer = setTimeout(() => {
+      st.timer = null;
+      st.n += 1;
+      loadWeather(false);
+    }, waitMs);
+    return () => { if (st.timer) { clearTimeout(st.timer); st.timer = null; } };
+  }, [usingFallbackSky, pathData, loadWeather]);
 
   /** 하단 막대가 고른 시각. 날짜 손잡이를 끄는 중이면 위 정리를 먼저 하고 시각을 반영합니다. */
   const handleBarPick = useCallback((time: Date, meta?: { scrub?: ScrubKind }) => {
@@ -784,6 +800,19 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </OverlayButton>
           )}
         </View>
+        )}
+
+        {/* 2026-11-18 예보 대신 맑은 하늘 대체 자료(요청 한도 429 등)를 쓰는 중 — 예전에는 아무 표시 없이 구름 0 % 로 그려
+              실제로 구름이 많은 날도 맑게 보였음(사용자 보고, 서울 11/19 일출). 알리고 뒤에서 다시 받습니다. */}
+        {!weatherError && !isWeatherLoading && usingFallbackSky && (
+          <View style={overlayStyles.buildBanner} pointerEvents="none">
+            <Text style={overlayStyles.buildLabel} numberOfLines={1}>
+              {L3(language, '구름 예보를 받지 못해 맑은 하늘로 보여 주는 중', 'No cloud forecast yet — showing a clear sky', '雲予報を取得できず晴天で表示中')}
+            </Text>
+            <Text style={overlayStyles.buildHint} numberOfLines={1}>
+              {L3(language, '예보 서버 요청 한도에 걸렸어요. 잠시 뒤 자동으로 다시 받아요', 'Forecast server rate limit — retrying automatically', '予報サーバーの制限中です。自動で再取得します')}
+            </Text>
+          </View>
         )}
 
         {/* 날씨 수신 배너 (터치 통과). 2026-11-18 하늘 사전 계산 진행은 팝업 대신 시간 막대 아래 선으로 보입니다(DateTimeBar). */}
