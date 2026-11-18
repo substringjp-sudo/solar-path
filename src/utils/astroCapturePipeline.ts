@@ -197,12 +197,34 @@ export async function runAstroCaptureStack(
 
       const attBefore = input.getAttitudeNow();
       input.consumeGyroPeakDegPerSec?.(); // 직전 대기 구간 회전값 비우기
-      const sub = await captureAstroSubFrameAsync({
-        exposureMs: subExposureSecUsed * 1000,
-        iso,
-        lockFocusInfinity: input.lockFocusInfinity ?? true,
-        focusDistance: 0,
-        deviceRotationDeg: input.deviceRotationDeg ?? 0,
+      const subTimeoutMs = Math.max(15000, subExposureSecUsed * 1000 + 12000);
+      const sub = await new Promise<Awaited<ReturnType<typeof captureAstroSubFrameAsync>>>((resolve, reject) => {
+        let settled = false;
+        const done = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          clearInterval(abortPoller);
+          fn();
+        };
+        const timer = setTimeout(() => {
+          done(() => reject(new Error(`서브프레임 촬영 응답 시간 초과 (${Math.round(subTimeoutMs / 1000)}초)`)));
+        }, subTimeoutMs);
+        const abortPoller = setInterval(() => {
+          if (input.shouldAbort?.()) {
+            done(() => reject(new Error('ASTRO_ABORTED')));
+          }
+        }, 250);
+        captureAstroSubFrameAsync({
+          exposureMs: subExposureSecUsed * 1000,
+          iso,
+          lockFocusInfinity: input.lockFocusInfinity ?? true,
+          focusDistance: 0,
+          deviceRotationDeg: input.deviceRotationDeg ?? 0,
+        }).then(
+          res => done(() => resolve(res)),
+          err => done(() => reject(err)),
+        );
       });
       if (input.shouldAbort?.()) {
         throw new Error('ASTRO_ABORTED');
