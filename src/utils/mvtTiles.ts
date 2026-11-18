@@ -487,7 +487,9 @@ export interface UrbanMaskResult {
    * 2026-11-18 포장 지도(관측자 둘레 ±paveHalfM, paveSize²) — 칸마다 [시멘트, 아스팔트] 0~255 두 바이트(행=+Z 남쪽, 열=+X 동쪽).
    * 시멘트 = 건물 둘레 PAVE_BUILDING_APRON_M + 도로 가장자리(인도), 아스팔트 = 도로 폭(종류별 ROAD_WIDTH_M). 없으면 undefined.
    */
-  pave?: { size: number; halfM: number; data: Uint8Array };
+  pave?: { size: number; halfM: number; data: Uint8Array; lamp?: Uint8Array };
+  /** 2026-11-18 큰 도로 가로등 자리(동 x, 남 z, m) 쌍. 관측자 둘레 ±PAVE_HALF_M. */
+  lamps?: Float32Array;
   /** 건물 덮개(0/255, 관측자 둘레 ±halfM, 512칸 ≈ 12.5 m). 고도의 건물 높이 깎기(demBuildingFlatten.ts)에 씁니다. */
   bld?: { size: number; halfM: number; data: Uint8Array };
   /** 물(바다·호수·강, 0/255, 관측자 둘레 ±halfM, size²). 해발 0m 매립지/인공섬과 내륙 수면을 가르는 데 씁니다. */
@@ -506,6 +508,13 @@ export const ROAD_SIDEWALK_M = 4;
 export const PAVE_BUILDING_APRON_M = 12;
 export const PAVE_HALF_M = 1600;
 export const PAVE_SIZE = 1024;
+/** 가로등을 세우는 큰 도로 종류. */
+export const LAMP_ROAD_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+/** 가로등 간격(m, 한쪽 기준). 넓은 도로(폭 16 m 이상)는 양쪽에, 좁은 도로는 지그재그로. */
+export const LAMP_SPACING_M = 34;
+/** 빛 웅덩이 반지름(m) — 가로등 높이 9 m 안팎의 바닥 조도 퍼짐. */
+export const LAMP_POOL_R_M = 13;
+export const LAMP_MAX = 9000;
 /** 건물 덮개 격자 한 변 칸 수(±3200 m 에서 12.5 m 칸). */
 export const BLD_COVER_SIZE = 512;
 
@@ -666,6 +675,8 @@ export async function fetchUrbanMask(
   // 2026-11-18 포장 지도: 건물 둘레 시멘트 + 도로(가장자리 시멘트, 가운데 아스팔트). 흙이 보이지 않고 도로 느낌이 나게(사용자 제안).
   const pSize = PAVE_SIZE, pHalf = PAVE_HALF_M;
   const pave = new Uint8Array(pSize * pSize * 2);
+  const lampPool = new Uint8Array(pSize * pSize);
+  const lampXZ: number[] = [];
   {
     const bGrid = new Uint8Array(pSize * pSize);
     for (const { tc, layers } of okTiles) {
@@ -703,12 +714,48 @@ export async function fetchUrbanMask(
         const w = ROAD_WIDTH_M[cls];
         if (!w) continue;
         if (String(f.props.brunnel ?? '') === 'tunnel') continue;
+        const lit = LAMP_ROAD_CLASSES.has(cls);
         for (const line of f.rings) {
           const pts = line.map((p) => toLocal(tc, p.x, p.y, tr.extent));
+          let carry = 0;   // 앞 마디에서 남은 거리 — 마디가 짧아도 간격이 이어지게
+          let side = 1;
           for (let i = 1; i < pts.length; i++) {
             stampSegment(pave, pSize, pHalf, 0, pts[i - 1], pts[i], w / 2 + ROAD_SIDEWALK_M, 255);
             stampSegment(pave, pSize, pHalf, 1, pts[i - 1], pts[i], w / 2, 255);
+            if (!lit) continue;
+            // 2026-11-18 가로등(사용자 제안): 큰 도로 가장자리(차도 끝 안쪽 0.5 m)에 LAMP_SPACING_M 간격.
+            //   지도 도로 폭(ROAD_WIDTH_M)이 실제보다 좁을 때가 많아 차도 바깥에 두면 건물 안에 서서 벽에 가려졌음.
+            const a = pts[i - 1], b = pts[i];
+            const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+            if (len < 1e-3) continue;
+            const nx = -dz / len, nz = dx / len, off = Math.max(1, w / 2 - 0.5);
+            for (let t = LAMP_SPACING_M - carry; t <= len; t += LAMP_SPACING_M) {
+              const cx = a.x + (dx * t) / len, cz = a.z + (dz * t) / len;
+              const put = (sgn: number) => {
+                const x = cx + nx * off * sgn, z = cz + nz * off * sgn;
+                if (Math.abs(x) < pHalf && Math.abs(z) < pHalf && lampXZ.length < LAMP_MAX * 2) lampXZ.push(x, z);
+              };
+              if (w >= 16) { put(1); put(-1); } else { put(side); side = -side; }
+            }
+            carry = (carry + len) % LAMP_SPACING_M;
           }
+        }
+      }
+    }
+    // 빛 웅덩이: 가로등마다 반지름 LAMP_POOL_R_M 의 둥근 감쇠(가운데 255), 겹치면 최댓값.
+    {
+      const sc = pSize / (2 * pHalf);
+      const rPx = LAMP_POOL_R_M * sc, R = Math.ceil(rPx);
+      for (let k = 0; k < lampXZ.length; k += 2) {
+        const cx = (lampXZ[k] + pHalf) * sc, cy = (lampXZ[k + 1] + pHalf) * sc;
+        const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(pSize - 1, Math.ceil(cx + R));
+        const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(pSize - 1, Math.ceil(cy + R));
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / rPx;
+          if (d >= 1) continue;
+          const v = Math.round(255 * (1 - d * d) * (1 - d * d));
+          const o = y * pSize + x;
+          if (v > lampPool[o]) lampPool[o] = v;
         }
       }
     }
@@ -809,7 +856,7 @@ export async function fetchUrbanMask(
     size,
     halfM,
     data: smooth,
-    pave: { size: pSize, halfM: pHalf, data: pave },
+    pave: { size: pSize, halfM: pHalf, data: pave, lamp: lampPool }, lamps: Float32Array.from(lampXZ),
     bld: { size: BLD_COVER_SIZE, halfM, data: bldCover },
     water: waterGrid,
     waterHi: { size: pSize, halfM: pHalf, data: waterHi },

@@ -722,7 +722,7 @@ export interface SceneComposerHandle {
   /** 누적된 선형 밝기에 노출 게인·천체 톤매핑(+선택 고정 지형)을 적용해 화면에 출력합니다. */
   resolveAccumulation: (
     renderer: THREE.WebGLRenderer,
-    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean },
+    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean; asinhStrength?: number },
   ) => void;
   /** 장노출 누적 버퍼를 해제합니다. */
   endAccumulation: () => void;
@@ -1056,11 +1056,14 @@ export function createSceneComposer(
     uniform sampler2D uBase;
     uniform float uEncodeAccum;
     uniform float uGain;
+    uniform float uAsinhK;
     uniform float uShadowLift;
     uniform float uUseFixedGround;
     uniform float uDither;
     varying vec2 vUv;
     ${DITHER_GLSL}
+    float asinhS(float x) { return log(x + sqrt(x * x + 1.0)); }
+    vec3 asinhV(vec3 x) { return log(x + sqrt(x * x + 1.0)); }
     vec3 acesFilm(vec3 x) {
       const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
       return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
@@ -1069,15 +1072,21 @@ export function createSceneComposer(
       vec3 accRaw = texture2D(uTex, vUv).rgb;
       vec3 lin = uEncodeAccum > 0.5 ? accRaw : pow(max(accRaw, vec3(0.0)), vec3(2.2));
       lin *= uGain;
-      // 암부 리프트(미약한 은하수·지상 윤곽을 블랙 위에서 살림) + ACES 하이라이트 보호
+      // 암부 리프트(미약한 은하수·지상 윤곽을 블랙 위에서 살림)
       lin = lin + uShadowLift * (1.0 - exp(-lin * 4.0));
-      vec3 displaySrgb = pow(acesFilm(lin), vec3(1.0 / 2.2));
+      // 2026-11-18 실제 촬영 합성(AstroStackAccumulator.kt)과 같은 asinh 늘이기 — asinh(k·x)/asinh(k). 예전 ACES 는 어두운 쪽을 오히려 눌러
+      //   (x 0.025 → 0.015) 달빛 장노출이 실제 결과보다 훨씬 어두웠음(사용자 보고). uAsinhK ≤ 0 이면 예전 ACES.
+      vec3 displaySrgb = uAsinhK > 0.0
+        ? pow(clamp(asinhV(uAsinhK * lin) / asinhS(uAsinhK), 0.0, 1.0), vec3(1.0 / 2.2))
+        : pow(acesFilm(lin), vec3(1.0 / 2.2));
       if (uUseFixedGround > 0.5) {
         vec4 baseTex = texture2D(uBase, vUv);
         if (baseTex.a > 0.5) {
           vec3 baseLin = pow(max(baseTex.rgb, vec3(0.0)), vec3(2.2));
           baseLin = baseLin * max(1.0, uGain * 0.55) + uShadowLift * 0.5 * (1.0 - exp(-baseLin * 4.0));
-          displaySrgb = pow(acesFilm(baseLin), vec3(1.0 / 2.2));
+          displaySrgb = uAsinhK > 0.0
+            ? pow(clamp(asinhV(uAsinhK * baseLin) / asinhS(uAsinhK), 0.0, 1.0), vec3(1.0 / 2.2))
+            : pow(acesFilm(baseLin), vec3(1.0 / 2.2));
         }
       }
       displaySrgb += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
@@ -1104,6 +1113,7 @@ export function createSceneComposer(
       uBase: { value: null as THREE.Texture | null },
       uEncodeAccum: { value: 0 },
       uGain: { value: 1 },
+      uAsinhK: { value: 10 },
       uShadowLift: { value: 0 },
       uUseFixedGround: { value: 0 },
       uDither: { value: DEFAULT_DITHER },
@@ -1607,9 +1617,10 @@ export function createSceneComposer(
 
   const resolveAccumulation = (
     renderer: THREE.WebGLRenderer,
-    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean },
+    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean; asinhStrength?: number },
   ) => {
     if (!rtAccumA || !rtAccumB) return;
+    accumResolveMat.uniforms.uAsinhK.value = opts?.asinhStrength ?? 10;
     // 직전 step 에서 쓴 버퍼가 (1 - accumPing) 쪽에 놓임
     const latest = accumPing === 1 ? rtAccumA : rtAccumB;
     const prevTarget = renderer.getRenderTarget();

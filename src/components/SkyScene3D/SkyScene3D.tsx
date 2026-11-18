@@ -614,6 +614,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const starFieldRef = useRef<StarFieldHandle | null>(null);
   const milkyWayRef = useRef<MilkyWayHandle | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
+  // 2026-11-18 장노출(renderLongExposure)을 그리는 동안 해·달 경로선을 숨김 — 결과는 사진 흉내라 안내선이 찍히면 안 됨(사용자 요청).
+  const hidePathsForExposureRef = useRef(false);
   
   /** 별·은하수가 공유하는 적도→지평 회전 행렬 (프레임당 1회만 계산) */
   const equToHorizonRef = useRef(new THREE.Matrix3());
@@ -1207,6 +1209,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             } catch (_) { /* readPixels 를 못 해도 스냅샷은 계속합니다 */ }
             lastBufferMeanRef.current = bufMean;
 
+            // 웹(하네스·expo web): takeSnapshotAsync 가 빈 주소를 돌려주므로 방금 그린 캔버스를 바로 읽습니다(같은 작업 안이라 지워지기 전).
+            const webCanvas = Platform.OS === 'web' ? (glRef.current as { canvas?: { toDataURL?: (t: string, q?: number) => string } }).canvas : undefined;
+            if (webCanvas?.toDataURL) {
+              const dataUri = webCanvas.toDataURL(options.format === 'png' ? 'image/png' : 'image/jpeg', options.compress ?? 0.85);
+              if (dataUri && dataUri.length > 64) return dataUri;
+            }
             const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
               format: options.format ?? 'jpeg',
               compress: options.compress ?? 0.85,
@@ -1306,7 +1314,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const mode = opts.mode;
       const startTimeMs = opts.startTimeMs ?? targetTimeMsRef.current;
       const durationSec = Math.max(10, Math.min(3600, opts.durationSec ?? 300));
-      const steps = Math.max(4, Math.min(96, Math.round(opts.steps ?? 20)));
+      const steps = Math.max(4, Math.min(192, Math.round(opts.steps ?? 20)));
       const exposureGain = opts.exposureGain ?? Number((1 + Math.log2(1 + durationSec / 90) * 0.72).toFixed(2));
       const shadowLift = opts.shadowLift ?? 0.015;
       const starBoost = opts.starBoost ?? 1.25;
@@ -1333,6 +1341,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       overrideStartBucketMsRef.current = Math.floor(startTimeMs / 3600000) * 3600000 + 1800000;
       overrideSceneTimeMsRef.current = startTimeMs;
       starBoostOverrideRef.current = starBoost;
+      hidePathsForExposureRef.current = true;
+      if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = false;
       remoteViewRef.current = { ...view };
       remoteFramesRef.current = 0;
       zoomProgressRef.current = 0;
@@ -1436,6 +1446,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
         starBoostOverrideRef.current = 1;
+        hidePathsForExposureRef.current = false;
+        if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = layersRef.current.paths;
         remoteViewRef.current = null;
         sceneDirtyRef.current = true;
         cameraAzRef.current = saved.az;
@@ -2150,6 +2162,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainField.litMesh.visible = false;
     scene.add(terrainField.litMesh);
     assignLayer(terrainField.litMesh, LAYER_TERRAIN_LIT);
+    // 2026-11-18 가로등 빛 웅덩이(더하기) — 지형·건물 깊이 뒤에.
+    terrainField.lampMesh.renderOrder = -0.47;
+    scene.add(terrainField.lampMesh);
+    assignLayer(terrainField.lampMesh, LAYER_MID);
     terrainFieldRef.current = terrainField;
 
     const buildingField = createBuildingField({ eyeHeightM: 1.6 });
@@ -2159,6 +2175,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     buildingField.windowMesh.renderOrder = -0.468;
     scene.add(buildingField.windowMesh);
     assignLayer(buildingField.windowMesh, LAYER_MID);
+    buildingField.lampPoints.renderOrder = -0.465;
+    scene.add(buildingField.lampPoints);
+    assignLayer(buildingField.lampPoints, LAYER_MID);
     scene.add(buildingField.distMesh);
     assignLayer(buildingField.distMesh, LAYER_TERRAIN_DIST);
     scene.add(buildingField.litMesh);
@@ -2709,7 +2728,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               metarId: '', metar: metarRef.current,
               obs: vObs, sample: wSample,
             });
-            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${(rv?.rollDeg ?? 0).toFixed(2)}`;
+            // 2026-11-18 볼륨 하늘 카메라도 하늘 화면 카메라와 같은 기울기(roll)·화면 중심 이동을 써야 구름·달 빛무리가 천체 표시와 겹침.
+            const volRollDeg = rv?.rollDeg ?? cameraRollRef.current ?? 0;
+            const volOffY = viewCenterOffsetYFracRef.current;
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             const isInteractingNow = isSlidingNow || useCelestialStore.getState().isGestureBlocked;
@@ -2945,7 +2967,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, rv?.rollDeg ?? 0);
+                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, volRollDeg, volOffY);
                 volViewRef.current = viewKey;
                 if (overrideSceneTimeMsRef.current === null && !volPendingRef.current) {
                   volSettleRef.current = Math.max(volSettleRef.current, 18);
@@ -3445,6 +3467,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           computeNightWindowRate(localHour),
           computeNightWindowGlow(sunAltRef.current, cityLightsOn, localNorm),
         );
+        // 2026-11-18 가로등: 해 +1° 에서 켜지기 시작해 −4° 에서 다 켜짐(도시 불빛 층을 따름).
+        const lampT = cityLightsOn ? Math.max(0, Math.min(1, (1 - sunAltRef.current) / 5)) : 0;
+        const lampGlow = lampT * lampT * (3 - 2 * lampT);
+        buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
+        terrainFieldRef.current?.setLampGlow(lampGlow);
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;
@@ -3635,7 +3662,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 지금 시각·원반 크기는 궤적을 다시 채우지 않아도 매 프레임 맞춥니다(시간 슬라이더를 움직일 때 비움 자리가 태양을 따라가게).
       setCelestialPathsNow(celestialPathsRef.current, targetDate);
       setCelestialPathsNearFade(celestialPathsRef.current, Math.max(NEAR_FADE_INNER_HOURS, (sunDiscRadiusDegRef.current * 2.2) / 15));
-      celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
+      celestialPathsRef.current.containerGroup.visible = currentLayers.paths && !hidePathsForExposureRef.current;
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
@@ -3946,6 +3973,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
+        buildingFieldRef.current?.setLamps(mask.lamps);
         seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
