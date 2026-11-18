@@ -223,6 +223,7 @@ void main() {
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
   float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
+  vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
   float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
   vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
@@ -282,6 +283,7 @@ void main() {
   vec3 directLit = (uSunRadiance * ndl * cloudT + uMoonRadiance * ndlMoon) / 3.14159265;
 
   // 벽면 방향에 따른 은은한 반구 음영 + 건물별 미세 회색 톤 편차
+  vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
   float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
   vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
