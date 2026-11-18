@@ -90,6 +90,7 @@ const joinOnSphere = (segments: IsochronePoint[][]): [number, number][][] => {
  */
 export interface MapGlobeHandle {
   setView: (v: { radius?: number; center?: { latitude: number; longitude: number }; morph?: number }) => void;
+  stopMotion?: () => void;
 }
 
 export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
@@ -224,6 +225,11 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       }
       schedule();
     },
+    stopMotion: () => {
+      live.current.selfDriving = false;
+      stopInertia();
+      dragSamples.current = [];
+    },
   }), []);
 
   const startRotate = useRef<[number, number]>([0, 0]);
@@ -303,7 +309,8 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     const maxPx = 4000;
     if (speedPx > maxPx) { vl *= maxPx / speedPx; vp *= maxPx / speedPx; }
     let last = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const step = (now: number) => {
+    const step = () => {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const h = Math.min(0.05, Math.max(0, (now - last) / 1000));
       last = now;
       const decay = Math.exp(-h / INERTIA_TAU_S);

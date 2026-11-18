@@ -916,8 +916,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       return;
     }
     const t0 = performance.now();
-    const step = (now: number) => {
-      const t = Math.min(1, (now - t0) / duration);
+    const step = () => {
+      const now = performance.now();
+      const t = Math.max(0, Math.min(1, (now - t0) / duration));
       const p = from + (target - from) * easeOutCubic(t);
       if (t < 1) {
         applyZoomProgress(p);
@@ -951,8 +952,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     };
     if (isReducedMotion() || Math.abs(target - from) < 1e-3) { finish(); return; }
     const t0 = performance.now();
-    const step = (now: number) => {
-      const t = Math.min(1, (now - t0) / durationMs);
+    const step = () => {
+      const now = performance.now();
+      const t = Math.max(0, Math.min(1, (now - t0) / durationMs));
       if (t < 1) {
         applyZoomProgress(from + (target - from) * easeOutCubic(t));
         flyFrameRef.current = requestAnimationFrame(step);
@@ -1653,6 +1655,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     //    (내려오며 서서히 들림. 예전에는 끝 프레임에 한 번에 튀었습니다).
     if (divingAnimFrameRef.current) cancelAnimationFrame(divingAnimFrameRef.current);
     if (settleFrameRef.current !== null) { cancelAnimationFrame(settleFrameRef.current); settleFrameRef.current = null; }
+    if (flyFrameRef.current !== null) { cancelAnimationFrame(flyFrameRef.current); flyFrameRef.current = null; }
+    mapGlobeRef.current?.stopMotion?.();
     cameraElevRef.current = savedGroundElevRef.current;
     const startProgress = zoomProgressRef.current;
     const targetProgress = (60 - 30) / 90; // 지상 1인칭 관측 FOV 60° (0.333)
@@ -1660,8 +1664,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 멀리서 내려올수록 조금 더 길게(지구본 3.0 → 1.5 s, 상공 1.3 → 0.8 s).
     const duration = 600 + 340 * Math.max(0, startProgress - targetProgress);
 
-    const animateDive = (nowTime: number) => {
-      const t = Math.min(1.0, (nowTime - startTime) / duration);
+    const animateDive = () => {
+      const nowTime = performance.now();
+      const t = Math.max(0, Math.min(1.0, (nowTime - startTime) / duration));
       // 부드러운 Ease-In-Out 3차 곡선 — 출발·착륙 모두 덜컹이지 않게
       const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       applyZoomProgress(startProgress + (targetProgress - startProgress) * ease);
