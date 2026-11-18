@@ -95,6 +95,7 @@ function BarRepro({ W }: { W: number }) {
   );
 }
 
+(globalThis as any).__sky = () => (globalThis as any).__skyHandle;
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
   // 시선·시각·해 위치를 페이지를 다시 열지 않고 바꿉니다 — 볼륨 대기 표(SwiftShader 60~70초)를 한 번만 만들려고.
@@ -125,6 +126,8 @@ export default function App() {
         sunAzimuth={sunAz ?? 180}
         prediction={null}
         location={{ coords: { latitude: lat ?? 37.5, longitude: lon ?? 127 } }}
+        // 장노출 시험(2026-11-18): window.__sky() 로 SkyScene3D 손잡이(renderLongExposure 등)를 받습니다.
+        ref={(h: any) => { (globalThis as any).__skyHandle = h; }}
         // bld:1 — 3D 건물 켜기(2026-11-18 건물 자리 고도 깎기 확인)
         {...(Q.bld ? { layers: { labels: true, sun: true, moon: true, stars: true, milkyway: true, planets: true, clouds: true, paths: true, cityLights: true, buildings: true } } : {})}
         interpolatedWeather={ringWx ?? wx ?? []}

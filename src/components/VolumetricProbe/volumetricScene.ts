@@ -560,7 +560,8 @@ export interface VolumetricScene {
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
-  setView(az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number): void;
+  /** offsetYFrac: 화면 중심을 세로로 옮긴 몫(three 카메라 setViewOffset 과 같은 값, −0.45~0.45). 하늘 화면 카메라와 맞춰야 구름·해/달 빛이 겹침. */
+  setView(az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number, offsetYFrac?: number): void;
   /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
   setDate(date: Date, driftSec?: number): void;
   /** 도시 불빛 세기 0~1(광공해 설정: 6.5 등급 0 ~ 3 등급 1). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
@@ -1790,6 +1791,9 @@ export async function createVolumetricScene(
     }
     aerial.worldToECEFMatrix.copy(worldToECEF);
     clouds.worldToECEFMatrix.copy(worldToECEF);
+    // 2026-11-18 하늘 화면 카메라의 화면 중심 이동(setViewOffset)을 똑같이 — 빠지면 구름·해/달 빛무리 층이 천체 표시와 위아래로 어긋남(사용자 보고).
+    if (Math.abs(viewOffsetYFrac) > 1e-4) camera.setViewOffset(1000, 1000, 0, viewOffsetYFrac * 1000, 1000, 1000);
+    else if (camera.view?.enabled) camera.clearViewOffset();
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
     lastViewElDeg = p.el;
@@ -2469,7 +2473,9 @@ export async function createVolumetricScene(
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
   /** 파동 장 캐시 키 — tauTarget 은 굽기에 안 쓰므로 뺌(일사가 바뀌어도 다시 굽지 않음). */
   function waveKey(wp: WaveParams): string { return JSON.stringify({ ...wp, tauTarget: undefined }); }
-  const setView = (az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number) => {
+  let viewOffsetYFrac = 0;
+  const setView = (az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number, offsetYFrac?: number) => {
+    if (offsetYFrac !== undefined && Number.isFinite(offsetYFrac)) viewOffsetYFrac = Math.max(-0.45, Math.min(0.45, offsetYFrac));
     if (!lastInput) return;
     lastInput = {
       ...lastInput,

@@ -1207,6 +1207,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             } catch (_) { /* readPixels 를 못 해도 스냅샷은 계속합니다 */ }
             lastBufferMeanRef.current = bufMean;
 
+            // 웹(하네스·expo web): takeSnapshotAsync 가 빈 주소를 돌려주므로 방금 그린 캔버스를 바로 읽습니다(같은 작업 안이라 지워지기 전).
+            const webCanvas = Platform.OS === 'web' ? (glRef.current as { canvas?: { toDataURL?: (t: string, q?: number) => string } }).canvas : undefined;
+            if (webCanvas?.toDataURL) {
+              const dataUri = webCanvas.toDataURL(options.format === 'png' ? 'image/png' : 'image/jpeg', options.compress ?? 0.85);
+              if (dataUri && dataUri.length > 64) return dataUri;
+            }
             const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
               format: options.format ?? 'jpeg',
               compress: options.compress ?? 0.85,
@@ -1306,7 +1312,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const mode = opts.mode;
       const startTimeMs = opts.startTimeMs ?? targetTimeMsRef.current;
       const durationSec = Math.max(10, Math.min(3600, opts.durationSec ?? 300));
-      const steps = Math.max(4, Math.min(96, Math.round(opts.steps ?? 20)));
+      const steps = Math.max(4, Math.min(192, Math.round(opts.steps ?? 20)));
       const exposureGain = opts.exposureGain ?? Number((1 + Math.log2(1 + durationSec / 90) * 0.72).toFixed(2));
       const shadowLift = opts.shadowLift ?? 0.015;
       const starBoost = opts.starBoost ?? 1.25;
@@ -2709,7 +2715,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               metarId: '', metar: metarRef.current,
               obs: vObs, sample: wSample,
             });
-            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${(rv?.rollDeg ?? 0).toFixed(2)}`;
+            // 2026-11-18 볼륨 하늘 카메라도 하늘 화면 카메라와 같은 기울기(roll)·화면 중심 이동을 써야 구름·달 빛무리가 천체 표시와 겹침.
+            const volRollDeg = rv?.rollDeg ?? cameraRollRef.current ?? 0;
+            const volOffY = viewCenterOffsetYFracRef.current;
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             const isInteractingNow = isSlidingNow || useCelestialStore.getState().isGestureBlocked;
@@ -2945,7 +2954,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, rv?.rollDeg ?? 0);
+                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, volRollDeg, volOffY);
                 volViewRef.current = viewKey;
                 if (overrideSceneTimeMsRef.current === null && !volPendingRef.current) {
                   volSettleRef.current = Math.max(volSettleRef.current, 18);

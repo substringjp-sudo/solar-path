@@ -135,8 +135,10 @@ export function computeAstroSimExposureParams(
     exposureGain: Number(clamp(0.95 + durationFactor * 0.62 * isoFactor, 1.0, 4.5).toFixed(2)),
     starBoost: Number(clamp(1.0 + durationFactor * 0.36 * isoFactor, 1.05, 3.2).toFixed(2)),
     shadowLift: 0.015,
-    stepsForPreview: Math.round(clamp(safeDur / 32, 12, 32)),
-    stepsForFinal: Math.round(clamp(safeDur / 16, 20, 72)),
+    // 2026-11-18 표본을 늘림(사용자: 경량화를 너무 해 시간 사이 구름 움직임이 누적되지 않음). 예전 미리보기 12~32·최종 20~72 장은
+    //   5 분에 12 장(25 초 간격)이라 별 궤적이 점선으로 끊기고 구름이 몇 벌로만 겹쳤음.
+    stepsForPreview: Math.round(clamp(safeDur / 8, 24, 64)),
+    stepsForFinal: Math.round(clamp(safeDur / 3, 60, 160)),
   };
 }
 
