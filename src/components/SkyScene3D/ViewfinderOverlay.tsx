@@ -152,6 +152,14 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
   }, [roundedElev]);
 
   // 좌측 수직 FOV 눈금자 틱 생성 (-20° ~ +20° 범위)
+  const fovHint = useMemo(() => {
+    if (roundedFov >= 82) return '0.6x · 인간 시야';
+    if (roundedFov >= 65) return '1x 카메라';
+    if (roundedFov >= 48) return '유의미한 시야';
+    if (roundedFov >= 30) return '2x 망원';
+    return '3x 망원';
+  }, [roundedFov]);
+
   const fovTicks = useMemo(() => {
     const ticks = [];
     const pxPerDeg = 2.4;
@@ -192,6 +200,19 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
               ]}
             >
               {isCurrent ? `${fovVal}°` : `${fovVal}°`}
+            </Text>
+          )}
+          {isCurrent && (
+            <Text
+              style={{
+                marginLeft: 4,
+                color: 'rgba(255, 255, 255, 0.78)',
+                fontSize: 8.5,
+                fontWeight: '600',
+              }}
+              numberOfLines={1}
+            >
+              {fovHint}
             </Text>
           )}
         </View>

@@ -490,6 +490,10 @@ export interface UrbanMaskResult {
   pave?: { size: number; halfM: number; data: Uint8Array };
   /** 건물 덮개(0/255, 관측자 둘레 ±halfM, 512칸 ≈ 12.5 m). 고도의 건물 높이 깎기(demBuildingFlatten.ts)에 씁니다. */
   bld?: { size: number; halfM: number; data: Uint8Array };
+  /** 물(바다·호수·강, 0/255, 관측자 둘레 ±halfM, size²). 해발 0m 매립지/인공섬과 내륙 수면을 가르는 데 씁니다. */
+  water?: Uint8Array;
+  /** 고해상도 물 마스크(0~255, ±paveHalfM, paveSize²). 지형 위 호수·하천·운하 경계에 씁니다. */
+  waterHi?: { size: number; halfM: number; data: Uint8Array };
 }
 
 /** 도로 종류(OpenMapTiles transportation class) → 차로 폭(m). 없는 종류(path·track·rail 등)는 그리지 않음. */
@@ -532,7 +536,32 @@ function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
   }
 }
 
-const URBAN_LAYERS = new Set(['landuse', 'landcover', 'park', 'building', 'transportation']);
+function stampSegmentMono(buf: Uint8Array, size: number, halfM: number,
+  a: { x: number; z: number }, b: { x: number; z: number }, rM: number, value: number): void {
+  const scale = size / (2 * halfM);
+  const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
+  const r = rM * scale;
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + 1));
+  if (x0 > x1 || z0 > z1) return;
+  const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+  for (let zz = z0; zz <= z1; zz++) {
+    const pz = zz + 0.5;
+    for (let xx = x0; xx <= x1; xx++) {
+      const px = xx + 0.5;
+      let t = L2 > 1e-9 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
+      const d = Math.sqrt(ex * ex + ez * ez);
+      const cov = d <= r - 0.5 ? 1 : d >= r + 0.5 ? 0 : r + 0.5 - d;
+      if (cov <= 0) continue;
+      const o = zz * size + xx, v = Math.round(value * cov);
+      if (v > buf[o]) buf[o] = v;
+    }
+  }
+}
+
+const URBAN_LAYERS = new Set(['landuse', 'landcover', 'park', 'building', 'transportation', 'water', 'waterway', 'aeroway']);
 
 /**
  * 관측자 반경 `halfM`(기본 3200m) 내 OpenFreeMap z=13 타일의 토지이용/건물 분포를 래스터화해
@@ -685,6 +714,78 @@ export async function fetchUrbanMask(
     }
   }
 
+  // 물(바다·호수·강·하천) + 공항(활주로/계류장) 래스터화 — 해발 0m 매립지 침수 방지 및 내륙 호수·하천 표현
+  const waterGrid = new Uint8Array(size * size);
+  const waterHi = new Uint8Array(pSize * pSize);
+  const WATERWAY_HALF_M: Record<string, number> = {
+    river: 18, canal: 10, stream: 3.5, drain: 2.2, ditch: 2.0,
+  };
+  for (const { tc, layers } of okTiles) {
+    const wt = layers.water;
+    if (wt) {
+      for (const f of wt.features) {
+        if (f.type !== 3) continue;
+        for (const r of extractOuterRings(f.rings)) {
+          const pts = r.map((p) => toLocal(tc, p.x, p.y, wt.extent));
+          fillPolygonXZ(waterGrid, size, halfM, pts, 255);
+          fillPolygonXZ(waterHi, pSize, pHalf, pts, 255);
+        }
+      }
+    }
+    const ww = layers.waterway;
+    if (ww) {
+      for (const f of ww.features) {
+        if (f.type !== 2) continue;
+        const br = String(f.props.brunnel ?? '');
+        if (br === 'tunnel' || br === 'culvert') continue;
+        const cls = String(f.props.class ?? '').toLowerCase();
+        const rM = WATERWAY_HALF_M[cls] ?? 4;
+        for (const line of f.rings) {
+          const pts = line.map((p) => toLocal(tc, p.x, p.y, ww.extent));
+          for (let i = 1; i < pts.length; i++) {
+            stampSegmentMono(waterHi, pSize, pHalf, pts[i - 1], pts[i], rM, 255);
+            stampSegmentMono(waterGrid, size, halfM, pts[i - 1], pts[i], Math.max(rM, 14), 255);
+          }
+        }
+      }
+    }
+    const aero = layers.aeroway;
+    if (aero) {
+      for (const f of aero.features) {
+        const cls = String(f.props.class ?? '').toLowerCase();
+        const isRunway = cls === 'runway';
+        if (f.type === 3) {
+          for (const r of extractOuterRings(f.rings)) {
+            const pts = r.map((p) => toLocal(tc, p.x, p.y, aero.extent));
+            fillPolygonXZ(grid, size, halfM, pts, 235);
+            fillPolygonXZ(waterGrid, size, halfM, pts, 0);
+            fillPolygonXZ(waterHi, pSize, pHalf, pts, 0);
+            if (isRunway || cls === 'taxiway' || cls === 'apron') {
+              const ch = isRunway ? 1 : 0;
+              const tmp = new Uint8Array(pSize * pSize);
+              fillPolygonXZ(tmp, pSize, pHalf, pts, 255);
+              for (let i = 0; i < pSize * pSize; i++) {
+                if (tmp[i] > pave[i * 2 + ch]) pave[i * 2 + ch] = tmp[i];
+              }
+            }
+          }
+        } else if (f.type === 2) {
+          const rM = isRunway ? 22.5 : cls === 'taxiway' ? 9 : 0;
+          if (rM > 0) {
+            const ch = isRunway ? 1 : 0;
+            for (const line of f.rings) {
+              const pts = line.map((p) => toLocal(tc, p.x, p.y, aero.extent));
+              for (let i = 1; i < pts.length; i++) {
+                stampSegment(pave, pSize, pHalf, ch, pts[i - 1], pts[i], rM, 255);
+                stampSegmentMono(waterHi, pSize, pHalf, pts[i - 1], pts[i], rM, 0);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 경계 부드럽게 (3×3 가벼운 블러 1회 — 약 25m 전환)
   const smooth = new Uint8Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -704,5 +805,13 @@ export async function fetchUrbanMask(
     }
   }
 
-  return { size, halfM, data: smooth, pave: { size: pSize, halfM: pHalf, data: pave }, bld: { size: BLD_COVER_SIZE, halfM, data: bldCover } };
+  return {
+    size,
+    halfM,
+    data: smooth,
+    pave: { size: pSize, halfM: pHalf, data: pave },
+    bld: { size: BLD_COVER_SIZE, halfM, data: bldCover },
+    water: waterGrid,
+    waterHi: { size: pSize, halfM: pHalf, data: waterHi },
+  };
 }

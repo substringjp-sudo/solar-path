@@ -34,7 +34,20 @@ interface MapCanvasProps {
   zoomEnabled?: boolean;
   /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
   pickPin?: { latitude: number; longitude: number } | null;
+  isNight?: boolean;
 }
+
+const NIGHT_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#1b2434' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0f172a' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#334155' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#273449' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
+];
 
 /** 리렌더 없이 지도를 옮깁니다 — 하늘 탭의 줌이 손가락 이벤트마다 부릅니다. */
 export interface MapCanvasHandle {
@@ -74,6 +87,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
   onLongPress,
   zoomEnabled = true,
   pickPin = null,
+  isNight = false,
 }, ref) => {
   const mapRef = React.useRef<MapView>(null);
 
@@ -110,6 +124,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
     <MapView
       ref={mapRef}
       provider={PROVIDER_GOOGLE}
+      customMapStyle={isNight ? NIGHT_MAP_STYLE : undefined}
       style={StyleSheet.absoluteFillObject}
       // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
       //   가로보다 먼저 차지 않아 **경도 폭이 축척을 정합니다**. 구에서 돌아올 때
@@ -308,7 +323,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           {sunOverlay.riseRay && (
             <Marker coordinate={sunOverlay.riseRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelRise}>
-                <Text style={styles.fanLabelText}>
+                <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                   {L('일출', 'Sunrise', '日の出')} {Math.round(sunOverlay.fan.riseAz ?? 0)}°
                 </Text>
               </View>
@@ -317,7 +332,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           {sunOverlay.setRay && (
             <Marker coordinate={sunOverlay.setRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelSet}>
-                <Text style={styles.fanLabelText}>
+                <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                   {L('일몰', 'Sunset', '日の入り')} {Math.round(sunOverlay.fan.setAz ?? 0)}°
                 </Text>
               </View>
@@ -325,7 +340,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           )}
           <Marker coordinate={sunOverlay.nowRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.fanLabelNow}>
-              <Text style={styles.fanLabelText}>
+              <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                 {sunOverlay.fan.nowAlt > 0 ? L('지금', 'Now', '現在') : L('지평선 아래', 'Below horizon', '地平線の下')} {Math.round(sunOverlay.fan.nowAz)}°
               </Text>
             </View>
@@ -417,7 +432,8 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   fanLabelRise: {
-    paddingHorizontal: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: 'rgba(234, 88, 12, 0.85)',
@@ -425,7 +441,8 @@ const styles = StyleSheet.create({
     borderColor: '#7C2D12',
   },
   fanLabelSet: {
-    paddingHorizontal: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: 'rgba(190, 18, 60, 0.85)',
@@ -433,7 +450,8 @@ const styles = StyleSheet.create({
     borderColor: '#4C0519',
   },
   fanLabelNow: {
-    paddingHorizontal: 6,
+    paddingLeft: 7,
+    paddingRight: 9,
     paddingVertical: 2.5,
     borderRadius: 6,
     backgroundColor: '#FB923C',
@@ -444,6 +462,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '700',
+    includeFontPadding: false,
   },
   isolineLabelText: {
     color: '#FFFFFF',

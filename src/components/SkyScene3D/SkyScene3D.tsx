@@ -574,6 +574,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const urbanLoadedKeyRef = useRef<string | null>(null);
   // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
   const urbanSerialRef = useRef(0);
+  // DEM 패치·건물 패치가 바뀔 때마다 올립니다. 건물/지형 빛 판 캐시 키에 넣어, 패치가 늦게 와도 건물 외벽이 누락되지 않게 합니다.
+  const demSerialRef = useRef(0);
   // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
   const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
@@ -1090,7 +1092,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         viewCenterOffsetYFracRef.current = nextOff;
         if (cameraRef.current) {
           if (Math.abs(nextOff) > 1e-4) {
-            cameraRef.current.setViewOffset(1000, 1000, 0, nextOff * 1000, 1000, 1000);
+            const aw = 1000 * (cameraRef.current.aspect || 1);
+            cameraRef.current.setViewOffset(aw, 1000, 0, nextOff * 1000, aw, 1000);
           } else if (cameraRef.current.view?.enabled) {
             cameraRef.current.clearViewOffset();
           }
@@ -1650,21 +1653,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const d0 = lonDeltaForProgress(p0, homeRef.current.latitude, aspect0);
       zoomProgressRef.current = progressForLonDelta(d0, targetLat, aspect0);
     }
-    // 1. 전역 위치 갱신 (일출·일몰 시간, 날씨, 지형 자동 재계산)
+    // 1. 위치가 실제로 달라졌을 때만 전역 위치 갱신 (같은 자리 착륙 시 불필요한 재로딩/프레임 끊김 방지)
+    const prevLat = locationRef.current?.coords?.latitude;
+    const prevLon = locationRef.current?.coords?.longitude;
+    const moved = prevLat === undefined || prevLon === undefined
+      || Math.abs(prevLat - targetLat) > 1e-5
+      || Math.abs(prevLon - targetLon) > 1e-5;
     homeRef.current = { latitude: targetLat, longitude: targetLon };
     setDivingLocation({ latitude: targetLat, longitude: targetLon });
-    useCelestialStore.getState().setLocation({
-      coords: {
-        latitude: targetLat,
-        longitude: targetLon,
-        altitude: 0,
-        accuracy: 0,
-        altitudeAccuracy: 0,
-        heading: 0,
-        speed: 0,
-      },
-      timestamp: Date.now(),
-    });
+    if (moved) {
+      useCelestialStore.getState().setLocation({
+        coords: {
+          latitude: targetLat,
+          longitude: targetLon,
+          altitude: 0,
+          accuracy: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          speed: 0,
+        },
+        timestamp: Date.now(),
+      });
+    }
 
     // 2. 부드러운 다이빙 착륙 애니메이션 — 지상 시선은 처음부터 저장해 둔 값으로
     //    (내려오며 서서히 들림. 예전에는 끝 프레임에 한 번에 튀었습니다).
@@ -2506,9 +2516,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const lookDist = Math.max(100, altitudeM);
 
         const curOffFrac = camera.view?.enabled ? camera.view.offsetY / camera.view.fullHeight : 0;
-        if (Math.abs(curOffFrac - viewCenterOffsetYFracRef.current) > 1e-4) {
+        const curViewAspect = camera.view?.enabled ? camera.view.fullWidth / Math.max(1, camera.view.fullHeight) : camera.aspect;
+        if (
+          Math.abs(curOffFrac - viewCenterOffsetYFracRef.current) > 1e-4 ||
+          (camera.view?.enabled && Math.abs(curViewAspect - camera.aspect) > 1e-4)
+        ) {
           if (Math.abs(viewCenterOffsetYFracRef.current) > 1e-4) {
-            camera.setViewOffset(1000, 1000, 0, viewCenterOffsetYFracRef.current * 1000, 1000, 1000);
+            const aw = 1000 * (camera.aspect || 1);
+            camera.setViewOffset(aw, 1000, 0, viewCenterOffsetYFracRef.current * 1000, aw, 1000);
           } else {
             camera.clearViewOffset();
           }
@@ -2910,7 +2925,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
               const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
               const bldSerial = buildingsOn ? buildingFieldRef.current!.geomSerial() : -1;
-              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}`;
+              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}|${demSerialRef.current}`;
               composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
@@ -3861,6 +3876,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
+        demSerialRef.current += 1;
+        volSettleRef.current = Math.max(volSettleRef.current, 18);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
@@ -3919,6 +3936,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
+        seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
         if (mask.bld) {
@@ -3929,6 +3947,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             terrainFieldRef.current.setPatch(patch, patch, maskPatch);
             buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
             seaPlaneRef.current?.setPatch(patch, maskPatch);
+            demSerialRef.current += 1;
           }
         }
         sceneDirtyRef.current = true;
@@ -3960,8 +3979,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (buildingLoadedKeyRef.current === key && buildingFieldRef.current.hasGeometry()) {
       if (demPatchRef.current) {
         buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
+        demSerialRef.current += 1;
       }
       buildingFieldRef.current.setVisible(true);
+      volSettleRef.current = Math.max(volSettleRef.current, 18);
       sceneDirtyRef.current = true;
       requestRender(6);
       return;
@@ -3978,6 +3999,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
         buildingFieldRef.current.setBuildings(meshData);
         buildingFieldRef.current.setVisible(true);
+        demSerialRef.current += 1;
+        volSettleRef.current = Math.max(volSettleRef.current, 18);
         if (__DEV__) {
           console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
         }
@@ -4317,8 +4340,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         return celestialLabels.map(lbl => {
           const isTrackingThis = trackingTarget === lbl.id;
-          const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 24));
-          const preferredY = lbl.y >= 38 ? lbl.y - 28 : lbl.y + 12;
+          const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 18));
+          const preferredY = lbl.y >= 46 ? lbl.y - 34 : lbl.y + 18;
           const rawY = Math.max(8, Math.min(maxY - LBL_H - 6, preferredY));
           const finalY = resolveY(rawX, rawY);
           placed.push({ x: rawX, y: finalY, w: LBL_W, h: LBL_H });
@@ -4333,8 +4356,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 {
                   left: rawX,
                   top: finalY,
-                  borderColor: isTrackingThis ? '#38BDF8' : lbl.color,
-                  backgroundColor: isTrackingThis ? 'rgba(56, 189, 248, 0.35)' : 'rgba(15, 23, 42, 0.8)',
+                  backgroundColor: isTrackingThis ? 'rgba(56, 189, 248, 0.35)' : 'rgba(15, 23, 42, 0.58)',
                 },
               ]}
             >
@@ -4373,6 +4395,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             sunOverlay={sunOverlay}
             topView={topView}
             theme={theme}
+            isNight={(sunOverlay?.fan?.nowAlt ?? 0) < 0}
             selectedDate={globeCelestialData.date}
             startRegion={mapStartRegion}
             // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
@@ -4446,6 +4469,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           </Text>
           <TouchableOpacity
             style={styles.radarHudResetBtn}
+            hitSlop={10}
             onPress={() => {
               const cLat = location?.coords?.latitude ?? 37.5;
               const cLon = location?.coords?.longitude ?? 127.0;
@@ -4521,28 +4545,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
     zIndex: 30,
   },
   labelDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginRight: 3,
   },
   labelText: {
     color: '#F8FAFC',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 9.5,
+    fontWeight: '700',
   },
   radarHudPill: {
     position: 'absolute',

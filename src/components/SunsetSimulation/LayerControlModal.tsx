@@ -5,14 +5,14 @@
  * 각각 ON/OFF 선택하고, 도트 모드와 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
  */
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, Modal, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Modal, ScrollView, Alert } from 'react-native';
 import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t, type Language } from '../../utils/i18n';
+import { t, L3, type Language } from '../../utils/i18n';
 import { estimateLightPollution } from '../../utils/cityLightMap';
 import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building, Building2 } from 'lucide-react-native';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building, Building2, Info } from 'lucide-react-native';
 import { color, radius, mono, tint, dataColor } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
@@ -155,6 +155,26 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                         <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
                           {item.label}
                         </Text>
+                        {item.key === 'buildings' && (
+                          <PressScale
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              Alert.alert(
+                                item.label,
+                                L3(
+                                  language,
+                                  '대략적인 건물 분포를 확인하기 위한 참고용 기능입니다. 주요 건물 위주로 표시될 수 있으며, 실제 건물의 형태·높이와는 다를 수 있습니다.',
+                                  'This is a reference view for approximate building distribution. Only major buildings may appear, and shapes or heights may differ from reality.',
+                                  'おおよその建物分布を確認するための参考表示です。主要な建物のみ表示される場合があり、実際の建物の形や高さとは異なることがあります。',
+                                ),
+                              );
+                            }}
+                            hitSlop={8}
+                            style={{ marginLeft: 4, padding: 2 }}
+                          >
+                            <Info size={14} color={subTextColor} />
+                          </PressScale>
+                        )}
                       </View>
                       <View
                         style={[

@@ -223,7 +223,10 @@ void main() {
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
   float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
-  vec3 litAlb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)}) * (0.90 + 0.16 * n.y);
+  float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
+  float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
+  vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
+  vec3 litAlb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)}) * (0.90 + 0.16 * n.y) * grayShift;
   gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), clamp(ndl * cloudT, 0.0, 1.0));
   pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
   pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
@@ -278,9 +281,12 @@ void main() {
   vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
   vec3 directLit = (uSunRadiance * ndl * cloudT + uMoonRadiance * ndlMoon) / 3.14159265;
 
-  // 벽면 방향에 따른 은은한 반구 음영으로 매스감만 살림
+  // 벽면 방향에 따른 은은한 반구 음영 + 건물별 미세 회색 톤 편차
+  float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
+  float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
+  vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
   float hemi = 0.72 + 0.28 * n.y;
-  vec3 alb = vec3(0.20, 0.205, 0.215) * hemi;
+  vec3 alb = vec3(0.20, 0.205, 0.215) * hemi * grayShift;
   vec3 col = alb * (skyIrr + directLit);
 
   // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광)

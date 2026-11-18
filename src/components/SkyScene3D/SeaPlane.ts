@@ -326,6 +326,9 @@ uniform float uElevScale;
 uniform float uOzoneDU;
 uniform float uLookFill;      // §157 구름을 뚫은 햇빛 몫(terrainLook.ts) — 지형과 같은 값
 uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 물빛·윤슬·포말 조기 종료
+uniform sampler2D uWaterMaskTex;
+uniform float uWaterMaskValid;
+uniform float uWaterMaskHalfM;
 #ifdef SEA_LIT_OUT
 layout(location = 1) out highp vec4 pc_fragColor1;
 layout(location = 2) out highp vec4 pc_fragColor2;
@@ -368,6 +371,13 @@ void main() {
     : uDemSeaValid > 0.5     ? dem_seaAt(vGround.xz)
     :                          1.0;
   if (vWater < 0.5 || seaZone < 0.5) discard;
+  if (uWaterMaskValid > 0.5) {
+    vec2 wUv = (vGround.xz + uWaterMaskHalfM) / max(1.0, 2.0 * uWaterMaskHalfM);
+    if (wUv.x > 0.02 && wUv.x < 0.98 && wUv.y > 0.02 && wUv.y < 0.98) {
+      float mvtWater = texture2D(uWaterMaskTex, wUv).g;
+      if (mvtWater < 0.25) discard;
+    }
+  }
 #ifdef SEA_DIST_OUT
   // §129 지형 거리 판에 바다도 적습니다 — B = 1 이 "바다" 표시(볼륨 하늘이 이 화소에 하늘 되비침을 칠함).
   vec4 seaDist = terrainDistEncode(vDistM / 1000.0);
@@ -543,6 +553,7 @@ export interface SeaPlaneHandle {
    * 안 주면 예전 값을 그대로 둡니다.
    */
   setPatch: (patch: DemPatch | null, maskPatch?: DemPatch | null) => void;
+  setWaterMask: (tex: THREE.Texture | null, halfM?: number) => void;
   dispose: () => void;
 }
 
@@ -596,6 +607,9 @@ export function createSeaPlane(opts: {
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
       uOzoneDU: { value: 330 },
+      uWaterMaskTex: { value: createOpenSkyShadowTexture() },
+      uWaterMaskValid: { value: 0 },
+      uWaterMaskHalfM: { value: 3200 },
       ...makeTerrainLookUniforms(),
       ...makeTuningUniforms(),
     },
@@ -648,6 +662,15 @@ export function createSeaPlane(opts: {
       };
       put(makeDemUniforms(patch));
       if (maskPatch !== undefined) put(makeDemUniforms(maskPatch, 'seaMask'));
+    },
+    setWaterMask: (tex, halfM = 3200) => {
+      if (!tex) {
+        material.uniforms.uWaterMaskValid.value = 0;
+        return;
+      }
+      material.uniforms.uWaterMaskTex.value = tex;
+      material.uniforms.uWaterMaskHalfM.value = halfM;
+      material.uniforms.uWaterMaskValid.value = 1;
     },
     dispose: () => {
       mesh.geometry.dispose();

@@ -734,11 +734,14 @@ export async function createVolumetricScene(
    * 고고도/천정(el > 25°)은 구름 슬랩(두께 1~2km)을 수직에 가깝게 통과해 조기 탈출하므로 상한을 70%까지 줄이고,
    * 드래그/스크러빙(isInteracting) 중에는 추가로 75%로 낮춰 GPU 프레임 타임을 방어합니다.
    */
+  let isAccumulating = false;
+  let savedAccumResScale: number | null = null;
   const applyPrimaryMarch = () => {
     const elAbs = Math.abs(lastViewElDeg);
     const elScale = elAbs <= 20 ? 1.0 : Math.max(0.7, 1.0 - ((elAbs - 20) / 70) * 0.3);
     const interactScale = isInteracting ? 0.75 : 1.0;
-    clouds.clouds.maxIterationCount = Math.max(64, Math.round(baseMaxIter * elScale * interactScale));
+    const accumScale = isAccumulating ? 0.48 : 1.0;
+    clouds.clouds.maxIterationCount = Math.max(48, Math.round(baseMaxIter * elScale * interactScale * accumScale));
   };
   const applySunMarch = () => {
     if (!opt.sunMarch) {
@@ -2596,8 +2599,25 @@ export async function createVolumetricScene(
       if (lastInput) updateCity(lastInput, lastInput.date);
     },
     setAccumulating: (active: boolean) => {
+      if (isAccumulating === active) return;
+      isAccumulating = active;
+      if (active) {
+        savedAccumResScale = clouds.resolutionScale;
+        clouds.resolutionScale = Math.min(savedAccumResScale, 0.28);
+        clouds.clouds.minStepSize = Math.max(baseMinStepSize, 120);
+        clouds.clouds.maxIterationCountToSun = Math.min(opt.sunMarch?.[0] ?? baseMarch.n ?? 6, 4);
+      } else {
+        if (savedAccumResScale !== null) {
+          clouds.resolutionScale = savedAccumResScale;
+          savedAccumResScale = null;
+        }
+        clouds.clouds.minStepSize = baseMinStepSize;
+        applySunMarch();
+      }
       clouds.temporalUpscale = active ? false : opt.temporalUpscale;
       clouds.shadow.temporalPass = active ? false : opt.shadowTemporal;
+      applyPrimaryMarch();
+      updateLod();
     },
     setExposureScale: (s: number) => {
       const next = Number.isFinite(s) ? Math.max(0.1, Math.min(8, s)) : 1;
