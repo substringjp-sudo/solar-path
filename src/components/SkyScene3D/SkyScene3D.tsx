@@ -77,6 +77,19 @@ import {
 } from './BuildingField';
 import { fetchNearbyBuildings, BUILDING_RADIUS_M } from '../../utils/buildingTiles';
 import { fetchUrbanMask } from '../../utils/mvtTiles';
+import { flattenDemPatchUnderBuildings, type BuildingCover } from '../../utils/demBuildingFlatten';
+
+/** 건물 자리 고도 깎기 — 바뀌었으면 true(호출부가 패치를 다시 꽂음). */
+function flattenDemForBuildings(renderer: any, patch: DemPatch, cover: BuildingCover): boolean {
+  try {
+    const st = flattenDemPatchUnderBuildings(renderer, patch, cover);
+    if (__DEV__ && st) console.log('[DEM] 건물 자리 고도 깎기', st.touched, '칸, 평균', st.meanDropM.toFixed(1), 'm, 최대', st.maxDropM.toFixed(1), 'm 낮춤');
+    return !!st && st.touched > 0;
+  } catch (e) {
+    if (__DEV__) console.warn('[DEM] 건물 자리 고도 깎기 실패', e);
+    return false;
+  }
+}
 import {
   createSeaPlane,
   SEA_MASK_RADIUS_M,
@@ -561,6 +574,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const urbanLoadedKeyRef = useRef<string | null>(null);
   // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
   const urbanSerialRef = useRef(0);
+  // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
+  const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
   const buildingLoadedKeyRef = useRef<string | null>(null);
   const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3825,6 +3840,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
         demPatchRef.current = patch;
         demMaskPatchRef.current = maskPatch;
+        if (bldCoverRef.current?.key === key) flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
         // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
         // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
         //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
@@ -3890,6 +3906,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
         urbanSerialRef.current += 1;
+        // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
+        if (mask.bld) {
+          bldCoverRef.current = { key, cover: mask.bld };
+          const patch = demPatchRef.current, renderer = rendererRef.current;
+          if (patch && renderer && demLoadedKeyRef.current === key && flattenDemForBuildings(renderer, patch, mask.bld)) {
+            const maskPatch = demMaskPatchRef.current;
+            terrainFieldRef.current.setPatch(patch, patch, maskPatch);
+            buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
+            seaPlaneRef.current?.setPatch(patch, maskPatch);
+          }
+        }
         sceneDirtyRef.current = true;
         requestRender(6);
       })

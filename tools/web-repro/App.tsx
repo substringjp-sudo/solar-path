@@ -125,6 +125,8 @@ export default function App() {
         sunAzimuth={sunAz ?? 180}
         prediction={null}
         location={{ coords: { latitude: lat ?? 37.5, longitude: lon ?? 127 } }}
+        // bld:1 — 3D 건물 켜기(2026-11-18 건물 자리 고도 깎기 확인)
+        {...(Q.bld ? { layers: { labels: true, sun: true, moon: true, stars: true, milkyway: true, planets: true, clouds: true, paths: true, cityLights: true, buildings: true } } : {})}
         interpolatedWeather={ringWx ?? wx ?? []}
         theme={{ accent: '#FF9800' }}
         cameraAzimuthProp={view?.az}

@@ -488,6 +488,8 @@ export interface UrbanMaskResult {
    * 시멘트 = 건물 둘레 PAVE_BUILDING_APRON_M + 도로 가장자리(인도), 아스팔트 = 도로 폭(종류별 ROAD_WIDTH_M). 없으면 undefined.
    */
   pave?: { size: number; halfM: number; data: Uint8Array };
+  /** 건물 덮개(0/255, 관측자 둘레 ±halfM, 512칸 ≈ 12.5 m). 고도의 건물 높이 깎기(demBuildingFlatten.ts)에 씁니다. */
+  bld?: { size: number; halfM: number; data: Uint8Array };
 }
 
 /** 도로 종류(OpenMapTiles transportation class) → 차로 폭(m). 없는 종류(path·track·rail 등)는 그리지 않음. */
@@ -500,6 +502,8 @@ export const ROAD_SIDEWALK_M = 4;
 export const PAVE_BUILDING_APRON_M = 12;
 export const PAVE_HALF_M = 1600;
 export const PAVE_SIZE = 1024;
+/** 건물 덮개 격자 한 변 칸 수(±3200 m 에서 12.5 m 칸). */
+export const BLD_COVER_SIZE = 512;
 
 /** 선분 둘레 반지름 r(m) 안의 칸을 value 로(최댓값). buf 는 stride 2 의 채널 ch. */
 function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
@@ -561,6 +565,7 @@ export async function fetchUrbanMask(
   if (okTiles.length === 0) return null;
 
   const grid = new Uint8Array(size * size);
+  const bldCover = new Uint8Array(BLD_COVER_SIZE * BLD_COVER_SIZE);
   const toLocal = (tc: TileCoord, u: number, v: number, ext: number) => {
     const ll = tilePointToLonLat(tc.x, tc.y, tc.z, u, v, ext);
     return {
@@ -621,7 +626,9 @@ export async function fetchUrbanMask(
       for (const f of bld.features) {
         if (f.type !== 3) continue;
         for (const r of extractOuterRings(f.rings)) {
-          fillPolygonXZ(grid, size, halfM, r.map((p) => toLocal(tc, p.x, p.y, bld.extent)), 255);
+          const pts = r.map((p) => toLocal(tc, p.x, p.y, bld.extent));
+          fillPolygonXZ(grid, size, halfM, pts, 255);
+          fillPolygonXZ(bldCover, BLD_COVER_SIZE, halfM, pts, 255);
         }
       }
     }
@@ -697,5 +704,5 @@ export async function fetchUrbanMask(
     }
   }
 
-  return { size, halfM, data: smooth, pave: { size: pSize, halfM: pHalf, data: pave } };
+  return { size, halfM, data: smooth, pave: { size: pSize, halfM: pHalf, data: pave }, bld: { size: BLD_COVER_SIZE, halfM, data: bldCover } };
 }

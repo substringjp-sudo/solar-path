@@ -142,6 +142,11 @@ export interface DemPatch {
   coverage: number;
   /** 광역 패치(zoom ≤ 10)에서 외해와 연결된 바다 구역 마스크 (R>0.5 = 바다, 0 = 내륙) */
   seaTexture?: THREE.DataTexture | null;
+  /** 합친 높이장의 렌더 타깃(읽기용). 건물 자리 깎기(demBuildingFlatten.ts)가 읽습니다. */
+  target?: THREE.WebGLRenderTarget;
+  /** 건물 자리를 깎은 높이장(있으면 texture 가 이것). 깎을 때 쓴 건물 덮개(같은 덮개로 두 번 깎지 않음). */
+  flattenedTexture?: THREE.DataTexture;
+  flattenedBy?: object;
   dispose: () => void;
 }
 
@@ -646,9 +651,11 @@ export async function loadDemPatch(
     observerV: t.y - originY,
     coverage: got / (block * block),
     seaTexture,
+    target,
     dispose: () => {
-      if (cache.get(key)?.texture === target.texture) cache.delete(key);
+      if (cache.get(key) === patch) cache.delete(key);
       seaTexture?.dispose();
+      patch.flattenedTexture?.dispose();
       target.dispose();
     },
   };
