@@ -153,6 +153,8 @@ export interface MacroRingPoint { distance: number; azimuthOffset: number; cover
  */
 export interface HazeInput { aod: number; alpha: number; g: number; omega: number }
 export const HAZE_SCALE_HEIGHT_KM = 1.5;
+/** 구름 자기 그림자 반폭(m) — 해 쪽으로 본 구름 앞 공기가 그 구름 그늘에 드는 길이 R/sinθ 의 R(2026-11-18). 층적운·적운 덩어리 반폭 정도. */
+export const CLOUD_OWN_SHADOW_R_M = 1500;
 
 /**
  * 해 고도 → 노출(§127 E2-3, 자 `tools/genus-ruler/genus/RULER-exposure.md`).
@@ -1280,7 +1282,10 @@ export async function createVolumetricScene(
       '  vec3 hSunE, hSkyE, hTBg, hLBg, hTCl, hLCl;',
       '  volHazeIrradiance(vCameraPosition, hUp, hNSun, hSunE, hSkyE);',
       '  volEvalHaze(hRd, hUp, hNSun, hSunE, hSkyE, hUBg, hTBg, hLBg);',
-      '  volEvalHaze(hRd, hUp, hNSun, hSunE, hSkyE, hUCl, hTCl, hLCl);',
+      // 2026-11-18 구름 앞 연무도 같은 자기 그림자(구름 패스 cOwn 과 같은 모형): 해 쪽 R/sinθ 구간은 햇빛을 못 받음.
+      '  float hCosS = dot(hRd, hNSun);',
+      `  float hOwnFrac = hCosS > 0.0 ? clamp((${(CLOUD_OWN_SHADOW_R_M / 1000).toFixed(2)} / sqrt(max(1e-4, 1.0 - hCosS * hCosS))) / max(hClKm, 0.01), 0.0, 1.0) * fCloudAlpha : 0.0;`,
+      '  volEvalHaze(hRd, hUp, hNSun, hSunE * (1.0 - hOwnFrac), hSkyE, hUCl, hTCl, hLCl);',
       '  vec4 hOv = vec4(0.0);',
       '  #ifdef HAS_OVERLAY',
       '  hOv = texture(overlayBuffer, uv);',
@@ -1438,7 +1443,12 @@ export async function createVolumetricScene(
       .replace(ap, [
         '      {',
         '        vec3 cT;',
-        '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, shadowLength * METER_TO_LENGTH_UNIT, sunDirection, cT);',
+        // 2026-11-18 구름 자기 그림자: 해 가까이 보이는 구름 앞 공기는 그 구름에 해가 가려 있습니다(그 점에서 해 쪽으로 가는 빛이
+        // 바로 그 구름을 지남). 시선과 해의 각 θ 에서 구름 반폭 R 이면 구름 앞 R/sinθ 구간이 그늘 — 빛줄기 길이에 넣습니다.
+        // 빠지면 공기의 앞쪽 산란(미 산란 봉우리)이 구름 위에 얹혀 해가 구름 뒤에서 비추듯 해 둘레 구름이 하얗게 뜹니다.
+        '        float cCosS = dot(rayDirection, sunDirection);',
+        `        float cOwn = cCosS > 0.0 ? min(length(frontPosition - cameraPosition), ${CLOUD_OWN_SHADOW_R_M.toFixed(1)} / sqrt(max(1e-4, 1.0 - cCosS * cCosS))) * color.a : 0.0;`,
+        '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, max(shadowLength, cOwn) * METER_TO_LENGTH_UNIT, sunDirection, cT);',
         '        float cL = dot(cIn, vec3(0.2126, 0.7152, 0.0722));',
         '        cIn = mix(cIn, vec3(cL), 0.7 * cloudAirShadeC) * mix(1.0, max(0.35, cloudSkyTC), cloudAirShadeC);',
         '        color.rgb = color.rgb * cT + cIn * color.a;',
