@@ -483,9 +483,52 @@ export interface UrbanMaskResult {
   halfM: number;
   /** 0=자연/비도시, 255=도시·거주지 포장 지반 (행=+Z 남쪽, 열=+X 동쪽) */
   data: Uint8Array;
+  /**
+   * 2026-11-18 포장 지도(관측자 둘레 ±paveHalfM, paveSize²) — 칸마다 [시멘트, 아스팔트] 0~255 두 바이트(행=+Z 남쪽, 열=+X 동쪽).
+   * 시멘트 = 건물 둘레 PAVE_BUILDING_APRON_M + 도로 가장자리(인도), 아스팔트 = 도로 폭(종류별 ROAD_WIDTH_M). 없으면 undefined.
+   */
+  pave?: { size: number; halfM: number; data: Uint8Array };
 }
 
-const URBAN_LAYERS = new Set(['landuse', 'landcover', 'park', 'building']);
+/** 도로 종류(OpenMapTiles transportation class) → 차로 폭(m). 없는 종류(path·track·rail 등)는 그리지 않음. */
+export const ROAD_WIDTH_M: Record<string, number> = {
+  motorway: 24, trunk: 20, primary: 16, secondary: 12, tertiary: 10, minor: 7, service: 5,
+};
+/** 도로 양옆 인도·갓길(시멘트) 폭(m) */
+export const ROAD_SIDEWALK_M = 4;
+/** 건물 둘레 시멘트 마당 폭(m) */
+export const PAVE_BUILDING_APRON_M = 12;
+export const PAVE_HALF_M = 1600;
+export const PAVE_SIZE = 1024;
+
+/** 선분 둘레 반지름 r(m) 안의 칸을 value 로(최댓값). buf 는 stride 2 의 채널 ch. */
+function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
+  a: { x: number; z: number }, b: { x: number; z: number }, rM: number, value: number): void {
+  const scale = size / (2 * halfM);
+  const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
+  const r = rM * scale;
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + 1));
+  if (x0 > x1 || z0 > z1) return;
+  const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+  for (let zz = z0; zz <= z1; zz++) {
+    const pz = zz + 0.5;
+    for (let xx = x0; xx <= x1; xx++) {
+      const px = xx + 0.5;
+      let t = L2 > 1e-9 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
+      const d = Math.sqrt(ex * ex + ez * ez);
+      // 가장자리 1칸은 부드럽게(안티에일리어싱)
+      const cov = d <= r - 0.5 ? 1 : d >= r + 0.5 ? 0 : r + 0.5 - d;
+      if (cov <= 0) continue;
+      const o = (zz * size + xx) * 2 + ch, v = Math.round(value * cov);
+      if (v > buf[o]) buf[o] = v;
+    }
+  }
+}
+
+const URBAN_LAYERS = new Set(['landuse', 'landcover', 'park', 'building', 'transportation']);
 
 /**
  * 관측자 반경 `halfM`(기본 3200m) 내 OpenFreeMap z=13 타일의 토지이용/건물 분포를 래스터화해
@@ -584,6 +627,57 @@ export async function fetchUrbanMask(
     }
   }
 
+  // 2026-11-18 포장 지도: 건물 둘레 시멘트 + 도로(가장자리 시멘트, 가운데 아스팔트). 흙이 보이지 않고 도로 느낌이 나게(사용자 제안).
+  const pSize = PAVE_SIZE, pHalf = PAVE_HALF_M;
+  const pave = new Uint8Array(pSize * pSize * 2);
+  {
+    const bGrid = new Uint8Array(pSize * pSize);
+    for (const { tc, layers } of okTiles) {
+      const bld = layers.building;
+      if (bld) {
+        for (const f of bld.features) {
+          if (f.type !== 3) continue;
+          for (const r of extractOuterRings(f.rings)) fillPolygonXZ(bGrid, pSize, pHalf, r.map((p) => toLocal(tc, p.x, p.y, bld.extent)), 255);
+        }
+      }
+    }
+    // 건물 둘레 마당: 원판 팽창(분리 가능한 최댓값 두 번 = 정사각형이라, 거리장으로 원판). 반지름 PAVE_BUILDING_APRON_M.
+    const rA = PAVE_BUILDING_APRON_M * pSize / (2 * pHalf);
+    const R = Math.ceil(rA);
+    const offs: [number, number, number][] = [];
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const d = Math.hypot(dx, dy);
+      if (d <= rA + 0.5) offs.push([dx, dy, d <= rA - 0.5 ? 255 : Math.round(255 * (rA + 0.5 - d))]);
+    }
+    for (let y = 0; y < pSize; y++) for (let x = 0; x < pSize; x++) {
+      if (bGrid[y * pSize + x] < 128) continue;
+      for (const [dx, dy, v] of offs) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= pSize || yy >= pSize) continue;
+        const o = (yy * pSize + xx) * 2;
+        if (v > pave[o]) pave[o] = v;
+      }
+    }
+    for (const { tc, layers } of okTiles) {
+      const tr = layers.transportation;
+      if (!tr) continue;
+      for (const f of tr.features) {
+        if (f.type !== 2) continue;
+        const cls = String(f.props.class ?? '').toLowerCase();
+        const w = ROAD_WIDTH_M[cls];
+        if (!w) continue;
+        if (String(f.props.brunnel ?? '') === 'tunnel') continue;
+        for (const line of f.rings) {
+          const pts = line.map((p) => toLocal(tc, p.x, p.y, tr.extent));
+          for (let i = 1; i < pts.length; i++) {
+            stampSegment(pave, pSize, pHalf, 0, pts[i - 1], pts[i], w / 2 + ROAD_SIDEWALK_M, 255);
+            stampSegment(pave, pSize, pHalf, 1, pts[i - 1], pts[i], w / 2, 255);
+          }
+        }
+      }
+    }
+  }
+
   // 경계 부드럽게 (3×3 가벼운 블러 1회 — 약 25m 전환)
   const smooth = new Uint8Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -603,5 +697,5 @@ export async function fetchUrbanMask(
     }
   }
 
-  return { size, halfM, data: smooth };
+  return { size, halfM, data: smooth, pave: { size: pSize, halfM: pHalf, data: pave } };
 }

@@ -383,6 +383,9 @@ uniform float uLookMicro;
 uniform sampler2D uUrbanTex;
 uniform float uUrbanValid;
 uniform float uUrbanHalfM;
+uniform sampler2D uPaveTex;
+uniform float uPaveValid;
+uniform float uPaveHalfM;
 uniform float uFarUrban;
 uniform float uCityTerrainGain;
 uniform vec2  uCityDirXZ;
@@ -819,6 +822,19 @@ void main() {
   float urbanMask = clamp(urbanRaw * urbanSlopeGuard * (1.0 - wet), 0.0, 1.0);
   vec3 albUrban = vec3(dot(uAlbedo, vec3(0.30, 0.59, 0.11)));
   alb = mix(alb, albUrban, urbanMask);
+  // 2026-11-18 포장(±1.6 km, 약 3 m 칸): 건물 둘레·도로 가장자리는 밝은 시멘트, 도로 가운데는 어두운 아스팔트 — 흙이 비치지 않게.
+  float paveC = 0.0, paveA = 0.0;
+  if (uPaveValid > 0.5) {
+    vec2 pUv = (vGround + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+    if (pUv.x > 0.0 && pUv.x < 1.0 && pUv.y > 0.0 && pUv.y < 1.0) {
+      float pFade = (1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)))) * urbanSlopeGuard * (1.0 - wet);
+      vec2 pv = texture2D(uPaveTex, pUv).rg;
+      paveC = pv.r * pFade; paveA = pv.g * pFade;
+    }
+  }
+  vec3 albConcrete = albUrban * vec3(1.75, 1.72, 1.66);
+  vec3 albAsphalt = albUrban * vec3(0.52, 0.52, 0.55);
+  alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
 
 #ifdef TERRAIN_LIT_OUT
   // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §157 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
@@ -832,6 +848,7 @@ void main() {
     alb = mix(albSoil, albRock, rockMaskHi);
     alb = mix(alb, alb * 0.52, wet);
     alb = mix(alb, albUrban, urbanMask);
+    alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
   }
 
   // ── 알베도 얼룩 + 초근접 입자감 ─────────────────────────────────────────
@@ -1218,6 +1235,7 @@ export function createTerrainField(opts: {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
   const emptyUrbanTex = createEmptyUrbanTexture();
   let activeUrbanTex: THREE.DataTexture | null = null;
+  let activePaveTex: THREE.DataTexture | null = null;
   // 성긴 패치는 **늘** 튀는 화소를 걷어냅니다. 저줌 Terrarium 타일의 R 채널
   // 결함이 8.96° 짜리 첨탑으로 서는 것을 막습니다(계획서 8.1절). 촘촘한
   // 패치에는 걸지 않습니다 — 진짜 능선이 깎입니다.
@@ -1293,6 +1311,9 @@ export function createTerrainField(opts: {
       uUrbanTex: { value: emptyUrbanTex },
       uUrbanValid: { value: 0 },
       uUrbanHalfM: { value: 3200 },
+      uPaveTex: { value: emptyUrbanTex },
+      uPaveValid: { value: 0 },
+      uPaveHalfM: { value: 1600 },
       uFarUrban: { value: 0 },
       ...makeTerrainLookUniforms(),
       uBeta: { value: 0.08 },
@@ -1465,6 +1486,9 @@ export function createTerrainField(opts: {
       if (!mask) {
         material.uniforms.uUrbanTex.value = emptyUrbanTex;
         material.uniforms.uUrbanValid.value = 0;
+        material.uniforms.uPaveTex.value = emptyUrbanTex;
+        material.uniforms.uPaveValid.value = 0;
+        activePaveTex?.dispose(); activePaveTex = null;
         if (activeUrbanTex) {
           activeUrbanTex.dispose();
           activeUrbanTex = null;
@@ -1496,6 +1520,25 @@ export function createTerrainField(opts: {
       material.uniforms.uUrbanTex.value = activeUrbanTex;
       material.uniforms.uUrbanHalfM.value = mask.halfM;
       material.uniforms.uUrbanValid.value = 1;
+      // 포장 지도(시멘트·아스팔트 두 채널 → R·G)
+      if (mask.pave) {
+        const pn = mask.pave.size, pd = mask.pave.data;
+        const prgba = new Uint8Array(pn * pn * 4);
+        for (let i = 0; i < pn * pn; i++) { prgba[i * 4] = pd[i * 2]; prgba[i * 4 + 1] = pd[i * 2 + 1]; prgba[i * 4 + 3] = 255; }
+        activePaveTex?.dispose();
+        activePaveTex = new THREE.DataTexture(prgba, pn, pn, THREE.RGBAFormat);
+        activePaveTex.colorSpace = THREE.NoColorSpace;
+        activePaveTex.minFilter = THREE.LinearFilter;
+        activePaveTex.magFilter = THREE.LinearFilter;
+        activePaveTex.wrapS = THREE.ClampToEdgeWrapping;
+        activePaveTex.wrapT = THREE.ClampToEdgeWrapping;
+        activePaveTex.needsUpdate = true;
+        material.uniforms.uPaveTex.value = activePaveTex;
+        material.uniforms.uPaveHalfM.value = mask.pave.halfM;
+        material.uniforms.uPaveValid.value = 1;
+      } else {
+        material.uniforms.uPaveValid.value = 0;
+      }
     },
     setFarUrban: (farUrban) => {
       material.uniforms.uFarUrban.value = Math.max(0, Math.min(1, Number.isFinite(farUrban) ? farUrban : 0));
