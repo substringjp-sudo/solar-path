@@ -1788,7 +1788,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return () => { alive = false; };
   }, [isActive, zoomProgressState > P_FOV_END]);
 
-  const topView = useCloudTopView(cloudRing, renderedTimeMsRef.current || Date.now(), zoomProgressState > P_FOV_END);
+  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
@@ -3026,77 +3026,91 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const nowForLabel = Date.now();
         if (layersRef.current.labels !== false && nowForLabel - lastLabelUpdateMsRef.current >= 250) {
           lastLabelUpdateMsRef.current = nowForLabel;
-          const w = gl.drawingBufferWidth;
-          const h = gl.drawingBufferHeight;
-          const ratio = pixelRatioRef.current || 1;
-
-          const proj = (v3: THREE.Vector3) => {
-            projTempVec.copy(v3).project(camera);
-            const visible =
-              projTempVec.z < 1.0 &&
-              projTempVec.x >= -1.1 &&
-              projTempVec.x <= 1.1 &&
-              projTempVec.y >= -1.1 &&
-              projTempVec.y <= 1.1;
-            const px = ((projTempVec.x + 1) * w) / 2 / ratio;
-            const py = ((-projTempVec.y + 1) * h) / 2 / ratio;
-            return { px, py, visible };
-          };
-
           const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
-          // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
-          const lang = useCelestialStore.getState().language;
 
-          // 1. 태양 (Sun)
-          if (sunRef.current?.mesh && layersRef.current.sun && sunAltRef.current > -0.9) {
-            const p = proj(sunRef.current.mesh.position);
-            if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
-          }
-          // 2. 달 (Moon) — 지금 맨눈에 보일 때만(떠 있고, 낮이면 충분히 차고 해에서 떨어져 있을 때 · labelVisibility.ts)
-          if (moonRef.current?.group && layersRef.current.moon) {
-            const mp = moonRef.current.group.position;
-            const mLen = mp.length() || 1;
-            const moonAltDeg = (Math.asin(Math.max(-1, Math.min(1, mp.y / mLen))) * 180) / Math.PI;
-            let sepDeg = 180;
-            if (sunRef.current?.mesh) {
+          if (zoomProgressRef.current <= P_FOV_END + 0.05) {
+            const ratio = pixelRatioRef.current || 1;
+            const vw = layoutSizeRef.current.w || sceneWidthRef.current || gl.drawingBufferWidth / ratio;
+            const vh = layoutSizeRef.current.h || viewSizeRef.current.h || gl.drawingBufferHeight / ratio;
+            const terrainData = simRef.current?.terrain;
+
+            const proj = (v3: THREE.Vector3) => {
+              projTempVec.copy(v3).project(camera);
+              const visible =
+                projTempVec.z > -1.0 &&
+                projTempVec.z < 1.0 &&
+                projTempVec.x >= -0.96 &&
+                projTempVec.x <= 0.96 &&
+                projTempVec.y >= -0.92 &&
+                projTempVec.y <= 0.96;
+              const px = ((projTempVec.x + 1) * vw) / 2;
+              const py = ((-projTempVec.y + 1) * vh) / 2;
+              return { px, py, visible };
+            };
+
+            const azOf = (v: THREE.Vector3) => ((Math.atan2(v.x, -v.z) * 180) / Math.PI + 360) % 360;
+            // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
+            const lang = useCelestialStore.getState().language;
+
+            // 1. 태양 (Sun) — 지평선·지형 능선 위에 원반 일부라도 보일 때만 표시
+            if (sunRef.current?.mesh && layersRef.current.sun) {
               const sp = sunRef.current.mesh.position;
-              const sLen = sp.length() || 1;
-              const cos = (mp.x * sp.x + mp.y * sp.y + mp.z * sp.z) / (mLen * sLen);
-              sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
-            }
-            const illum = SunCalc.getMoonIllumination(frameDate).fraction;
-            if (moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
-              const p = proj(mp);
-              if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
-            }
-          }
-          // 3. 은하수 중심부 (Milky Way Center)
-          if (layersRef.current.milkyway) {
-            const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
-            mwPos.applyMatrix3(equToHorizonRef.current);
-            const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
-            if (milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
-              const p = proj(mwPos);
-              if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
-            }
-          }
-          // 4. 주요 행성 (Planets: 목성, 토성, 금성) — 하늘이 그 행성만큼 어두울 때만(낮에는 숨김)
-          if (layersRef.current.planets) {
-            const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
-              { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
-              { key: 'saturn', name: L3(lang, '토성', 'Saturn', '土星'), color: '#F59E0B' },
-              { key: 'venus', name: L3(lang, '금성', 'Venus', '金星'), color: '#38BDF8' },
-            ];
-            planetList.forEach((pl, idx) => {
-              const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
-              const pWorld = pDir.multiplyScalar(380);
-              pWorld.applyMatrix3(equToHorizonRef.current);
-              const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
-              if (planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
-                const p = proj(pWorld);
-                if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
+              const sunHoriz = terrainHorizonDegAtAz(terrainData, azOf(sp));
+              const sunAppAlt = getApparentAltitude(sunAltRef.current);
+              if (isSunVisibleAboveHorizon(sunAppAlt, sunDiscRadiusDegRef.current, sunHoriz, sunAppAlt > -0.8)) {
+                const p = proj(sp);
+                if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
               }
-            });
+            }
+            // 2. 달 (Moon) — 지평선·지형 능선 위이고 맨눈에 보일 때만
+            if (moonRef.current?.group && layersRef.current.moon) {
+              const mp = moonRef.current.group.position;
+              const mLen = mp.length() || 1;
+              const moonAltDeg = (Math.asin(Math.max(-1, Math.min(1, mp.y / mLen))) * 180) / Math.PI;
+              const moonHoriz = terrainHorizonDegAtAz(terrainData, azOf(mp));
+              let sepDeg = 180;
+              if (sunRef.current?.mesh) {
+                const sp = sunRef.current.mesh.position;
+                const sLen = sp.length() || 1;
+                const cos = (mp.x * sp.x + mp.y * sp.y + mp.z * sp.z) / (mLen * sLen);
+                sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+              }
+              const illum = SunCalc.getMoonIllumination(frameDate).fraction;
+              if (moonAltDeg + 0.26 > Math.max(0, moonHoriz) && moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
+                const p = proj(mp);
+                if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
+              }
+            }
+            // 3. 은하수 중심부 (Milky Way Center) — 지평선·지형 능선 위일 때만
+            if (layersRef.current.milkyway) {
+              const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
+              mwPos.applyMatrix3(equToHorizonRef.current);
+              const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
+              const mwHoriz = terrainHorizonDegAtAz(terrainData, azOf(mwPos));
+              if (mwAltDeg > Math.max(0.5, mwHoriz) && milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
+                const p = proj(mwPos);
+                if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
+              }
+            }
+            // 4. 주요 행성 (Planets: 목성, 토성, 금성) — 지평선·지형 능선 위이고 어두울 때만
+            if (layersRef.current.planets) {
+              const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
+                { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
+                { key: 'saturn', name: L3(lang, '토성', 'Saturn', '土星'), color: '#F59E0B' },
+                { key: 'venus', name: L3(lang, '금성', 'Venus', '金星'), color: '#38BDF8' },
+              ];
+              planetList.forEach((pl, idx) => {
+                const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
+                const pWorld = pDir.multiplyScalar(380);
+                pWorld.applyMatrix3(equToHorizonRef.current);
+                const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
+                const pHoriz = terrainHorizonDegAtAz(terrainData, azOf(pWorld));
+                if (pAltDeg > Math.max(0.5, pHoriz) && planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
+                  const p = proj(pWorld);
+                  if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
+                }
+              });
+            }
           }
 
           const prevLabs = prevLabelsRef.current;
@@ -4269,11 +4283,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       )}
 
       {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (지상 관측 뷰에서만 표시) */}
-      {layers?.labels !== false && zoomProgressState <= P_FADE_START && (() => {
-        // 라벨 크기 추정 (px): 가로 90, 세로 24
-        const LBL_W = 90;
+      {layers?.labels !== false && zoomProgressState <= P_FOV_END + 0.05 && (() => {
+        // 라벨 크기 추정 (px): 가로 84, 세로 24
+        const LBL_W = 84;
         const LBL_H = 24;
-        const maxY = fullScreen ? Math.max(380, height - 200) : 380;
+        const maxY = Math.max(120, sceneH - 48);
         // 배치된 라벨 bounding box 목록
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
 
@@ -4303,8 +4317,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         return celestialLabels.map(lbl => {
           const isTrackingThis = trackingTarget === lbl.id;
-          const rawX = Math.max(10, Math.min(SCENE_WIDTH - LBL_W - 10, lbl.x - 30));
-          const rawY = Math.max(10, Math.min(maxY - LBL_H - 10, lbl.y - 28));
+          const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 24));
+          const preferredY = lbl.y >= 38 ? lbl.y - 28 : lbl.y + 12;
+          const rawY = Math.max(8, Math.min(maxY - LBL_H - 6, preferredY));
           const finalY = resolveY(rawX, rawY);
           placed.push({ x: rawX, y: finalY, w: LBL_W, h: LBL_H });
 
