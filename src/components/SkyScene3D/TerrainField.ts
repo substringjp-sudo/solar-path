@@ -394,6 +394,15 @@ vec2 paveRaw(vec2 g) {
   float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
   return texture2D(uPaveTex, pUv).rg * edge;
 }
+// 2026-11-18 가로등 빛 웅덩이(포장 텍스처 A — R 시멘트, G 아스팔트, B 고해상도 물). 0..1.
+float paveLamp(vec2 g) {
+  if (uPaveValid < 0.5) return 0.0;
+  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return 0.0;
+  return texture2D(uPaveTex, pUv).a;
+}
+uniform float uLampGlow;
+uniform vec3  uLampColor;
 float waterHiRaw(vec2 g) {
   if (uPaveValid < 0.5) return 0.0;
   vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
@@ -490,6 +499,17 @@ vec3 hazeLitWeight(vec3 dir, float distM) {
 }
 
 void main() {
+#ifdef TERRAIN_LAMP_OUT
+  // 2026-11-18 가로등 빛 웅덩이 — 지형 위에 더하기로 얹습니다(창문 불빛과 같은 방식). 밤에만(uLampGlow).
+  {
+    float pool = paveLamp(vGround);
+    if (pool < 0.004 || uLampGlow < 0.001) discard;
+    vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
+    float fade = 1.0 - smoothstep(1350.0, 1580.0, vDistM);
+    gl_FragColor = vec4(uLampColor * (pool * pool) * uLampGlow * T * fade, 1.0);
+    return;
+  }
+#endif
   // ⚠ **해수면 아래는 그리지 않습니다.** 거기서 보이는 것은 땅이 아니라
   //    물이고, 물은 SeaPlane 이 그립니다.
   //
@@ -1229,6 +1249,10 @@ export interface TerrainFieldHandle {
   distMesh: THREE.Mesh;
   /** §129 볼륨 하늘용 쌍둥이(`LAYER_TERRAIN_LIT`) — 알베도·햇빛 몫. 합성기가 지형 빛 판에 그립니다. */
   litMesh: THREE.Mesh;
+  /** 2026-11-18 가로등 빛 웅덩이(더하기). 부르는 쪽이 씬의 LAYER_MID 에 넣습니다. */
+  lampMesh: THREE.Mesh;
+  /** 가로등 밝기(0 = 낮·끔). 0 이면 메시를 숨깁니다. */
+  setLampGlow: (glow: number) => void;
   /** §129 해 쪽 능선 굽기(한 화소, `SUN_RIDGE_DECODE_GLSL` 로 읽음)와 그것이 지금 해·지형으로 구운 값인지. */
   sunRidge: () => { texture: THREE.Texture; valid: boolean };
   material: THREE.ShaderMaterial;
@@ -1370,6 +1394,9 @@ export function createTerrainField(opts: {
       uPaveTex: { value: emptyUrbanTex },
       uPaveValid: { value: 0 },
       uPaveHalfM: { value: 1600 },
+      uLampGlow: { value: 0 },
+      // 가로등 빛(LED 4000 K 안팎, 약간 따뜻한 흰빛) × 바닥 웅덩이 가운데 밝기(화면 값).
+      uLampColor: { value: new THREE.Vector3(0.30, 0.26, 0.20) },
       uFarUrban: { value: 0 },
       ...makeTerrainLookUniforms(),
       uBeta: { value: 0.08 },
@@ -1414,6 +1441,22 @@ export function createTerrainField(opts: {
   litMesh.name = 'terrainFieldLit';
   litMesh.frustumCulled = false;
   litMesh.layers.set(LAYER_TERRAIN_LIT);
+  // 2026-11-18 가로등 빛 웅덩이 — 지형 위에 더하는 쌍둥이(창문 불빛처럼). 깊이는 격자가 쓴 것을 읽기만 합니다.
+  const lampMaterial = material.clone();
+  lampMaterial.uniforms = material.uniforms;
+  lampMaterial.defines = { ...(material.defines ?? {}), TERRAIN_LAMP_OUT: 1 };
+  lampMaterial.transparent = true;
+  lampMaterial.blending = THREE.AdditiveBlending;
+  lampMaterial.depthWrite = false;
+  lampMaterial.depthTest = true;
+  lampMaterial.depthFunc = THREE.LessEqualDepth;
+  lampMaterial.polygonOffset = true;
+  lampMaterial.polygonOffsetFactor = -1;
+  lampMaterial.polygonOffsetUnits = -1;
+  const lampMesh = new THREE.Mesh(mesh.geometry, lampMaterial);
+  lampMesh.name = 'terrainFieldLamps';
+  lampMesh.frustumCulled = false;
+  lampMesh.visible = false;
 
   // 해 방위의 지평선 능선 — 한 화소짜리 굽기(SUN_SHADOW_BAKE_FRAG). uniform 은 격자와 **같은 객체**를
   // 나눠 써서 setPatch·해 갱신이 그대로 따라옵니다(굽기 셰이더는 uSunShadowTex 를 선언하지 않으므로
@@ -1468,6 +1511,12 @@ export function createTerrainField(opts: {
     mesh,
     distMesh,
     litMesh,
+    lampMesh,
+    setLampGlow: (glow: number) => {
+      const g = Number.isFinite(glow) ? Math.max(0, Math.min(1.5, glow)) : 0;
+      material.uniforms.uLampGlow.value = g;
+      lampMesh.userData.glowOn = g > 0.001;
+    },
     material,
     sunRidge: () => ({ texture: shadowRT.texture, valid: material.uniforms.uSunShadowValid.value > 0.5 }),
     bakeSunShadow: (renderer, skipShadeBake = false) => {
@@ -1586,7 +1635,7 @@ export function createTerrainField(opts: {
           prgba[i * 4] = pd[i * 2];
           prgba[i * 4 + 1] = pd[i * 2 + 1];
           prgba[i * 4 + 2] = wh ? wh[i] : 0;
-          prgba[i * 4 + 3] = 255;
+          prgba[i * 4 + 3] = mask.pave.lamp ? mask.pave.lamp[i] : 0;   // A = 가로등 빛 웅덩이(2026-11-18)
         }
         activePaveTex?.dispose();
         activePaveTex = new THREE.DataTexture(prgba, pn, pn, THREE.RGBAFormat);
@@ -1612,6 +1661,7 @@ export function createTerrainField(opts: {
       material.dispose();
       distMaterial.dispose();
       litMaterial.dispose();
+      lampMaterial.dispose();
       bakeQuad.geometry.dispose();
       bakeMaterial.dispose();
       shadowRT.dispose();
@@ -1672,6 +1722,10 @@ export function updateTerrainFieldEye(
   if (handle.litMesh) {
     handle.litMesh.position.copy(camera.position);
     handle.litMesh.visible = handle.mesh.visible;
+  }
+  if (handle.lampMesh) {
+    handle.lampMesh.position.copy(camera.position);
+    handle.lampMesh.visible = handle.mesh.visible && !!handle.lampMesh.userData.glowOn;
   }
 }
 

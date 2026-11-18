@@ -2162,6 +2162,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainField.litMesh.visible = false;
     scene.add(terrainField.litMesh);
     assignLayer(terrainField.litMesh, LAYER_TERRAIN_LIT);
+    // 2026-11-18 가로등 빛 웅덩이(더하기) — 지형·건물 깊이 뒤에.
+    terrainField.lampMesh.renderOrder = -0.47;
+    scene.add(terrainField.lampMesh);
+    assignLayer(terrainField.lampMesh, LAYER_MID);
     terrainFieldRef.current = terrainField;
 
     const buildingField = createBuildingField({ eyeHeightM: 1.6 });
@@ -2171,6 +2175,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     buildingField.windowMesh.renderOrder = -0.468;
     scene.add(buildingField.windowMesh);
     assignLayer(buildingField.windowMesh, LAYER_MID);
+    buildingField.lampPoints.renderOrder = -0.465;
+    scene.add(buildingField.lampPoints);
+    assignLayer(buildingField.lampPoints, LAYER_MID);
     scene.add(buildingField.distMesh);
     assignLayer(buildingField.distMesh, LAYER_TERRAIN_DIST);
     scene.add(buildingField.litMesh);
@@ -3460,6 +3467,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           computeNightWindowRate(localHour),
           computeNightWindowGlow(sunAltRef.current, cityLightsOn, localNorm),
         );
+        // 2026-11-18 가로등: 해 +1° 에서 켜지기 시작해 −4° 에서 다 켜짐(도시 불빛 층을 따름).
+        const lampT = cityLightsOn ? Math.max(0, Math.min(1, (1 - sunAltRef.current) / 5)) : 0;
+        const lampGlow = lampT * lampT * (3 - 2 * lampT);
+        buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
+        terrainFieldRef.current?.setLampGlow(lampGlow);
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;
@@ -3961,6 +3973,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
         terrainFieldRef.current.setUrbanMask(mask);
+        buildingFieldRef.current?.setLamps(mask.lamps);
         seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.

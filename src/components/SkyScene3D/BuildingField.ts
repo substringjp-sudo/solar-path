@@ -130,6 +130,44 @@ void main() {
 }
 `;
 
+/**
+ * 2026-11-18 가로등 머리(사용자 제안: 큰 도로에 가로등). 건물과 같은 지반 고도·투영 규약(BUILDING_VERT 머리)을 쓰고,
+ * 땅 위 position.y(9 m) 자리에 화면 크기 점으로 그립니다. 멀수록 작아지고(1.5~9 px) 대기에 잠깁니다.
+ */
+const LAMP_VERT = BUILDING_VERT.slice(0, BUILDING_VERT.indexOf('void main() {')) + /* glsl */ `
+uniform float uLampPx;
+void main() {
+  vec2 g = vec2(position.x, position.z);
+  float d = max(length(g), 0.1);
+  float r = bf_ringRadius(d);
+  float h = bf_groundElev(g) + position.y;
+  float eyeElevM = bf_groundAtEye() + uEyeHeightM;
+  vec3 p = gp_project(g, h, eyeElevM, r);
+  vDistM = d;
+  vec4 wp = modelMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * wp;
+  gl_PointSize = clamp(uLampPx * 160.0 / d, 2.0 * uLampPx, 12.0 * uLampPx);
+}
+`;
+const LAMP_FRAG = /* glsl */ `
+precision highp float;
+${ATMOSPHERE_GLSL}
+varying float vDistM;
+uniform float uLampGlow;
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+void main() {
+  vec2 q = gl_PointCoord * 2.0 - 1.0;
+  float rr = dot(q, q);
+  if (rr > 1.0 || uLampGlow <= 0.001) discard;
+  float a = exp(-rr * 4.5);
+  vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
+  float fade = 1.0 - smoothstep(1350.0, 1580.0, vDistM);
+  gl_FragColor = vec4(vec3(1.00, 0.90, 0.72) * a * uLampGlow * T * fade, 1.0);
+}
+`;
+
 const BUILDING_FRAG = /* glsl */ `
 precision highp float;
 
@@ -322,6 +360,12 @@ export interface BuildingFieldHandle {
   distMesh: THREE.Mesh;
   litMesh: THREE.Mesh;
   windowMesh: THREE.Mesh;
+  /** 2026-11-18 가로등 머리 점(더하기). 부르는 쪽이 씬의 LAYER_MID 에 넣습니다. */
+  lampPoints: THREE.Points;
+  /** 가로등 자리(동 x, 남 z, m) 쌍. null 이면 지웁니다. */
+  setLamps: (xz: Float32Array | null | undefined) => void;
+  /** 가로등 밝기(0 = 끔)와 화면 배율(점 크기). */
+  setLampGlow: (glow: number, pixelRatio?: number) => void;
   material: THREE.ShaderMaterial;
   setBuildings: (data: BuildingMeshData | null) => void;
   setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null, farPatch?: DemPatch | null) => void;
@@ -364,6 +408,8 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     uCityDirXZ: { value: new THREE.Vector2(0, -1) },
     uWinRate: { value: 0.46 },
     uWinGlow: { value: 0 },
+    uLampGlow: { value: 0 },
+    uLampPx: { value: 1 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -422,6 +468,22 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   windowMesh.frustumCulled = false;
   windowMesh.visible = false;
 
+  // 2026-11-18 가로등 머리 점(건물 켬·끔과 상관없이 밤에 보임).
+  const lampMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: LAMP_VERT,
+    fragmentShader: LAMP_FRAG,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const lampPoints = new THREE.Points(new THREE.BufferGeometry(), lampMaterial);
+  lampPoints.name = 'streetLamps';
+  lampPoints.frustumCulled = false;
+  lampPoints.visible = false;
+  let hasLamps = false;
+
   let currentGeo = emptyGeo;
   let hasData = false;
   let enabled = false;
@@ -433,6 +495,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     distMesh.visible = show;
     litMesh.visible = show;
     windowMesh.visible = show && Number(uniforms.uWinGlow.value) > 0.001 && Number(uniforms.uWinRate.value) > 0;
+    lampPoints.visible = hasLamps && Number(uniforms.uLampGlow.value) > 0.001;
   };
 
   return {
@@ -440,7 +503,27 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     distMesh,
     litMesh,
     windowMesh,
+    lampPoints,
     material,
+    setLamps: (xz) => {
+      const old = lampPoints.geometry;
+      const geo = new THREE.BufferGeometry();
+      const n = xz ? Math.floor(xz.length / 2) : 0;
+      if (n > 0) {
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { pos[i * 3] = xz![i * 2]; pos[i * 3 + 1] = 9; pos[i * 3 + 2] = xz![i * 2 + 1]; }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      }
+      lampPoints.geometry = geo;
+      old.dispose();
+      hasLamps = n > 0;
+      syncVisibility();
+    },
+    setLampGlow: (glow, pixelRatio) => {
+      uniforms.uLampGlow.value = Math.max(0, Math.min(1.5, Number.isFinite(glow) ? glow : 0));
+      if (pixelRatio != null && Number.isFinite(pixelRatio)) uniforms.uLampPx.value = Math.max(1, pixelRatio);
+      syncVisibility();
+    },
     setBuildings: (data) => {
       serial++;
       const nextGeo = data ? createBuildingThreeGeometry(data) : new THREE.BufferGeometry();
@@ -483,6 +566,8 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       distMaterial.dispose();
       litMaterial.dispose();
       windowMaterial.dispose();
+      lampPoints.geometry.dispose();
+      lampMaterial.dispose();
     },
   };
 }
@@ -495,6 +580,7 @@ export function updateBuildingFieldEye(handle: BuildingFieldHandle, camera: THRE
   handle.distMesh.position.copy(camera.position);
   handle.litMesh.position.copy(camera.position);
   handle.windowMesh.position.copy(camera.position);
+  handle.lampPoints.position.copy(camera.position);
   handle.distMesh.visible = handle.mesh.visible;
   handle.litMesh.visible = handle.mesh.visible;
 }
