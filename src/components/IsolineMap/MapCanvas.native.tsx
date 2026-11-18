@@ -308,7 +308,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           {sunOverlay.riseRay && (
             <Marker coordinate={sunOverlay.riseRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelRise}>
-                <Text style={styles.fanLabelText}>
+                <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                   {L('일출', 'Sunrise', '日の出')} {Math.round(sunOverlay.fan.riseAz ?? 0)}°
                 </Text>
               </View>
@@ -317,7 +317,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           {sunOverlay.setRay && (
             <Marker coordinate={sunOverlay.setRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelSet}>
-                <Text style={styles.fanLabelText}>
+                <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                   {L('일몰', 'Sunset', '日の入り')} {Math.round(sunOverlay.fan.setAz ?? 0)}°
                 </Text>
               </View>
@@ -325,7 +325,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
           )}
           <Marker coordinate={sunOverlay.nowRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.fanLabelNow}>
-              <Text style={styles.fanLabelText}>
+              <Text style={styles.fanLabelText} numberOfLines={1} allowFontScaling={false}>
                 {sunOverlay.fan.nowAlt > 0 ? L('지금', 'Now', '現在') : L('지평선 아래', 'Below horizon', '地平線の下')} {Math.round(sunOverlay.fan.nowAz)}°
               </Text>
             </View>
@@ -417,7 +417,8 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   fanLabelRise: {
-    paddingHorizontal: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: 'rgba(234, 88, 12, 0.85)',
@@ -425,7 +426,8 @@ const styles = StyleSheet.create({
     borderColor: '#7C2D12',
   },
   fanLabelSet: {
-    paddingHorizontal: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: 'rgba(190, 18, 60, 0.85)',
@@ -433,7 +435,8 @@ const styles = StyleSheet.create({
     borderColor: '#4C0519',
   },
   fanLabelNow: {
-    paddingHorizontal: 6,
+    paddingLeft: 7,
+    paddingRight: 9,
     paddingVertical: 2.5,
     borderRadius: 6,
     backgroundColor: '#FB923C',
@@ -444,6 +447,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '700',
+    includeFontPadding: false,
   },
   isolineLabelText: {
     color: '#FFFFFF',

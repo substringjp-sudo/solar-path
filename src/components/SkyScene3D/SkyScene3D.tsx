@@ -1090,7 +1090,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         viewCenterOffsetYFracRef.current = nextOff;
         if (cameraRef.current) {
           if (Math.abs(nextOff) > 1e-4) {
-            cameraRef.current.setViewOffset(1000, 1000, 0, nextOff * 1000, 1000, 1000);
+            const aw = 1000 * (cameraRef.current.aspect || 1);
+            cameraRef.current.setViewOffset(aw, 1000, 0, nextOff * 1000, aw, 1000);
           } else if (cameraRef.current.view?.enabled) {
             cameraRef.current.clearViewOffset();
           }
@@ -2506,9 +2507,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const lookDist = Math.max(100, altitudeM);
 
         const curOffFrac = camera.view?.enabled ? camera.view.offsetY / camera.view.fullHeight : 0;
-        if (Math.abs(curOffFrac - viewCenterOffsetYFracRef.current) > 1e-4) {
+        const curViewAspect = camera.view?.enabled ? camera.view.fullWidth / Math.max(1, camera.view.fullHeight) : camera.aspect;
+        if (
+          Math.abs(curOffFrac - viewCenterOffsetYFracRef.current) > 1e-4 ||
+          (camera.view?.enabled && Math.abs(curViewAspect - camera.aspect) > 1e-4)
+        ) {
           if (Math.abs(viewCenterOffsetYFracRef.current) > 1e-4) {
-            camera.setViewOffset(1000, 1000, 0, viewCenterOffsetYFracRef.current * 1000, 1000, 1000);
+            const aw = 1000 * (camera.aspect || 1);
+            camera.setViewOffset(aw, 1000, 0, viewCenterOffsetYFracRef.current * 1000, aw, 1000);
           } else {
             camera.clearViewOffset();
           }
