@@ -63,7 +63,7 @@ import type { TsunBuildInput, TsunLaneInput } from './tsunAtlas';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
-import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt, GENUS_LS_AMT } from './cloudFlowShader';
+import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT } from './cloudFlowShader';
 import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
@@ -153,6 +153,8 @@ export interface MacroRingPoint { distance: number; azimuthOffset: number; cover
  */
 export interface HazeInput { aod: number; alpha: number; g: number; omega: number }
 export const HAZE_SCALE_HEIGHT_KM = 1.5;
+/** 구름 자기 그림자 반폭(m) — 해 쪽으로 본 구름 앞 공기가 그 구름 그늘에 드는 길이 R/sinθ 의 R(2026-11-18). 층적운·적운 덩어리 반폭 정도. */
+export const CLOUD_OWN_SHADOW_R_M = 1500;
 
 /**
  * 해 고도 → 노출(§127 E2-3, 자 `tools/genus-ruler/genus/RULER-exposure.md`).
@@ -917,7 +919,7 @@ export async function createVolumetricScene(
       'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
       'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
       'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
-      'uniform vec4 farDriftU;', 'uniform vec4 farDriftV;', 'uniform vec4 farDriftKmU;', 'uniform vec4 farDriftKmV;', 'uniform float farLsAmt;', 'uniform vec4 farMacroDriftU;', 'uniform vec4 farMacroDriftV;', 'uniform vec4 farLutCol;',
+      'uniform vec4 farDriftU;', 'uniform vec4 farDriftV;', 'uniform vec4 farDriftKmU;', 'uniform vec4 farDriftKmV;', 'uniform float farLsAmt;', 'uniform vec4 farLife;', 'uniform float farLifeW;', 'uniform vec4 farMacroDriftU;', 'uniform vec4 farMacroDriftV;', 'uniform vec4 farLutCol;',
       'uniform vec3 farCityUp;', 'uniform float farCutKm;',
       // 100km 너머 단일 구름 층 2D 평면 투영 + 원고리 격자 적층 (높은 층→낮은 층 순)
     // 2026-11-18 큰 무늬(비주기): 파장 55·89·144 km 사인 셋을 서로 다른 방향으로 — 24 km 타일 반복을 깹니다. 0..1.
@@ -951,7 +953,10 @@ export async function createVolumetricScene(
       '    vec3 dRel = hit - farOriginKm;',
       '    vec2 planeKm = vec2(dot(dRel, farEast), dot(dRel, farNorth));',
       '    vec2 wUv = planeKm / max(farTileKm, 0.5) + wDrift;',
-      '    dens = dot(texture(farWeatherTex, wUv), wMask);',
+      '    float fA = dot(texture(farWeatherTex, wUv + farLife.xy), wMask);',
+      '    float fB = farLifeW > 0.0 ? dot(texture(farWeatherTex, wUv + farLife.zw), wMask) : fA;',
+      // 가까운 구름과 같은 생애 섞기(cloudFlowShader genusLifeMix — 분산 되살림).
+      '    dens = farLifeW > 0.0 ? clamp(0.5 + (mix(fA, fB, farLifeW) - 0.5) / sqrt((1.0 - farLifeW) * (1.0 - farLifeW) + farLifeW * farLifeW), 0.0, 1.0) : fA;',
       // 가까운 구름과 같은 큰 무늬(cloudFlowShader genusLsField) — 100 km 너머도 바람에 실려 움직이고 24 km 반복이 덜 보이게.
       '    if (farLsAmt > 0.0) dens = clamp(dens * (1.0 + farLsAmt * (2.0 * farLsField(planeKm + dKm) - 1.0)), 0.0, 1.0);',
       '    if (farMacroOn > 0.5) {',
@@ -1277,7 +1282,10 @@ export async function createVolumetricScene(
       '  vec3 hSunE, hSkyE, hTBg, hLBg, hTCl, hLCl;',
       '  volHazeIrradiance(vCameraPosition, hUp, hNSun, hSunE, hSkyE);',
       '  volEvalHaze(hRd, hUp, hNSun, hSunE, hSkyE, hUBg, hTBg, hLBg);',
-      '  volEvalHaze(hRd, hUp, hNSun, hSunE, hSkyE, hUCl, hTCl, hLCl);',
+      // 2026-11-18 구름 앞 연무도 같은 자기 그림자(구름 패스 cOwn 과 같은 모형): 해 쪽 R/sinθ 구간은 햇빛을 못 받음.
+      '  float hCosS = dot(hRd, hNSun);',
+      `  float hOwnFrac = hCosS > 0.0 ? clamp((${(CLOUD_OWN_SHADOW_R_M / 1000).toFixed(2)} / sqrt(max(1e-4, 1.0 - hCosS * hCosS))) / max(hClKm, 0.01), 0.0, 1.0) * fCloudAlpha : 0.0;`,
+      '  volEvalHaze(hRd, hUp, hNSun, hSunE * (1.0 - hOwnFrac), hSkyE, hUCl, hTCl, hLCl);',
       '  vec4 hOv = vec4(0.0);',
       '  #ifdef HAS_OVERLAY',
       '  hOv = texture(overlayBuffer, uv);',
@@ -1333,6 +1341,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('farDriftKmU', new Uniform(new Vector4()));
     fx.uniforms.set('farDriftKmV', new Uniform(new Vector4()));
     fx.uniforms.set('farLsAmt', new Uniform(GENUS_LS_AMT));
+    fx.uniforms.set('farLife', new Uniform(new Vector4()));
+    fx.uniforms.set('farLifeW', new Uniform(0));
     fx.uniforms.set('farDriftV', new Uniform(new Vector4()));
     fx.uniforms.set('farMacroDriftU', new Uniform(new Vector4()));
     fx.uniforms.set('farMacroDriftV', new Uniform(new Vector4()));
@@ -1433,7 +1443,12 @@ export async function createVolumetricScene(
       .replace(ap, [
         '      {',
         '        vec3 cT;',
-        '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, shadowLength * METER_TO_LENGTH_UNIT, sunDirection, cT);',
+        // 2026-11-18 구름 자기 그림자: 해 가까이 보이는 구름 앞 공기는 그 구름에 해가 가려 있습니다(그 점에서 해 쪽으로 가는 빛이
+        // 바로 그 구름을 지남). 시선과 해의 각 θ 에서 구름 반폭 R 이면 구름 앞 R/sinθ 구간이 그늘 — 빛줄기 길이에 넣습니다.
+        // 빠지면 공기의 앞쪽 산란(미 산란 봉우리)이 구름 위에 얹혀 해가 구름 뒤에서 비추듯 해 둘레 구름이 하얗게 뜹니다.
+        '        float cCosS = dot(rayDirection, sunDirection);',
+        `        float cOwn = cCosS > 0.0 ? min(length(frontPosition - cameraPosition), ${CLOUD_OWN_SHADOW_R_M.toFixed(1)} / sqrt(max(1e-4, 1.0 - cCosS * cCosS))) * color.a : 0.0;`,
+        '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, max(shadowLength, cOwn) * METER_TO_LENGTH_UNIT, sunDirection, cT);',
         '        float cL = dot(cIn, vec3(0.2126, 0.7152, 0.0722));',
         '        cIn = mix(cIn, vec3(cL), 0.7 * cloudAirShadeC) * mix(1.0, max(0.35, cloudSkyTC), cloudAirShadeC);',
         '        color.rgb = color.rgb * cT + cIn * color.a;',
@@ -2056,6 +2071,7 @@ export async function createVolumetricScene(
     (au.get('farDriftU')!.value as Vector4).set(pick(gdu, s[0]), pick(gdu, s[1]), pick(gdu, s[2]), pick(gdu, s[3]));
     (au.get('farDriftV')!.value as Vector4).set(pick(gdv, s[0]), pick(gdv, s[1]), pick(gdv, s[2]), pick(gdv, s[3]));
     const kdu = cu.genusDriftKmU?.value as Vector4 | undefined, kdv = cu.genusDriftKmV?.value as Vector4 | undefined;
+    if (cu.genusLife) { (au.get('farLife')!.value as Vector4).copy(cu.genusLife.value as Vector4); au.get('farLifeW')!.value = cu.genusLifeW.value as number; }
     (au.get('farDriftKmU')!.value as Vector4).set(pick(kdu, s[0]), pick(kdu, s[1]), pick(kdu, s[2]), pick(kdu, s[3]));
     (au.get('farDriftKmV')!.value as Vector4).set(pick(kdv, s[0]), pick(kdv, s[1]), pick(kdv, s[2]), pick(kdv, s[3]));
     (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
@@ -2232,6 +2248,7 @@ export async function createVolumetricScene(
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec - p.date.getTime() / 1000, GENUS_TILE_KM, p.layers.slice(0, 4).map(L => L?.driftKm));
+        setGenusLife(m, driftSec);
         setWaveDrift(m, gl[0] ? flowParam(gl[0], 'windU', 0) : 0, gl[0] ? flowParam(gl[0], 'windV', 0) : 0, driftSec - p.date.getTime() / 1000, p.layers[0]?.driftKm);
         // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
@@ -2481,7 +2498,7 @@ export async function createVolumetricScene(
       const w0 = genLayers[0];
       const wu0 = w0 ? flowParam(w0, 'windU', 0) : 0;
       const wv0 = w0 ? flowParam(w0, 'windV', 0) : 0;
-      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setWaveDrift(m, wu0, wv0, driftSec - (genDate ?? date).getTime() / 1000, lastInput.layers[0]?.driftKm); setMacroDrift(m, genLayers, macroSec); }
+      for (const m of genusMats) { setGenusLife(m, driftSec); setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setWaveDrift(m, wu0, wv0, driftSec - (genDate ?? date).getTime() / 1000, lastInput.layers[0]?.driftKm); setMacroDrift(m, genLayers, macroSec); }
       // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다. 잡음 없는 모드(1)는 걸음이 없습니다.
       if (macro && opt.macro === 2) {
         if (macro.lastSec == null) macro.lastSec = driftSec;
