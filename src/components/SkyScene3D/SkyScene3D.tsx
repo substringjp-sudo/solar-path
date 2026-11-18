@@ -614,6 +614,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const starFieldRef = useRef<StarFieldHandle | null>(null);
   const milkyWayRef = useRef<MilkyWayHandle | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
+  // 2026-11-18 장노출(renderLongExposure)을 그리는 동안 해·달 경로선을 숨김 — 결과는 사진 흉내라 안내선이 찍히면 안 됨(사용자 요청).
+  const hidePathsForExposureRef = useRef(false);
   
   /** 별·은하수가 공유하는 적도→지평 회전 행렬 (프레임당 1회만 계산) */
   const equToHorizonRef = useRef(new THREE.Matrix3());
@@ -1339,6 +1341,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       overrideStartBucketMsRef.current = Math.floor(startTimeMs / 3600000) * 3600000 + 1800000;
       overrideSceneTimeMsRef.current = startTimeMs;
       starBoostOverrideRef.current = starBoost;
+      hidePathsForExposureRef.current = true;
+      if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = false;
       remoteViewRef.current = { ...view };
       remoteFramesRef.current = 0;
       zoomProgressRef.current = 0;
@@ -1442,6 +1446,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
         starBoostOverrideRef.current = 1;
+        hidePathsForExposureRef.current = false;
+        if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = layersRef.current.paths;
         remoteViewRef.current = null;
         sceneDirtyRef.current = true;
         cameraAzRef.current = saved.az;
@@ -3644,7 +3650,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 지금 시각·원반 크기는 궤적을 다시 채우지 않아도 매 프레임 맞춥니다(시간 슬라이더를 움직일 때 비움 자리가 태양을 따라가게).
       setCelestialPathsNow(celestialPathsRef.current, targetDate);
       setCelestialPathsNearFade(celestialPathsRef.current, Math.max(NEAR_FADE_INNER_HOURS, (sunDiscRadiusDegRef.current * 2.2) / 15));
-      celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
+      celestialPathsRef.current.containerGroup.visible = currentLayers.paths && !hidePathsForExposureRef.current;
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
