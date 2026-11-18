@@ -42,6 +42,7 @@ import {
   dayPhaseSegments, minuteInDay, createIdleCommit,
 } from '../../utils/timeBar';
 import { emitScrubTime } from '../../utils/liveClock';
+import { getVolumetricStatus, subscribeVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
 
 export type ScrubKind = 'date' | 'time';
 
@@ -181,6 +182,10 @@ export const DateTimeBar: React.FC<Props> = ({
   const [legendOpen, setLegendOpen] = useState(false);
   const [showYearTrack, setShowYearTrack] = useState(false);
 
+  // 2026-11-18 구름을 다 구운 시간대(버킷 가운데 시각) — 시간 막대 아래 선으로(예전 팝업 진행 막대 대신, 사용자 요청).
+  const [cloudReadyMs, setCloudReadyMs] = useState<number[]>(() => getVolumetricStatus().prewarm?.readyMs ?? []);
+  useEffect(() => subscribeVolumetricStatus(st => setCloudReadyMs(st.prewarm?.readyMs ?? [])), []);
+
   const tMs = currentTime.getTime();
   const year = new Date(tMs + tz * MS_HOUR).getUTCFullYear();
   const dayStart = localDayStartMs(tMs, tz);
@@ -200,6 +205,22 @@ export const DateTimeBar: React.FC<Props> = ({
   const rangeRef = useRef(range);
   rangeRef.current = range;
   const pctOfMin = (m: number) => ((m - range.from) / (range.to - range.from)) * 100;
+  // 다 구운 시간대 → 이 날(관측지 현지)의 분 구간, 붙은 것은 합침. 버킷은 한 시간(가운데 ±30분).
+  const cloudSegs = useMemo(() => {
+    const iv = cloudReadyMs
+      .map(ms => (ms - dayStart) / MS_MIN)
+      .filter(m => m > -30 && m < 1470)
+      .map(m => ({ from: Math.max(range.from, m - 30), to: Math.min(range.to, m + 30) }))
+      .filter(g => g.to > g.from)
+      .sort((a, b) => a.from - b.from);
+    const out: { from: number; to: number }[] = [];
+    for (const g of iv) {
+      const last = out[out.length - 1];
+      if (last && g.from <= last.to + 0.5) last.to = Math.max(last.to, g.to);
+      else out.push({ ...g });
+    }
+    return out;
+  }, [cloudReadyMs, dayStart, range.from, range.to]);
   const zoomArmedAt = useRef(0);
 
   // ── 최신 값은 ref 로(손잡이·반복 버튼의 콜백이 낡은 값을 보지 않게) ──────────────
@@ -493,6 +514,14 @@ export const DateTimeBar: React.FC<Props> = ({
                 <View key={m.key} style={[styles.eventMark, { left: `${pctOfMin(m.m)}%`, backgroundColor: m.c }, m.up ? { top: -10 } : { top: 7 }]} />
               ))}
               {nowDayPct != null && <View style={[styles.nowTick, { left: `${nowDayPct}%`, top: -9, height: 17 }]} />}
+              {/* 구름을 다 구운 시간대 — 막대 바로 아래 가는 선. 붙은 시간대는 한 줄로 잇습니다. */}
+              {cloudSegs.length > 0 && (
+                <View style={[styles.trackClip, { top: 8, height: 2 }]} pointerEvents="none">
+                  {cloudSegs.map((g, i) => (
+                    <View key={i} style={{ position: 'absolute', left: `${pctOfMin(g.from)}%`, width: `${pctOfMin(g.to) - pctOfMin(g.from)}%`, top: 0, height: 2, borderRadius: 1, backgroundColor: color.accent, opacity: 0.85 }} />
+                  ))}
+                </View>
+              )}
             </ScrubTrack>
           </View>
           <StepButton

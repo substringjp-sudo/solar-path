@@ -786,8 +786,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         </View>
         )}
 
-        {/* 날씨 수신 또는 백그라운드 24시간 하늘 사전 계산 진행률 배너 (터치 통과) */}
-        {!weatherError && (isWeatherLoading || volPrewarm?.active) && (() => {
+        {/* 날씨 수신 배너 (터치 통과). 2026-11-18 하늘 사전 계산 진행은 팝업 대신 시간 막대 아래 선으로 보입니다(DateTimeBar). */}
+        {!weatherError && isWeatherLoading && (() => {
           const pct = isWeatherLoading
             ? 15
             : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));

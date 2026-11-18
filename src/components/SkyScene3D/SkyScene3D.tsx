@@ -2833,6 +2833,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   // 첫 장면 렌더링과 스플래시 전환이 먼저 안정화되도록 잠깐 대기합니다.
                   await new Promise(r => setTimeout(r, 150));
                   let reportedActive = false;
+                  const readyMs: number[] = [];
+                  setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
                   for (let idx = 0; idx < totalHours; idx++) {
                     if (aborted) return;
                     while (shouldPausePrewarm() && !aborted) {
@@ -2857,22 +2859,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                       if (!reportedActive) {
                         reportedActive = true;
                         setVolumetricStatus({
-                          prewarm: { active: true, done: idx, total: totalHours },
+                          prewarm: { active: true, done: idx, total: totalHours, readyMs: readyMs.slice() },
                         });
                       }
                       await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm);
                       if (aborted) return;
                     }
                     const done = idx + 1;
-                    if (reportedActive || done === totalHours) {
-                      setVolumetricStatus({
-                        prewarm: {
-                          active: reportedActive && done < totalHours,
-                          done,
-                          total: totalHours,
-                        },
-                      });
-                    }
+                    readyMs.push(bMs);
+                    setVolumetricStatus({
+                      prewarm: {
+                        active: reportedActive && done < totalHours,
+                        done,
+                        total: totalHours,
+                        readyMs: readyMs.slice(),
+                      },
+                    });
                   }
                 })().catch(() => {
                   if (!aborted) {
