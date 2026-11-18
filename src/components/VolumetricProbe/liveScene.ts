@@ -211,6 +211,8 @@ import { dropSeamCopies } from '../../utils/macroField';
  */
 export const HAZE_BACKGROUND_AOD = 0.12;
 /** 습한 막 문턱: 역전층 아래 습도, 그 위 마른 공기, 막을 켜는 최소 연직 광학두께, 해 둘레 구름이 이미 해를 가린다고 볼 운량. */
+/** 적운 그리기 두께 상한(m) */
+export const CU_MAX_THICK_M = 1500;
 export const MIST_RH_MOIST = 75;
 export const MIST_RH_DRY = 50;
 export const MIST_MIN_TAU = 0.1;
@@ -495,7 +497,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // 저층: 단면 덱이 있으면 밑면·두께를 그대로, 없으면 층 높이(가운데)에서 두께의 반을 뺀 밑면.
   if (obs.low > 0) {
     const thick = forecast.lowBaseKm != null && forecast.lowTopKm != null ? (forecast.lowTopKm - forecast.lowBaseKm) * 1000 : NaN;
-    const thicknessM = Number.isFinite(thick) ? clamp(thick, 300, 3000) : undefined;
+    let thicknessM = Number.isFinite(thick) ? clamp(thick, 300, 3000) : undefined;
     const centerKm = obs.layerAltLowKm ?? FALLBACK_ALT_KM.low;
     const minBaseKm = inMountainCloud ? Math.max(0, groundKm - 0.05) : groundKm + 0.15;
     const baseKm = Math.max(
@@ -513,6 +515,8 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
     } else {
       const g = renderGenusFor(forecast.low);
+      // 2026-11-18 적운(cu)은 덱 두께를 1.5 km 에서 자름 — 맑은 날 적운(humilis·mediocris)은 깊이가 폭보다 작음. 예보 덱(최대 3 km)을 그대로 쓰면 높고 뾰족한 탑.
+      if (g === 'cu' && thicknessM != null) thicknessM = Math.min(thicknessM, CU_MAX_THICK_M);
       // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
       const spacingKm = g === 'cu' || g === 'sc' ? aspectSpacingKm(g, thicknessM ?? GENUS[g].height) : undefined;
       // §144·§147 층운(st)·난층운(ns) 및 완전 흐림(>= 98% 또는 강수+90%+)은 fullCover(>= 0.999) 이상인 1.0으로 두어

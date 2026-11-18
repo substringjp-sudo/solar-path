@@ -86,8 +86,9 @@ export const GENUS_THRESHOLDS = {
   stOvercast: 80,
   /** 적운: 대류(CAPE 이상 또는 LI 이하) 또는 (대류 자료 없을 때) 덱 두께 이상 + 낮 + 운량 미만 */
   cuCape: 9999, cuLi: 2, cuThickKm: 0.6, cuCover: 55,
-  /** 웅대적운: 덱 두께 이상 */
-  cgThickKm: 2.0,
+  /** 웅대적운: 덱 두께 이상 **이고** 대류가 실제로 셈(CAPE 이상 또는 LI 이하). 2026-11-18 두께만 보던 때는 11월 늦은 오후(나고야 저층 12 %)에도
+   *  웅대적운 탑(두께 2.5 km 이상)으로 그려 높고 뾰족했음. 대류 자료가 없으면 적운. */
+  cgThickKm: 2.0, cgCape: 300, cgLi: -1,
   /** 고층운: 중층 운량 이상 이고(강수 있음 또는 습윤 면 수 이상) */
   asCover: 101, asLevels: 2,
   /** 비가 올 때(nsPrecip 이상) 중층이 이 이상(%)이면 고층운(as) — 비구름 위의 중층은 흩어진 고적운이 아니라 덮개(§147) */
@@ -127,7 +128,7 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     } else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && (!weakConv || x.low >= T.stOvercast)) {
       low = 'st'; why.push(`st: 밑면 ${baseAglKm.toFixed(2)}km`);
     } else if (weakConv && x.isDay !== false && x.low < T.cuCover) {
-      low = thickKm != null && thickKm >= T.cgThickKm ? 'cg' : 'cu';
+      low = thickKm != null && thickKm >= T.cgThickKm && ((cape != null && cape >= T.cgCape) || (li != null && li <= T.cgLi)) ? 'cg' : 'cu';
       why.push(`${low}: 대류 두께 ${thickKm?.toFixed(1) ?? '?'}km`);
     } else {
       low = 'sc'; why.push('sc: 나머지');
