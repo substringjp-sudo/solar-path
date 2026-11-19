@@ -3978,13 +3978,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
         if (mask.bld) {
-          // 2026-11-19 물 덮개도 함께 — 강·호수 자리를 평평한 수면 고도로(demBuildingFlatten.ts).
+          // 2026-11-19 물 덮개(강·호수 자리를 평평한 수면 고도로)와 건물 발자국(건물마다 바닥을 한 높이로)도 함께
+          // (demBuildingFlatten.ts 의 flattenWaterHeights · flattenFootprints).
           const cover: BuildingCover = {
             ...mask.bld,
             water: [
               ...(mask.waterHi ? [mask.waterHi] : []),
               ...(mask.water ? [{ size: mask.size, halfM: mask.halfM, data: mask.water }] : []),
             ],
+            footprints: mask.footprints,
           };
           bldCoverRef.current = { key, cover };
           const patch = demPatchRef.current, renderer = rendererRef.current;

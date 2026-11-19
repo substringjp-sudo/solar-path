@@ -31,11 +31,21 @@ export interface BuildingCover {
   halfM: number;
   data: Uint8Array;
   /**
+   * 2026-11-19 건물 발자국 바깥 고리(동 x, 남 z, m 쌍). 있으면 건물마다 발자국 아래 고도를 **한 높이의 바닥**으로 맞춥니다.
+   * 건물은 중심점 지반 고도를 바닥으로 쓰므로(BuildingField), 발자국 아래 지형이 그 한 값이면 떠 보이거나 파묻히지 않습니다.
+   */
+  footprints?: Float32Array[];
+  /**
    * 2026-11-19 물 덮개(0~255, 관측자 둘레 ±halfM), 촘촘한 것 먼저. 있으면 강·호수 자리 고도를 평평한 수면으로 맞춥니다
    * (사용자: 내륙의 물이 땅 위에 씌워져 강이 오르락내리락함). 표면 고도 자료는 수면 위 다리·배·둑 높이와 레이더 잡음이 섞여 있습니다.
    */
   water?: Array<{ size: number; halfM: number; data: Uint8Array }>;
 }
+
+/** 발자국 둘레에서 바닥 높이를 재는 고리 폭(m). */
+export const FOOTPRINT_RING_M = 10;
+/** 바닥 = 고리 고도의 이 분위수(0 = 가장 낮은 쪽). 비탈에서는 낮은 쪽 땅에 맞춥니다. */
+export const FOOTPRINT_LOW_Q = 0.25;
 
 /** 수면 고도: 물 칸만의 최솟값 창 반폭(m) — 다리(대개 폭 40 m 아래)·배·잡음 솟음을 지움. */
 export const WATER_MIN_HALF_M = 60;
@@ -165,6 +175,95 @@ export function flattenHeights(
       sumDrop += d;
       if (d > stats.maxDropM) stats.maxDropM = d;
       if (-d > stats.maxRaiseM) stats.maxRaiseM = -d;
+    }
+  }
+  stats.meanDropM = stats.touched ? sumDrop / stats.touched : 0;
+  return { heights: out, stats };
+}
+
+/**
+ * 건물마다 발자국 아래를 한 높이로 맞춥니다. 순수 함수 — 시험용으로도 씁니다.
+ * `polys` 는 고도 격자 칸 좌표(칸 i 의 중심 = i + 0.5)의 꼭짓점 쌍 (열, 행) 입니다.
+ *
+ * 건물 하나의 바닥 = 발자국 바로 바깥 고리(다른 건물 칸은 뺌)에서 고도의 낮은 분위수.
+ * 고리가 거의 비는 빽빽한 곳(건물이 맞붙음)은 건드리지 않습니다(그곳은 동네 단위 깎기가 맡음).
+ * 바닥이 발자국 안의 가장 높은 값보다 높으면 그 높이로 자릅니다(구덩이 위에 짓지 않음).
+ */
+export function flattenFootprints(
+  h: Float32Array,
+  n: number,
+  texelM: number,
+  polys: Float32Array[],
+): { heights: Float32Array; stats: FlattenStats } {
+  const stats: FlattenStats = { touched: 0, meanDropM: 0, maxDropM: 0, maxRaiseM: 0 };
+  if (!polys.length) return { heights: h, stats };
+  const own = new Int32Array(n * n);
+  const bb = new Int32Array(polys.length * 4); // x0 x1 y0 y1 (칸, 닫힌 구간); 비면 x1 < x0
+  const xs: number[] = [];
+  for (let k = 0; k < polys.length; k++) {
+    const P = polys[k], m = P.length / 2;
+    let minY = Infinity, maxY = -Infinity;
+    for (let q = 0; q < m; q++) { const y = P[2 * q + 1]; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    const j0 = Math.max(0, Math.ceil(minY - 0.5)), j1 = Math.min(n - 1, Math.floor(maxY - 0.5));
+    let bx0 = n, bx1 = -1, by0 = n, by1 = -1;
+    for (let j = j0; j <= j1; j++) {
+      const yc = j + 0.5;
+      xs.length = 0;
+      for (let q = 0; q < m; q++) {
+        const r = (q + 1) % m;
+        const ax = P[2 * q], ay = P[2 * q + 1], bx = P[2 * r], by = P[2 * r + 1];
+        if ((ay <= yc && by > yc) || (by <= yc && ay > yc)) xs.push(ax + ((yc - ay) / (by - ay)) * (bx - ax));
+      }
+      xs.sort((a, b) => a - b);
+      for (let q = 0; q + 1 < xs.length; q += 2) {
+        const i0 = Math.max(0, Math.ceil(xs[q] - 0.5)), i1 = Math.min(n - 1, Math.floor(xs[q + 1] - 0.5));
+        for (let i = i0; i <= i1; i++) {
+          own[j * n + i] = k + 1;
+          if (i < bx0) bx0 = i;
+          if (i > bx1) bx1 = i;
+          if (j < by0) by0 = j;
+          if (j > by1) by1 = j;
+        }
+      }
+    }
+    bb[4 * k] = bx0; bb[4 * k + 1] = bx1; bb[4 * k + 2] = by0; bb[4 * k + 3] = by1;
+  }
+  const R = Math.max(2, Math.round(FOOTPRINT_RING_M / texelM));
+  const pads = new Float32Array(polys.length).fill(NaN);
+  const ring: number[] = [];
+  for (let k = 0; k < polys.length; k++) {
+    const x0 = bb[4 * k], x1 = bb[4 * k + 1], y0 = bb[4 * k + 2], y1 = bb[4 * k + 3];
+    if (x1 < x0) continue;
+    ring.length = 0;
+    let inMax = -Infinity;
+    for (let j = Math.max(0, y0 - R); j <= Math.min(n - 1, y1 + R); j++) {
+      for (let i = Math.max(0, x0 - R); i <= Math.min(n - 1, x1 + R); i++) {
+        const o = own[j * n + i];
+        if (o === k + 1) { if (h[j * n + i] > inMax) inMax = h[j * n + i]; }
+        else if (o === 0) ring.push(h[j * n + i]);
+      }
+    }
+    if (ring.length < 6) continue;
+    ring.sort((a, b) => a - b);
+    const pad = ring[Math.min(ring.length - 1, Math.floor(ring.length * FOOTPRINT_LOW_Q))];
+    pads[k] = Math.min(pad, inMax);
+  }
+  const out = new Float32Array(h);
+  let sumDrop = 0;
+  for (let k = 0; k < polys.length; k++) {
+    const pad = pads[k];
+    if (!Number.isFinite(pad)) continue;
+    for (let j = bb[4 * k + 2]; j <= bb[4 * k + 3]; j++) {
+      for (let i = bb[4 * k]; i <= bb[4 * k + 1]; i++) {
+        const idx = j * n + i;
+        if (own[idx] !== k + 1) continue;
+        const d = h[idx] - pad;
+        out[idx] = pad;
+        stats.touched++;
+        sumDrop += d;
+        if (d > stats.maxDropM) stats.maxDropM = d;
+        if (-d > stats.maxRaiseM) stats.maxRaiseM = -d;
+      }
     }
   }
   stats.meanDropM = stats.touched ? sumDrop / stats.touched : 0;
@@ -306,6 +405,24 @@ export function flattenDemPatchUnderBuildings(
     stats.touched += wRes.stats.touched;
     stats.maxDropM = Math.max(stats.maxDropM, wRes.stats.maxDropM);
     stats.maxRaiseM = Math.max(stats.maxRaiseM, wRes.stats.maxRaiseM);
+  }
+  // 건물 발자국은 수면을 맞춘 뒤에 — 물가 건물의 바닥을 잴 고리가 출렁이는 원자료가 아니라 평평해진 수면을 보게 합니다.
+  if (cover.footprints?.length) {
+    // 발자국(동 x, 남 z, m) → 고도 격자 칸 좌표. coverAt 와 같은 대응: g = ((i + 0.5) / 256 − observerU) · tileSpanM.
+    const px = DEM_TILE_SIZE_PX / patch.tileSpanM;
+    const polys = cover.footprints.map((fp) => {
+      const q = new Float32Array(fp.length);
+      for (let t = 0; t < fp.length; t += 2) {
+        q[t] = fp[t] * px + patch.observerU * DEM_TILE_SIZE_PX;
+        q[t + 1] = fp[t + 1] * px + patch.observerV * DEM_TILE_SIZE_PX;
+      }
+      return q;
+    });
+    const fRes = flattenFootprints(heights, n, texelM, polys);
+    heights = fRes.heights;
+    stats.touched += fRes.stats.touched;
+    stats.maxDropM = Math.max(stats.maxDropM, fRes.stats.maxDropM);
+    stats.maxRaiseM = Math.max(stats.maxRaiseM, fRes.stats.maxRaiseM);
   }
   if (stats.touched === 0) { patch.flattenedBy = cover; return stats; }
   const out = new Uint8Array(n * n * 4);
