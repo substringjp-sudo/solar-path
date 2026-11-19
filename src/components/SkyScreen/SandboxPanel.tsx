@@ -13,6 +13,17 @@ import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 
+/** 먼 건물 받기 상태(계획 6). loading 중엔 진행, done 이면 결과, off 는 건물 레이어가 꺼져 있거나 지형이 아직 없음. */
+export interface FarStatus {
+  state: 'loading' | 'done' | 'off' | 'error';
+  tilesDone: number;
+  tilesTotal: number;
+  bytes: number;
+  buildings?: number;
+  truncated?: boolean;
+  failed?: number;
+}
+
 export const EYE_HEIGHT_CHOICES_M = [1.6, 10, 30, 100, 300] as const;
 export const MOVE_STEP_CHOICES_M = [10, 100, 1000] as const;
 
@@ -30,11 +41,15 @@ interface Props {
   /** 기기 위치에서 떨어진 거리(m). 기기 위치를 모르면 null. */
   awayM: number | null;
   onHome: () => void;
+  /** 먼 건물(보는 방향만 받음). 없으면 이 줄을 그리지 않습니다. */
+  far?: { status: FarStatus | null; onLoad: () => void };
 }
 
 const fmtM = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 1)} km` : `${m % 1 === 0 ? m : m.toFixed(1)} m`);
 
-export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, stepM, onStep, onMove, awayM, onHome }) => {
+const fmtMB = (b: number) => `${(b / 1048576).toFixed(b >= 10485760 ? 0 : 1)} MB`;
+
+export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, stepM, onStep, onMove, awayM, onHome, far }) => {
   const away = awayM != null && awayM > AWAY_THRESHOLD_M;
   const nextStep = () => {
     const i = MOVE_STEP_CHOICES_M.indexOf(stepM as (typeof MOVE_STEP_CHOICES_M)[number]);
@@ -101,6 +116,28 @@ export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeigh
           <Text style={styles.stepSub}>{L3(language, '한 번에', 'per tap', '1回')}</Text>
         </OverlayButton>
       </View>
+
+      {far && (
+        <>
+          <Text style={styles.label}>{L3(language, '먼 건물', 'Far buildings', '遠くの建物')}</Text>
+          <View style={styles.farRow}>
+            <OverlayButton
+              onPress={far.status?.state === 'loading' ? undefined : far.onLoad}
+              accessibilityLabel={L3(language, '보는 방향의 먼 건물 불러오기', 'Load far buildings in view', '視線方向の遠い建物を読む')}
+              style={styles.farBtn}
+            >
+              <Text style={styles.farBtnText}>{far.status?.state === 'loading' ? L3(language, '받는 중…', 'Loading…', '読込中…') : L3(language, '보는 방향 불러오기', 'Load view', '視線方向を読む')}</Text>
+            </OverlayButton>
+            <Text style={styles.farStatus} numberOfLines={2}>
+              {far.status?.state === 'loading' && `${far.status.tilesDone}/${far.status.tilesTotal}${L3(language, '장', ' tiles', '枚')} · ${fmtMB(far.status.bytes)}`}
+              {far.status?.state === 'done' && `${L3(language, '건물', 'Buildings', '建物')} ${far.status.buildings ?? 0}${L3(language, '채', '', '棟')} · ${fmtMB(far.status.bytes)}${far.status.truncated ? ` · ${L3(language, '한도에서 멈춤', 'stopped at the limit', '上限で停止')}` : ''}${far.status.failed ? ` · ${L3(language, `실패 ${far.status.failed}장`, `${far.status.failed} failed`, `失敗${far.status.failed}枚`)}` : ''}`}
+              {far.status?.state === 'off' && L3(language, '건물 표시가 꺼져 있어요', 'Buildings layer is off', '建物表示がオフです')}
+              {far.status?.state === 'error' && L3(language, '받지 못했어요', 'Could not load', '読み込めませんでした')}
+              {!far.status && L3(language, '도심은 한 장이 약 0.4 MB 라 보는 방향만 받아요', 'Downtown tiles are ~0.4 MB each, so only the view direction is loaded', '市街地は1枚約0.4MBなので視線方向だけ読みます')}
+            </Text>
+          </View>
+        </>
+      )}
     </View>
   );
 };
@@ -120,6 +157,10 @@ const styles = StyleSheet.create({
   stepBtn: { width: 64, height: 44, flexDirection: 'column' },
   stepText: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: DARK.text },
   stepSub: { fontSize: 9, color: DARK.textDim },
+  farRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  farBtn: { width: 'auto', minWidth: 96, height: 30, paddingHorizontal: 8, flexShrink: 0 },
+  farBtnText: { fontSize: 11, fontWeight: '700', color: DARK.text },
+  farStatus: { flex: 1, minWidth: 0, fontFamily: mono, fontSize: 10, color: DARK.textDim },
   awayRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   awayBadge: {
     backgroundColor: DARK.overlay,

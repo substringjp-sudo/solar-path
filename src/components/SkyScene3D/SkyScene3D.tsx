@@ -81,7 +81,9 @@ import {
   computeNightWindowGlow,
   type BuildingFieldHandle,
 } from './BuildingField';
-import { fetchNearbyBuildings, BUILDING_RADIUS_M } from '../../utils/buildingTiles';
+import { fetchNearbyBuildings, buildMergedBuildingGeometry, BUILDING_RADIUS_M, type BuildingMeshData } from '../../utils/buildingTiles';
+import { loadFarBuildings, picksToElements, concatBuildingMeshData, type FarTileData } from '../../utils/farBuildingsLoad';
+import { FAR_OUTER_M } from '../../utils/farBuildings';
 import { fetchUrbanMask } from '../../utils/mvtTiles';
 import { flattenDemPatchUnderBuildings, type BuildingCover } from '../../utils/demBuildingFlatten';
 
@@ -326,6 +328,25 @@ export const PIXEL_ART_CHOICES: { rows: number; label: string }[] = [
   { rows: 96, label: '굵게' },
 ];
 
+/** 장면의 DEM 패치(촘촘한 것 + 광역)를 하나의 높이 표본기로 — 고르기 · 스카이라인 · 먼 건물이 같이 씁니다. */
+function sceneHeightSampler(renderer: THREE.WebGLRenderer, patch: DemPatch, farPatch: DemPatch | null): HeightSampler | null {
+  const fine = makeDemSampler(renderer, patch);
+  const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
+  if (!fine && !far) return null;
+  return (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
+}
+
+/** 장면에 올리는 먼 건물 수 한도(farBuildingsLoad.picksToElements 의 기본 한도와 같음) */
+const FAR_MAX_BUILDINGS_SHOWN = 3000;
+
+/** 가까운 건물 병합 기하에 읽은 먼 타일의 보이는 건물을 붙입니다(같은 중심 위경도). 먼 건물이 없으면 가까운 것 그대로. */
+function mergeBuildings(near: BuildingMeshData | null, farTiles: Map<string, FarTileData>, lat: number, lng: number): BuildingMeshData | null {
+  if (farTiles.size === 0) return near;
+  const els = picksToElements(farTiles.values(), FAR_MAX_BUILDINGS_SHOWN);
+  if (els.length === 0) return near;
+  return concatBuildingMeshData(near, buildMergedBuildingGeometry(els, lat, lng, FAR_OUTER_M));
+}
+
 interface SkyScene3DProps {
   sim: any;
   currentTime: Date;
@@ -483,6 +504,27 @@ export interface SkyScene3DHandle {
    * 땅 자료가 아직 없으면 null, 땅이 없는 방위는 null. 지형 패치와 눈 높이가 같은 동안은 계산을 다시 하지 않습니다.
    */
   getSkyline?: () => ((azDeg: number) => number | null) | null;
+  /**
+   * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
+   * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
+   * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있거나
+   * 지형이 아직 없으면 null.
+   */
+  loadFarBuildings?: (opts?: { onProgress?: (p: { tilesDone: number; tilesTotal: number; bytes: number }) => void }) => Promise<FarBuildingsResult | null>;
+}
+
+export interface FarBuildingsResult {
+  /** 이번 계획 타일 수 · 새로 받은 수 · 실패 수 */
+  planned: number;
+  fetched: number;
+  failed: number;
+  /** 이번에 받은 바이트 */
+  bytes: number;
+  /** 바이트 한도에 닿아 계획을 다 못 받았다 */
+  truncated: boolean;
+  /** 지금까지 읽은 먼 타일 수와 장면에 올린 먼 건물 수 */
+  tilesTotal: number;
+  buildings: number;
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
@@ -618,6 +660,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
   const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
+  /** 먼 건물(샌드박스): 가까운 건물 병합 기하·읽은 먼 타일·그 위치 키·진행 중 읽기. 먼 건물은 위치가 바뀌면 비웁니다. */
+  const nearBuildingDataRef = useRef<BuildingMeshData | null>(null);
+  const farTilesRef = useRef<Map<string, FarTileData>>(new Map());
+  const farLocKeyRef = useRef('');
+  const farAbortRef = useRef<AbortController | null>(null);
+  /** 핸들(한 번만 만들어짐)이 읽는 관측 중심 위경도 — 매 렌더 갱신 */
+  const bldCenterRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
   /** 땅 스카이라인 캐시(해·달 걸기) — 지형 패치 번호와 눈 높이가 같은 동안 재사용. */
   const skylineCacheRef = useRef<{ key: string; fn: (azDeg: number) => number | null } | null>(null);
   const buildingLoadedKeyRef = useRef<string | null>(null);
@@ -1159,14 +1208,39 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       onSelectTrackingTargetRef.current?.(null);
       requestRender(8);
     },
+    loadFarBuildings: async (opts) => {
+      const renderer = rendererRef.current, patch = demPatchRef.current, field = buildingFieldRef.current;
+      const { lat, lng } = bldCenterRef.current;
+      if (!renderer || !patch || !field || !layersRef.current.buildings) return null;
+      const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
+      if (!sample) return null;
+      const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
+      const eye = ground + (eyeHeightRef.current ?? 1.6);
+      const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+      if (farLocKeyRef.current !== key) { farTilesRef.current = new Map(); farLocKeyRef.current = key; }
+      // 보는 방향: 카메라 방위 ± (가로 화각 / 2 + 6°). 가로 화각은 세로 화각과 화면 비로 구합니다.
+      const { w, h } = layoutSizeRef.current;
+      const hfov = (2 * Math.atan(Math.tan((fovRef.current * Math.PI) / 360) * (w > 0 && h > 0 ? w / h : 1)) * 180) / Math.PI;
+      const sector = { azDeg: cameraAzRef.current, halfWidthDeg: Math.min(90, hfov / 2 + 6) };
+      farAbortRef.current?.abort();
+      const ctl = new AbortController();
+      farAbortRef.current = ctl;
+      const res = await loadFarBuildings({ lat, lon: lng, eyeM: eye, sample, sector, existing: farTilesRef.current, signal: ctl.signal, onProgress: opts?.onProgress });
+      if (ctl.signal.aborted) return null;
+      field.setBuildings(mergeBuildings(nearBuildingDataRef.current, farTilesRef.current, lat, lng));
+      demSerialRef.current += 1;
+      volSettleRef.current = Math.max(volSettleRef.current, 18);
+      sceneDirtyRef.current = true;
+      requestRender(10);
+      let buildings = 0;
+      for (const t of farTilesRef.current.values()) buildings += t.picks.length;
+      return { planned: res.plan.tiles.length, fetched: res.fetched, failed: res.failed, bytes: res.bytes, truncated: res.truncated, tilesTotal: farTilesRef.current.size, buildings: Math.min(buildings, FAR_MAX_BUILDINGS_SHOWN) };
+    },
     getSkyline: () => {
       const renderer = rendererRef.current, patch = demPatchRef.current;
       if (!renderer || !patch) return null;
-      const fine = makeDemSampler(renderer, patch);
-      const farPatch = demMaskPatchRef.current;
-      const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
-      if (!fine && !far) return null;
-      const sample: HeightSampler = (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
+      const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
+      if (!sample) return null;
       const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
       const eye = ground + (eyeHeightRef.current ?? 1.6);
       const key = `${demSerialRef.current}|${eye.toFixed(1)}`;
@@ -1698,11 +1772,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const { w: vw, h: vh } = layoutSizeRef.current;
     if (!cam || !patch || !renderer || !cb || !vw || !vh) return;
     // 가까운 촘촘한 패치(수 km)를 먼저, 그 밖은 지형 셰이더가 멀리 쓰는 광역 패치로 — 먼 산(수십 km)도 고를 수 있게.
-    const fine = makeDemSampler(renderer, patch);
-    const farPatch = demMaskPatchRef.current;
-    const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
-    if (!fine && !far) return;
-    const sample: HeightSampler = (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
+    const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
+    if (!sample) return;
     cam.updateMatrixWorld();
     const v = new THREE.Vector3((x / vw) * 2 - 1, 1 - (y / vh) * 2, 0.5).unproject(cam).sub(cam.position);
     const len = v.length();
@@ -4112,6 +4183,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const bldLat = location?.coords?.latitude ?? 37.5665;
   const bldLng = location?.coords?.longitude ?? 126.9780;
+  bldCenterRef.current = { lat: bldLat, lng: bldLng };
   useEffect(() => {
     if (!terrainFieldRef.current) return;
 
@@ -4196,7 +4268,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (demPatchRef.current) {
           buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
         }
-        buildingFieldRef.current.setBuildings(meshData);
+        // 먼 건물은 위치마다 따로입니다 — 자리가 바뀌었으면 비우고, 같은 자리에서 다시 읽었으면 이어 붙입니다.
+        if (farLocKeyRef.current !== key) { farTilesRef.current = new Map(); farLocKeyRef.current = key; }
+        nearBuildingDataRef.current = meshData;
+        buildingFieldRef.current.setBuildings(mergeBuildings(meshData, farTilesRef.current, bldLat, bldLng));
         buildingFieldRef.current.setVisible(true);
         demSerialRef.current += 1;
         volSettleRef.current = Math.max(volSettleRef.current, 18);
@@ -4258,6 +4333,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current = null;
       }
       urbanLoadedKeyRef.current = null;
+      farAbortRef.current?.abort();
       if (buildingFieldRef.current) {
         buildingFieldRef.current.dispose();
         buildingFieldRef.current = null;
