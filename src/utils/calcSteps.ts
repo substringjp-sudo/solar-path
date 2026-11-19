@@ -4,9 +4,9 @@
  * 용어집이 아니라 **앱이 실제로 하는 계산을 오늘의 숫자 그대로** 보여 줍니다. 결과 하나마다 단계들을 차례로 펼치고, 단계마다
  * 들어온 값 · 한 일 · 나온 값과 "왜 사진에 중요한가" 한 문장만 붙입니다. 값은 늘 지금 보는 위치·날짜의 실제 값입니다.
  *
- * 카드는 다섯 모양 중 하나입니다: 숫자 줄(`rows`), 막대(`bar`), 작은 지도(`map`, 해 쪽 구름), 하늘 그림(`sky`, 스카이라인 윤곽과 해 자리),
- * 결과 줄(`result`). 그래프는 다음 주제와 함께 옵니다. 주제는 둘: 해 뜨는·지는 시각과 방향(`buildSunHorizonCards`),
- * 노을 점수(`buildSunsetScoreCards`).
+ * 카드는 여섯 모양 중 하나입니다: 숫자 줄(`rows`), 막대(`bar`), 작은 지도(`map`, 해 쪽 구름), 하늘 그림(`sky`, 스카이라인 윤곽과 해 자리),
+ * 결과 줄(`result`), 값 줄(`metric`, 제목 · 한 문장 · 오른쪽 값). 그래프는 다음 주제와 함께 옵니다. 주제는 셋: 해 뜨는·지는 시각과 방향
+ * (`buildSunHorizonCards`), 노을 점수(`buildSunsetScoreCards`), 별 보기 조건(`buildStarCards`).
  *
  * 순수 함수입니다 — 화면(`components/CalcSteps`)이 그립니다. 시각 표기는 `fmtTime` 으로 받습니다(화면은 기기 시간대, 판정은 UTC).
  */
@@ -15,6 +15,7 @@ import { skylineDistM, type HorizonProfile, skylineAngleDeg } from './horizon';
 import { sunPosition } from './solarPosition';
 import { refractionDeg } from './moonPosition';
 import type { SunsetScoreBreakdown } from './sunsetPhysics';
+import { starLimit, limitWithoutMoon, seeLevel, type StarInput, type StarResult } from './starVisibility';
 
 type Lang = 'ko' | 'en' | 'ja';
 const L3 = (lang: Lang, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
@@ -45,10 +46,15 @@ export interface SkyMapCell { distKm: number; azDeg: number; cover: number; low:
 /** 해 쪽을 포함한 주변 구름 지도(북쪽이 위). 해 방향 선과 거리 고리를 함께 그립니다. */
 export interface SkyMap { maxKm: number; ringsKm: number[]; cells: SkyMapCell[]; sunAzDeg: number }
 
+/** 값 줄(`metric`)의 오른쪽 값 색: 좋음 · 주의 · 나쁨 · 달 · 보통 */
+export type MetricTone = 'good' | 'warn' | 'bad' | 'moon' | 'plain';
+
 export interface StepCard {
   id: string;
   title: string;
-  shape: 'rows' | 'sky' | 'result' | 'bar' | 'map';
+  shape: 'rows' | 'sky' | 'result' | 'bar' | 'map' | 'metric';
+  /** `metric` 의 오른쪽 값 색 */
+  tone?: MetricTone;
   rows?: StepRow[];
   bar?: BarPart;
   map?: SkyMap;
@@ -360,5 +366,152 @@ export function buildSunsetScoreCards(a: BuildSunsetScoreArgs): SunsetScoreCards
     footnote,
     score: Math.round(a.prediction.score),
     keyId,
+  };
+}
+
+
+// ── 별 보기 조건 ─────────────────────────────────────────────────────────
+
+export interface BuildStarArgs {
+  language: Lang;
+  /** 별을 보는 시각(ms) */
+  timeMs: number;
+  /** 그 시각의 입력(운량·해·달·빛 지도·연무) */
+  input: StarInput;
+  /** 구름 예보가 있는가(없으면 운량 칸이 "모름") */
+  cloudKnown: boolean;
+  /** 달이 이 시각 뒤에 지는 시각(ms). 이미 없거나 오래 안 지면 null. */
+  moonSetMs: number | null;
+  /** 달이 진 시각의 해 고도(°) — 달이 진 뒤의 한계등급을 셉니다. moonSetMs 가 null 이면 안 씁니다. */
+  sunAltAtMoonSetDeg?: number;
+  fmtTime: (ms: number) => string;
+}
+
+export interface StarCards {
+  title: string;
+  /** 제목 아래 시각 글자 */
+  eventLabel: string;
+  cards: StepCard[];
+  footnote: string;
+  limitMag: number;
+  /** 가장 크게 줄인 단계 id (`moon` · `light` · `haze` · `twilight`). 가장 큰 것도 0.3 등급 미만이면 null */
+  keyId: StarResult['keyStep'];
+}
+
+const fmtMag = (d: number) => `${d <= -0.05 ? '−' : ''}${Math.abs(d).toFixed(1)}`;
+
+/** "별 보기 조건" 단계 카드: 구름 → (박명) → 달빛 → 빛 공해 → 습도와 연무 → 보이는 별(한계등급). 계산은 `starVisibility.ts`. */
+export function buildStarCards(a: BuildStarArgs): StarCards {
+  const L = a.language;
+  const r = starLimit(a.input);
+  const inp = a.input;
+  const mag = L3(L, '등급', 'mag', '等級');
+  const cloudWord = r.cloud.rating === 'good' ? L3(L, '좋음', 'Good', '良い') : r.cloud.rating === 'fair' ? L3(L, '보통', 'Fair', '普通') : L3(L, '나쁨', 'Poor', '悪い');
+  const cards: StepCard[] = [];
+
+  // 1. 구름 — 등급을 바꾸지 않고 하늘의 얼마가 가려지는가
+  cards.push({
+    id: 'cloud', title: L3(L, '구름', 'Clouds', '雲'), shape: 'metric',
+    tone: !a.cloudKnown ? 'plain' : r.cloud.rating === 'good' ? 'good' : r.cloud.rating === 'fair' ? 'warn' : 'bad',
+    result: a.cloudKnown ? cloudWord : L3(L, '모름', 'Unknown', '不明'),
+    rows: a.cloudKnown ? [{ label: L3(L, '하늘 전체', 'Whole sky', '空全体'), value: `${Math.round(r.cloud.pct)} %` }] : [],
+    note: !a.cloudKnown ? L3(L, '이 시각의 구름 예보가 없어요.', 'There is no cloud forecast for this time.', 'この時刻の雲の予報がありません。')
+      : r.cloud.rating === 'good' ? L3(L, '별을 가리는 구름은 거의 없어요.', 'Hardly any clouds block the stars.', '星を隠す雲はほとんどありません。')
+        : r.cloud.rating === 'fair' ? L3(L, '구름이 하늘 곳곳을 가려요. 구름 사이로 별이 보여요.', 'Clouds cover parts of the sky. Stars show between them.', '雲が空のところどころを隠します。雲の間から星が見えます。')
+          : L3(L, '구름이 하늘 대부분을 가려 별이 거의 안 보여요.', 'Clouds cover most of the sky, so few stars show.', '雲が空の大半を覆い、星はほとんど見えません。'),
+  });
+
+  // 박명 — 어두운 밤이 아닐 때만
+  if (r.twilight) {
+    cards.push({
+      id: 'twilight', title: L3(L, '박명', 'Twilight', '薄明'), shape: 'metric', tone: 'warn', key: r.keyStep === 'twilight',
+      result: `${fmtMag(r.twilight.deltaMag)} ${mag}`,
+      rows: [{ label: L3(L, '해', 'Sun', '太陽'), value: fmtDeg(r.twilight.sunAltDeg) }],
+      note: r.twilight.deltaMag > -0.15
+        ? L3(L, '해가 거의 다 내려가 하늘이 거의 어두워졌어요.', 'The sun is almost low enough, so the sky is nearly dark.', '太陽がほぼ下がり、空はほとんど暗くなりました。')
+        : L3(L, '해가 아직 충분히 내려가지 않아 하늘이 밝아요. 지평선 아래 18° 가 되면 어두워져요.', 'The sun is not low enough yet, so the sky is bright. It gets dark at 18° below the horizon.', '太陽がまだ十分に下がっておらず空が明るいです。地平線の下18°で暗くなります。'),
+    });
+  }
+
+  // 2. 달빛
+  cards.push({
+    id: 'moon', title: L3(L, '달빛', 'Moonlight', '月明かり'), shape: 'metric', tone: 'moon', key: r.keyStep === 'moon',
+    result: r.moon.up ? `${fmtMag(r.moon.deltaMag)} ${mag}` : L3(L, '없음', 'None', 'なし'),
+    rows: r.moon.up
+      ? [{ label: L3(L, '밝은 면', 'Lit', '輝面'), value: `${Math.round(r.moon.illum * 100)} %` }, { label: L3(L, '고도', 'Altitude', '高度'), value: fmtDeg(r.moon.altDeg, 0) }]
+      : [{ label: L3(L, '달', 'Moon', '月'), value: L3(L, '지평선 아래', 'below the horizon', '地平線の下') }],
+    note: !r.moon.up ? L3(L, '달이 떠 있지 않아 영향이 없어요.', 'The moon is down, so it has no effect.', '月が出ていないので影響はありません。')
+      : r.keyStep === 'moon' ? L3(L, '어두운 별을 가장 많이 지운 단계예요.', 'This step hides the most faint stars.', '暗い星を最も多く消している段階です。')
+        : r.moon.deltaMag > -0.15 ? L3(L, '달이 떠 있지만 가늘거나 낮아 영향이 작아요.', 'The moon is up but thin or low, so the effect is small.', '月は出ていますが細いか低いため、影響は小さいです。')
+          : L3(L, '달빛이 하늘을 밝혀 어두운 별이 가려져요.', 'Moonlight brightens the sky and hides faint stars.', '月明かりが空を明るくして暗い星を隠します。'),
+  });
+
+  // 3. 빛 공해
+  const lp = r.light.baseMag;
+  cards.push({
+    id: 'light', title: L3(L, '빛 공해', 'Light pollution', '光害'), shape: 'metric', tone: r.light.deltaMag < -1 ? 'warn' : 'plain', key: r.keyStep === 'light',
+    result: lp == null ? L3(L, '모름', 'Unknown', '不明') : `${fmtMag(r.light.deltaMag)} ${mag}`,
+    rows: lp == null ? [] : [{ label: L3(L, '빛 지도 기준 한계', 'Limit by the light map', '光地図での限界'), value: `${lp.toFixed(1)} ${mag}` }],
+    note: lp == null ? L3(L, '밤 불빛 지도를 못 읽어 빛 공해를 셈에 넣지 못했어요.', 'The night-light map could not be read, so light pollution is not counted.', '夜間光の地図を読めず、光害を計算に入れていません。')
+      : r.keyStep === 'light' ? L3(L, '어두운 별을 가장 많이 지운 단계예요.', 'This step hides the most faint stars.', '暗い星を最も多く消している段階です。')
+        : r.light.deltaMag > -0.15 ? L3(L, '도시 불빛의 영향이 작아요(밤 불빛 지도 기준).', 'City lights have little effect here (from the night-light map).', '街の明かりの影響は小さいです(夜間光の地図による)。')
+          : L3(L, '도시 불빛이 하늘을 밝혀요(밤 불빛 지도 기준).', 'City lights brighten the sky (from the night-light map).', '街の明かりが空を明るくします(夜間光の地図による)。'),
+  });
+
+  // 4. 습도와 연무
+  const hazeRows: StepRow[] = [];
+  if (r.haze.aodSource === 'aod') hazeRows.push({ label: L3(L, '에어로졸', 'Aerosol', 'エアロゾル'), value: `AOD ${r.haze.aod!.toFixed(2)}` });
+  else if (r.haze.aodSource === 'visibility') {
+    hazeRows.push({ label: L3(L, '시정', 'Visibility', '視程'), value: `${((inp.visibilityM as number) / 1000).toFixed(0)} km` });
+    hazeRows.push({ label: L3(L, '어림 AOD', 'Est. AOD', '推定AOD'), value: r.haze.aod!.toFixed(2) });
+  }
+  if (inp.humidityPct != null) hazeRows.push({ label: L3(L, '습도', 'Humidity', '湿度'), value: `${Math.round(inp.humidityPct)} %` });
+  if (inp.pm25 != null) hazeRows.push({ label: 'PM2.5', value: `${Math.round(inp.pm25)} µg/m³` });
+  cards.push({
+    id: 'haze', title: L3(L, '습도와 연무', 'Humidity and haze', '湿度とかすみ'), shape: 'metric', tone: r.haze.deltaMag < -0.5 ? 'warn' : 'plain', key: r.keyStep === 'haze',
+    result: r.haze.aodSource === 'none' ? L3(L, '모름', 'Unknown', '不明') : `${fmtMag(r.haze.deltaMag)} ${mag}`,
+    rows: hazeRows,
+    note: r.haze.aodSource === 'none' ? L3(L, '연무 자료가 없어 맑은 대기로 셌어요.', 'There is no haze data, so the air is counted as clear.', 'かすみのデータがないため澄んだ大気として計算しました。')
+      : r.haze.deltaMag > -0.15 ? L3(L, '대기가 맑아 영향이 작아요.', 'The air is clear, so the effect is small.', '大気が澄んでいて影響は小さいです。')
+        : L3(L, '연무가 별빛을 줄여요. 지평선 근처가 더 흐려요.', 'Haze dims starlight, most near the horizon.', 'かすみが星の光を弱めます。地平線近くほど暗くなります。'),
+  });
+
+  // 5. 보이는 별 — 막대 1~6.5 등급
+  const limit = r.limitMag;
+  const after = a.moonSetMs != null && r.moon.up ? limitWithoutMoon({ ...inp, sunAltDeg: a.sunAltAtMoonSetDeg ?? inp.sunAltDeg }) : null;
+  const lvl = seeLevel(limit);
+  const levelText = lvl === 'darkest' ? L3(L, '아주 어두운 하늘이에요. 은하수가 또렷해요.', 'A very dark sky. The Milky Way is clear.', 'とても暗い空です。天の川がはっきり見えます。')
+    : lvl === 'milkyway' ? L3(L, '별자리와 은하수 일부가 보여요.', 'Constellations and part of the Milky Way show.', '星座と天の川の一部が見えます。')
+      : lvl === 'constellations' ? L3(L, '주요 별자리가 보여요. 은하수는 어려워요.', 'The main constellations show. The Milky Way is hard.', '主な星座が見えます。天の川は難しいです。')
+        : lvl === 'bright' ? L3(L, '밝은 별과 큰 별자리만 보여요.', 'Only bright stars and big constellations show.', '明るい星と大きな星座だけが見えます。')
+          : L3(L, '밝은 별 몇 개만 보여요.', 'Only a few bright stars show.', '明るい星が数個だけ見えます。');
+  const moonTail = after != null && a.moonSetMs != null && after - limit >= 0.3
+    ? L3(L, `달이 지는 ${a.fmtTime(a.moonSetMs)} 뒤에는 ${after.toFixed(1)} 등급까지 보여요.${after >= 4.5 ? ' 은하수는 달이 진 뒤를 권해요.' : ''}`,
+      `After the moon sets at ${a.fmtTime(a.moonSetMs)}, stars to magnitude ${after.toFixed(1)} show.${after >= 4.5 ? ' The Milky Way is best after moonset.' : ''}`,
+      `月が沈む${a.fmtTime(a.moonSetMs)}以降は${after.toFixed(1)}等級まで見えます。${after >= 4.5 ? '天の川は月が沈んだ後がおすすめです。' : ''}`)
+    : '';
+  // 빛 지도를 못 읽었으면 빛 공해를 0 으로 센 값이라 도시에서는 낙관적입니다(모르는 것을 좋게 말하지 않습니다).
+  const lpCaveat = inp.lightPollutionMag == null
+    ? L3(L, '빛 공해를 셈에 넣지 못해 도시에서는 이보다 덜 보일 수 있어요.', 'Light pollution is not counted, so fewer stars may show in a city.', '光害を計算に入れていないため、街中ではこれより少なくなることがあります。')
+    : '';
+  const sep = L === 'ja' ? '' : ' ';   // 일본어는 문장 사이에 공백을 두지 않습니다
+  const cloudHead = a.cloudKnown && r.cloud.rating === 'bad' ? L3(L, '구름이 많아 대부분 가려져요. 구름이 없는 곳에서는 ', 'Clouds hide most of it. Where it is clear, ', '雲が多くほとんど隠れます。雲のないところでは') : '';
+  cards.push({
+    id: 'limit', title: L3(L, '보이는 별', 'Visible stars', '見える星'), shape: 'bar', key: false,
+    bar: { value: Math.max(0, Math.min(1, (limit - 1) / 5.5)), display: L3(L, `${limit.toFixed(1)} 등급까지`, `to mag ${limit.toFixed(1)}`, `${limit.toFixed(1)}等級まで`) },
+    note: `${cloudHead}${levelText}${moonTail ? sep + moonTail : ''}${lpCaveat ? sep + lpCaveat : ''}`,
+  });
+
+  const footnote = L3(L,
+    '한계등급은 천정 하늘 밝기로 구한 값이에요. 지평선 근처는 더 어둡게 보여요. 달빛은 Krisciunas & Schaefer(1991) 식, 빛 공해는 밤 불빛 지도(NASA Black Marble) 기준이에요.',
+    'The limit comes from the zenith sky brightness; near the horizon it is worse. Moonlight follows Krisciunas & Schaefer (1991), light pollution the night-light map (NASA Black Marble).',
+    '限界等級は天頂の空の明るさから求めています。地平線近くはさらに暗く見えます。月明かりは Krisciunas & Schaefer (1991)、光害は夜間光の地図(NASA Black Marble)に基づきます。');
+  return {
+    title: L3(L, '별 보기 조건', 'Stargazing conditions', '星空の条件'),
+    eventLabel: a.fmtTime(a.timeMs),
+    cards,
+    footnote,
+    limitMag: limit,
+    keyId: r.keyStep,
   };
 }

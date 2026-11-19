@@ -58,6 +58,9 @@ import {
 } from '../VolumetricProbe/volumetricStatus';
 import { getMoonPositionPrecise, moonSemidiameterDeg } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
+import { starArgsFor, hourlyCovers, starWeatherOf, type StarWeather } from '../../utils/starTonight';
+import { estimateLightPollution, type NightLights } from '../../utils/cityLightMap';
+import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor, type } from '../../theme/tokens';
@@ -862,6 +865,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return { prediction: pred, ring, time, eventMs: ev ? ev.getTime() : undefined, sunAzDeg: sunAz, kind: isSunriseSide ? 'sunrise' : 'sunset' };
   };
 
+  // 계산 과정 보기("별 보기 조건")의 입력(`utils/starTonight.ts`): 별을 볼 시각(이미 밤이면 그 시각, 아니면 그날 천문 박명 30분 뒤)의
+  // 구름·연무 예보와 해·달, 밤 불빛 지도의 한계등급. 그 시각의 예보가 받아 둔 시간 범위 밖이면 "모름"으로 둡니다(가장자리 값을 지어 쓰지 않음).
+  const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());
+  useEffect(() => {
+    if (nightLights) return;
+    let alive = true;
+    loadNightLights().then(m => { if (alive && m) setNightLights(m); });
+    return () => { alive = false; };
+  }, [nightLights]);
+  const getStarArgs = () => {
+    const weatherAt = (when: Date): StarWeather | null => {
+      const h = pathData[0]?.hourly;
+      const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
+      return hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(pathData, when)[0]) : null;
+    };
+    return starArgsFor({
+      date: calcDate,
+      lat: latitude,
+      lon: longitude,
+      elevM: terrainData.observerElevation ?? 0,
+      weatherAt,
+      lightPollutionMag: nightLights ? estimateLightPollution(nightLights, latitude, longitude).magLimit : null,
+    });
+  };
+
   const formatTimeStr = (d: Date) => {
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
@@ -1235,11 +1263,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
                   )}
                   <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
-                  {(item.id.endsWith('sunrise') || item.id.endsWith('sunset')) && (
+                  {(item.id.endsWith('sunrise') || item.id.endsWith('sunset') || item.id === 'f_milkyway') && (
                     <PressScale
                       onPress={() => {
                         setCalcDate(item.time);
-                        setCalcTopic(item.id.endsWith('sunrise') ? 'sunrise' : 'sunset');
+                        setCalcTopic(item.id === 'f_milkyway' ? 'stars' : item.id.endsWith('sunrise') ? 'sunrise' : 'sunset');
                         setCalcOpen(true);
                       }}
                       accessibilityLabel={L3(language, '계산 과정 보기', 'How this is computed', '計算の過程を見る')}
@@ -1340,6 +1368,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         longitude={longitude}
         getHorizon={() => sceneRef.current?.getHorizonProfile?.() ?? null}
         getScoreInput={getScoreInput}
+        getStarArgs={getStarArgs}
         qualityWord={(q) => verdictWord(q as any, language)}
         onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
       />
