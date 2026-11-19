@@ -34,6 +34,8 @@ interface Props {
   moonDiskDeg?: number;
   /** "계산 과정" 단추. 없으면 단추를 그리지 않습니다. */
   onCalc?: () => void;
+  /** "추천" 단추(주제와 서 있을 자리·날짜 후보). 없으면 단추를 그리지 않습니다. */
+  onSuggest?: () => void;
   onClear: () => void;
 }
 
@@ -41,7 +43,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onSuggest, onClear }) => {
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const b = target.kind === 'building' ? target.building : undefined;
@@ -74,6 +76,11 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           {b ? `${L3(language, '건물', 'Building', '建物')} · ${Math.round(b.heightM)} m` : L3(language, '지형 지점', 'Terrain point', '地形の点')}
           {target.latitude != null && target.longitude != null ? `  ·  ${target.latitude.toFixed(4)}, ${target.longitude.toFixed(4)}` : ''}
         </Text>
+        {onSuggest && (
+          <OverlayButton onPress={onSuggest} accessibilityLabel={L3(language, '추천: 어울리는 주제와 서 있을 자리', 'Suggest: themes and where to stand', 'おすすめ: テーマと立つ場所')} style={styles.suggestBtn}>
+            <Text style={styles.suggestText}>{L3(language, '추천', 'Suggest', 'おすすめ')}</Text>
+          </OverlayButton>
+        )}
         <OverlayButton onPress={onClear} accessibilityLabel={L3(language, '고른 대상 지우기', 'Clear target', '選択を消す')} style={styles.close}>
           <X size={14} color={DARK.text} />
         </OverlayButton>
@@ -149,6 +156,8 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { flex: 1, minWidth: 0, fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   close: { width: 28, height: 28 },
+  suggestBtn: { width: 'auto', minWidth: 52, height: 28, paddingHorizontal: 10 },
+  suggestText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.accent },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   cell: { width: '24%', flexGrow: 1, backgroundColor: DARK.fill, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 5 },
   cellLabel: { fontFamily: mono, fontSize: 9, color: DARK.textMute },

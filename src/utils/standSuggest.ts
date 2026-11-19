@@ -15,7 +15,8 @@
  *  - 하늘 밝기(달): 해가 떠 있으면 달이 희미해 0.45, 해가 지평선 밑 0~12° 황혼이면 1.0(달과 풍경이 같이 보임), 그보다 깊은 밤은 0.85.
  *  - 하늘 밝기(해): 원반이 지평선 위 8° 안이면 1.0(노을빛), 20° 안 0.75, 40° 안 0.5, 그 위 0.3. 지평선(−0.9°) 아래면 0.
  *  - 예보: 맑음 1.0 · 모름 0.65 · 구름 보통 0.6 · 구름 많음 0.15. "모름"을 "보통"보다 아주 조금 높게 둔 것은 정보가 없다는 뜻이지 나쁘다는 뜻이 아니기 때문입니다.
- *  - 땅이 대상을 가리는 자리(`visible: false`)는 기본으로 뺍니다(`includeHidden` 이면 점수 × 0.1 로 맨 뒤에 둡니다).
+ *  - 땅이 대상을 가리는 자리(`visible: false`)는 기본으로 뺍니다. `includeHidden` 이면 점수는 그대로 두고 순위에 끼우되 추천으로는 세지 않습니다
+ *    (맨 뒤로 보내면 후보가 많을 때 목록에 아예 안 보여 "포함" 이 아무 일도 안 합니다. 화면이 "지형에 가림" 표시를 붙입니다).
  *
  * 점수가 `RECOMMEND_SCORE`(0.5) 이상이고 보이는 후보를 "추천"이라 부릅니다.
  *
@@ -25,7 +26,7 @@
 import SunCalc from 'suncalc';
 import { bodySky, type AlignBody } from './alignSearch';
 import { neededSlantDistanceM, type StandGroup, type StandHit, type StandQuery } from './standFinder';
-import type { PickedTarget, TargetPoint, HeightSampler } from './demPick';
+import { apparentHeightDeg, type BuildingInfo, type PickedTarget, type TargetPoint, type HeightSampler } from './demPick';
 
 // ── 주제 ────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,50 @@ export function standQueryFor(a: StandQueryArgs): StandQuery | null {
     ground: a.ground,
     isWater: a.isWater,
   };
+}
+
+// ── 서 있을 수 있는 땅인가 ────────────────────────────────────────────────
+
+/** 지도 자료의 물 격자(`UrbanMaskResult.water` / `waterHi`): 눈 위치 둘레 ±halfM, size×size 칸, 128 이상이 물. */
+export interface WaterGrid { size: number; halfM: number; data: Uint8Array }
+
+/** 해수면 근처로 보는 높이(m): 이 이하의 땅은 바다·갯벌로 봅니다. */
+export const SEA_LEVEL_WATER_M = 0.5;
+
+/**
+ * 서 있을 자리가 물인가(틀 좌표: 동 x, 남 z). 지도의 물 격자가 덮는 곳은 가장 촘촘한 격자부터 그 값을 따르고
+ * (칸 열 = floor((x + halfM) × size / 2halfM), 행도 같은 식 — 건물 자리 깎기의 물 덮개와 같은 대응),
+ * 격자가 덮지 않는 곳은 해수면 근처(해발 ≤ `seaLevelM`)면 물로 봅니다. 땅 자료가 없으면 물이 아닙니다(모르는 곳을 물로 막지 않음).
+ * 지도 격자는 눈 위치 둘레 3 km 남짓이라 그 밖의 강·호수는 거르지 못하고, 바다는 해발로 걸러집니다.
+ */
+export function waterTest(grids: readonly WaterGrid[] | undefined, ground: HeightSampler, seaLevelM = SEA_LEVEL_WATER_M): (eastM: number, southM: number) => boolean {
+  return (e, s) => {
+    if (grids) {
+      for (const g of grids) {
+        const sc = g.size / (2 * g.halfM);
+        const cx = Math.floor((e + g.halfM) * sc), cy = Math.floor((s + g.halfM) * sc);
+        if (cx < 0 || cy < 0 || cx >= g.size || cy >= g.size) continue;
+        return g.data[cy * g.size + cx] >= 128;
+      }
+    }
+    const h = ground(e, s);
+    return h != null && h <= seaLevelM;
+  };
+}
+
+/**
+ * 서 있을 자리로 옮긴 뒤 같은 대상을 새 자리 기준으로 다시 만듭니다(자리를 옮기면 고른 대상은 옛 눈 기준이라 지워지기 때문).
+ * `tp` 는 새 눈에서 본 그 점(방위·앙각·거리·가림). 건물은 꼭대기를 대상 점으로 삼아(지붕 한가운데 = 누른 곳) 높이각만 새 거리로 다시 셉니다.
+ */
+export function rebuildPicked(kind: PickedTarget['kind'], building: BuildingInfo | undefined, tp: TargetPoint & { eyeElevM: number }): PickedTarget {
+  if (kind === 'building' && building) {
+    return {
+      kind: 'building',
+      ...tp,
+      building: { ...building, topPoint: tp, hitPoint: tp, snapped: true, angularHeightDeg: apparentHeightDeg(tp.eyeElevM, tp.distM, building.baseElevM, building.topElevM) },
+    };
+  }
+  return { kind: 'terrain', ...tp };
 }
 
 // ── 구름 예보 ────────────────────────────────────────────────────────────
@@ -252,7 +297,7 @@ export interface RankOptions {
   includeHidden?: boolean;
 }
 
-/** 묶음마다 점수를 매겨 점수 높은 순(비슷하면 이른 날짜)으로 정렬합니다. 점수 0 인 것(안 보이는 달·지평선 아래 해)과 가려진 자리(옵션)는 뺍니다. */
+/** 묶음마다 점수를 매겨 점수 높은 순(비슷하면 이른 날짜)으로 정렬합니다. 점수 0 인 것(안 보이는 달·지평선 아래 해)과 가려진 자리(`includeHidden` 이 아니면)는 뺍니다. */
 export function rankStands(groups: StandGroup[], o: RankOptions): StandCandidate[] {
   const out: StandCandidate[] = [];
   for (const g of groups) {
@@ -268,9 +313,8 @@ export function rankStands(groups: StandGroup[], o: RankOptions): StandCandidate
       moon = { illum, waxing, shape: moonShape(illum) };
       mf = moonFactor(illum);
     }
-    const base = mf * skyFactor(o.body, h.sunAltDeg, h.altDeg) * FORECAST_FACTOR[forecast.state];
-    if (base <= 0) continue;
-    const score = h.visible ? base : base * 0.1;
+    const score = mf * skyFactor(o.body, h.sunAltDeg, h.altDeg) * FORECAST_FACTOR[forecast.state];
+    if (score <= 0) continue;
     out.push({
       group: g,
       hit: h,

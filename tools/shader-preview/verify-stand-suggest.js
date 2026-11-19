@@ -13,8 +13,9 @@
  *  4. 예보: 총운량이 있으면 그것, 없으면 세 층의 최대, 하나라도 비면 null. 시각 사이는 1 차 보간. 25% 이하 맑음, 60% 이하 보통, 그 위 많음(경계 포함은 아래쪽).
  *     앞뒤 값이 null 이거나 범위 밖이거나 자료가 없으면 "모름". 모름에 맑음을 지어내지 않는다.
  *  5. 점수: 달 = (illum<5% → 0, 아니면 0.2+0.8·illum) × 하늘(해 떠 있음 0.45 · 황혼 1 · 깊은 밤 0.85) × 예보(맑음 1 · 모름 0.65 · 보통 0.6 · 많음 0.15).
- *     해 = 하늘(≤8° 1 · ≤20° 0.75 · ≤40° 0.5 · 그 위 0.3, 지평선 −0.9° 아래 0) × 예보. 가려진 자리는 기본 제외, 포함하면 ×0.1.
+ *     해 = 하늘(≤8° 1 · ≤20° 0.75 · ≤40° 0.5 · 그 위 0.3, 지평선 −0.9° 아래 0) × 예보. 가려진 자리는 기본 제외.
  *     점수 ≥ 0.5 이고 보이면 추천. 순서는 점수 내림차순(0.02 안이면 이른 날짜), 날짜순 정렬은 날짜 오름차순.
+ *     가려진 자리를 포함해도 점수는 그대로 순위에 끼고 추천으로는 세지 않는다(맨 뒤로 보내면 후보가 많을 때 목록에 안 보인다).
  *  6. 뜨는/지는/높음: 고도 20° 위면 높음, 아니면 3 분 뒤가 더 높으면 뜨는 중. 독립 길: 좌우 1 분 차분의 부호.
  *  7. 대상 점: 건물은 "누른 곳"을 골라도 지붕 한가운데(topPoint), 땅은 고른 점. 위경도를 모르면 질의 없음.
  *  8. 통합: 평지에서 찾기 → 묶기 → 순위. 점수가 내림차순이고, 가려진 것·안 보이는 달이 없고, 추천 표시가 점수와 같다.
@@ -149,7 +150,10 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     ok(ranked.find(r => r.group === gA).days === 0 && ranked.find(r => r.group === gG).days === 4, `며칠 뒤: 0 일, 4 일 (+100 h → ${ranked.find(r => r.group === gG).days})`);
     const withHidden = U.rankStands(all, { ...opt, includeHidden: true });
     const f = withHidden.find(r => r.group === gF);
-    ok(withHidden.length === 7 && f && near(f.score, (0.2 + 0.8 * 0.99) * 0.1, 1e-9) && !f.recommended && withHidden[withHidden.length - 1].group === gF, `가려진 자리 포함: 점수 ×0.1(${f && f.score.toFixed(4)}), 맨 뒤, 추천 아님`);
+    // 가려진 자리(gF)는 점수를 그대로 두고 순위에 낀다: gA 와 같은 0.992 라 0.02 안이면 이른 날짜(gA 가 T+2h, gF 가 T+12h)가 앞, 추천에는 안 센다.
+    ok(withHidden.length === 7 && f && near(f.score, 0.2 + 0.8 * 0.99, 1e-9) && !f.recommended && !f.hit.visible, `가려진 자리 포함: 점수 그대로(${f && f.score.toFixed(4)}), 추천 아님, 후보 ${withHidden.length} 개`);
+    ok(withHidden.map(r => all.indexOf(r.group)).join(',') === '0,5,7,6,1,3,4', `가려진 자리가 점수대로 순위에 낀다(번호): ${withHidden.map(r => all.indexOf(r.group)).join(',')} = A · F · H · G · B · D · E`);
+    ok(U.pickDistinct(withHidden, 3).some(r => r.group === gF), '그래서 후보가 많아도 위쪽 줄 수 안에 가려진 자리가 보인다(포함 단추가 일을 한다)');
     const byDate = U.sortStands(ranked, 'date');
     ok(byDate.every((c, i) => i === 0 || c.hit.timeMs >= byDate[i - 1].hit.timeMs), '날짜순 정렬은 오름차순');
     // 비슷한 점수(0.02 안)면 이른 날짜
@@ -210,6 +214,34 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     ok(U.suggestTargetPoint(building(100, 20, true)).elevM === 120, '건물 대상 점의 해발은 지붕(20 + 100)');
   }
 
+  // ── [7b] 자리를 옮긴 뒤 대상 다시 만들기 ──
+  console.log('\n[7b] 옮긴 뒤 같은 대상을 새 눈 기준으로');
+  {
+    const G = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'geoMove.js'));
+    const E = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'earth.js'));
+    let worst = 0;
+    for (const [e, n] of [[0, 0], [1234, -567], [-30000, 45000], [61000, 61000], [-61000, -20000]]) {
+      const p = G.offsetLatLon(37.5, 127, e, n);
+      const b = G.localOffsetM({ latitude: 37.5, longitude: 127 }, p.latitude, p.longitude);
+      worst = Math.max(worst, Math.hypot(b.eastM - e, b.northM - n));
+    }
+    const wp = G.offsetLatLon(37.5, 179.9, 20000, 0), wb = G.localOffsetM({ latitude: 37.5, longitude: 179.9 }, wp.latitude, wp.longitude);
+    ok(worst < 0.01 && Math.abs(wb.eastM - 20000) < 0.01 && wp.longitude < 0, `localOffsetM 는 offsetLatLon 의 거꾸로: 왕복 오차 최대 ${worst.toExponential(1)} m, 날짜변경선을 넘어도 맞는다(경도 ${wp.longitude.toFixed(3)}, 동쪽 ${wb.eastM.toFixed(2)} m)`);
+
+    const b0 = building(555, 11, false).building;
+    const tp = pt(-8000, 2000, 575, { azDeg: 284, elDeg: 0.2, distM: 8246, visible: false, marginM: -12, eyeElevM: 21.6 });
+    const r = U.rebuildPicked('building', b0, tp);
+    const el = (z) => Math.atan2(z - 21.6 - E.curvatureDropM(8246), 8246) * R2D;
+    const wantH = el(b0.topElevM) - el(b0.baseElevM);
+    ok(r.kind === 'building' && r.building.snapped === true && r.building.topPoint === tp && r.building.hitPoint === tp, '건물: 꼭대기를 대상 점으로(snapped), 두 점이 새 점');
+    ok(r.building.heightM === 555 && r.building.baseElevM === 20 && r.building.topElevM === 575 && r.building.shortM === 11 && r.building.longM === b0.longM, '건물의 높이 · 해발 · 발자국은 그대로');
+    ok(near(r.building.angularHeightDeg, wantH, 1e-9), `높이각은 새 거리(8.2 km)로 다시 센다: ${r.building.angularHeightDeg.toFixed(4)}° (독립 계산 ${wantH.toFixed(4)}°)`);
+    ok(r.azDeg === 284 && r.elDeg === 0.2 && r.distM === 8246 && r.visible === false && r.marginM === -12 && r.eyeElevM === 21.6 && r.elevM === 575, '방위 · 앙각 · 거리 · 가림 · 눈 해발은 새 점의 것');
+    const rt = U.rebuildPicked('terrain', undefined, tp);
+    ok(rt.kind === 'terrain' && rt.building === undefined && rt.azDeg === 284 && rt.eyeElevM === 21.6, '땅은 건물 정보 없이 새 점 그대로');
+    ok(U.rebuildPicked('building', undefined, tp).kind === 'terrain', '건물이라 했는데 건물 정보가 없으면 땅으로 물러난다');
+  }
+
   // ── [8] 통합 ──
   console.log('\n[8] 평지에서 찾기 → 묶기 → 순위');
   {
@@ -245,6 +277,63 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     const sp = U.pickDistinct([syn(10, 'rising', 0.9), syn(11, 'rising', 0.8), syn(11, 'setting', 0.7), syn(12, 'rising', 0.6), syn(13.5, 'rising', 0.5)], 10, 2);
     ok(sp.map(c => `${(c.hit.timeMs - FROM) / 86400e3}${c.phase[0]}`).join() === '10r,11s,12r', `합성: 10일 뜨는 · 11일 뜨는(1일 차라 제외) · 11일 지는(다른 쪽이라 포함) · 12일 뜨는(정확히 2일 차라 포함) · 13.5일 뜨는(12일과 1.5일 차라 제외) → ${sp.map(c => `${(c.hit.timeMs - FROM) / 86400e3}${c.phase[0]}`).join()}`);
     ok(U.pickDistinct([syn(1, 'rising', 1), syn(5, 'rising', 0.9), syn(9, 'rising', 0.8)], 2, 2).length === 2, '개수 상한을 지킨다');
+  }
+
+  // ── [9] 물 판정 ──
+  console.log('\n[9] 서 있을 수 있는 땅인가(물 격자와 해수면)');
+  {
+    // 4×4 격자, 반쪽 100 m → 칸 50 m. 열은 동쪽(+x), 행은 남쪽(+z)으로 커진다. 열 3 · 행 0 칸(동쪽 끝, 북쪽 끝)만 물.
+    const mk = (size, halfM, fill) => ({ size, halfM, data: Uint8Array.from({ length: size * size }, (_, i) => fill(i % size, Math.floor(i / size))) });
+    const g1 = mk(4, 100, (cx, cy) => (cx === 3 && cy === 0 ? 255 : 0));
+    const w1 = U.waterTest([g1], () => 100);
+    ok(w1(75, -75) === true, '동쪽 끝(x=75), 북쪽 끝(z=−75) 칸은 물');
+    ok(w1(75, 75) === false && w1(-75, -75) === false && w1(25, -25) === false, '남쪽 끝(z=75), 서쪽 끝(x=−75), 안쪽은 물 아님 — 행·열 방향이 맞다');
+    ok(w1(99.9, -99.9) === true && w1(-99.9, 99.9) === false, '격자 안쪽 끝까지는 그 칸의 값');
+    ok(w1(100, -75) === false, '격자 밖(x=100)은 격자를 따르지 않고 땅 높이(100 m)로 — 물 아님');
+    // 127 과 128 의 경계
+    const edge = (v) => U.waterTest([mk(2, 10, () => v)], () => 100)(0, 0);
+    ok(edge(127) === false && edge(128) === true, '물 격자 값 127 은 아님, 128 은 물');
+    // 촘촘한 격자가 먼저, 안 덮은 곳은 성긴 격자
+    const hi = mk(2, 50, () => 255), lo = mk(4, 200, () => 0);
+    const w2 = U.waterTest([hi, lo], () => 100);
+    ok(w2(10, 10) === true && w2(120, 10) === false && w2(260, 0) === false, '촘촘한 격자(±50 m, 물) 안은 물, 그 밖 ±200 m 안은 성긴 격자(물 아님), 둘 밖은 땅 높이');
+    // 격자 밖: 해수면 근처면 물
+    const w3 = U.waterTest(undefined, (e) => (e < 0 ? 0.5 : e < 100 ? 0.51 : e < 200 ? -3 : null));
+    ok(w3(-1, 0) === true && w3(50, 0) === false && w3(150, 0) === true && w3(300, 0) === false, '격자가 없으면 해발 0.5 m 이하(−3 m 포함)는 물, 0.51 m 는 땅, 자료가 없으면 물이 아니다');
+  }
+
+  // ── [10] 구름 예보 받기 ──
+  console.log('\n[10] 구름 예보 URL과 응답');
+  {
+    const C = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'cloudOutlook.js'));
+    const url = C.outlookUrl(37.5126, 127.1026);
+    ok(url.startsWith('https://api.open-meteo.com/v1/forecast?') && url.includes('latitude=37.5126') && url.includes('longitude=127.1026'), `주소와 좌표: ${url.slice(0, 90)}…`);
+    ok(url.includes('hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high') && url.includes('forecast_days=16') && url.includes('timezone=GMT') && url.includes('&models=ecmwf_ifs025,icon_seamless'), '시간별 구름 네 가지, 16 일, GMT, 하늘 화면과 같은 모델 섞기');
+    // 응답: 두 모델 평균, 한쪽만 값이 있는 시각은 그 값, 둘 다 없으면 null → 층 최대로, 층도 없으면 null
+    const json = {
+      hourly: {
+        time: ['2026-11-20T00:00', '2026-11-20T01:00', '2026-11-20T02:00', '2026-11-20T03:00'],
+        cloud_cover_ecmwf_ifs025: [10, 50, null, null], cloud_cover_icon_seamless: [30, null, null, null],
+        cloud_cover_low_ecmwf_ifs025: [0, 0, 5, null], cloud_cover_low_icon_seamless: [0, 0, 5, null],
+        cloud_cover_mid_ecmwf_ifs025: [0, 0, 70, null], cloud_cover_mid_icon_seamless: [0, 0, 70, null],
+        cloud_cover_high_ecmwf_ifs025: [0, 0, 10, null], cloud_cover_high_icon_seamless: [0, 0, 10, null],
+      },
+    };
+    const o = C.outlookFromResponse(json);
+    ok(JSON.stringify(o.cloudPct) === JSON.stringify([20, 50, 70, null]), `두 모델 평균 20 · 한쪽만 50 · 총량이 없으면 세 층의 최대 70 · 전부 없으면 null: ${JSON.stringify(o.cloudPct)}`);
+    const t0 = Date.UTC(2026, 10, 20, 0, 0);
+    ok(o.timeMs.join() === [0, 1, 2, 3].map(h => t0 + h * 3600e3).join(), '시각은 GMT 로 읽은 UTC ms');
+    // 기기 시간대와 상관없다: 시간대를 바꿔 다시 읽어도 같다
+    const oldTz = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    const o2 = C.outlookFromResponse(json);
+    process.env.TZ = 'Asia/Seoul';
+    const o3 = C.outlookFromResponse(json);
+    if (oldTz === undefined) delete process.env.TZ; else process.env.TZ = oldTz;
+    ok(o2.timeMs.join() === o.timeMs.join() && o3.timeMs.join() === o.timeMs.join(), '기기 시간대(LA · 서울)를 바꿔도 같은 UTC 시각');
+    ok(U.forecastAt(o, t0 + 0.5 * 3600e3).state === 'partly' && U.forecastAt(o, t0 + 0.5 * 3600e3).cloudPct === 35 && U.forecastAt(o, t0 + 2 * 3600e3).state === 'cloudy' && U.forecastAt(o, t0 + 3 * 3600e3).state === 'unknown', '예보 상태로 이어진다: 00:30 은 35% 보통, 02:00 은 70% 많음, 03:00 은 모름');
+    ok(C.outlookFromResponse({}) === null && C.outlookFromResponse({ hourly: { time: [] } }) === null && C.outlookFromResponse(null) === null, '시간이 없는 응답은 null');
+    ok(C.cachedOutlook(37.5126, 127.1026) === null, '받은 적이 없으면 캐시에 없다(네트워크를 쓰지 않는다)');
   }
 
   console.log(`\n${fail === 0 ? '모두 통과' : '실패 있음'} — pass ${pass} / fail ${fail}`);
