@@ -25,6 +25,8 @@ import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/wea
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments, getSunPosition } from '../../src/utils/celestial';
 import { CalcStepsView } from '../../src/components/CalcSteps/CalcStepsModal';
 import { buildHorizonProfile } from '../../src/utils/horizon';
+import { predictSunset } from '../../src/utils/sunsetPhysics';
+import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCard';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -119,6 +121,8 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
  * calc:1 — 계산 과정 보기(해 뜨는·지는 시각). 합성 능선으로 땅 프로필을 만듭니다: 해 뜨는 쪽(방위 120° ± 15°) 4.2 km 에 높이 ridgeH m 의 띠.
  *   예: {"calc":1,"t":"2026-12-21T03:00:00Z","lat":37.5665,"lon":126.978,"ridgeH":175,"topic":"sunrise","lang":"ko","light":0,"noTerrain":0}
  * noTerrain:1 이면 땅 자료 없이(평평한 수평선), light:1 이면 밝은 모드.
+ * topic:"score" — 노을 점수: 합성 예보 링(낮은 low · 중간 mid · 높은 high %, 해 쪽 60 km 의 낮은 구름 sunLow %, 해 고도 sunAlt°)으로 predictSunset 을 돌립니다.
+ *   예: {"calc":1,"topic":"score","low":4,"mid":18,"high":63,"sunLow":0,"sunAlt":0.5}
  */
 function CalcRepro({ W, H }: { W: number; H: number }) {
   const [topic, setTopic] = React.useState<'sunrise' | 'sunset'>(Q.topic ?? 'sunrise');
@@ -132,9 +136,19 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
     };
     return buildHorizonProfile(hgt, base + 1.6, { maxDistM: 15000 });
   }, []);
+  const scoreInput = React.useMemo(() => {
+    const T = new Date('2026-11-19T17:00:00+09:00');
+    const lo = Q.low ?? 4, mi = Q.mid ?? 18, hi = Q.high ?? 63, sunLow = Q.sunLow ?? 0;
+    const mk = (l: number, m: number, h: number, d: number, off: number) => ({ distance: d, azimuthOffset: off, source: 'standard', hourly: { time: ['2026-11-19T17:00'], timeMs: [T.getTime()], low: [l], mid: [m], high: [h], directNormalIrradiance: [300], totalColumnWaterVapour: [18], precipitation: [0], visibility: [20000], humidity: [55] } });
+    const path = [mk(lo, mi, hi, 0, 0), ...[30, 60, 100, 200].flatMap(d => [0, 45, 90, 135, 180, 225, 270, 315].map(a => mk(a === 0 && d === 60 ? sunLow : a === 0 ? 0 : lo * 0.8 + (a === 90 && d === 100 ? 25 : 0), mi, hi, d, a)))];
+    const pred = predictSunset(path as any, T, Q.sunAlt ?? 0.5, 20000, 55, 37.5, 30, 323, 250);
+    return { prediction: pred, ring: path.map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.hourly.low[0], mid: p.hourly.mid[0], high: p.hourly.high[0] })), time: T, eventMs: T.getTime(), sunAzDeg: Q.sunAz ?? 250, kind: 'sunset' as const };
+  }, []);
   return (
     <View style={{ width: W, height: H }}>
       <CalcStepsView
+        getScoreInput={() => scoreInput}
+        qualityWord={(q) => verdictWord(q as any, Q.lang ?? 'ko')}
         language={Q.lang ?? 'ko'}
         date={new Date(Q.t ?? '2026-12-21T03:00:00Z')}
         latitude={Q.lat ?? 37.5665}

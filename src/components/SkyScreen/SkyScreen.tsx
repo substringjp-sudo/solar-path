@@ -34,6 +34,7 @@ import {
 import { findPresetTerrain } from '../../utils/presetTerrains';
 import { isCurrentTerrainModel } from '../../utils/terrainPick';
 import { scenePrediction } from '../../utils/scenePrediction';
+import { alignRingToSun } from '../../utils/sunsetPhysics';
 import {
   weatherCacheKey,
   sameBucket,
@@ -64,7 +65,7 @@ import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
-import { CalcStepsModal, type CalcTopic } from '../CalcSteps/CalcStepsModal';
+import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import type { PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
@@ -772,6 +773,19 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 추천 이벤트를 상단에 배치하고 일반 이벤트를 이어서 단일 목록으로 합침
   const combinedEventList = useMemo(() => [...featuredList, ...generalList], [featuredList, generalList]);
 
+  // 계산 과정 보기("노을 점수가 나오기까지")의 입력: 시트가 보여 주는 판정(가장 붉을 때의 예측)과 그 시각의 예보 링을 해 쪽으로 돌린 것.
+  const getScoreInput = (): CalcScoreInput | null => {
+    const pred = glow?.prediction ?? prediction;
+    const time = glow?.time ?? currentTime;
+    if (!pred?.breakdown || !pathData.length) return null;
+    const sp = sunPosition(time, latitude, longitude);
+    const sunAz = sp.azimuth * (180 / Math.PI) + 180;
+    const ring = alignRingToSun(getInterpolatedWeather(pathData, time), sunAz)
+      .map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.low, mid: p.mid, high: p.high }));
+    const ev = isSunriseSide ? events?.sunrise : events?.sunset;
+    return { prediction: pred, ring, time, eventMs: ev ? ev.getTime() : undefined, sunAzDeg: sunAz, kind: isSunriseSide ? 'sunrise' : 'sunset' };
+  };
+
   const formatTimeStr = (d: Date) => {
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
@@ -1063,6 +1077,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               theme={theme}
               isSunrise={isSunriseSide}
               peakTime={glow?.time}
+              onWhy={() => { setCalcDate(glow?.time ?? currentTime); setCalcTopic('score'); setCalcOpen(true); }}
             />
           )}
 
@@ -1244,6 +1259,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         latitude={latitude}
         longitude={longitude}
         getHorizon={() => sceneRef.current?.getHorizonProfile?.() ?? null}
+        getScoreInput={getScoreInput}
+        qualityWord={(q) => verdictWord(q as any, language)}
         onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
       />
       <LayerControlModal
