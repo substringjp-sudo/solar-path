@@ -507,8 +507,8 @@ export interface SkyScene3DHandle {
   /**
    * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
    * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
-   * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있거나
-   * 지형이 아직 없으면 null.
+   * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있어도
+   * 받아 둡니다(켜면 바로 보임). 지형이 아직 없으면 null.
    */
   loadFarBuildings?: (opts?: { onProgress?: (p: { tilesDone: number; tilesTotal: number; bytes: number }) => void }) => Promise<FarBuildingsResult | null>;
 }
@@ -1211,7 +1211,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     loadFarBuildings: async (opts) => {
       const renderer = rendererRef.current, patch = demPatchRef.current, field = buildingFieldRef.current;
       const { lat, lng } = bldCenterRef.current;
-      if (!renderer || !patch || !field || !layersRef.current.buildings) return null;
+      if (!renderer || !patch || !field) return null;
       const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
       if (!sample) return null;
       const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;

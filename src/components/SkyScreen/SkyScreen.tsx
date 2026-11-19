@@ -653,6 +653,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 먼 건물(샌드박스): 보는 방향만 받습니다 — 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받으면 수십 MB 입니다.
   const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
   const loadFarBuildings = async () => {
+    // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
+    setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
     setFarStatus({ state: 'loading', tilesDone: 0, tilesTotal: 0, bytes: 0 });
     try {
       const r = await sceneRef.current?.loadFarBuildings?.({ onProgress: p => setFarStatus({ state: 'loading', ...p }) });

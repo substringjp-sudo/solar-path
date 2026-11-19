@@ -131,7 +131,7 @@ export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeigh
             <Text style={styles.farStatus} numberOfLines={2}>
               {far.status?.state === 'loading' && `${far.status.tilesDone}/${far.status.tilesTotal}${L3(language, '장', ' tiles', '枚')} · ${fmtMB(far.status.bytes)}`}
               {far.status?.state === 'done' && `${L3(language, '건물', 'Buildings', '建物')} ${far.status.buildings ?? 0}${L3(language, '채', '', '棟')} · ${fmtMB(far.status.bytes)}${far.status.truncated ? ` · ${L3(language, '한도에서 멈춤', 'stopped at the limit', '上限で停止')}` : ''}${far.status.failed ? ` · ${L3(language, `실패 ${far.status.failed}장`, `${far.status.failed} failed`, `失敗${far.status.failed}枚`)}` : ''}`}
-              {far.status?.state === 'off' && L3(language, '건물 표시가 꺼져 있어요', 'Buildings layer is off', '建物表示がオフです')}
+              {far.status?.state === 'off' && L3(language, '지형을 아직 못 받았어요', 'Terrain is not loaded yet', '地形をまだ受信していません')}
               {far.status?.state === 'error' && L3(language, '받지 못했어요', 'Could not load', '読み込めませんでした')}
               {!far.status && L3(language, '도심은 한 장이 약 0.4 MB 라 보는 방향만 받아요', 'Downtown tiles are ~0.4 MB each, so only the view direction is loaded', '市街地は1枚約0.4MBなので視線方向だけ読みます')}
             </Text>
