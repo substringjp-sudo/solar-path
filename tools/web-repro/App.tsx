@@ -102,9 +102,13 @@ function BarRepro({ W }: { W: number }) {
 function PanelRepro({ W, H }: { W: number; H: number }) {
   const [eyeH, setEyeH] = React.useState(Q.eyeH ?? 1.6);
   const [step, setStep] = React.useState(100);
+  // farStates:1 — 먼 건물 줄의 네 상태(안내 · 받는 중 · 끝남 · 지형 없음)를 한 화면에 쌓아 봅니다(2026-11-19).
+  const farStates: any[] = [null, { state: 'loading', tilesDone: 12, tilesTotal: 28, bytes: 3_400_000 }, { state: 'done', tilesDone: 28, tilesTotal: 28, bytes: 7_083_440, buildings: 3000, truncated: false, failed: 0 }, { state: 'off', tilesDone: 0, tilesTotal: 0, bytes: 0 }];
   return (
-    <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12 }}>
-      <SandboxPanel language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={Q.awayM ?? null} onHome={() => {}} />
+    <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12, gap: 10 }}>
+      {Q.farStates
+        ? farStates.map((st, i) => <SandboxPanel key={i} language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={null} onHome={() => {}} far={{ status: st, onLoad: () => {} }} />)
+        : <SandboxPanel language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={Q.awayM ?? null} onHome={() => {}} />}
     </View>
   );
 }
