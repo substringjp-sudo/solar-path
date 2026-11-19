@@ -26,7 +26,7 @@
 import SunCalc from 'suncalc';
 import { bodySky, type AlignBody } from './alignSearch';
 import { neededSlantDistanceM, type StandGroup, type StandHit, type StandQuery } from './standFinder';
-import { apparentHeightDeg, type BuildingInfo, type PickedTarget, type TargetPoint, type HeightSampler } from './demPick';
+import { angularSeparationDeg, apparentHeightDeg, type BuildingInfo, type PickedTarget, type TargetPoint, type HeightSampler } from './demPick';
 
 // ── 주제 ────────────────────────────────────────────────────────────────
 
@@ -182,6 +182,32 @@ export function rebuildPicked(kind: PickedTarget['kind'], building: BuildingInfo
     };
   }
   return { kind: 'terrain', ...tp };
+}
+
+/**
+ * 서 있는 자리에서 본 대상 방향(방위·앙각)에 해·달이 가장 가까워지는 시각을 `aroundMs` 앞뒤 `halfWindowMin` 분 안에서 찾습니다(황금분할).
+ *
+ * 후보를 찾을 때 먼 자리의 땅 높이는 성긴 패치에서 읽은 값이라, 도착해서 촘촘한 땅으로 다시 잰 대상 앙각과 어긋납니다
+ * (재 보니 5.1 km 에서 땅 높이가 10.9 m 달라 앙각이 0.12°). 그 차이를 시각으로 풀면 해·달이 분당 0.2~0.25° 가량 움직이므로
+ * 30 초 안팎이라, 도착한 뒤 새 앙각으로 시각을 다시 맞춥니다. 창 가장자리가 더 가까우면 가장자리를 돌려줍니다.
+ */
+export function refineAlignTime(
+  body: AlignBody, aroundMs: number, latitude: number, longitude: number, elevM: number, azDeg: number, elDeg: number, halfWindowMin = 5,
+): { timeMs: number; sepDeg: number } {
+  const sep = (ms: number) => { const k = bodySky(body, ms, latitude, longitude, elevM); return angularSeparationDeg(azDeg, elDeg, k.azDeg, k.altDeg); };
+  const lo0 = aroundMs - halfWindowMin * 60e3, hi0 = aroundMs + halfWindowMin * 60e3;
+  let lo = lo0, hi = hi0;
+  const phi = (Math.sqrt(5) - 1) / 2;
+  let x1 = hi - phi * (hi - lo), x2 = lo + phi * (hi - lo);
+  let f1 = sep(x1), f2 = sep(x2);
+  for (let i = 0; i < 40; i++) {
+    if (f1 < f2) { hi = x2; x2 = x1; f2 = f1; x1 = hi - phi * (hi - lo); f1 = sep(x1); }
+    else { lo = x1; x1 = x2; f1 = f2; x2 = lo + phi * (hi - lo); f2 = sep(x2); }
+  }
+  const mid = (lo + hi) / 2;
+  let best = { timeMs: mid, sepDeg: sep(mid) };
+  for (const edge of [lo0, hi0]) { const v = sep(edge); if (v < best.sepDeg) best = { timeMs: edge, sepDeg: v }; }
+  return best;
 }
 
 // ── 구름 예보 ────────────────────────────────────────────────────────────

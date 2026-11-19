@@ -37,6 +37,8 @@ export interface StandSamplers {
   origin: { latitude: number; longitude: number };
   ground: HeightSampler;
   isWater: (eastM: number, southM: number) => boolean;
+  /** 지도의 물 격자를 받았는가. 거짓이면 강·호수는 거르지 못하고 바다(해수면 높이)만 거릅니다. */
+  waterReady?: boolean;
 }
 
 export interface StandSuggestViewProps {
@@ -124,6 +126,8 @@ export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, ta
   const [selected, setSelected] = useState<number | null>(null);
   const [search, setSearch] = useState<Search>({ status: 'idle', progress: 0 });
   const [retry, setRetry] = useState(0);
+  /** 마지막으로 찾을 때 지도의 물 격자가 있었는가(없었다면 강·호수 위 자리가 섞여 있을 수 있음) */
+  const [waterReady, setWaterReady] = useState(true);
   const runId = useRef(0);
 
   const point = suggestTargetPoint(target);
@@ -136,6 +140,7 @@ export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, ta
     if (!theme.ready || !body) { setSearch({ status: 'idle', progress: 0 }); return; }
     const s = getSamplers();
     if (!s) { setSearch({ status: 'noTerrain' }); return; }
+    setWaterReady(s.waterReady !== false);
     const q = standQueryFor({ target, body, sizeM: size.lengthM, fromMs, days, origin: s.origin, ground: s.ground, isWater: s.isWater, eyeAboveGroundM });
     if (!q) { setSearch({ status: 'noPosition' }); return; }
     setSearch({ status: 'running', progress: 0 });
@@ -258,6 +263,14 @@ export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, ta
                 </Text>
                 {hiddenCount > 0 && <Chip label={showHidden ? L3(language, `가려진 ${hiddenCount}곳 포함`, `incl. ${hiddenCount} hidden`, `隠れた${hiddenCount}件を含む`) : L3(language, `가려진 ${hiddenCount}곳 숨김`, `${hiddenCount} hidden`, `隠れた${hiddenCount}件を非表示`)} on={showHidden} onPress={() => setShowHidden(v => !v)} />}
               </View>
+              {!waterReady && (
+                <View style={styles.emptyBox}>
+                  <Text style={styles.warn}>{L3(language, '지도 자료를 아직 못 받아 강·호수 위 자리를 거르지 못했어요(바다만 거름). 받은 뒤 다시 찾으면 걸러져요.', 'The map data has not arrived, so spots on rivers and lakes are not excluded (only the sea is). Search again once it has.', '地図データをまだ受信しておらず、川・湖の上の場所を除外できていません(海のみ除外)。受信後にもう一度探すと除外されます。')}</Text>
+                  <PressScale onPress={() => setRetry(n => n + 1)} accessibilityLabel={L3(language, '다시 찾기', 'Search again', 'もう一度探す')} style={styles.retryBtn}>
+                    <Text style={styles.retryText}>{L3(language, '다시 찾기', 'Search again', 'もう一度探す')}</Text>
+                  </PressScale>
+                </View>
+              )}
               {rows.length === 0 && (
                 <Text style={styles.empty}>
                   {L3(language, `앞으로 ${days}일 안에 이 조건으로 서 있을 자리가 없어요. 크기나 기간을 바꿔 보세요.`, `No spot fits within ${days} days. Change the size or period.`, `今後${days}日以内にこの条件の場所はありません。大きさや期間を変えてみてください。`)}
@@ -375,6 +388,7 @@ const useStyles = makeStyles((color) => ({
   countRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   count: { flex: 1, fontFamily: mono, fontSize: 11, color: color.textDim },
   empty: { fontSize: 12, color: color.textDim, paddingVertical: 6 },
+  warn: { fontSize: 11, color: color.warning, paddingVertical: 2 },
   emptyBox: { gap: 8 },
   retryBtn: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.accentSoft, alignItems: 'center', justifyContent: 'center' },
   retryText: { fontSize: 13, fontWeight: '700', color: color.accent },

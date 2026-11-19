@@ -242,6 +242,42 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     ok(U.rebuildPicked('building', undefined, tp).kind === 'terrain', '건물이라 했는데 건물 정보가 없으면 땅으로 물러난다');
   }
 
+  // ── [7c] 도착한 뒤 실제 앙각에 맞춘 시각 ──
+  console.log('\n[7c] 도착한 뒤 시각 미세 보정');
+  {
+    const t0 = Date.parse('2026-11-25T09:10:06Z');
+    const sky = (body, ms) => A.bodySky(body, ms, LAT, LON, 20);
+    // 독립 길: 0.5 초 걸음으로 ±5 분을 다 걸어 가장 가까운 순간을 센다
+    const brute = (body, az, el) => {
+      let best = { t: t0, d: Infinity };
+      for (let ms = t0 - 300e3; ms <= t0 + 300e3; ms += 500) { const k = sky(body, ms); const d = D.angularSeparationDeg(az, el, k.azDeg, k.altDeg); if (d < best.d) best = { t: ms, d }; }
+      return best;
+    };
+    const D = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'demPick.js'));
+    const s90 = sky('moon', t0 + 90e3);
+    const r1 = U.refineAlignTime('moon', t0, LAT, LON, 20, s90.azDeg, s90.altDeg);
+    ok(Math.abs(r1.timeMs - (t0 + 90e3)) < 1000 && r1.sepDeg < 1e-4, `대상이 90 초 뒤 달 위치면 그 시각을 찾는다: 오차 ${((r1.timeMs - t0 - 90e3) / 1000).toFixed(2)} s, 남은 각 ${r1.sepDeg.toExponential(1)}°`);
+    // 땅 높이 차로 대상 앙각이 0.12° 높아진 상황(달은 그 높이에 조금 뒤에 온다)
+    const s0 = sky('moon', t0);
+    const r2 = U.refineAlignTime('moon', t0, LAT, LON, 20, s0.azDeg, s0.altDeg + 0.12);
+    const b2 = brute('moon', s0.azDeg, s0.altDeg + 0.12);
+    ok(Math.abs(r2.timeMs - b2.t) <= 1500 && r2.sepDeg <= b2.d + 1e-5, `0.12° 높아진 대상: 보정 ${((r2.timeMs - t0) / 1000).toFixed(1)} s, 독립 걸음 ${((b2.t - t0) / 1000).toFixed(1)} s, 남은 각 ${r2.sepDeg.toFixed(4)}° ≤ ${b2.d.toFixed(4)}°`);
+    ok(r2.sepDeg < 0.12 && Math.abs(r2.timeMs - t0) > 5e3, `고쳐서 0.12° 어긋남이 ${r2.sepDeg.toFixed(3)}° 로 줄고, 시각이 ${(Math.abs(r2.timeMs - t0) / 1000).toFixed(0)} 초 옮겨진다`);
+    // 방위도 어긋난 대상(가로 0.1°, 세로 −0.15°)
+    const r3 = U.refineAlignTime('moon', t0, LAT, LON, 20, s0.azDeg + 0.1 / Math.cos(s0.altDeg * D2R), s0.altDeg - 0.15);
+    const b3 = brute('moon', s0.azDeg + 0.1 / Math.cos(s0.altDeg * D2R), s0.altDeg - 0.15);
+    ok(Math.abs(r3.timeMs - b3.t) <= 1500 && r3.sepDeg <= b3.d + 1e-5, `방위도 어긋난 대상: 보정 ${((r3.timeMs - t0) / 1000).toFixed(1)} s, 독립 걸음 ${((b3.t - t0) / 1000).toFixed(1)} s`);
+    // 해
+    const u60 = sky('sun', t0 + 60e3);
+    const r4 = U.refineAlignTime('sun', t0, LAT, LON, 20, u60.azDeg, u60.altDeg);
+    ok(Math.abs(r4.timeMs - (t0 + 60e3)) < 1000 && r4.sepDeg < 1e-4, `해도 같다: 오차 ${((r4.timeMs - t0 - 60e3) / 1000).toFixed(2)} s`);
+    // 창 밖: 20 분 뒤 달 위치를 노리면 창 가장자리(+5 분)
+    const far = sky('moon', t0 + 20 * 60e3);
+    const r5 = U.refineAlignTime('moon', t0, LAT, LON, 20, far.azDeg, far.altDeg);
+    ok(Math.abs(r5.timeMs - (t0 + 300e3)) < 1000, `창 밖 대상은 창 가장자리(+5 분)에서 멈춘다: ${((r5.timeMs - t0) / 1000).toFixed(1)} s`);
+    ok(U.refineAlignTime('moon', t0, LAT, LON, 20, s0.azDeg, s0.altDeg, 1).timeMs !== undefined && Math.abs(U.refineAlignTime('moon', t0, LAT, LON, 20, s0.azDeg, s0.altDeg, 1).timeMs - t0) < 1000, '창 크기를 줄여도(±1 분) 이미 맞는 대상은 그 시각에 둔다');
+  }
+
   // ── [8] 통합 ──
   console.log('\n[8] 평지에서 찾기 → 묶기 → 순위');
   {

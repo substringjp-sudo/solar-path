@@ -512,9 +512,10 @@ export interface SkyScene3DHandle {
   getHorizonProfile?: () => HorizonProfile | null;
   /**
    * 서 있을 자리 찾기(추천)용 표본: 눈 위치를 원점으로 하는 틀의 지반 높이(동 x, 남 z, m → 해발)와 물 판정, 그리고 그 원점의 위경도.
-   * 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다). 물은 지도의 물 격자(눈 둘레 약 3 km)와 해수면 근처 높이로 가립니다.
+   * 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다). 물은 지도의 물 격자(눈 둘레 약 3 km)와 해수면 근처 높이로 가리는데,
+   * 지도 자료는 지형보다 늦게 오므로 `waterReady` 가 거짓이면 아직 해수면 높이로만 가린 것입니다.
    */
-  getStandSamplers?: () => { origin: { latitude: number; longitude: number }; ground: HeightSampler; isWater: (eastM: number, southM: number) => boolean } | null;
+  getStandSamplers?: () => { origin: { latitude: number; longitude: number }; ground: HeightSampler; isWater: (eastM: number, southM: number) => boolean; waterReady: boolean } | null;
   /**
    * 위경도·해발의 한 점을 지금 눈 기준 대상 점으로 만듭니다(방위·앙각·거리·땅이 가리는지). 서 있을 자리로 옮긴 뒤 같은 대상을 새 자리에서
    * 다시 잡는 데 씁니다. 이 자리의 지형이 아직 안 왔으면 null.
@@ -1194,7 +1195,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (!ground) return null;
     const key = `${here.latitude.toFixed(3)},${here.longitude.toFixed(3)}`;
     const grids = urbanWaterRef.current?.key === key ? urbanWaterRef.current.grids : undefined;
-    return { origin: { latitude: here.latitude, longitude: here.longitude }, ground, isWater: waterTest(grids, ground) };
+    return { origin: { latitude: here.latitude, longitude: here.longitude }, ground, isWater: waterTest(grids, ground), waterReady: grids !== undefined };
   };
   // 땅 프로필: 지형 패치 번호와 눈 높이가 같은 동안은 다시 만들지 않습니다(40 km 프로필은 샘플 십수만 번).
   horizonCacheRef.current = () => {

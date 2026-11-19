@@ -70,7 +70,7 @@ import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
 import { StandSuggestModal } from './StandSuggest';
 import { fetchCloudOutlook, cachedOutlook } from '../../utils/cloudOutlook';
-import { suggestTargetPoint, rebuildPicked, type CloudOutlook, type StandCandidate } from '../../utils/standSuggest';
+import { suggestTargetPoint, rebuildPicked, refineAlignTime, type CloudOutlook, type StandCandidate } from '../../utils/standSuggest';
 import { timeTo } from '../../theme/motion';
 
 /** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
@@ -667,7 +667,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [suggestFromMs, setSuggestFromMs] = useState(0);
   const [outlook, setOutlook] = useState<CloudOutlook | null>(null);
   const [outlookState, setOutlookState] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const pendingTargetRef = useRef<{ kind: PickedTarget['kind']; latitude: number; longitude: number; elevM: number; building?: PickedTarget['building'] } | null>(null);
+  const pendingTargetRef = useRef<{
+    kind: PickedTarget['kind']; latitude: number; longitude: number; elevM: number; building?: PickedTarget['building'];
+    /** 후보를 찾을 때의 천체·시각·서 있는 자리 — 도착해서 실제 앙각을 알게 되면 시각을 다시 맞추는 데 씁니다. */
+    body: StandCandidate['hit']['body']; timeMs: number; stand: { latitude: number; longitude: number };
+  } | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopPendingPoll = () => { if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; } };
   useEffect(() => stopPendingPoll, []);
@@ -705,6 +709,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       pendingTargetRef.current = null;
       stopPendingPoll();
       setPicked(rebuildPicked(p.kind, p.building, tp));
+      // 먼 자리의 땅 높이는 성긴 패치에서 읽어 찾았으므로(5 km 에서 10 m 차 = 0.1°), 도착해서 촘촘한 땅으로 잰 앙각에 해·달이 가장 가까운 시각으로 맞춥니다.
+      const fit = refineAlignTime(p.body, p.timeMs, p.stand.latitude, p.stand.longitude, tp.eyeElevM, tp.azDeg, tp.elDeg);
+      setCurrentTime(new Date(fit.timeMs));
       alignedViewRef.current = true;
       sceneRef.current?.setCameraView?.(tp.azDeg, tp.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
       loadFarBuildings();
@@ -715,7 +722,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const t = picked;
     const pt = t ? suggestTargetPoint(t) : null;
     if (!t || !pt) return;
-    pendingTargetRef.current = { kind: t.kind, latitude: pt.latitude, longitude: pt.longitude, elevM: pt.elevM, building: t.building };
+    pendingTargetRef.current = { kind: t.kind, latitude: pt.latitude, longitude: pt.longitude, elevM: pt.elevM, building: t.building, body: c.hit.body, timeMs: c.hit.timeMs, stand: { latitude: c.hit.latitude, longitude: c.hit.longitude } };
     setSuggestOpen(false);
     setCurrentTime(new Date(c.hit.timeMs));
     useCelestialStore.getState().setLocation({

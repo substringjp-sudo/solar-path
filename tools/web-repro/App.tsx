@@ -36,6 +36,7 @@ import { localOffsetM } from '../../src/utils/geoMove';
 import { findStandPoints, groupStandHits } from '../../src/utils/standFinder';
 import { standQueryFor, rankStands, rebuildPicked } from '../../src/utils/standSuggest';
 import { bodySky } from '../../src/utils/alignSearch';
+import { fetchUrbanMask } from '../../src/utils/mvtTiles';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -176,7 +177,8 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
 /**
  * suggest:1 — 추천 화면(2026-11-19 목업 3번). 합성 세계: 눈 위치(원점) 37.5512, 126.9882 에서 동남동 약 11 km 의 롯데월드타워 모양(555 m, 꼭대기 해발 575 m).
  * 땅은 해발 20 m 평지 + 대상 남서 3 km 의 언덕(420 m, 뒤쪽 자리는 가려짐) + 대상 북쪽을 지나는 강(물 띠). 예보: 16일, 날마다 맑음 · 보통 · 많음이 돌아가고 그 뒤는 모름.
- * kind:'terrain' 이면 건물 없이 지형 한 점(해발 400 m), noTerrain:1 이면 지형을 못 받은 상태, noOutlook:1 이면 예보 없음(날씨 모름), lang · light.
+ * kind:'terrain' 이면 건물 없이 지형 한 점(해발 400 m), noTerrain:1 이면 지형을 못 받은 상태, noWater:1 이면 지도 물 격자를 못 받은 상태,
+ * noOutlook:1 이면 예보 없음(날씨 모름), lang · light.
  * 후보를 누르면 window.__suggestPicked 에 시각·위경도가 남습니다.
  */
 function SuggestRepro({ W, H }: { W: number; H: number }) {
@@ -208,7 +210,7 @@ function SuggestRepro({ W, H }: { W: number; H: number }) {
         target={target}
         fromMs={t0}
         eyeAboveGroundM={Q.eye ?? 1.6}
-        getSamplers={() => (Q.noTerrain ? null : { origin, ground, isWater })}
+        getSamplers={() => (Q.noTerrain ? null : { origin, ground, isWater, waterReady: !Q.noWater })}
         outlook={outlook}
         outlookState={Q.noOutlook ? 'failed' : 'ready'}
         onPick={(c) => { (globalThis as any).__suggestPicked = { timeMs: c.hit.timeMs, lat: c.hit.latitude, lon: c.hit.longitude, score: c.score }; }}
@@ -260,7 +262,7 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
 
 (globalThis as any).__sky = () => (globalThis as any).__skyHandle;
 // 서 있을 자리 찾기 계산을 실제 장면의 표본기로 돌려 보는 용도(window.__stand.findStandPoints 등) — 장면 시험 스크립트가 씁니다.
-(globalThis as any).__stand = { findStandPoints, groupStandHits, standQueryFor, rankStands, rebuildPicked, bodySky };
+(globalThis as any).__stand = { findStandPoints, groupStandHits, standQueryFor, rankStands, rebuildPicked, bodySky, fetchUrbanMask };
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
   // 시선·시각·해 위치를 페이지를 다시 열지 않고 바꿉니다 — 볼륨 대기 표(SwiftShader 60~70초)를 한 번만 만들려고.
