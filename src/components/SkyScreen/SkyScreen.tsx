@@ -65,6 +65,7 @@ import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
+import { DialPair } from './SandboxDials';
 import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
@@ -936,21 +937,15 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </OverlayButton>
           )}
 
-          {/* 망원 배율 — 전문가 모드, 지상에서만 */}
+          {/* 눈 높이 · 줌 세로 막대 — 전문가 모드, 지상에서만(예전의 망원 단추 다섯 개를 줌 막대가 이어받습니다) */}
           {expertMode && !ascended && (
-            <View style={overlayStyles.teleGroup}>
-              {[1, 2, 5, 10, 20].map(x => (
-                <OverlayButton
-                  key={x}
-                  active={teleX === x}
-                  onPress={() => setTeleX(x)}
-                  accessibilityLabel={L3(language, `망원 ${x}배`, `Telephoto ${x}x`, `望遠 ${x}倍`)}
-                  style={overlayStyles.teleBtn}
-                >
-                  <Text style={[overlayStyles.teleBtnText, teleX === x && { color: DARK.accent }]}>{x}×</Text>
-                </OverlayButton>
-              ))}
-            </View>
+            <DialPair
+              language={language}
+              eyeHeightM={eyeH}
+              onEyeHeight={setEyeH}
+              zoomX={teleX}
+              onZoom={setTeleX}
+            />
           )}
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
@@ -1295,9 +1290,6 @@ const overlayStyles = StyleSheet.create({
   },
   sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
-  teleGroup: { gap: 4, alignItems: 'flex-end' },
-  teleBtn: { width: 44, height: 28 },
-  teleBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   expertBtn: { width: 'auto', minWidth: 32, paddingHorizontal: 10 },
   expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {
