@@ -511,6 +511,11 @@ export interface UrbanMaskResult {
   water?: Uint8Array;
   /** 고해상도 물 마스크(0~255, ±paveHalfM, paveSize²). 지형 위 호수·하천·운하 경계에 씁니다. */
   waterHi?: { size: number; halfM: number; data: Uint8Array };
+  /**
+   * 받지 못한 타일 수. 타일 하나가 늦거나 실패해도 나머지로 마스크를 만들기 때문에(전부 실패해야 null), 0 보다 크면 그 타일 자리의
+   * 물·건물·도로가 빠진 **일부 마스크**입니다. 서 있을 자리 찾기가 "강·호수를 거르지 못했다"고 알리는 데 씁니다(2026-11-19).
+   */
+  failedTiles?: number;
 }
 
 /** 도로 종류(OpenMapTiles transportation class) → 차로 폭(m). 없는 종류(path·track·rail 등)는 그리지 않음. */
@@ -895,5 +900,6 @@ export async function fetchUrbanMask(
     footprints,
     water: waterGrid,
     waterHi: { size: pSize, halfM: pHalf, data: waterHi },
+    failedTiles: tiles.length - okTiles.length,
   };
 }

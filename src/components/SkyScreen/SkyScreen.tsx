@@ -1355,6 +1355,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           outlookState={outlookState}
           onPick={onStand}
           onBack={() => setSuggestOpen(false)}
+          onReloadMap={() => sceneRef.current?.reloadUrbanMask?.()}
         />
       )}
       <LayerControlModal

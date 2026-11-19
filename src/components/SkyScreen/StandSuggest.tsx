@@ -55,6 +55,8 @@ export interface StandSuggestViewProps {
   outlookState?: 'loading' | 'ready' | 'failed';
   onPick: (c: StandCandidate) => void;
   onBack: () => void;
+  /** 지도 자료(물 격자)를 다시 받게 합니다. 없으면 "다시 찾기"만 합니다. */
+  onReloadMap?: () => void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -111,7 +113,7 @@ type Search =
   | { status: 'noTerrain' | 'noPosition' | 'error' }
   | { status: 'done'; groups: StandGroup[] };
 
-export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, target, fromMs, eyeAboveGroundM, getSamplers, outlook, outlookState, onPick, onBack }) => {
+export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, target, fromMs, eyeAboveGroundM, getSamplers, outlook, outlookState, onPick, onBack, onReloadMap }) => {
   const styles = useStyles();
   const building = target.kind === 'building';
   const themes = useMemo(() => themesFor(target), [target]);
@@ -150,6 +152,18 @@ export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, ta
     return () => { runId.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, themeId, sizeId, days, fromMs, eyeAboveGroundM, retry]);
+
+  // 지도 물 격자가 지형보다 늦게 오므로, 아직 없으면 3 초마다 보다가(1 분까지) 오면 저절로 다시 찾습니다.
+  useEffect(() => {
+    if (waterReady || search.status !== 'done') return;
+    let tries = 0;
+    const id = setInterval(() => {
+      if (getSamplers()?.waterReady) { clearInterval(id); setRetry(n => n + 1); }
+      else if (++tries >= 20) clearInterval(id);
+    }, 3000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waterReady, search.status]);
 
   const ranked = useMemo(() => {
     if (search.status !== 'done' || !body || !point) return [];
@@ -265,9 +279,9 @@ export const StandSuggestView: React.FC<StandSuggestViewProps> = ({ language, ta
               </View>
               {!waterReady && (
                 <View style={styles.emptyBox}>
-                  <Text style={styles.warn}>{L3(language, '지도 자료를 아직 못 받아 강·호수 위 자리를 거르지 못했어요(바다만 거름). 받은 뒤 다시 찾으면 걸러져요.', 'The map data has not arrived, so spots on rivers and lakes are not excluded (only the sea is). Search again once it has.', '地図データをまだ受信しておらず、川・湖の上の場所を除外できていません(海のみ除外)。受信後にもう一度探すと除外されます。')}</Text>
-                  <PressScale onPress={() => setRetry(n => n + 1)} accessibilityLabel={L3(language, '다시 찾기', 'Search again', 'もう一度探す')} style={styles.retryBtn}>
-                    <Text style={styles.retryText}>{L3(language, '다시 찾기', 'Search again', 'もう一度探す')}</Text>
+                  <Text style={styles.warn}>{L3(language, '지도 자료를 아직 다 못 받아 강·호수 위 자리를 거르지 못했어요(바다만 거름). 오면 저절로 다시 찾고, 오래 안 오면 아래 단추로 다시 받아요.', 'The map data has not fully arrived, so spots on rivers and lakes are not excluded (only the sea is). It searches again by itself once it arrives; if it does not, reload it with the button.', '地図データをまだ全部受信しておらず、川・湖の上の場所を除外できていません(海のみ除外)。届けば自動でもう一度探します。届かない場合は下のボタンで再取得してください。')}</Text>
+                  <PressScale onPress={() => { onReloadMap?.(); setRetry(n => n + 1); }} accessibilityLabel={L3(language, '지도 자료 다시 받고 찾기', 'Reload map data and search again', '地図データを再取得して探す')} style={styles.retryBtn}>
+                    <Text style={styles.retryText}>{L3(language, '지도 자료 다시 받고 찾기', 'Reload map data and search', '地図データを再取得して探す')}</Text>
                   </PressScale>
                 </View>
               )}
