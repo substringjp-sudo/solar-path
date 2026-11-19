@@ -457,6 +457,29 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   };
 
   const layers: VolumetricLayerInput[] = [];
+  // 2026-11-19 먼 구름만 있는 층(서울 일출: 관측점 저층 0~11 %, 동쪽 70~130 km 저층 47~76 %). 관측점 운량이 0 이면 레인이 없어
+  // 테두리 덱(50~385 km)이 그 층을 아예 그리지 못했음 → 고리 400 km 안 상위 분위수(p90)가 15 % 이상이면 아주 작은 운량의 레인을 둠.
+  // 타일 운량은 volumetricScene 의 macroTileCover 가 고리 값으로 올리고, 가까운 하늘은 거시 문턱이 관측점 운량(≈0)으로 깎습니다.
+  const farRing = interpolatedList.filter(q => Number.isFinite(q.distance) && (q.distance ?? 0) > 0 && (q.distance ?? 0) <= 400);
+  const farCap = (band: 'low' | 'mid' | 'high') => {
+    if (farRing.length < 12) return 0;
+    const v = farRing.map(q => Math.min(100, Math.max(0, q[band] ?? 0)) / 100).sort((x, y) => x - y);
+    return v[Math.min(v.length - 1, Math.floor(v.length * 0.9))];
+  };
+  const FAR_ONLY_MIN = 0.15, FAR_ONLY_COVER = 0.001;
+  const farOnlyLayer = (band: 'low' | 'mid' | 'high'): VolumetricLayerInput | null => {
+    if (farCap(band) < FAR_ONLY_MIN) return null;
+    if (band === 'low') {
+      const baseKm = Math.max(groundKm + 0.15, forecast.lowBaseKm ?? (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low) - 0.5);
+      return { genus: 'sc', cover: FAR_ONLY_COVER, baseKm, thicknessM: 1000, band, opts: { ...flowOpts('low'), spacingKm: aspectSpacingKm('sc', 1000) } };
+    }
+    if (band === 'mid') {
+      const baseKm = Math.max(groundKm + 0.5, 2.2, forecast.midBaseKm ?? (obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - 0.3);
+      return { genus: 'ac', cover: FAR_ONLY_COVER, baseKm, band, opts: flowOpts('mid') };
+    }
+    const baseKm = Math.max(7.2, forecast.highBaseKm ?? (obs.layerAltHighKm ?? FALLBACK_ALT_KM.high) - 0.2);
+    return { genus: 'ci', cover: FAR_ONLY_COVER, baseKm, band, opts: flowOpts('high') };
+  };
   let anvil: VolumetricLayerInput | null = null;
   /**
    * §158 직달일사(DNI)가 말하는 구름 두께. 운량 규칙은 상층 100 % 를 얇은 권운으로, 중층을 고적운으로 그리는데 DNI 가 맑은 날의 5 % 아래면
@@ -528,7 +551,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const lowCover = overcastLow ? 1.0 : obs.low / 100;
       layers.push({ genus: g, cover: lowCover, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
-  } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
+  } else layers.push(farOnlyLayer('low') ?? { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   // §165 중·상층 밑면·두께 — 단면 덱(반값 폭, `bandDeck`)이 있으면 저층과 같은 규칙(밑면 = 덱 밑면, 두께 = 덱 두께 300~3,000 m).
   // 없으면 예전대로: 밑면 = 운량 가중 평균 높이 − 0.3/0.2 km, 두께 = 종류 상수(GENUS.height).
   // 두께는 덱이 **두 면 이상**에 걸칠 때만 자료로 본다 — 한 면짜리 덱의 두께는 면 간격(700 → 600 hPa 1.2 km)의 산물이라, 얇은 고적운(상수 400 m)이
@@ -542,7 +565,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
     const baseKm = Math.max(a.heightM / 1000 + 0.5, 2.2, forecast.midBaseKm ?? (centerKm - 0.3));
     layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm, thicknessM: midThicknessM, band: 'mid', opts: flowOpts('mid') });
-  } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
+  } else layers.push(farOnlyLayer('mid') ?? { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
     const baseKm = Math.max(7.2, forecast.highBaseKm ?? (centerKm - 0.2));
@@ -567,7 +590,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
         : {};
       layers.push({ genus: highGenus, cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...baseOpts, ...ciKnobs } });
     }
-  } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
+  } else layers.push(farOnlyLayer('high') ?? { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
   // 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9): 저·중층 두 종류 층 대신 파동 장 한 층. 적란운 날은 쓰지 않음.
   const fillProf = a.fill !== false && !anvil ? fillProfileOf(obs) : null;

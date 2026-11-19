@@ -35,12 +35,24 @@ export interface BuildingCover {
    * 건물은 중심점 지반 고도를 바닥으로 쓰므로(BuildingField), 발자국 아래 지형이 그 한 값이면 떠 보이거나 파묻히지 않습니다.
    */
   footprints?: Float32Array[];
+  /**
+   * 2026-11-19 물 덮개(0~255, 관측자 둘레 ±halfM), 촘촘한 것 먼저. 있으면 강·호수 자리 고도를 평평한 수면으로 맞춥니다
+   * (사용자: 내륙의 물이 땅 위에 씌워져 강이 오르락내리락함). 표면 고도 자료는 수면 위 다리·배·둑 높이와 레이더 잡음이 섞여 있습니다.
+   */
+  water?: Array<{ size: number; halfM: number; data: Uint8Array }>;
 }
 
 /** 발자국 둘레에서 바닥 높이를 재는 고리 폭(m). */
 export const FOOTPRINT_RING_M = 10;
 /** 바닥 = 고리 고도의 이 분위수(0 = 가장 낮은 쪽). 비탈에서는 낮은 쪽 땅에 맞춥니다. */
 export const FOOTPRINT_LOW_Q = 0.25;
+
+/** 수면 고도: 물 칸만의 최솟값 창 반폭(m) — 다리(대개 폭 40 m 아래)·배·잡음 솟음을 지움. */
+export const WATER_MIN_HALF_M = 60;
+/** 수면 고도: 물 칸만의 평균 반폭(m) — 강을 따라 천천히 내려가는 수면만 남김. */
+export const WATER_MEAN_HALF_M = 250;
+/** 넓은 물 판정 반폭(m). 이보다 좁은 물길(개울·도랑)은 수면을 맞추지 않음. */
+export const WATER_WIDE_HALF_M = 20;
 
 /** 형태학 창 반폭(m). 창 한 변 ≈ 2·이 값 + 칸 하나. 도심 건물(대개 한 변 100 m 아래)보다 크게. */
 export const FLATTEN_WINDOW_HALF_M = 70;
@@ -258,6 +270,75 @@ export function flattenFootprints(
   return { heights: out, stats };
 }
 
+/**
+ * 물 칸을 평평한 수면 고도로 맞춥니다. 순수 함수 — 시험용으로도 씁니다. `waterAt(i, j)` 는 그 칸의 물 비율(0~1).
+ * 수면 = 물 칸만으로 창 최솟값(다리·배 지움) → 물 칸만의 넓은 평균 두 번(강을 따라 완만히). 물 칸은 그 값으로 바꿉니다.
+ */
+export function flattenWaterHeights(
+  h: Float32Array,
+  n: number,
+  texelM: number,
+  waterAt: (i: number, j: number) => number,
+): { heights: Float32Array; stats: FlattenStats } {
+  const frac = new Float32Array(n * n);
+  const wm = new Float32Array(n * n);
+  let x0 = n, x1 = -1, y0 = n, y1 = -1;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const f = waterAt(i, j);
+    frac[j * n + i] = f;
+    if (f >= 0.5 && Number.isFinite(h[j * n + i])) {
+      wm[j * n + i] = 1;
+      if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j;
+    }
+  }
+  const stats: FlattenStats = { touched: 0, meanDropM: 0, maxDropM: 0, maxRaiseM: 0 };
+  if (x1 < 0) return { heights: h, stats };
+  // 넓은 물만(둘레 반폭 WATER_WIDE_HALF_M 의 60 % 이상이 물) — 산골 개울·도랑은 물길이 경사를 따라 흐르므로 건드리지 않음.
+  {
+    const rw = Math.max(1, Math.round(WATER_WIDE_HALF_M / texelM));
+    const core = boxBlur(wm, n, rw);
+    for (let k = 0; k < n * n; k++) core[k] = core[k] >= 0.6 ? 1 : 0;
+    // 속(core)을 다시 같은 폭만큼 넓혀 굽은 강의 가장자리 칸도 되살림(열기).
+    const keep = rankFilter(core, n, rw + 1, false, 0, n - 1, 0, n - 1);
+    x0 = n; x1 = -1; y0 = n; y1 = -1;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      if (wm[k] && !keep[k]) wm[k] = 0;
+      if (wm[k]) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
+    }
+    if (x1 < 0) return { heights: h, stats };
+  }
+  const BIG = 1e9;
+  const src = new Float32Array(n * n).fill(BIG);
+  for (let k = 0; k < n * n; k++) if (wm[k]) src[k] = h[k];
+  const rMin = Math.max(1, Math.round(WATER_MIN_HALF_M / texelM));
+  const mn = rankFilter(src, n, rMin, true, Math.max(0, y0 - 1), Math.min(n - 1, y1 + 1), Math.max(0, x0 - 1), Math.min(n - 1, x1 + 1));
+  const rMean = Math.max(1, Math.round(WATER_MEAN_HALF_M / texelM));
+  let level = new Float32Array(n * n);
+  for (let k = 0; k < n * n; k++) level[k] = wm[k] ? mn[k] : 0;
+  const wb = boxBlur(wm, n, rMean);
+  for (let pass = 0; pass < 2; pass++) {
+    const num = boxBlur(level, n, rMean);
+    const next = new Float32Array(n * n);
+    for (let k = 0; k < n * n; k++) next[k] = wm[k] && wb[k] > 1e-6 ? num[k] / wb[k] : 0;
+    level = next;
+  }
+  const out = new Float32Array(h);
+  let sumDrop = 0;
+  for (let k = 0; k < n * n; k++) {
+    if (!wm[k]) continue;
+    const wk = smoothstep(0.5, 0.8, frac[k]);
+    const v = h[k] + wk * (level[k] - h[k]);
+    const d = h[k] - v;
+    out[k] = v;
+    stats.touched++;
+    sumDrop += d;
+    if (d > stats.maxDropM) stats.maxDropM = d;
+    if (-d > stats.maxRaiseM) stats.maxRaiseM = -d;
+  }
+  stats.meanDropM = stats.touched ? sumDrop / stats.touched : 0;
+  return { heights: out, stats };
+}
 
 /**
  * 패치를 제자리에서 깎습니다(텍스처를 새것으로 바꿈). 같은 덮개로 두 번 부르면 아무것도 안 합니다.
@@ -301,6 +382,31 @@ export function flattenDemPatchUnderBuildings(
   const bRes = flattenHeights(h, n, texelM, coverAt);
   let heights = bRes.heights;
   const stats = bRes.stats;
+  if (cover.water?.length) {
+    const grids = cover.water;
+    // 물 덮개: 칸 넓이 안 3×3 점, 점마다 그 점을 담는 가장 촘촘한 격자.
+    const waterAt = (i: number, j: number): number => {
+      let acc = 0;
+      for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
+        const gx = ((i + (sx + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
+        const gz = ((j + (sy + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
+        for (const g of grids) {
+          const sc = g.size / (2 * g.halfM);
+          const cx = Math.floor((gx + g.halfM) * sc), cy = Math.floor((gz + g.halfM) * sc);
+          if (cx < 0 || cy < 0 || cx >= g.size || cy >= g.size) continue;
+          if (g.data[cy * g.size + cx] >= 128) acc++;
+          break;
+        }
+      }
+      return acc / 9;
+    };
+    const wRes = flattenWaterHeights(heights, n, texelM, waterAt);
+    heights = wRes.heights;
+    stats.touched += wRes.stats.touched;
+    stats.maxDropM = Math.max(stats.maxDropM, wRes.stats.maxDropM);
+    stats.maxRaiseM = Math.max(stats.maxRaiseM, wRes.stats.maxRaiseM);
+  }
+  // 건물 발자국은 수면을 맞춘 뒤에 — 물가 건물의 바닥을 잴 고리가 출렁이는 원자료가 아니라 평평해진 수면을 보게 합니다.
   if (cover.footprints?.length) {
     // 발자국(동 x, 남 z, m) → 고도 격자 칸 좌표. coverAt 와 같은 대응: g = ((i + 0.5) / 256 − observerU) · tileSpanM.
     const px = DEM_TILE_SIZE_PX / patch.tileSpanM;

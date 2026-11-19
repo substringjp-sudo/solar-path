@@ -268,6 +268,19 @@ export interface CloudPathData {
 /**
  * Open-Meteo 일일/분당 API 한도 초과 시 맑은 날씨(구름 0%)를 즉시 생성하는 Fallback 함수
  */
+/** 요청 한도에 걸렸을 때 쓸 **실제** 고리(기한이 지났어도) — 메모리·스토어 캐시. 없으면 null. */
+function staleRealRing(cacheKey: string, lat: number, lon: number, dateStr: string): CloudPathData[] | null {
+  const alias = cacheKey.replace(/^ring_/, 'w_');
+  for (const k of [cacheKey, alias]) {
+    const m = MEM_RING_CACHE.get(k);
+    if (m?.data?.length && !m.data[0]?.isFallback) return m.data;
+    const r = ringCache.get(k);
+    if (r?.length && !r[0]?.isFallback) return r;
+  }
+  const f = ringFallbackFinder?.(lat, lon, dateStr);
+  return f && f.length > 0 && !f[0]?.isFallback ? f : null;
+}
+
 function createClearSkyFallback(
   points: { dist: number; azOffset?: number; az?: number; azimuthOffset?: number }[],
   targetDate: Date,
@@ -1176,6 +1189,9 @@ export const fetchDayWeatherRing = async (
     }
     if (!response.ok) {
       if (response.status === 429) {
+        // 2026-11-18 받아 둔 실제 예보가 있으면(오래됐어도) 그걸 씁니다 — 맑은 하늘을 지어내면 구름 많은 날도 맑게 보였음.
+        const stale = staleRealRing(cacheKey, lat, lon, targetDateStr);
+        if (stale) { INFLIGHT_REQUESTS.delete(cacheKey); return stale; }
         console.warn(`[WeatherAPI] fetchCloudRing 429 rate limit. Using synthetic clear sky fallback.`);
         const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
         MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
@@ -1187,6 +1203,8 @@ export const fetchDayWeatherRing = async (
     const data = await response.json();
     if (data?.error) {
       if (data?.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
+        const stale = staleRealRing(cacheKey, lat, lon, targetDateStr);
+        if (stale) { INFLIGHT_REQUESTS.delete(cacheKey); return stale; }
         console.warn(`[WeatherAPI] fetchCloudRing rate limit error. Using synthetic clear sky fallback.`);
         const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
         MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
