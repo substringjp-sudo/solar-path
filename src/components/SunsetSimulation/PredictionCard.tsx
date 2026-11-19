@@ -13,7 +13,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t, translateSunsetDesc, type Language } from '../../utils/i18n';
+import { t, L3, translateSunsetDesc, type Language } from '../../utils/i18n';
 import { radius, space, type, tint, color as DARK, dataColor as DARK_DATA, type Palette, type DataPalette } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
@@ -67,6 +67,8 @@ export interface PredictionCardProps {
   onPressSource?: () => void;
   /** 가장 붉을 때(`utils/glowPeak.ts`). 모르면 적지 않습니다. */
   peakTime?: Date | null;
+  /** "왜 그런가요?" — 점수가 나온 단계를 보여 주는 계산 과정 보기로 갑니다(docs/SANDBOX_MODE_PLAN.md 9 장). 없으면 링크를 그리지 않습니다. */
+  onWhy?: () => void;
 }
 
 export const PredictionCard: React.FC<PredictionCardProps> = ({
@@ -75,6 +77,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   isSunrise,
   onPressSource,
   peakTime,
+  onWhy,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
@@ -126,6 +129,12 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
       </View>
 
       {!!reason && <Text style={styles.reason}>{reason}</Text>}
+
+      {onWhy && (
+        <PressScale onPress={onWhy} accessibilityLabel={L3(language, '왜 그런가요? 점수가 나온 과정 보기', 'Why? See how the score is made', 'なぜ? スコアの出し方を見る')} style={styles.why}>
+          <Text style={styles.whyText}>{L3(language, '왜 그런가요?', 'Why?', 'なぜ?')}</Text>
+        </PressScale>
+      )}
     </View>
   );
 };
@@ -155,4 +164,6 @@ const useStyles = makeStyles((color) => ({
   scaleBar: { alignSelf: 'stretch', height: 8, borderRadius: 2 },
   scaleLabel: { ...type.micro, color: color.textDim },
   reason: { ...type.body, color: color.textDim, lineHeight: 20 },
+  why: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center' },
+  whyText: { ...type.label, color: color.accent },
 }));
