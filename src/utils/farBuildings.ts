@@ -4,8 +4,8 @@
  * 지금 건물은 눈 둘레 1 km 만 받습니다. 그 밖은 산이 가리는 곳이 많고, 가리지 않는 곳도 낮은 집은 너무 작아 보이지
  * 않으니 다 받으면 낭비입니다. 반대로 롯데월드타워 같은 높은 건물은 10 km 밖에서도 지평선 위로 우뚝 섭니다.
  *
- * 1. 지평선 프로필(`buildHorizonProfile`): 방위 1° 마다, 거리 구간마다 "그 거리까지 땅이 눈에 가장 높게 보이는 앙각"(누적 최대).
- *    앙각은 곡률·굴절을 담은 눈에 보이는 높이입니다(`curvatureDropM`, 렌더링·고르기와 같은 식).
+ * 1. 지평선 프로필(`horizon.ts` 의 `buildHorizonProfile`): 방위 1° 마다, 거리 구간마다 "그 거리까지 땅이 눈에 가장 높게 보이는 앙각"(누적 최대).
+ *    앙각은 곡률·굴절을 담은 눈에 보이는 높이입니다(`curvatureDropM`, 렌더링·고르기와 같은 식). 해·달 걸기의 스카이라인도 같은 프로필입니다.
  * 2. 타일 고르기(`planFarTiles`): 타일 안 어딘가에 가장 높은 건물(`hCapM`)이 서 있다면 그 윗부분이 땅에 가리지 않는가.
  *    가리면 그 타일은 받지 않습니다.
  * 3. 건물 고르기(`selectVisibleFar`): 받은 타일의 건물마다 **보이는 각높이** = 꼭대기 앙각 − max(밑동 앙각, 가리는 땅 앙각)
@@ -15,7 +15,8 @@
  * 건물끼리의 가림(앞 건물이 뒤 건물을 가림)은 보지 않습니다 — 땅이 가리는 것만. 보수적이라 보이지 않는 건물이 섞일 수 있습니다.
  */
 import { curvatureDropM } from './earth';
-import { groundXZ, type HeightSampler } from './demPick';
+import type { HeightSampler } from './demPick';
+import { normAz, occluderAngleDeg, type HorizonProfile } from './horizon';
 import { tileListForRadius, tilePointToLonLat, type TileCoord } from './mvtTiles';
 
 const RAD = Math.PI / 180;
@@ -31,77 +32,6 @@ export const FAR_MIN_VISIBLE_DEG = 0.12;
 export const FAR_H_CAP_M = 600;
 export const FAR_MAX_TILES = 150;
 export const FAR_MAX_BUILDINGS = 3000;
-
-export interface HorizonProfile {
-  eyeM: number;
-  /** 방위 칸 수(360)와 칸 폭(°) */
-  nAz: number;
-  azStepDeg: number;
-  /** 거리 칸 수와 칸 폭(m) */
-  nDist: number;
-  distStepM: number;
-  /** cum[a·nDist + k] = 방위 칸 a 에서 거리 (k+1)·distStepM 까지 땅의 최대 앙각(°). 자료가 없는 곳은 건너뜀. 없으면 NO_TERRAIN. */
-  cum: Float32Array;
-}
-
-/** 땅이 하나도 없다는 뜻의 앙각(°). */
-export const NO_TERRAIN = -90;
-
-const normAz = (a: number) => ((a % 360) + 360) % 360;
-
-/**
- * 눈(해발 eyeM)에서 본 지평선 프로필. 방위 칸마다 거리를 따라 걸으며 땅의 앙각 누적 최대를 기록합니다.
- * 걸음은 가까울수록 촘촘(거리의 1.2%, 6~distStepM/2 m)해 가까운 능선을 놓치지 않습니다.
- */
-export function buildHorizonProfile(
-  sample: HeightSampler,
-  eyeM: number,
-  opts: { azStepDeg?: number; distStepM?: number; maxDistM?: number } = {},
-): HorizonProfile {
-  const azStepDeg = opts.azStepDeg ?? 1;
-  const distStepM = opts.distStepM ?? 250;
-  const maxDistM = opts.maxDistM ?? FAR_OUTER_M;
-  const nAz = Math.round(360 / azStepDeg);
-  const nDist = Math.ceil(maxDistM / distStepM);
-  const cum = new Float32Array(nAz * nDist).fill(NO_TERRAIN);
-  const maxStep = distStepM / 2;
-  for (let a = 0; a < nAz; a++) {
-    const az = a * azStepDeg;
-    let m = NO_TERRAIN;
-    let k = 0;
-    for (let d = 6; d <= maxDistM + 1e-6;) {
-      const kk = Math.min(nDist - 1, Math.floor((d - 1e-9) / distStepM));
-      while (k < kk) { cum[a * nDist + k] = m; k++; }
-      const [e, s] = groundXZ(az, d);
-      const h = sample(e, s);
-      if (h != null) {
-        const ang = Math.atan2(h - eyeM - drop(d), d) / RAD;
-        if (ang > m) m = ang;
-      }
-      d += Math.min(maxStep, Math.max(6, d * 0.012));
-    }
-    while (k < nDist) { cum[a * nDist + k] = m; k++; }
-  }
-  return { eyeM, nAz, azStepDeg, nDist, distStepM, cum };
-}
-
-/**
- * 방위 azDeg·거리 distM 에 선 건물을 가리는 땅의 앙각(°) — 그 거리 **앞**까지의 누적 최대.
- * 이웃 방위 칸 셋 중 가장 낮은 것을 씁니다(건물 폭·칸 경계 때문에 놓치지 않게, 보수적으로).
- */
-export function occluderAngleDeg(p: HorizonProfile, azDeg: number, distM: number): number {
-  const k = Math.floor(distM / p.distStepM) - 1;
-  if (k < 0) return NO_TERRAIN;
-  const kk = Math.min(k, p.nDist - 1);
-  const a0 = Math.round(normAz(azDeg) / p.azStepDeg) % p.nAz;
-  let lo = Infinity;
-  for (const da of [-1, 0, 1]) {
-    const a = (a0 + da + p.nAz) % p.nAz;
-    const v = p.cum[a * p.nDist + kk];
-    if (v < lo) lo = v;
-  }
-  return lo;
-}
 
 /**
  * 해발 groundM 의 땅에 높이 heightM 로 선 건물의 **보이는 각높이**(°). 0 이하면 땅에 가려 안 보입니다.

@@ -7,10 +7,7 @@
  * "보이는데 가렸다"가 건물을 잃는 쪽이라 이쪽이 핵심입니다.
  *
  * 먼저 정한 줄:
- *  1. 프로필 — 프로필은 **방위 칸 셋 중 가장 낮은 값**을 씁니다(건물 폭·칸 경계로 놓치지 않으려는 보수적 정의). 그래서
- *     정답은 "그 방위와 ±1° 의 정답 셋 중 가장 낮은 것" 이고, 프로필이 그것과 0.03° 안(거리 250 m 칸의 몫)이어야 합니다.
- *     산 가장자리에서는 방위 1° 사이 기울기가 0.09° 까지 되므로 한 방위의 정답과는 그만큼 달라질 수 있습니다(보이는 쪽으로만).
- *     평지는 0.02° 안. 어느 쪽이든 그 방위의 정답보다 0.01° 넘게 높으면(= 덜 보이게 어긋나면) 실패 — 건물을 잃는 쪽입니다.
+ *  (지평선 프로필 자체의 정확도는 verify-skyline.js 가 지킵니다. 여기서는 그 위의 건물·타일 판단을 봅니다.)
  *  2. 가림 — 440 m 산 뒤 9 km 의 100 m 건물은 안 보인다. 꼭대기 앙각이 산마루 앙각(3.78°)을 넘는 900 m 는 보이고 보이는 각이
  *     정답과 0.05° 안(600 m 는 산마루와 같은 앙각이라 문턱 위에 서 있어 시험하지 않습니다). 평지 9 km 의 100 m 건물은
  *     보이는 각높이가 atan(100/9000)=0.64° 근처(곡률 낙차 안쪽 0.03°). 정답과 비교해 "프로필이 가렸는데 정답은 보임(0.05° 넘게)" 이 0 건.
@@ -21,7 +18,6 @@
  *  4b. 방위 범위(sector) — 보는 방향 ± 반폭만 받는다: 계획이 전체의 부분집합이고 훨씬 적으며, 반대쪽 타일은 없다.
  *  5. 고르기 — 큰 것부터 정렬, 한도(maxBuildings) 지킴, 거리 범위 밖 제외, 뽑힌 것은 정답으로도 0.12° − 0.05° 이상,
  *     버려진(범위 안) 것은 정답으로 0.12° + 0.05° 미만 또는 한도 때문.
- *  6. 모서리 — 방위 359.9° 가 0° 칸을 읽고, 거리 < 250 m 는 가림 없음, 자료 밖 칸은 건너뛴다.
  *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-far-buildings.js
@@ -35,6 +31,7 @@ const RAD = Math.PI / 180;
 
 (async () => {
   const F = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'farBuildings.js'));
+  const HZ = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'horizon.js'));
   const E = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'earth.js'));
   const drop = E.curvatureDropM;
 
@@ -61,38 +58,8 @@ const RAD = Math.PI / 180;
     return top - Math.max(base, truthOcc(h, e, s));
   };
 
-  const prof = F.buildHorizonProfile(mountain, EYE);
-  const profWall = F.buildHorizonProfile(wall, EYE);
-
-  // ── [1] 프로필 ─────────────────────────────────────────────────────────
-  console.log('\n[1] 지평선 프로필 — 느린 정답과 견줌');
-  {
-    let worstEast = 0, worstFlat = 0, tooHigh = 0, n = 0;
-    for (const az of [60, 75, 90, 105, 120]) {
-      for (const d of [7000, 9000, 12000, 14500]) {
-        const [e, s] = eastSouth(az, d);
-        const t = truthOcc(mountain, e, s), p = F.occluderAngleDeg(prof, az, d);
-        // 프로필의 정의: 방위 칸 셋 중 가장 낮은 값 → 정답도 ±1° 의 셋 중 가장 낮은 것으로
-        const t3 = Math.min(...[-1, 0, 1].map(da => { const [e2, s2] = eastSouth(az + da, d); return truthOcc(mountain, e2, s2); }));
-        worstEast = Math.max(worstEast, Math.abs(p - t3));
-        if (p > t + 0.01) tooHigh++;
-        n++;
-      }
-    }
-    for (const az of [180, 225, 270, 315, 0]) {
-      for (const d of [3000, 9000, 14500]) {
-        const [e, s] = eastSouth(az, d);
-        const t = truthOcc(mountain, e, s), p = F.occluderAngleDeg(prof, az, d);
-        worstFlat = Math.max(worstFlat, Math.abs(p - t));
-        if (p > t + 0.01) tooHigh++;
-        n++;
-      }
-    }
-    console.log(`      ${n}점 — 산 쪽 최대 ${worstEast.toFixed(4)}° · 평지 최대 ${worstFlat.toFixed(4)}° · 정답보다 높은 점 ${tooHigh}`);
-    ok(worstEast < 0.03, `산 뒤 가리는 앙각이 "±1° 중 가장 낮은 정답"과 0.03° 안 (${worstEast.toFixed(4)}°)`);
-    ok(worstFlat < 0.02, `평지 가리는 앙각이 정답과 0.02° 안 (${worstFlat.toFixed(4)}°)`);
-    ok(tooHigh === 0, `정답보다 0.01° 넘게 높게(덜 보이게) 어긋난 점이 없다 (${tooHigh})`);
-  }
+  const prof = HZ.buildHorizonProfile(mountain, EYE);
+  const profWall = HZ.buildHorizonProfile(wall, EYE);
 
   // ── [2] 가림 ───────────────────────────────────────────────────────────
   console.log('\n[2] 가림');
@@ -236,19 +203,6 @@ const RAD = Math.PI / 180;
     const src = require('fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'utils', 'buildingTiles.ts'), 'utf8');
     const m = src.match(/export const BUILDING_RADIUS_M = (\d+)/);
     ok(!!m && Number(m[1]) === F.FAR_INNER_M, `FAR_INNER_M(${F.FAR_INNER_M}) = BUILDING_RADIUS_M(${m ? m[1] : '?'}) — 사이에 빈 띠도 겹침도 없다`);
-  }
-
-  // ── [6] 모서리 ─────────────────────────────────────────────────────────
-  console.log('\n[6] 모서리');
-  {
-    const a = F.occluderAngleDeg(prof, 359.9, 9000), b = F.occluderAngleDeg(prof, 0, 9000);
-    ok(Math.abs(a - b) < 0.02, `방위 359.9° 와 0° 가 같은 칸을 읽는다 (${a.toFixed(4)} ≈ ${b.toFixed(4)})`);
-    ok(F.occluderAngleDeg(prof, 90, 200) === F.NO_TERRAIN, '250 m 보다 가까우면 가림 없음');
-    const hole = (e, s) => (e > 2000 && e < 4000 ? null : 40);
-    const pHole = F.buildHorizonProfile(hole, EYE);
-    ok(Number.isFinite(F.occluderAngleDeg(pHole, 90, 9000)), '자료가 없는 칸을 건너뛰어도 값이 나온다');
-    const none = F.buildHorizonProfile(() => null, EYE);
-    ok(F.occluderAngleDeg(none, 90, 9000) === F.NO_TERRAIN, '자료가 아예 없으면 가림 없음(NO_TERRAIN)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
