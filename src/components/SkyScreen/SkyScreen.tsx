@@ -850,6 +850,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
               moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
               observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
+              getSkyline={() => sceneRef.current?.getSkyline?.() ?? null}
               onAlign={(hit) => {
                 // 그 시각으로 가서 시선을 대상에 맞춥니다. 화각은 원반이 보일 만큼 좁히고, 시야 중심은 위로 올려
                 // (패널이 아래쪽을 덮으므로) 대상과 그 곁의 해·달이 패널 위에 보이게 합니다.

@@ -23,6 +23,8 @@ interface Props {
   /** 서 있는 자리와 지금 시뮬레이션 시각 — 있으면 "해·달 걸기" 찾기가 붙습니다. */
   observer?: { latitude: number; longitude: number; fromMs: number };
   onAlign?: (hit: AlignHit) => void;
+  /** 눈에서 본 땅 스카이라인(방위 → 앙각). 해·달이 능선 뒤에 가리는지 알리는 데 씁니다. */
+  getSkyline?: () => ((azDeg: number) => number | null) | null;
   onClear: () => void;
 }
 
@@ -30,7 +32,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onClear }) => {
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const cells: Array<{ label: string; value: string; tone?: 'good' | 'bad' | 'sun' | 'moon' }> = [
@@ -77,6 +79,7 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           elDeg={target.elDeg}
           fromMs={observer.fromMs}
           onPick={onAlign}
+          getSkyline={getSkyline}
         />
       )}
     </View>

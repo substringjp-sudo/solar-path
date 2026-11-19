@@ -179,6 +179,7 @@ export default function App() {
             moon={{ azDeg: 90, altDeg: -20 }}
             // 해·달 걸기(2026-11-19): 앱과 같은 길 — 시각을 옮기고 시선을 대상에 맞춥니다(해 위치도 그 시각 것으로).
             observer={{ latitude: lat ?? 37.5, longitude: lon ?? 127, fromMs: new Date(tNow ?? Date.now()).getTime() }}
+            getSkyline={() => (globalThis as any).__skyHandle?.getSkyline?.() ?? null}
             onAlign={(hit: any) => {
               (globalThis as any).__aligned = hit;
               const sp = getSunPosition(new Date(hit.timeMs), lat ?? 37.5, lon ?? 127);

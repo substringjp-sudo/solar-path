@@ -73,6 +73,7 @@ const ENTRIES = [
   // 정밀한 달 위치(Meeus 47 장)와 해·달 걸기 탐색 — 판정이 astronomy-engine 표에 대어 봅니다
   // (verify-moon-position.js · verify-align-search.js).
   'src/utils/moonPosition.ts',
+  'src/utils/horizon.ts',
   'src/utils/alignSearch.ts',
   'src/utils/sunsetPhysics.ts',
   'src/utils/cloudRadar.ts',

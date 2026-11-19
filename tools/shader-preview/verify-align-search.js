@@ -14,6 +14,8 @@
  *  5. 보이지 않는 곳 — 앙각 −30° 대상(해·달이 못 가는 곳)은 빈 목록.
  *  6. 취소·진행 — `isCancelled` 가 서면 끝까지 가지 않고, 끝까지 가면 진행이 1 로 끝난다.
  *  7. 빠르다 — 400 일 달 탐색이 2 초 안(구면 추적은 보통 0.1 초).
+ *  8. 스카이라인 — `skyline` 을 주면 접근마다 visibility: 원반이 전부 위면 clear, 가로지르면 partial, 전부 아래면 hidden.
+ *     걸러 내지는 않는다. 묶음 대표는 가려지지 않은 접근 중에서 고른다.
  *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-align-search.js
@@ -125,6 +127,36 @@ const RAD = Math.PI / 180;
     await AS.searchAlignments({ body: 'moon', latitude: 37.5, longitude: 127, target: { azDeg: 200, elDeg: 30 }, fromMs: Date.parse('2026-11-19T00:00:00Z'), days: 400, epsDeg: 1 });
     const ms = Date.now() - t;
     ok(ms < 2000, `달 400 일 탐색 ${ms} ms < 2000 ms`);
+  }
+
+  // ── [8] 스카이라인 ───────────────────────────────────────────────────
+  console.log('\n[8] 스카이라인 — 능선 뒤에 가리는 접근');
+  {
+    const base = { body: 'sun', latitude: 37.5665, longitude: 126.978, eyeElevM: 0, target: { azDeg: 120, elDeg: 3 }, fromMs: Date.parse('2026-11-19T00:00:00Z'), days: 300, epsDeg: 1 };
+    const none = await AS.searchAlignments(base);
+    ok(none.length > 5 && none.every(h => h.visibility === 'clear' && h.skylineDeg === undefined), `스카이라인을 안 주면 모두 clear 에 skylineDeg 없음 (${none.length}건)`);
+    const high = await AS.searchAlignments({ ...base, skyline: () => 30 });
+    ok(high.length === none.length && high.every(h => h.visibility === 'hidden' && h.skylineDeg === 30), '스카이라인이 해보다 훨씬 높으면(30°) 모두 hidden — 찾은 수는 그대로(걸러 내지 않는다)');
+    const low = await AS.searchAlignments({ ...base, skyline: () => -5 });
+    ok(low.every(h => h.visibility === 'clear'), '스카이라인이 훨씬 낮으면(−5°) 모두 clear');
+    // 스카이라인이 해 높이 한가운데: 원반이 걸린다(partial). 접근마다 그 접근의 고도로 스카이라인을 맞춰 줍니다.
+    const alts = new Map(none.map(h => [Math.round(h.azDeg * 1000), h.altDeg]));
+    const mid = await AS.searchAlignments({ ...base, skyline: (az) => { let best = null, bd = 1e9; for (const [k, v] of alts) { const d = Math.abs(k / 1000 - az); if (d < bd) { bd = d; best = v; } } return best; } });
+    ok(mid.length > 0 && mid.every(h => h.visibility === 'partial'), `스카이라인이 해 중심 높이면 모두 partial (${mid.filter(h => h.visibility === 'partial').length}/${mid.length})`);
+    // 경계: 원반 아래 가장자리 = 스카이라인 → clear, 윗가장자리 = 스카이라인 → hidden
+    const h0 = none[0], r = h0.diskDeg / 2;
+    const edgeClear = (await AS.searchAlignments({ ...base, skyline: () => h0.altDeg - r - 1e-3 })).find(h => Math.abs(h.timeMs - h0.timeMs) < 60e3);
+    const edgeHidden = (await AS.searchAlignments({ ...base, skyline: () => h0.altDeg + r + 1e-3 })).find(h => Math.abs(h.timeMs - h0.timeMs) < 60e3);
+    ok(edgeClear && edgeClear.visibility === 'clear' && edgeHidden && edgeHidden.visibility === 'hidden', '원반 아래가장자리 바로 아래 스카이라인은 clear, 윗가장자리 바로 위는 hidden');
+    // 땅이 없다(null / −90) → 모름 → clear
+    const unknown = await AS.searchAlignments({ ...base, skyline: () => null });
+    ok(unknown.every(h => h.visibility === 'clear' && h.skylineDeg === undefined), '스카이라인이 null(땅 자료 없음)이면 clear');
+    // 묶음 대표: 가려지지 않은 접근이 있으면 그것이 더 멀어도 대표가 된다
+    const mk = (d, sep, vis) => ({ body: 'sun', timeMs: d * 86400e3, sepDeg: sep, dAzDeg: 0, dElDeg: 0, azDeg: 0, altDeg: 0, diskDeg: 0.53, sunAltDeg: 0, visibility: vis });
+    const g = AS.groupAlignments([mk(1, 0.1, 'hidden'), mk(2, 0.5, 'partial'), mk(3, 0.3, 'clear'), mk(4, 0.05, 'hidden')]);
+    ok(g.length === 1 && g[0].best.sepDeg === 0.3 && g[0].best.visibility === 'clear', '묶음 대표는 가려지지 않은 것 중 가장 가까운 것(0.3°)이지 가려진 0.05° 가 아니다');
+    const gAll = AS.groupAlignments([mk(1, 0.4, 'hidden'), mk(2, 0.2, 'hidden')]);
+    ok(gAll[0].best.sepDeg === 0.2 && gAll[0].best.visibility === 'hidden', '전부 가려졌으면 가장 가까운 것이 대표(hidden)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);

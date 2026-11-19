@@ -30,6 +30,7 @@ import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { rayHitTerrain, climbToPeak, lineOfSightClearance, type HeightSampler, type PickedTarget } from '../../utils/demPick';
 import { makeDemSampler } from '../../utils/demSampler';
+import { buildHorizonProfile, skylineAngleDeg } from '../../utils/horizon';
 import { curvatureDropM } from '../../utils/earth';
 import { offsetLatLon } from '../../utils/geoMove';
 import { Target } from 'lucide-react-native';
@@ -477,6 +478,11 @@ export interface SkyScene3DHandle {
   ) => void;
   /** 카메라 뷰파인더 종료 시 롤 및 뷰 오프셋만 초기화합니다. */
   clearCameraLensOverride?: () => void;
+  /**
+   * 눈에서 본 땅의 스카이라인(방위 → 앙각, °). 해·달이 능선 뒤에 가리는지 알리는 데 씁니다(해·달 걸기).
+   * 땅 자료가 아직 없으면 null, 땅이 없는 방위는 null. 지형 패치와 눈 높이가 같은 동안은 계산을 다시 하지 않습니다.
+   */
+  getSkyline?: () => ((azDeg: number) => number | null) | null;
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
@@ -612,6 +618,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
   const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
+  /** 땅 스카이라인 캐시(해·달 걸기) — 지형 패치 번호와 눈 높이가 같은 동안 재사용. */
+  const skylineCacheRef = useRef<{ key: string; fn: (azDeg: number) => number | null } | null>(null);
   const buildingLoadedKeyRef = useRef<string | null>(null);
   const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildingRetryCountRef = useRef(0);
@@ -1150,6 +1158,23 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       trackingTargetRef.current = null;
       onSelectTrackingTargetRef.current?.(null);
       requestRender(8);
+    },
+    getSkyline: () => {
+      const renderer = rendererRef.current, patch = demPatchRef.current;
+      if (!renderer || !patch) return null;
+      const fine = makeDemSampler(renderer, patch);
+      const farPatch = demMaskPatchRef.current;
+      const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
+      if (!fine && !far) return null;
+      const sample: HeightSampler = (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
+      const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
+      const eye = ground + (eyeHeightRef.current ?? 1.6);
+      const key = `${demSerialRef.current}|${eye.toFixed(1)}`;
+      if (skylineCacheRef.current?.key === key) return skylineCacheRef.current.fn;
+      const prof = buildHorizonProfile(sample, eye, { maxDistM: 40000 });
+      const fn = (az: number) => { const v = skylineAngleDeg(prof, az); return v > -89 ? v : null; };
+      skylineCacheRef.current = { key, fn };
+      return fn;
     },
     clearCameraLensOverride: () => {
       cameraRollRef.current = 0;

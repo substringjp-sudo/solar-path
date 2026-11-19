@@ -6,6 +6,9 @@
  * `eps`° 안으로 드는 순간을 모두 찾고, `groupAlignments` 가 며칠씩 이어진 것을 묶습니다.
  * 한 줄을 누르면 그 시각으로 가서 시선을 대상에 맞춥니다(부모가 `onPick` 으로 처리).
  *
+ * 스카이라인(`getSkyline`, 장면의 땅 지평선)이 있으면 해·달이 능선 뒤에 가리는 접근을 가려 냅니다:
+ * 기본은 가려진 것을 숨기고(몇 건 숨겼는지 알림), 능선에 걸린 것은 "능선에 걸림" 으로 표시합니다.
+ *
  * 하늘 위에 떠 있는 것이라 화면 모드와 상관없이 어두운 재질(overlay)을 씁니다. 표시는 기기 시간대(앱의 다른 목록과 같음).
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +37,8 @@ interface Props {
   /** 여기서부터 앞으로 찾습니다(보통 지금 시뮬레이션 시각) */
   fromMs: number;
   onPick: (hit: AlignHit) => void;
+  /** 눈에서 본 땅 스카이라인(방위 → 앙각). 땅 자료가 아직 없으면 null. 찾기를 누를 때 한 번 부릅니다. */
+  getSkyline?: () => ((azDeg: number) => number | null) | null;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -60,9 +65,10 @@ const offsetText = (h: AlignHit, lang: Lang) => {
 const skyText = (sunAltDeg: number, lang: Lang) =>
   sunAltDeg > 0 ? L3(lang, '낮', 'day', '昼') : sunAltDeg > -12 ? L3(lang, '황혼', 'twilight', '薄明') : L3(lang, '밤', 'night', '夜');
 
-export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, eyeElevM, azDeg, elDeg, fromMs, onPick }) => {
+export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, eyeElevM, azDeg, elDeg, fromMs, onPick, getSkyline }) => {
   const [eps, setEps] = useState<(typeof EPS_CHOICES_DEG)[number]>(1);
   const [sort, setSort] = useState<'near' | 'date'>('near');
+  const [showHidden, setShowHidden] = useState(false);
   const [body, setBody] = useState<AlignBody | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -87,8 +93,9 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
     setRunning(true);
     setProgress(0);
     setGroups(null);
+    const skyline = getSkyline?.() ?? undefined;
     const hits = await searchAlignments(
-      { body: b, latitude, longitude, eyeElevM, target: { azDeg, elDeg }, fromMs, days: ALIGN_SEARCH_DAYS, epsDeg: e },
+      { body: b, latitude, longitude, eyeElevM, target: { azDeg, elDeg }, fromMs, days: ALIGN_SEARCH_DAYS, epsDeg: e, skyline },
       { isCancelled: () => id !== runId.current, onProgress: (f) => { if (id === runId.current) setProgress(f); } },
     );
     if (id !== runId.current) return;
@@ -96,10 +103,12 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
     setRunning(false);
   };
 
+  const hiddenCount = useMemo(() => (groups ?? []).filter(g => g.best.visibility === 'hidden').length, [groups]);
   const rows = useMemo(() => {
     if (!groups) return [];
-    return sort === 'near' ? [...groups].sort((a, b) => a.best.sepDeg - b.best.sepDeg) : groups;
-  }, [groups, sort]);
+    const shown = showHidden ? groups : groups.filter(g => g.best.visibility !== 'hidden');
+    return sort === 'near' ? [...shown].sort((a, b) => a.best.sepDeg - b.best.sepDeg) : shown;
+  }, [groups, sort, showHidden]);
 
   const label = (b: AlignBody) => (b === 'moon' ? L3(language, '달 걸기', 'Hang moon', '月を重ねる') : L3(language, '해 걸기', 'Hang sun', '太陽を重ねる'));
 
@@ -147,6 +156,20 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
           <>
             <View style={styles.sortRow}>
               <Text style={styles.count}>{L3(language, `${rows.length}건`, `${rows.length} found`, `${rows.length}件`)}</Text>
+              {hiddenCount > 0 && (
+                <OverlayButton
+                  active={showHidden}
+                  onPress={() => setShowHidden(v => !v)}
+                  accessibilityLabel={L3(language, '가려진 것 보기', 'Show hidden', '隠れたものを表示')}
+                  style={styles.hiddenBtn}
+                >
+                  <Text style={[styles.chipText, showHidden && { color: DARK.accent }]}>
+                    {showHidden
+                      ? L3(language, `가려진 ${hiddenCount}건 포함`, `incl. ${hiddenCount} hidden`, `隠れた${hiddenCount}件を含む`)
+                      : L3(language, `가려진 ${hiddenCount}건 숨김`, `${hiddenCount} hidden`, `隠れた${hiddenCount}件を非表示`)}
+                  </Text>
+                </OverlayButton>
+              )}
               <View style={styles.spacer} />
               {(['near', 'date'] as const).map(k => (
                 <OverlayButton key={k} active={sort === k} onPress={() => setSort(k)} accessibilityLabel={k === 'near' ? L3(language, '가까운 순', 'Closest first', '近い順') : L3(language, '날짜순', 'By date', '日付順')} style={styles.sortBtn}>
@@ -179,6 +202,8 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
                       <Text style={styles.itemSub2} numberOfLines={1}>
                         {h.body === 'moon' && h.illum != null ? `${L3(language, '달', 'Moon', '月')} ${Math.round(h.illum * 100)}% · ` : ''}
                         {skyText(h.sunAltDeg, language)} · {L3(language, '고도', 'alt', '高度')} {h.altDeg.toFixed(1)}°
+                        {h.visibility === 'partial' ? ` · ${L3(language, '능선에 걸림', 'on the ridge', '稜線にかかる')}` : ''}
+                        {h.visibility === 'hidden' ? ` · ${L3(language, '지형에 가림', 'hidden by terrain', '地形に隠れる')}` : ''}
                         {g.count > 1 ? ` · ${fmtShort(g.firstMs)}~${fmtShort(g.lastMs)} ${L3(language, `${g.count}일 이어짐`, `${g.count} days`, `${g.count}日続く`)}` : ''}
                       </Text>
                     </View>
@@ -211,6 +236,7 @@ const styles = StyleSheet.create({
   sortRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   count: { fontFamily: mono, fontSize: 11, color: DARK.textDim },
   sortBtn: { width: 'auto', minWidth: 56, height: 26, paddingHorizontal: 6 },
+  hiddenBtn: { width: 'auto', minWidth: 56, height: 26, paddingHorizontal: 6, marginLeft: 6 },
   list: { maxHeight: 156 },
   item: {
     flexDirection: 'row',

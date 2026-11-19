@@ -14,6 +14,13 @@
  *
  * 허용 반경 안에 들면 1 분 걸음으로 나올 때까지 따라가 가장 가까운 순간을 잡고 황금분할로 초 단위까지 다듬습니다.
  * 며칠씩 이어지는 접근은 `groupAlignments` 가 한 묶음으로 보여 줍니다.
+ *
+ * ## 스카이라인
+ *
+ * 대상이 가까운 비탈이면 그 너머의 더 높은 능선이 해·달을 가립니다(2026-11-19 화면 확인에서 해가 능선 뒤였습니다).
+ * `skyline`(방위 → 그 방위 땅 스카이라인의 앙각, `utils/horizon.ts`)을 주면 접근마다 `visibility` 를 답니다:
+ * 원반 전체가 스카이라인 위면 `clear`, 스카이라인이 원반을 가로지르면 `partial`(능선에 걸림 — 사진으로는 가장 좋은 모양),
+ * 원반 전체가 아래면 `hidden`. 걸러 내지는 않습니다 — 보여 줄지는 부르는 쪽이 정합니다.
  */
 import { sunPosition } from './solarPosition';
 import { getMoonPositionPrecise, moonSemidiameterDeg, refractionDeg } from './moonPosition';
@@ -36,6 +43,9 @@ export interface AlignTarget {
   elDeg: number;
 }
 
+/** 해·달 원반이 스카이라인 위에 있는가: 전체가 위 / 걸림 / 전체가 아래(가림). 스카이라인을 모르면 clear. */
+export type AlignVisibility = 'clear' | 'partial' | 'hidden';
+
 export interface AlignHit {
   body: AlignBody;
   timeMs: number;
@@ -54,6 +64,9 @@ export interface AlignHit {
   illum?: number;
   /** 그때 해의 겉보기 고도(°) — 달이 걸린 하늘이 낮인지 밤인지 */
   sunAltDeg: number;
+  /** 그 방위 땅 스카이라인의 앙각(°). `skyline` 을 안 줬거나 땅 자료가 없으면 undefined. */
+  skylineDeg?: number;
+  visibility: AlignVisibility;
 }
 
 export interface AlignQuery {
@@ -67,6 +80,8 @@ export interface AlignQuery {
   days: number;
   /** 이 각 안으로 들어온 접근만 냅니다(°). 기본 1°. */
   epsDeg?: number;
+  /** 방위(°) → 그 방위 땅 스카이라인의 앙각(°). 모르면 null. */
+  skyline?: (azDeg: number) => number | null;
 }
 
 interface Sky { azDeg: number; altDeg: number; diskDeg: number }
@@ -92,6 +107,11 @@ function hitAt(q: AlignQuery, ms: number): AlignHit {
   // 대상 둘레의 작은 각이라 평면 근사: 방위차 × cos(고도)
   const dAz = ((s.azDeg - q.target.azDeg + 540) % 360) - 180;
   const sunAlt = q.body === 'sun' ? s.altDeg : bodySky('sun', ms, lat, lon, elevM).altDeg;
+  const sk = q.skyline ? q.skyline(s.azDeg) : null;
+  const skylineDeg = sk != null && sk > -89 ? sk : undefined;
+  const r = s.diskDeg / 2;
+  const visibility: AlignVisibility = skylineDeg === undefined || s.altDeg - r >= skylineDeg ? 'clear'
+    : s.altDeg + r <= skylineDeg ? 'hidden' : 'partial';
   return {
     body: q.body,
     timeMs: ms,
@@ -103,6 +123,8 @@ function hitAt(q: AlignQuery, ms: number): AlignHit {
     diskDeg: s.diskDeg,
     illum: q.body === 'moon' ? SunCalc.getMoonIllumination(new Date(ms)).fraction : undefined,
     sunAltDeg: sunAlt,
+    skylineDeg,
+    visibility,
   };
 }
 
@@ -175,13 +197,19 @@ export async function searchAlignments(
 }
 
 export interface AlignGroup {
-  /** 묶음 안에서 대상에 가장 가까웠던 접근 */
+  /** 묶음 안에서 대상에 가장 가까웠던 접근 — 가려지지 않은 것이 하나라도 있으면 그중에서 고릅니다. */
   best: AlignHit;
   firstMs: number;
   lastMs: number;
   /** 묶음 안의 접근 수(보통 날수) */
   count: number;
 }
+
+/** 가려지지 않은 쪽이 먼저, 같으면 대상에 더 가까운 쪽. */
+const betterHit = (a: AlignHit, b: AlignHit) => {
+  const ha = a.visibility === 'hidden' ? 1 : 0, hb = b.visibility === 'hidden' ? 1 : 0;
+  return ha !== hb ? ha < hb : a.sepDeg < b.sepDeg;
+};
 
 /**
  * 며칠씩 이어진 접근(해는 하루 0.4° 안쪽으로만 밀려 한 번 걸리면 여러 날 가깝습니다)을 한 묶음으로.
@@ -194,7 +222,7 @@ export function groupAlignments(hits: AlignHit[], gapDays = 2.5): AlignGroup[] {
     if (g && h.timeMs - g.lastMs <= gapDays * 86400e3) {
       g.lastMs = h.timeMs;
       g.count++;
-      if (h.sepDeg < g.best.sepDeg) g.best = h;
+      if (betterHit(h, g.best)) g.best = h;
     } else {
       out.push({ best: h, firstMs: h.timeMs, lastMs: h.timeMs, count: 1 });
     }
