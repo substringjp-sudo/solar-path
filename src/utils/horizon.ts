@@ -86,6 +86,19 @@ export function occluderAngleDeg(p: HorizonProfile, azDeg: number, distM: number
 }
 
 /**
+ * 방위 azDeg 의 스카이라인을 만드는 능선까지의 거리(m) — 누적 최대가 처음 그 값에 닿는 거리 칸의 가운데. 땅이 없으면 null.
+ * 계산 과정 보기의 "능선 1.8°, 4.2 km" 에 씁니다. 칸 폭(기본 250 m)만큼의 오차가 있습니다.
+ */
+export function skylineDistM(p: HorizonProfile, azDeg: number): number | null {
+  const a = Math.round(normAz(azDeg) / p.azStepDeg) % p.nAz;
+  const row = a * p.nDist;
+  const fin = p.cum[row + p.nDist - 1];
+  if (fin <= NO_TERRAIN) return null;
+  for (let k = 0; k < p.nDist; k++) if (p.cum[row + k] >= fin - 0.005) return (k + 0.5) * p.distStepM;
+  return null;
+}
+
+/**
  * 방위 azDeg 의 스카이라인 앙각(°) — 프로필 전 거리의 최대. 방위 칸 사이는 선형으로 이어 줍니다(보수적인 최솟값이 아니라
  * 있는 그대로: 해·달이 스카이라인에 가리는지는 건물과 달리 "대충 보이는 쪽" 이 아니라 사실대로 말해야 합니다).
  * 땅이 하나도 없으면 NO_TERRAIN.
