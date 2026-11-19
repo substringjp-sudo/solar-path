@@ -22,7 +22,7 @@ import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel'
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
-import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments } from '../../src/utils/celestial';
+import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments, getSunPosition } from '../../src/utils/celestial';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -172,7 +172,21 @@ export default function App() {
       {/* panel:1 — 개발자 튜닝 패널을 함께 띄웁니다(폰 폭에서 헤더·볼륨 상태 확인용). */}
       {picked ? (
         <View style={{ position: 'absolute', left: 8, right: 8, bottom: 8 }}>
-          <ObjectInfoPanel language="ko" target={picked} sun={{ azDeg: sunAz ?? 180, altDeg: sunAlt ?? 30 }} moon={{ azDeg: 90, altDeg: -20 }} onClear={() => setPicked(null)} />
+          <ObjectInfoPanel
+            language="ko"
+            target={picked}
+            sun={{ azDeg: sunAz ?? 180, altDeg: sunAlt ?? 30 }}
+            moon={{ azDeg: 90, altDeg: -20 }}
+            // 해·달 걸기(2026-11-19): 앱과 같은 길 — 시각을 옮기고 시선을 대상에 맞춥니다(해 위치도 그 시각 것으로).
+            observer={{ latitude: lat ?? 37.5, longitude: lon ?? 127, fromMs: new Date(tNow ?? Date.now()).getTime() }}
+            onAlign={(hit: any) => {
+              (globalThis as any).__aligned = hit;
+              const sp = getSunPosition(new Date(hit.timeMs), lat ?? 37.5, lon ?? 127);
+              setDyn((d: any) => ({ ...d, t: new Date(hit.timeMs).toISOString(), sunAlt: sp.altitude, sunAz: sp.azimuth }));
+              (globalThis as any).__skyHandle?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: 0.25 });
+            }}
+            onClear={() => setPicked(null)}
+          />
         </View>
       ) : null}
       {Q.panel ? <DevTuningPanel visible onClose={() => { (globalThis as any).__panelClosed = true; }} /> : null}

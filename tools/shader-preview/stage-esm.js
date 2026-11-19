@@ -70,6 +70,11 @@ const ENTRIES = [
   'src/utils/solarGeometry.ts',
   // 앱의 태양력 — 판정(verify-solar-position)이 PyEphem 표에 대어 봅니다.
   'src/utils/solarPosition.ts',
+  // 정밀한 달 위치(Meeus 47 장)와 해·달 걸기 탐색 — 판정이 astronomy-engine 표에 대어 봅니다
+  // (verify-moon-position.js · verify-align-search.js).
+  'src/utils/moonPosition.ts',
+  'src/utils/alignSearch.ts',
+  'src/utils/sunsetPhysics.ts',
   'src/utils/cloudRadar.ts',
   // 하늘 시트의 추천·일반 이벤트(점검 2026-09-29) — 판정이 불러 씁니다.
   'src/utils/skyEvents.ts',

@@ -68,6 +68,9 @@ import { ObjectInfoPanel } from './ObjectInfoPanel';
 import type { PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
 
+/** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
+const ALIGN_VIEW_OFFSET_Y = 0.25;
+
 interface SkyScreenProps {
   theme: any;
   currentTime: Date;
@@ -645,6 +648,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
   const [isDevPanelOpen, setDevPanelOpen] = useState(false);
   const sceneRef = useRef<SkyScene3DHandle>(null);
+  // 해·달 걸기로 시선을 옮겼다면(시야 중심을 올려 둠) 고른 대상을 지울 때 되돌립니다.
+  const alignedViewRef = useRef(false);
+  useEffect(() => {
+    if (!picked && alignedViewRef.current) {
+      alignedViewRef.current = false;
+      sceneRef.current?.clearCameraLensOverride?.();
+    }
+  }, [picked]);
   /** 하늘을 떠나 지도·구 단계에 있는지 — 그때는 "지도로" 버튼 대신 지도 위 "착륙"이 돌아오는 길입니다. */
   const [ascended, setAscended] = useState(false);
   const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
@@ -838,6 +849,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               target={picked}
               sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
               moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
+              observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
+              onAlign={(hit) => {
+                // 그 시각으로 가서 시선을 대상에 맞춥니다. 화각은 원반이 보일 만큼 좁히고, 시야 중심은 위로 올려
+                // (패널이 아래쪽을 덮으므로) 대상과 그 곁의 해·달이 패널 위에 보이게 합니다.
+                setCurrentTime(new Date(hit.timeMs));
+                alignedViewRef.current = true;
+                sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
+              }}
               onClear={() => setPicked(null)}
             />
           </View>

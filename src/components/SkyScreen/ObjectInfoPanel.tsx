@@ -12,12 +12,17 @@ import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 import { angularSeparationDeg, type PickedTarget } from '../../utils/demPick';
+import type { AlignHit } from '../../utils/alignSearch';
+import { AlignFinder } from './AlignFinder';
 
 interface Props {
   language: 'ko' | 'en' | 'ja';
   target: PickedTarget;
   sun: { azDeg: number; altDeg: number };
   moon: { azDeg: number; altDeg: number };
+  /** 서 있는 자리와 지금 시뮬레이션 시각 — 있으면 "해·달 걸기" 찾기가 붙습니다. */
+  observer?: { latitude: number; longitude: number; fromMs: number };
+  onAlign?: (hit: AlignHit) => void;
   onClear: () => void;
 }
 
@@ -25,7 +30,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, onClear }) => {
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const cells: Array<{ label: string; value: string; tone?: 'good' | 'bad' | 'sun' | 'moon' }> = [
@@ -62,6 +67,18 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           </View>
         ))}
       </View>
+      {observer && onAlign && (
+        <AlignFinder
+          language={language}
+          latitude={observer.latitude}
+          longitude={observer.longitude}
+          eyeElevM={target.eyeElevM}
+          azDeg={target.azDeg}
+          elDeg={target.elDeg}
+          fromMs={observer.fromMs}
+          onPick={onAlign}
+        />
+      )}
     </View>
   );
 };
