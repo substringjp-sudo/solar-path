@@ -19,6 +19,11 @@ import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
 import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
 import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
+import { ForecastScreen } from '../../src/components/ForecastScreen/ForecastScreen';
+import { UpcomingCards } from '../../src/components/SkyScreen/UpcomingCards';
+import { useForecastDays } from '../../src/hooks/useForecastDays';
+import { upcomingMoments } from '../../src/utils/upcomingMoments';
+import { localNoons } from '../../src/utils/sunForecast';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
@@ -204,6 +209,43 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
+/**
+ * forecast:1 · cards:1 — 02 예보 화면과 01 하늘의 "다가오는 좋은 순간" 카드(2026-11-19). 16일 예보를 실제 경로(훅 → `fetchSunForecast` → 판정)로 받으므로
+ * 하네스 페이지가 Open-Meteo 응답을 가짜로 줘야 합니다(`scratchpad/forecast-shot.js` 처럼 Playwright 로 가로챕니다). 위치는 서울, 시간대 +9.
+ *   forecast:1 — 02 예보 화면. focusDay(0~15) · focusSide("sunrise"|"sunset") 를 주면 카드에서 건너온 모습(머리 카드 + 강조 칸).
+ *   cards:1 — 카드 줄만. 누르면 window.__cardTap 에 {noonMs, side}.   공통: lang · light.
+ */
+function seedForecastStore() {
+  useCelestialStore.setState({
+    themeMode: Q.light ? 'light' : 'dark',
+    language: Q.lang ?? 'ko',
+    timezoneOffsetHours: 9,
+    location: { coords: { latitude: 37.5665, longitude: 126.978, altitude: 38, accuracy: 10, heading: null, speed: null, altitudeAccuracy: null }, timestamp: Date.now() },
+  } as any);
+}
+function ForecastRepro({ W, H }: { W: number; H: number }) {
+  React.useState(() => { seedForecastStore(); return 0; });
+  const [focus, setFocus] = React.useState<any>(() => (Q.focusDay != null ? { noonMs: localNoons(new Date(), 9, 16)[Q.focusDay], side: Q.focusSide ?? 'sunset' } : null));
+  return (
+    <View style={{ width: W, height: H }}>
+      <ForecastScreen isActive setCurrentTime={() => {}} onOpenSky={() => { (globalThis as any).__openSky = true; }} focus={focus} onClearFocus={() => setFocus(null)} />
+    </View>
+  );
+}
+function CardsRepro({ W }: { W: number }) {
+  React.useState(() => { seedForecastStore(); return 0; });
+  const { days, now, load } = useForecastDays({ fetch: true, compute: true, days: 3, haptic: false });
+  const moments = React.useMemo(() => upcomingMoments(days, now.getTime()), [days, now]);
+  (globalThis as any).__cards = { load: load.kind, moments: moments.map(m => ({ day: m.dayOffset, side: m.side, q: m.quality, t: new Date(m.timeMs).toISOString() })) };
+  return (
+    <View style={{ width: W, padding: 16, backgroundColor: Q.light ? '#F8FAFC' : '#0D1320' }}>
+      {moments.length > 0 && (
+        <UpcomingCards moments={moments} language={Q.lang ?? 'ko'} tzHours={9} onPress={(m) => { (globalThis as any).__cardTap = { noonMs: m.noonMs, side: m.side }; }} />
+      )}
+    </View>
+  );
+}
+
 (globalThis as any).__sky = () => (globalThis as any).__skyHandle;
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
@@ -229,6 +271,8 @@ export default function App() {
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
+  if (Q.forecast) return <ForecastRepro W={W} H={H} />;
+  if (Q.cards) return <CardsRepro W={W} />;
   if (Q.calc) return <CalcRepro W={W} H={H} />;
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;

@@ -11,32 +11,22 @@
  *  - 예보가 없는 출몰(모델이 끝난 날 · 받지 못함)은 "예보 없음" 입니다. 맑다고 지어내지 않습니다.
  *  - 이 탭을 처음 열 때만 받습니다(요청 1건, 한 시간 캐시). 앱을 켤 때 받지 않습니다.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
 import Svg, { Line, Rect } from 'react-native-svg';
 import { Bell, BellOff, RotateCw, Sunrise, Sunset } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { L3, type Language } from '../../utils/i18n';
+import { L3, translateSunsetDesc, type Language } from '../../utils/i18n';
 import { radius, space, type, TOUCH } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 import { PressScale, PrimaryButton } from '../ui';
 import { placeLabel } from '../AppHeader';
 import { useAdministrativeArea } from '../../utils/reverseGeocode';
 import { VERDICT_ORDER, verdictColor, verdictLevel, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
-import {
-  bestUpcoming,
-  buildForecastDays,
-  fetchSunForecast,
-  cachedSunForecast,
-  observerElevationFrom,
-  type ForecastDay,
-  type ForecastEvent,
-} from '../../utils/sunForecast';
-import { localDateString } from '../../utils/localDate';
-import { hapticError } from '../../utils/haptics';
-import { sameBucket } from '../../utils/weatherCacheKey';
+import { bestUpcoming, type ForecastDay, type ForecastEvent } from '../../utils/sunForecast';
+import { useForecastDays } from '../../hooks/useForecastDays';
+import { matchesFocus, type ForecastFocus } from '../../utils/upcomingMoments';
 import type { AccuracyTier } from '../../utils/timeBar';
-import type { CloudPathData } from '../../utils/weather';
 
 interface ForecastScreenProps {
   /** 탭이 보이는가 — 보일 때만 받고 셉니다. */
@@ -44,9 +34,11 @@ interface ForecastScreenProps {
   setCurrentTime: (time: Date) => void;
   /** 칸을 누르면 01 하늘로 */
   onOpenSky: () => void;
+  /** 01 하늘의 "다가오는 좋은 순간" 카드에서 왔으면 그 칸 — 머리에 어디서 왔는지 카드가 뜨고 그 칸이 강조됩니다. */
+  focus?: ForecastFocus | null;
+  /** 이 탭을 떠날 때 강조를 지웁니다(다음에 헤더 탭으로 열면 평소 모습). */
+  onClearFocus?: () => void;
 }
-
-type LoadState = { kind: 'idle' | 'loading' | 'ready' } | { kind: 'error'; rateLimited: boolean };
 
 const WEEKDAYS: Record<'ko' | 'en' | 'ja', string[]> = {
   ko: ['일', '월', '화', '수', '목', '금', '토'],
@@ -89,14 +81,12 @@ const MeterCell: React.FC<{ on: boolean; tier: AccuracyTier; tone: string; off: 
   );
 };
 
-export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCurrentTime, onOpenSky }) => {
+export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCurrentTime, onOpenSky, focus = null, onClearFocus }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
   const location = useCelestialStore(s => s.location);
   const tz = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
   const savedLocations = useCelestialStore(s => s.savedLocations);
-  const weatherCacheList = useCelestialStore(s => s.weatherCacheList);
-  const terrainCacheList = useCelestialStore(s => s.terrainCacheList);
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
 
@@ -109,45 +99,17 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
   const adminName = useAdministrativeArea(lat, lon);
   const place = placeLabel(lat, lon, savedLocations, adminName);
 
-  const [forecast, setForecast] = useState<CloudPathData[] | null>(() =>
-    lat != null && lon != null ? cachedSunForecast(lat, lon)?.path ?? null : null);
-  const [load, setLoad] = useState<LoadState>({ kind: 'idle' });
-  // "지금" 은 탭을 열 때마다 새로 — 렌더마다 바꾸면 16일 판정을 매번 다시 셉니다.
-  const [now, setNow] = useState(() => new Date());
-
-  const get = useCallback((force: boolean) => {
-    if (lat == null || lon == null) return () => {};
-    const ctrl = new AbortController();
-    setLoad({ kind: 'loading' });
-    fetchSunForecast(lat, lon, new Date(), { force, signal: ctrl.signal, tzHours: tz })
-      .then(d => { setForecast(d.path); setLoad({ kind: 'ready' }); })
-      .catch(err => {
-        if (ctrl.signal.aborted || err?.name === 'AbortError') return;
-        hapticError();
-        setLoad({ kind: 'error', rateLimited: String(err?.message) === 'RATE_LIMIT' });
-      });
-    return () => ctrl.abort();
-  }, [lat, lon, tz]);
-
-  useEffect(() => {
-    if (!isActive) return;
-    setNow(new Date());
-    return get(false);
-  }, [isActive, get]);
-
-  const elev = lat != null && lon != null ? observerElevationFrom(terrainCacheList, lat, lon, location?.coords?.altitude) : undefined;
-  const ringFor = useCallback((at: Date) => {
-    if (lat == null || lon == null) return null;
-    const dateStr = localDateString(at);
-    const hit = weatherCacheList.find(c => c.key.includes(dateStr) && sameBucket(c.latitude, c.longitude, lat, lon));
-    return (hit?.data as CloudPathData[] | undefined) ?? null;
-  }, [weatherCacheList, lat, lon]);
-
-  const days = useMemo(() => {
-    if (!isActive || lat == null || lon == null) return [];
-    return buildForecastDays({ latitude: lat, longitude: lon, now, tzHours: tz, observerElevM: elev, forecast, ringFor });
-  }, [isActive, lat, lon, now, tz, elev, forecast, ringFor]);
+  const { days, forecast, load, get, now } = useForecastDays({ fetch: isActive, compute: isActive });
   const best = useMemo(() => bestUpcoming(days, now), [days, now]);
+
+  // 이 탭이 보이다가 안 보이게 되는 순간 강조를 지웁니다. (켜지기 전에 지우면 카드에서 막 건너온 강조가 사라집니다.)
+  const wasActive = useRef(isActive);
+  useEffect(() => {
+    if (wasActive.current && !isActive && focus) onClearFocus?.();
+    wasActive.current = isActive;
+  }, [isActive, focus, onClearFocus]);
+  const focusDay = focus ? days.find(d => matchesFocus(d, focus.side, focus)) : undefined;
+  const focusEvent = focusDay && focus ? (focus.side === 'sunrise' ? focusDay.sunrise : focusDay.sunset) : null;
   const bestDay = best ? days.find(d => d.sunrise === best || d.sunset === best) : undefined;
 
   const groups = useMemo(() => {
@@ -178,7 +140,7 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
   };
 
   // 컴포넌트가 아니라 함수로 그립니다 — 렌더 안에서 컴포넌트를 만들면 그릴 때마다 칸이 새로 붙습니다.
-  const renderHalf = (e: ForecastEvent | null, date: string, key: string) => {
+  const renderHalf = (e: ForecastEvent | null, date: string, key: string, focused = false) => {
     if (!e) {
       return (
         <View key={key} style={styles.half}>
@@ -195,7 +157,7 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
     return (
       <PressScale
         key={key}
-        style={styles.half}
+        style={[styles.half, focused && styles.halfFocus]}
         onPress={() => open(e)}
         accessibilityRole="button"
         accessibilityLabel={`${date} ${sideWord(e)} ${word}${score ? ` ${score}` : ''}, ${time} — ${L3(language, '01 하늘에서 보기', 'open in 01 Sky', '01 空で見る')}`}
@@ -231,7 +193,38 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
           </Text>
         </View>
 
-        {best && best.quality && (
+        {focusEvent && focusEvent.quality && focusDay && (() => {
+          const rel = Math.round((focusDay.noonMs - (todayNoon ?? focusDay.noonMs)) / 86_400_000);
+          const relWord = rel === 1 ? L3(language, '내일', 'Tomorrow', '明日') : rel === 2 ? L3(language, '모레', 'In 2 days', '明後日') : dayLabel(focusDay.noonMs, tz, language);
+          const word = verdictWord(focusEvent.quality, language);
+          const reason = focusEvent.description ? translateSunsetDesc(focusEvent.description, language) : '';
+          const peak = localHHMM(focusEvent.peakAt ?? focusEvent.at, tz);
+          return (
+            <View style={styles.focusCard}>
+              <Text style={styles.microLabel}>
+                {L3(language, `01 하늘의 "${relWord} ${sideWord(focusEvent)} ${word}" 카드에서 왔어요`, `From the "${relWord} ${sideWord(focusEvent)} ${word}" card in 01 Sky`, `01 空の「${relWord} ${sideWord(focusEvent)} ${word}」カードから来ました`)}
+              </Text>
+              <Text style={styles.focusTitle}>
+                {`${dayLabel(focusDay.noonMs, tz, language)} ${sideWord(focusEvent)} `}
+                <Text style={{ color: verdictColor(focusEvent.quality, dataColor, color) }}>{word}</Text>
+                {showsScore(focusEvent.tier) && focusEvent.score != null ? <Text style={styles.bestScore}>{` ${Math.round(focusEvent.score)}`}</Text> : null}
+              </Text>
+              <Text style={styles.sub}>
+                {`${L3(language, '가장 붉을 때', 'Peak glow', '一番赤い時')} ${peak}`}{reason ? ` · ${reason}` : ''}
+              </Text>
+              <PressScale
+                style={styles.focusBtn}
+                onPress={() => open(focusEvent)}
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}
+              >
+                <Text style={styles.retryText}>{L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}</Text>
+              </PressScale>
+            </View>
+          );
+        })()}
+
+        {!(focusEvent && focusEvent.quality) && best && best.quality && (
           <PressScale
             style={styles.best}
             onPress={() => open(best)}
@@ -294,8 +287,8 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
                     <Text style={styles.date}>{date}</Text>
                     {!!sub && <Text style={styles.microLabel}>{sub}</Text>}
                   </View>
-                  {renderHalf(d.sunrise, date, 'rise')}
-                  {renderHalf(d.sunset, date, 'set')}
+                  {renderHalf(d.sunrise, date, 'rise', matchesFocus(d, 'sunrise', focus))}
+                  {renderHalf(d.sunset, date, 'set', matchesFocus(d, 'sunset', focus))}
                 </View>
               );
             })}
@@ -339,6 +332,15 @@ const useStyles = makeStyles((color) => ({
     paddingHorizontal: space.md, paddingVertical: space.sm,
     borderRadius: radius.md, borderWidth: 1, borderColor: color.border, backgroundColor: color.fill,
   },
+  focusCard: {
+    gap: space.xs, padding: space.md,
+    borderRadius: radius.md, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.panel,
+  },
+  focusTitle: { ...type.bodyStrong, color: color.text, fontSize: 16 },
+  focusBtn: {
+    alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', marginTop: space.xs, paddingHorizontal: space.md,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong,
+  },
   bestText: { ...type.bodyStrong, color: color.text },
   bestScore: { ...type.label, color: color.text },
   status: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: TOUCH },
@@ -359,6 +361,7 @@ const useStyles = makeStyles((color) => ({
   row: { flexDirection: 'row', gap: space.sm, minHeight: 52, borderBottomWidth: 1, borderBottomColor: color.border },
   date: { ...type.label, color: color.text },
   half: { flex: 1, minWidth: 0, minHeight: 52, justifyContent: 'center', gap: space.xs },
+  halfFocus: { borderRadius: radius.sm, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.accentSoft, paddingHorizontal: space.xs },
   halfTop: { flexDirection: 'row', alignItems: 'baseline', gap: space.xs },
   halfBottom: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   word: { ...type.bodyStrong, flexShrink: 1 },

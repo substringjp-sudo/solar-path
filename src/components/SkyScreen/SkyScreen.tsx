@@ -59,6 +59,9 @@ import {
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
+import { upcomingMoments, type ForecastFocus } from '../../utils/upcomingMoments';
+import { useForecastDays } from '../../hooks/useForecastDays';
+import { UpcomingCards } from './UpcomingCards';
 import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor, type } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
@@ -92,6 +95,8 @@ interface SkyScreenProps {
   /** 하단 막대의 날짜 글자를 누르면 — 달력 창(App 이 엽니다). */
   onOpenDatePicker?: () => void;
   isCameraOverlayActive?: boolean;
+  /** "다가오는 좋은 순간" 카드를 누르면 — 02 예보로 가서 그 칸을 강조합니다(App 이 탭을 바꿉니다). */
+  onOpenForecast?: (focus: ForecastFocus) => void;
 }
 
 export interface EventItem {
@@ -116,6 +121,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   onCameraPress,
   onOpenDatePicker,
   isCameraOverlayActive = false,
+  onOpenForecast,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
@@ -773,6 +779,18 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 추천 이벤트를 상단에 배치하고 일반 이벤트를 이어서 단일 목록으로 합침
   const combinedEventList = useMemo(() => [...featuredList, ...generalList], [featuredList, generalList]);
 
+  // "다가오는 좋은 순간" 카드(목업 1): 시트를 **펼칠 때** 16일 예보를 한 번 받아(한 시간 캐시) 내일·모레의 더 좋은 출몰을 고릅니다.
+  // 앱을 켤 때는 받지 않습니다. 예보를 못 받았거나 보통 이상이 없으면 카드가 없고 아래 오늘 이벤트 줄이 그대로 나옵니다.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const cardsOn = sheetOpen && !expertMode;
+  const { days: forecastDays, now: forecastNow } = useForecastDays({ fetch: cardsOn, compute: cardsOn, days: 3, haptic: false });
+  const moments = useMemo(() => upcomingMoments(forecastDays, forecastNow.getTime()), [forecastDays, forecastNow]);
+  // 카드가 있으면 해 뜨고 지는 줄은 판정 카드와 카드가 말하므로, 아래 줄에는 그 밖의 오늘 이벤트(초승달 · 은하수 · 행성 …)만 남깁니다.
+  const simpleEventRows = useMemo(
+    () => (moments.length > 0 ? combinedEventList.filter(e => !/sun(rise|set)$/.test(e.id)).slice(0, 2) : combinedEventList.slice(0, 3)),
+    [moments.length, combinedEventList],
+  );
+
   // 계산 과정 보기("노을 점수가 나오기까지")의 입력: 시트가 보여 주는 판정(가장 붉을 때의 예측)과 그 시각의 예보 링을 해 쪽으로 돌린 것.
   const getScoreInput = (): CalcScoreInput | null => {
     const pred = glow?.prediction ?? prediction;
@@ -1052,6 +1070,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       <PeekSheet
         theme={theme}
         maxHeight={stageH || undefined}
+        onOpenChange={setSheetOpen}
         summary={
           <View style={styles.summaryRow}>
             {glow ? (
@@ -1103,6 +1122,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 {L3(language, '다가오는 좋은 순간', 'Coming up', 'これからの見どころ')}
               </Text>
             )}
+            {!expertMode && moments.length > 0 && (
+              <UpcomingCards
+                moments={moments}
+                language={language}
+                tzHours={tz}
+                onPress={(m) => {
+                  if (onOpenForecast) onOpenForecast({ noonMs: m.noonMs, side: m.side });
+                  else setCurrentTime(new Date(m.timeMs));
+                }}
+              />
+            )}
             {expertMode && (
             <View style={styles.tabToggleGroup}>
               <PressScale
@@ -1126,7 +1156,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             )}
 
             {!expertMode || activeSheetTab === 'events' ? (
-              (expertMode ? combinedEventList : combinedEventList.slice(0, 3)).map(item => (
+              (expertMode ? combinedEventList : simpleEventRows).map(item => (
                 <PressScale
                   key={item.id}
                   style={[
