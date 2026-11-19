@@ -11,6 +11,7 @@ import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDate
 import { MapPicker } from './components/MapPicker';
 import { SunCamera, type CameraViewMode } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
+import { Onboarding } from './components/Onboarding/Onboarding';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
 import { parseTeleportUrl } from './utils/teleport';
@@ -153,6 +154,22 @@ export default function App() {
 
   const [isSplashDismissed, setIsSplashDismissed] = React.useState(false);
   const splashFadeAnim = React.useRef(new Animated.Value(1)).current;
+
+  // 처음 실행 안내(목업 8번): 처음 한 번은 앱이 준비되는 대로, 이후에는 설정의 "안내 다시 보기"로. 마치거나 건너뛰면 다시 안 뜹니다.
+  const onboardingSeen = useCelestialStore((s) => s.onboardingSeen);
+  const setOnboardingSeen = useCelestialStore((s) => s.setOnboardingSeen);
+  const goodOnly = useCelestialStore((s) => !!s.notifPrefs?.goodOnly);
+  const setNotifPref = useCelestialStore((s) => s.setNotifPref);
+  const [guideReopened, setGuideReopened] = React.useState(false);
+  // 저장된 값이 올라오기 전의 기본값(false)으로 이미 본 사람에게 안내가 번쩍 뜨지 않게, 저장소가 올라온 뒤에만 처음 실행 여부를 봅니다.
+  const [storeHydrated, setStoreHydrated] = React.useState(() => useCelestialStore.persist?.hasHydrated?.() ?? true);
+  React.useEffect(() => {
+    const persistApi = useCelestialStore.persist;
+    if (!persistApi?.onFinishHydration) return;
+    if (persistApi.hasHydrated()) setStoreHydrated(true);
+    return persistApi.onFinishHydration(() => setStoreHydrated(true));
+  }, []);
+  const showGuide = (isSplashDismissed && storeHydrated && !onboardingSeen) || guideReopened;
 
   React.useEffect(() => {
     if (isAppReady) {
@@ -426,6 +443,20 @@ export default function App() {
         onClose={() => setSettingsVisible(false)}
         theme={theme}
         dynamicTheme={dynamicTheme}
+        onOpenGuide={() => { setSettingsVisible(false); setGuideReopened(true); }}
+      />
+
+      {/* 처음 실행 안내 (3장) */}
+      <Onboarding
+        visible={showGuide}
+        language={language}
+        goodOnly={goodOnly}
+        onToggleGoodOnly={(next) => {
+          setNotifPref('goodOnly', next);
+          // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(하늘 화면의 같은 스위치와 같은 동작).
+          if (next) { setNotifPref('sunsetForecast', true); setNotifPref('sunriseForecast', true); }
+        }}
+        onDone={() => { setOnboardingSeen(true); setGuideReopened(false); }}
       />
 
       </AnimatedSafeAreaView>

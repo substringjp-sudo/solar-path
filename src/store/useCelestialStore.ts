@@ -166,6 +166,11 @@ interface CelestialState extends ClockState {
    */
   expertMode: boolean;
   /**
+   * 처음 실행 안내(docs/SANDBOX_MODE_PLAN.md 10.1 의 8번)를 마쳤거나 건너뛰었는가. 저장합니다.
+   * 거짓이면 앱이 준비되는 대로 안내를 한 번 보이고, 설정의 "안내 다시 보기"는 이 값과 상관없이 엽니다.
+   */
+  onboardingSeen: boolean;
+  /**
    * 기기 GPS 로 마지막에 받은 "내 위치"(2026-11-19 샌드박스). 고른 위치(`location`)가 이것과 멀면 "내 위치 아님"을 보입니다.
    * GPS 를 한 번도 못 받았으면 null(표시 안 함). 저장합니다.
    */
@@ -241,6 +246,7 @@ interface CelestialState extends ClockState {
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setExpertMode: (on: boolean) => void;
+  setOnboardingSeen: (seen: boolean) => void;
   setHomeCoords: (c: { latitude: number; longitude: number } | null) => void;
   setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
@@ -319,6 +325,7 @@ export const useCelestialStore = create<CelestialState>()(
       themeMode: 'dark',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       expertMode: false,
+      onboardingSeen: false,
       homeCoords: null,
       isAppReady: false,
       startupLocationSettled: false,
@@ -1030,6 +1037,7 @@ export const useCelestialStore = create<CelestialState>()(
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       setExpertMode: (on) => set({ expertMode: !!on }),
+      setOnboardingSeen: (seen) => set({ onboardingSeen: !!seen }),
       setHomeCoords: (c) => set({ homeCoords: c }),
       setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
@@ -1331,6 +1339,7 @@ export const useCelestialStore = create<CelestialState>()(
         themeMode: state.themeMode,
         notifPrefs: state.notifPrefs,
         expertMode: state.expertMode,
+        onboardingSeen: state.onboardingSeen,
         homeCoords: state.homeCoords,
         hiddenPhotoIds: state.hiddenPhotoIds,
         blockedUserIds: state.blockedUserIds,

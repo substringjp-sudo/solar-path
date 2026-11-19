@@ -30,6 +30,7 @@ import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCar
 import { snapBuildingTarget } from '../../src/utils/demPick';
 import { createPickIndexBuilder } from '../../src/utils/buildingPick';
 import { pickTargetAt } from '../../src/utils/pickTarget';
+import { Onboarding } from '../../src/components/Onboarding/Onboarding';
 import { StandSuggestView } from '../../src/components/SkyScreen/StandSuggest';
 import { outlookFromHourly } from '../../src/utils/standSuggest';
 import { localOffsetM } from '../../src/utils/geoMove';
@@ -175,6 +176,25 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
 }
 
 /**
+ * onboard:1 — 처음 실행 안내(2026-11-19 목업 8번). step 은 처음 장(0~2), lang · light, good 으로 알림 체크 처음 상태.
+ * 눌림: window.__guideDone(건너뛰기·시작하기), window.__guideGood(체크 바꿈 뒤 값).
+ */
+function OnboardRepro({ W, H }: { W: number; H: number }) {
+  const [good, setGood] = React.useState(!!Q.good);
+  return (
+    <View style={{ width: W, height: H }}>
+      <Onboarding
+        visible
+        language={Q.lang ?? 'ko'}
+        goodOnly={good}
+        onToggleGoodOnly={(n) => { setGood(n); (globalThis as any).__guideGood = n; }}
+        onDone={() => { (globalThis as any).__guideDone = true; }}
+      />
+    </View>
+  );
+}
+
+/**
  * suggest:1 — 추천 화면(2026-11-19 목업 3번). 합성 세계: 눈 위치(원점) 37.5512, 126.9882 에서 동남동 약 11 km 의 롯데월드타워 모양(555 m, 꼭대기 해발 575 m).
  * 땅은 해발 20 m 평지 + 대상 남서 3 km 의 언덕(420 m, 뒤쪽 자리는 가려짐) + 대상 북쪽을 지나는 강(물 띠). 예보: 16일, 날마다 맑음 · 보통 · 많음이 돌아가고 그 뒤는 모름.
  * kind:'terrain' 이면 건물 없이 지형 한 점(해발 400 m), noTerrain:1 이면 지형을 못 받은 상태, noWater:1 이면 지도 물 격자를 못 받은 상태,
@@ -288,6 +308,7 @@ export default function App() {
   const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.calc) return <CalcRepro W={W} H={H} />;
+  if (Q.onboard) return <OnboardRepro W={W} H={H} />;
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.suggest) return <SuggestRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
