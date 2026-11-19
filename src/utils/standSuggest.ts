@@ -110,10 +110,10 @@ export interface StandQueryArgs {
   sizeM: number;
   fromMs: number;
   days: number;
-  /** 눈 위치 기준 지상 좌표의 지반 표본(장면). */
+  /** 지반 표본과 물 판정이 쓰는 틀의 원점(그 장면의 눈 위치)과, 그 틀의 지반 표본(장면). */
+  origin: { latitude: number; longitude: number };
   ground: HeightSampler;
   isWater?: (eastM: number, southM: number) => boolean;
-  toLatLon?: StandQuery['toLatLon'];
   eyeAboveGroundM?: number;
   epsDeg?: number;
   sizeRatio?: number;
@@ -127,6 +127,7 @@ export function standQueryFor(a: StandQueryArgs): StandQuery | null {
     body: a.body,
     target: { latitude: p.latitude, longitude: p.longitude, elevM: p.elevM },
     targetXZ: { eastM: p.eastM, southM: p.southM },
+    origin: a.origin,
     sizeM: a.sizeM,
     sizeRatio: a.sizeRatio,
     fromMs: a.fromMs,
@@ -135,7 +136,6 @@ export function standQueryFor(a: StandQueryArgs): StandQuery | null {
     epsDeg: a.epsDeg,
     ground: a.ground,
     isWater: a.isWater,
-    toLatLon: a.toLatLon,
   };
 }
 

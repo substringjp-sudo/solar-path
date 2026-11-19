@@ -7,26 +7,37 @@
  *
  * 1. **크기가 거리를 정합니다.** 해·달 원반(지름 θ ≈ 0.52°)이 대상의 길이 L(예: 꼭대기 50 m, 전체 높이 555 m)과 같은 크기로 보이려면
  *    눈에서 대상까지 비스듬한 거리 r = L / (2·tan(θ·비율/2)). 50 m 면 약 5.5 km, 555 m 면 약 61 km.
- * 2. **방위가 자리를 정합니다.** 해·달이 방위 A 에 있을 때, 눈은 T 에서 그 반대쪽으로 지상 거리 d = r·cos(고도) 만큼 물러난 점 P 에 서야
- *    T 가 해·달과 같은 방위에 놓입니다(P → T 시선이 A 를 향함).
- * 3. **눈 높이가 고도를 정합니다.** P 에서 본 T 의 겉보기 앙각 = atan2(T 해발 − (P 지반 + 눈) − 낙차(d), d). 이것이 해·달의 겉보기 고도와 같아야
+ * 2. **방위가 자리를 정합니다.** 해·달이 서 있는 자리 P 에서 방위 A 에 있을 때, T 는 P 에서 A 쪽 지상 거리 d = r·cos(고도) 에 있어야 합니다.
+ *    앱 장면이 P 를 눈으로 삼을 때의 평면 규칙(동쪽 오프셋 = 경도 차 × 111320 × cos(P 위도), 북쪽 = 위도 차 × 111320)으로 T 를 P 에서 보면
+ *    방위 A 거리 d 가 되도록, P 의 위경도를 닫힌 식으로 놓습니다:
+ *      위도(P) = 위도(T) − d·cos A / 111320,   경도(P) = 경도(T) − d·sin A / (111320 · cos 위도(P)).
+ * 3. **해·달은 서 있는 자리에서 잽니다.** P 의 수직은 T 의 수직과 호/지구반지름(rad)만큼 틀어져 있습니다. P 는 해·달 방위의 반대쪽이라
+ *    달이 그만큼 낮게 보입니다: 5.5 km 에서 0.05°, 61 km 에서 **0.55°**(원반 한 지름). 달을 T 에서 재면 61 km 의 서 있는 자리에서는 달이
+ *    지평선 아래에 놓입니다. 방위도 자오선이 모이는 만큼(61 km 에서 0.2~0.5°) 다릅니다. 그래서 P 의 위경도에서 `bodySky` 를 다시 재고
+ *    그 방위로 P 를 다시 놓습니다(자리와 방위가 서로 물려 있어 한 번 되풀이하면 1e-3° 안으로 맞습니다).
+ * 4. **눈 높이가 고도를 정합니다.** P 에서 본 T 의 겉보기 앙각 = atan2(T 해발 − (P 지반 + 눈) − 낙차(d), d). 이것이 해·달의 겉보기 고도와 같아야
  *    합니다. 그 차 err(t) = 해·달 고도 − 앙각 이 0 에 드는 순간이 답입니다(곡률·굴절은 `curvatureDropM`, 지형 시선과 같은 식).
- * 4. 그 자리의 땅이 물이면 서 있을 수 없고, 땅이 P 에서 T 를 가리면 못 봅니다(`lineOfSightClearance`).
+ * 5. 그 자리의 땅이 물이면 서 있을 수 없고, 땅이 P 에서 T 를 가리면 못 봅니다(`lineOfSightClearance`).
  *
  * 해·달이 움직이면 P 도 고리 위를 돌며 지반 높이가 바뀌므로 err(t) 는 시간에 따라 오르내립니다.
+ *
+ * 앱의 평면 세계는 자오선이 모이는 것을 무시합니다. 61 km 에서 실제 구면의 방위와 약 0.2° 다른 것은 이 세계의 한계이며, 장면에서 서 보았을 때
+ * 해·달과 대상이 맞는 쪽(위 2번 규칙)을 따릅니다.
  *
  * ## 탐색 — 구면 추적과 같은 걸음 줄이기
  *
  * err 이 변하는 빠르기는 해·달 고도 변화(≤ 0.27°/분)에 P 가 움직이며 지반이 달라지는 몫(경사 0.5, 방위 변화 0.27°/분 안에서 ≤ 0.27°/분)을
  * 더해 0.6°/분 안쪽이라고 보고, 허용 각 ε 밖이면 (|err| − ε)/0.6 분을 건너뜁니다. 수직 절벽처럼 이를 넘는 지형은 놓칠 수 있습니다
- * (지반 자료 칸이 수백 m 라 절벽이 이미 풀려 있습니다). 해·달이 수평선 아래면 뜨는 데 걸릴 시간만큼 건넙니다.
+ * (지반 자료 칸이 수백 m 라 절벽이 이미 풀려 있습니다). 해·달이 수평선 아래면 뜨는 데 걸릴 시간만큼 건넙니다(P 의 고도는 T 의 고도보다
+ * 늘 낮으므로 T 에서 잰 고도로 건너뛰어도 넘지 않습니다).
  * ε 안에 들면 0.5 분 걸음으로 따라가 가장 가까운 순간을 잡고 황금분할로 초 단위까지 다듬습니다.
  *
  * 모든 각은 **겉보기**입니다. 해·달 위치는 걸기 찾기(`alignSearch.bodySky`)와 같은 식(같은 굴절)입니다.
  */
-import { bodySky, type AlignBody } from './alignSearch';
+import { bodySky, type AlignBody, type Sky } from './alignSearch';
 import { curvatureDropM } from './earth';
 import { lineOfSightClearance, type HeightSampler } from './demPick';
+import { M_PER_DEG, localOffsetM } from './geoMove';
 import SunCalc from 'suncalc';
 
 const R2D = 180 / Math.PI;
@@ -46,7 +57,12 @@ export interface StandQuery {
   body: AlignBody;
   /** 대상 점: 위경도와 해발(m). 꼭대기에 걸 때는 지붕 해발. */
   target: { latitude: number; longitude: number; elevM: number };
-  /** 대상 점의 지상 좌표(동 x, 남 z, m). `ground` 와 `isWater` 가 쓰는 틀과 같아야 합니다. */
+  /**
+   * 지반 표본(`ground`)과 물 판정(`isWater`)이 쓰는 틀의 원점 위경도(찾기를 시작할 때의 눈 위치).
+   * 틀의 지상 좌표: 동쪽 x = (경도 − 원점 경도) × 111320 × cos(원점 위도), 남쪽 z = −(위도 − 원점 위도) × 111320 (`geoMove.offsetLatLon` 의 거꾸로).
+   */
+  origin: { latitude: number; longitude: number };
+  /** 대상 점의 틀 좌표(동 x, 남 z, m). */
   targetXZ: { eastM: number; southM: number };
   /** 해·달 원반이 가릴 대상 부분의 길이(m): 꼭대기 50 m 면 50, 전체 높이면 그 높이. */
   sizeM: number;
@@ -58,26 +74,24 @@ export interface StandQuery {
   eyeAboveGroundM?: number;
   /** 허용 각(°): 원반 중심이 대상 점에서 이만큼 위아래로 벗어나도 후보. 기본 0.25°. */
   epsDeg?: number;
-  /** 지반 해발 표본(대상 점과 같은 지상 좌표). 자료 밖이면 null. */
+  /** 지반 해발 표본(틀 좌표). 자료 밖이면 null. */
   ground: HeightSampler;
-  /** 그 자리가 물인가(서 있을 수 없음). 모르면 물로 보지 않습니다. */
+  /** 그 자리가 물인가(서 있을 수 없음). 틀 좌표. 모르면 물로 보지 않습니다. */
   isWater?: (eastM: number, southM: number) => boolean;
-  /** 위경도 변환(`ground` 틀의 동·남 m → 위경도). 없으면 hit 의 위경도는 null. */
-  toLatLon?: (eastM: number, southM: number) => { latitude: number; longitude: number } | null;
 }
 
 export interface StandHit {
   body: AlignBody;
   timeMs: number;
-  /** 서 있을 자리(대상 점과 같은 틀의 지상 좌표와 위경도) */
+  /** 서 있을 자리: 위경도와 틀 좌표 */
+  latitude: number;
+  longitude: number;
   eastM: number;
   southM: number;
-  latitude: number | null;
-  longitude: number | null;
   groundElevM: number;
-  /** 대상 점까지 지상 거리(m) */
+  /** 대상 점까지 지상 거리(m, 서 있는 자리의 평면 규칙) */
   distM: number;
-  /** 그때 해·달의 방위(북 0 시계 °)·겉보기 고도(°)·지름(°) */
+  /** 그때 서 있는 자리에서 본 해·달의 방위(북 0 시계 °)·겉보기 고도(°)·지름(°) */
   azDeg: number;
   altDeg: number;
   diskDeg: number;
@@ -101,29 +115,52 @@ export function neededSlantDistanceM(sizeM: number, diskDeg: number, ratio = 1):
 }
 
 interface Probe {
-  sky: { azDeg: number; altDeg: number; diskDeg: number };
-  /** 대상 점 → 자리 지상 거리 */
+  /** 서 있는 자리에서 잰 하늘. 해·달이 T 에서 이미 수평선 아래면 T 에서 잰 하늘(자리를 놓지 않음). */
+  sky: Sky;
+  /** 서 있는 자리(놓지 않았으면 NaN) */
+  lat: number;
+  lon: number;
   d: number;
   eastM: number;
   southM: number;
   groundM: number | null;
   elDeg: number;
-  /** 해·달 고도 − 대상 앙각(°). 자료가 없으면 NaN. */
+  /** 해·달 고도 − 대상 앙각(°). 자료가 없거나 수평선 아래면 NaN. */
   err: number;
 }
 
+/** 해·달이 방위 A, 고도 alt 일 때 서 있는 자리의 위경도와 지상 거리(위 머리말 2번). */
+function placeStand(q: StandQuery, sky: Sky): { lat: number; lon: number; d: number } {
+  const d = neededSlantDistanceM(q.sizeM, sky.diskDeg, q.sizeRatio ?? 1) * Math.cos(sky.altDeg * D2R);
+  const a = sky.azDeg * D2R;
+  const lat = q.target.latitude - (d * Math.cos(a)) / M_PER_DEG;
+  const lon = q.target.longitude - (d * Math.sin(a)) / (M_PER_DEG * Math.max(0.05, Math.cos(lat * D2R)));
+  return { lat, lon, d };
+}
+
+const frameXZ = (q: StandQuery, lat: number, lon: number) => {
+  const o = localOffsetM(q.origin, lat, lon);
+  return { eastM: o.eastM, southM: -o.northM };
+};
+
 function probe(q: StandQuery, ms: number): Probe {
-  const sky = bodySky(q.body, ms, q.target.latitude, q.target.longitude, q.target.elevM);
-  const r = neededSlantDistanceM(q.sizeM, sky.diskDeg, q.sizeRatio ?? 1);
-  const d = r * Math.cos(sky.altDeg * D2R);
-  const A = sky.azDeg * D2R;
-  const eastM = q.targetXZ.eastM - d * Math.sin(A);
-  const southM = q.targetXZ.southM + d * Math.cos(A);
-  const g = q.ground(eastM, southM);
-  if (g == null) return { sky, d, eastM, southM, groundM: null, elDeg: NaN, err: NaN };
-  const eye = g + (q.eyeAboveGroundM ?? 1.6);
-  const elDeg = Math.atan2(q.target.elevM - eye - curvatureDropM(d), d) * R2D;
-  return { sky, d, eastM, southM, groundM: g, elDeg, err: sky.altDeg - elDeg };
+  const T = q.target;
+  const eye = q.eyeAboveGroundM ?? 1.6;
+  const skyT = bodySky(q.body, ms, T.latitude, T.longitude, T.elevM);
+  // P 의 고도는 T 의 고도보다 늘 낮으므로(P 가 해·달 반대쪽) T 에서 이미 수평선 아래면 자리를 놓지 않고 알립니다.
+  if (skyT.altDeg < HORIZON_SKIP_DEG) return { sky: skyT, lat: NaN, lon: NaN, d: NaN, eastM: NaN, southM: NaN, groundM: null, elDeg: NaN, err: NaN };
+  // 1 차: T 의 하늘로 자리를 놓고 → 그 자리의 하늘을 재고 → 그 방위로 자리를 다시 놓고 → 그 자리의 하늘을 잰다.
+  let pos = placeStand(q, skyT);
+  let xz = frameXZ(q, pos.lat, pos.lon);
+  let g = q.ground(xz.eastM, xz.southM);
+  let sky = bodySky(q.body, ms, pos.lat, pos.lon, (g ?? T.elevM) + eye);
+  pos = placeStand(q, sky);
+  xz = frameXZ(q, pos.lat, pos.lon);
+  g = q.ground(xz.eastM, xz.southM);
+  sky = bodySky(q.body, ms, pos.lat, pos.lon, (g ?? T.elevM) + eye);
+  if (g == null) return { sky, lat: pos.lat, lon: pos.lon, d: pos.d, eastM: xz.eastM, southM: xz.southM, groundM: null, elDeg: NaN, err: NaN };
+  const elDeg = Math.atan2(T.elevM - (g + eye) - curvatureDropM(pos.d), pos.d) * R2D;
+  return { sky, lat: pos.lat, lon: pos.lon, d: pos.d, eastM: xz.eastM, southM: xz.southM, groundM: g, elDeg, err: sky.altDeg - elDeg };
 }
 
 function hitFrom(q: StandQuery, ms: number): StandHit {
@@ -132,17 +169,16 @@ function hitFrom(q: StandQuery, ms: number): StandHit {
   // P 를 원점으로 옮긴 표본으로 땅의 시선 가림을 봅니다.
   const fromP: HeightSampler = (x, z) => q.ground(p.eastM + x, p.southM + z);
   const los = lineOfSightClearance(fromP, eye, q.targetXZ.eastM - p.eastM, q.targetXZ.southM - p.southM, q.target.elevM);
-  const ll = q.toLatLon ? q.toLatLon(p.eastM, p.southM) : null;
-  const sunAlt = q.body === 'sun' ? p.sky.altDeg : bodySky('sun', ms, q.target.latitude, q.target.longitude, q.target.elevM).altDeg;
+  const sunAlt = q.body === 'sun' ? p.sky.altDeg : bodySky('sun', ms, p.lat, p.lon, eye).altDeg;
   const g = p.groundM ?? 0;
   const onWater = q.isWater ? q.isWater(p.eastM, p.southM) : false;
   return {
     body: q.body,
     timeMs: ms,
+    latitude: p.lat,
+    longitude: p.lon,
     eastM: p.eastM,
     southM: p.southM,
-    latitude: ll?.latitude ?? null,
-    longitude: ll?.longitude ?? null,
     groundElevM: g,
     distM: p.d,
     azDeg: p.sky.azDeg,

@@ -199,14 +199,14 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
   // ── [7] 대상 점과 질의 ──
   console.log('\n[7] 대상 점과 질의');
   {
-    const g = () => 12, w = () => false, ll = () => ({ latitude: 1, longitude: 2 });
+    const g = () => 12, w = () => false, origin = { latitude: LAT, longitude: LON };
     const b = building(555, 70, false);   // 누른 곳을 대상으로 한 상태
-    const q = U.standQueryFor({ target: b, body: 'moon', sizeM: 50, fromMs: 1e12, days: 90, ground: g, isWater: w, toLatLon: ll });
+    const q = U.standQueryFor({ target: b, body: 'moon', sizeM: 50, fromMs: 1e12, days: 90, origin, ground: g, isWater: w });
     ok(q && q.target.elevM === 575 && q.targetXZ.eastM === 120 && q.targetXZ.southM === -60 && q.target.latitude === LAT, `건물은 "누른 곳"이어도 지붕 한가운데(해발 ${q && q.target.elevM}, 동 ${q && q.targetXZ.eastM}, 남 ${q && q.targetXZ.southM})`);
-    ok(q.ground === g && q.isWater === w && q.toLatLon === ll && q.sizeM === 50 && q.days === 90 && q.body === 'moon', '표본기 · 물 · 위경도 변환 · 크기 · 기간이 그대로 실린다');
-    const tq = U.standQueryFor({ target: terrain(), body: 'sun', sizeM: 200, fromMs: 1e12, days: 30, ground: g });
+    ok(q.ground === g && q.isWater === w && q.origin === origin && q.sizeM === 50 && q.days === 90 && q.body === 'moon', '표본기 · 물 · 틀 원점 · 크기 · 기간이 그대로 실린다');
+    const tq = U.standQueryFor({ target: terrain(), body: 'sun', sizeM: 200, fromMs: 1e12, days: 30, origin, ground: g });
     ok(tq && tq.target.elevM === 400 && tq.targetXZ.eastM === 500 && tq.targetXZ.southM === -300, '땅은 고른 점 그대로');
-    ok(U.standQueryFor({ target: terrain({ latitude: null, longitude: null }), body: 'moon', sizeM: 50, fromMs: 1, days: 1, ground: g }) === null, '위경도를 모르면 질의 없음');
+    ok(U.standQueryFor({ target: terrain({ latitude: null, longitude: null }), body: 'moon', sizeM: 50, fromMs: 1, days: 1, origin, ground: g }) === null, '위경도를 모르면 질의 없음');
     ok(U.suggestTargetPoint(building(100, 20, true)).elevM === 120, '건물 대상 점의 해발은 지붕(20 + 100)');
   }
 
@@ -214,7 +214,7 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
   console.log('\n[8] 평지에서 찾기 → 묶기 → 순위');
   {
     const FROM = Date.parse('2026-11-19T00:00:00Z');
-    const q = U.standQueryFor({ target: terrain({ latitude: LAT, longitude: LON, elevM: 575, eastM: 0, southM: 0 }), body: 'moon', sizeM: 50, fromMs: FROM, days: 90, ground: () => 12, isWater: () => false });
+    const q = U.standQueryFor({ target: terrain({ latitude: LAT, longitude: LON, elevM: 575, eastM: 0, southM: 0 }), body: 'moon', sizeM: 50, fromMs: FROM, days: 90, origin: { latitude: LAT, longitude: LON }, ground: () => 12, isWater: () => false });
     const hits = await F.findStandPoints(q);
     const groups = F.groupStandHits(hits);
     const outlook = U.outlookFromHourly({ timeMs: Array.from({ length: 24 * 14 }, (_, i) => FROM + i * 3600e3), total: Array.from({ length: 24 * 14 }, (_, i) => ((i / 24) | 0) % 3 === 0 ? 10 : 70) });

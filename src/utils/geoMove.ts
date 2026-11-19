@@ -2,7 +2,7 @@
  * 위치 이동 계산 (2026-11-19, 샌드박스 위치 이동·"내 위치 아님").
  * 짧은 거리(수 km 안)용 평면 근사입니다 — 위도 1° = 111,320 m, 경도 1° = 111,320 · cos(위도) m.
  */
-const M_PER_DEG = 111320;
+export const M_PER_DEG = 111320;
 const RAD = Math.PI / 180;
 
 /** (lat, lon) 에서 동쪽 eastM · 북쪽 northM 만큼 옮긴 좌표. */
@@ -10,6 +10,12 @@ export function offsetLatLon(lat: number, lon: number, eastM: number, northM: nu
   const latitude = Math.max(-89.9, Math.min(89.9, lat + northM / M_PER_DEG));
   const longitude = lon + eastM / (M_PER_DEG * Math.max(0.05, Math.cos(lat * RAD)));
   return { latitude, longitude: ((longitude + 540) % 360) - 180 };
+}
+
+/** `offsetLatLon` 의 거꾸로 — 원점에서 본 (lat, lon) 의 동쪽·북쪽 m(같은 평면 근사). */
+export function localOffsetM(origin: { latitude: number; longitude: number }, lat: number, lon: number): { eastM: number; northM: number } {
+  const dLon = ((lon - origin.longitude + 540) % 360) - 180;
+  return { eastM: dLon * M_PER_DEG * Math.max(0.05, Math.cos(origin.latitude * RAD)), northM: (lat - origin.latitude) * M_PER_DEG };
 }
 
 /** 두 지점 사이 거리(m). 하버사인. */

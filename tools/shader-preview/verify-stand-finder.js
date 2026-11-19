@@ -36,29 +36,41 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
   const LAT = 37.5126, LON = 127.1026;
   const T_ELEV = 575;                       // 꼭대기 해발(m)
   const FROM = Date.parse('2026-11-19T00:00:00Z');
+  const K = 111320;                         // 위도 1° 의 m (앱의 평면 근사와 같음)
+  const REFF = E.EARTH_RADIUS_EFFECTIVE_M;  // 굴절을 넣은 유효 반지름(7/6 R)
+  // 틀(원점 = 대상의 위경도)의 지상 좌표(동, 남 m) → 위경도: 앱이 지형·건물에 쓰는 평면 근사와 같은 식
+  const framePos = (e, s) => ({ lat: LAT - s / K, lon: LON + e / (K * Math.cos(LAT * D2R)) });
   const base = (over = {}) => ({
     body: 'moon', target: { latitude: LAT, longitude: LON, elevM: T_ELEV }, targetXZ: { eastM: 0, southM: 0 },
+    origin: { latitude: LAT, longitude: LON },
     sizeM: 50, fromMs: FROM, days: 20, epsDeg: 0.25, ground: () => 12, ...over,
   });
 
-  // 느린 정답: 0.25 분 걸음으로 걸으며 ε 안으로 드는 구간을 센다(식은 여기서 따로 짠다).
+  // 느린 정답: 0.25 분 걸음으로 걸으며 ε 안으로 드는 구간을 센다.
+  // 식은 여기서 따로 짠다: 서 있을 자리를 위경도의 닫힌 식으로 놓고(앱 장면의 평면 규칙: 자리에서 본 대상의 방위·거리가 d), 해·달은 **그 자리에서** 잰다.
+  // 자리와 달 방위가 서로 물려 있어 네 번 되풀이한다(구현은 두 번).
   const bruteRuns = (q, stepMin = 0.25) => {
-    const eps = q.epsDeg ?? 0.25, eye = q.eyeAboveGroundM ?? 1.6, ratio = q.sizeRatio ?? 1;
+    const eps = q.epsDeg ?? 0.25, eye = q.eyeAboveGroundM ?? 1.6, ratio = q.sizeRatio ?? 1, T = q.target;
     const runs = [];
     let cur = null;
     const end = q.fromMs + q.days * 86400e3;
     for (let t = q.fromMs; t < end; t += stepMin * 60e3) {
-      const sky = A.bodySky(q.body, t, q.target.latitude, q.target.longitude, q.target.elevM);
+      let sky = A.bodySky(q.body, t, T.latitude, T.longitude, T.elevM);
       let inside = false;
       if (sky.altDeg > -1.5) {
-        const r = q.sizeM / (2 * Math.tan((sky.diskDeg * ratio * D2R) / 2));
-        const d = r * Math.cos(sky.altDeg * D2R);
-        const az = sky.azDeg * D2R;
-        const e = q.targetXZ.eastM - d * Math.sin(az), s = q.targetXZ.southM + d * Math.cos(az);
-        const g = q.ground(e, s);
+        let lat = T.latitude, lon = T.longitude, d = 0, g = null;
+        for (let k = 0; k < 4; k++) {
+          d = (q.sizeM / (2 * Math.tan((sky.diskDeg * ratio * D2R) / 2))) * Math.cos(sky.altDeg * D2R);
+          const a = sky.azDeg * D2R;
+          lat = T.latitude - (d * Math.cos(a)) / K;
+          lon = T.longitude - (d * Math.sin(a)) / (K * Math.cos(lat * D2R));
+          const e = (lon - q.origin.longitude) * K * Math.cos(q.origin.latitude * D2R), s = -(lat - q.origin.latitude) * K;
+          g = q.ground(e, s);
+          sky = A.bodySky(q.body, t, lat, lon, (g ?? T.elevM) + eye);
+        }
         if (g != null) {
-          const el = Math.atan2(q.target.elevM - (g + eye) - drop(d), d) * R2D;
-          inside = Math.abs(sky.altDeg - el) <= eps;
+          const el = Math.atan2(T.elevM - (g + eye) - drop(d), d) * R2D;
+          inside = sky.altDeg > -1.5 && Math.abs(sky.altDeg - el) <= eps;
         }
       }
       if (inside) { if (!cur) cur = { a: t, b: t }; else cur.b = t; } else if (cur) { runs.push(cur); cur = null; }
@@ -67,27 +79,45 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     return runs;
   };
 
-  // 앞으로 검산: 그 자리에서 본 대상 점을 삼각법으로 다시 구한다.
+  const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+  // 앞으로 검산: 서 있을 자리를 위경도로 바꿔 거기서 본 대상 점을 두 가지 길로 다시 구한다 — 해·달은 그 자리에서 잰다(`bodySky`).
+  //  (a) 앱 장면의 평면 규칙: 자리에서 본 대상의 동·북 오프셋 = (경도 차 × K × cos(자리 위도), 위도 차 × K). 방위가 해·달 방위와 같고 거리가 d 여야 한다.
+  //  (b) 구면 위 벡터: 호 길이와 처음 방위는 하버사인, 눈과 대상은 유효 반지름 위의 점이라 대상의 앙각은 atan2(수직, 수평).
+  //      구현의 낙차 식(d²/2R)과 따로 풀기 때문에, 달을 대상 위치에서 재고 있었다면 땅이 휜 만큼(d/R) 어긋나 여기서 걸린다.
   const forwardCheck = (q, h) => {
-    const eye = q.eyeAboveGroundM ?? 1.6;
-    const dx = q.targetXZ.eastM - h.eastM, dz = q.targetXZ.southM - h.southM;   // 자리 → 대상(동, 남)
-    const d = Math.hypot(dx, dz);
-    const azT = ((Math.atan2(dx, -dz) * R2D) + 360) % 360;
+    const eye = q.eyeAboveGroundM ?? 1.6, T = q.target;
+    const P = framePos(h.eastM, h.southM);
     const g = q.ground(h.eastM, h.southM);
-    const elT = Math.atan2(q.target.elevM - (g + eye) - drop(d), d) * R2D;
-    const sky = A.bodySky(q.body, h.timeMs, q.target.latitude, q.target.longitude, q.target.elevM);
-    const dAz = Math.abs(((azT - sky.azDeg + 540) % 360) - 180);
-    const r = Math.hypot(d, q.target.elevM - (g + eye));
+    const hEye = g + eye;
+    const eT = (T.longitude - P.lon) * K * Math.cos(P.lat * D2R), nT = (T.latitude - P.lat) * K;
+    const dPlanar = Math.hypot(eT, nT);
+    const azScene = ((Math.atan2(eT, nT) * R2D) + 360) % 360;
+    const f1 = P.lat * D2R, f2 = T.latitude * D2R, dl = (T.longitude - P.lon) * D2R;
+    const hav = Math.sin((f2 - f1) / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
+    const arc = 2 * E.EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(hav)));
+    const azSphere = ((Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) * R2D) + 360) % 360;
+    const th = arc / REFF;
+    const elVec = Math.atan2((REFF + T.elevM) * Math.cos(th) - (REFF + hEye), (REFF + T.elevM) * Math.sin(th)) * R2D;
+    const sky = A.bodySky(q.body, h.timeMs, P.lat, P.lon, hEye);
+    const skyAtT = A.bodySky(q.body, h.timeMs, T.latitude, T.longitude, T.elevM);
+    const r = Math.hypot(dPlanar, T.elevM - hEye);
     const sizeAng = 2 * Math.atan(q.sizeM / (2 * r)) * R2D;
     const want = sky.diskDeg * (q.sizeRatio ?? 1);
-    return { dAz, dEl: Math.abs(sky.altDeg - elT), sizeErr: Math.abs(sizeAng / want - 1), d };
+    return {
+      dAzScene: Math.abs(wrap180(azScene - sky.azDeg)),
+      dAzSphere: Math.abs(wrap180(azSphere - sky.azDeg)),
+      dAlt: Math.abs(sky.altDeg - elVec),
+      sizeErr: Math.abs(sizeAng / want - 1),
+      dDist: Math.abs(dPlanar - h.distM),
+      tilt: skyAtT.altDeg - sky.altDeg, arc, d: dPlanar,
+    };
   };
 
   const compare = (label, q, hits, runs) => {
-    let worstAz = 0, worstEl = 0, worstSize = 0;
-    for (const h of hits) { const c = forwardCheck(q, h); worstAz = Math.max(worstAz, c.dAz); worstEl = Math.max(worstEl, c.dEl); worstSize = Math.max(worstSize, c.sizeErr); }
+    let worstAz = 0, worstEl = 0, worstSize = 0, worstDist = 0;
+    for (const h of hits) { const c = forwardCheck(q, h); worstAz = Math.max(worstAz, c.dAzScene); worstEl = Math.max(worstEl, c.dAlt); worstSize = Math.max(worstSize, c.sizeErr); worstDist = Math.max(worstDist, c.dDist); }
     ok(hits.length > 0, `${label}: 후보 ${hits.length} 개`);
-    ok(worstAz < 0.01 && worstEl <= (q.epsDeg ?? 0.25) + 1e-6 && worstSize < 0.02, `${label}: 앞으로 검산 — 방위 차 최대 ${worstAz.toFixed(4)}° · 앙각 차 최대 ${worstEl.toFixed(4)}° (ε ${q.epsDeg ?? 0.25}°) · 크기 차 최대 ${(worstSize * 100).toFixed(2)}%`);
+    ok(worstAz < 0.005 && worstEl <= (q.epsDeg ?? 0.25) + 0.002 && worstSize < 0.02 && worstDist < 1, `${label}: 앞으로 검산 — 방위 차 최대 ${worstAz.toFixed(4)}° · 앙각 차(구면 벡터) 최대 ${worstEl.toFixed(4)}° (ε ${q.epsDeg ?? 0.25}°) · 크기 차 최대 ${(worstSize * 100).toFixed(2)}% · 거리 차 최대 ${worstDist.toFixed(2)} m`);
     let missed = 0, extra = 0;
     for (const r of runs) { const c = (r.a + r.b) / 2; if (!hits.some(h => h.timeMs >= r.a - 2 * 60e3 && h.timeMs <= r.b + 2 * 60e3 && Math.abs(h.timeMs - c) <= 2 * 60e3 + (r.b - r.a) / 2)) missed++; }
     for (const h of hits) if (!runs.some(r => h.timeMs >= r.a - 2 * 60e3 && h.timeMs <= r.b + 2 * 60e3)) extra++;
@@ -136,6 +166,44 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
     ok(Math.abs(lo - 56930) < 100 && Math.abs(hi - 64960) < 100, `달 크기 양 끝에서 비스듬한 거리 ${(lo / 1000).toFixed(1)} ~ ${(hi / 1000).toFixed(1)} km`);
     ok(hits.length > 0 && hits.every(h => h.distM > lo * 0.999 && h.distM < hi * 1.001), `전체 높이로 걸면 자리가 ${(lo / 1000).toFixed(1)}~${(hi / 1000).toFixed(1)} km 안이다 (${hits.map(h => (h.distM / 1000).toFixed(1)).join(', ')} km)`);
     ok(hits.every(h => h.altDeg < 1.5), `그 거리에서는 달이 지평선 가까이(고도 1.5° 아래)에 있다 (최대 ${Math.max(...hits.map(h => h.altDeg)).toFixed(2)}°)`);
+  }
+
+  // ── [3b] 둥근 땅 ──
+  console.log('\n[3b] 먼 거리에서는 땅이 휜다 — 해·달은 서 있는 자리에서 잰다');
+  {
+    // 서 있는 자리 P 의 수직은 대상 위치 T 의 수직과 호/지구반지름(rad)만큼 틀어져 있고, P 는 해·달 방위의 반대쪽이라 달이 그만큼 낮게 보입니다.
+    // 5.5 km 에서 0.049°(걸림 허용 0.25° 의 5분의 1), 61 km 에서 0.55°(원반 한 지름). 달을 T 에서 재면 61 km 의 서 있는 자리에서는 달이 지평선 아래에 놓입니다.
+    // 이 검사는 달을 서 있는 자리에서 쟀는지 가리는 독립 길입니다: 대상 점의 앙각을 구면 벡터로 따로 구해 달과 견줍니다.
+    // 앱의 평면 규칙으로 놓은 자리에서 본 대상의 방위와 구면 위 처음 방위의 차: 자리가 대상에서 d 만큼 어느 방위에 있든 훑어 최악을 센다
+    // (자오선이 모이는 몫. 5.5 km 에서 0.021°, 62 km 에서 0.235°, 65 km 에서 0.246°).
+    const worstConvergence = (d) => {
+      let worst = 0;
+      for (let a = 0; a < 360; a += 0.5) {
+        const lat = LAT - (d * Math.cos(a * D2R)) / K, lon = LON - (d * Math.sin(a * D2R)) / (K * Math.cos(lat * D2R));
+        const f1 = lat * D2R, f2 = LAT * D2R, dl = (LON - lon) * D2R;
+        const az = ((Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)) * R2D) + 360) % 360;
+        worst = Math.max(worst, Math.abs(wrap180(az - a)));
+      }
+      return worst;
+    };
+    for (const [label, size, days, tolTilt] of [['꼭대기 50 m · 5.5 km', 50, 30, 0.02], ['전체 555 m · 61 km', 555, 30, 0.12]]) {
+      const q = base({ sizeM: size, days });
+      const hits = await S.findStandPoints(q);
+      const maxSph = worstConvergence(Math.max(...hits.map(h => h.distM))) * 1.02 + 0.001;
+      let wSph = 0, wScene = 0, wAlt = 0, tiltErr = 0, minAlt = Infinity, maxAlt = -Infinity, tiltMax = 0;
+      for (const h of hits) {
+        const c = forwardCheck(q, h);
+        wSph = Math.max(wSph, c.dAzSphere); wScene = Math.max(wScene, c.dAzScene); wAlt = Math.max(wAlt, c.dAlt);
+        const expectTilt = (c.arc / E.EARTH_RADIUS_M) * R2D;
+        tiltErr = Math.max(tiltErr, Math.abs(c.tilt - expectTilt)); tiltMax = Math.max(tiltMax, expectTilt);
+        minAlt = Math.min(minAlt, h.altDeg); maxAlt = Math.max(maxAlt, h.altDeg);
+      }
+      ok(hits.length > 0, `${label}: 후보 ${hits.length} 곳`);
+      ok(tiltErr < tolTilt, `${label}: 대상 위치에서 잰 달 고도 − 서 있는 자리에서 잰 달 고도 = 호 / 지구 반지름 (최대 ${tiltMax.toFixed(3)}°, 차이 최대 ${tiltErr.toFixed(3)}° < ${tolTilt}°) — 굴절 차 포함`);
+      ok(wScene < 0.005 && wAlt <= 0.25 + 0.002, `${label}: 앱 장면의 방위 차 최대 ${wScene.toFixed(4)}° · 대상 앙각(구면 벡터)과 달 고도 차 최대 ${wAlt.toFixed(4)}° (허용 0.25°)`);
+      ok(wSph <= maxSph, `${label}: 구면 실제 방위와의 차 최대 ${wSph.toFixed(3)}° ≤ 분석적 최악 ${maxSph.toFixed(3)}° (앱의 평면 세계가 자오선 수렴을 무시하는 몫; 이 거리 범위에서 방위를 다 훑어 센 값 + 2%)`);
+      if (size === 555) ok(minAlt > -0.2 && maxAlt < 1.0, `${label}: 서 있는 자리의 달 고도가 지평선 위 ${minAlt.toFixed(2)}° ~ ${maxAlt.toFixed(2)}° 안(대상 꼭대기 앙각 약 0.29° ± 0.25°) — 달이 지평선 아래로 가지 않는다`);
+    }
   }
 
   // ── [4] 가림 ──
