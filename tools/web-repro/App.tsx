@@ -30,6 +30,7 @@ import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCar
 import { snapBuildingTarget } from '../../src/utils/demPick';
 import { createPickIndexBuilder } from '../../src/utils/buildingPick';
 import { pickTargetAt } from '../../src/utils/pickTarget';
+import { Onboarding } from '../../src/components/Onboarding/Onboarding';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -164,6 +165,25 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
+/**
+ * onboard:1 — 처음 실행 안내(2026-11-19 목업 8번). step 은 처음 장(0~2), lang · light, good 으로 알림 체크 처음 상태.
+ * 눌림: window.__guideDone(건너뛰기·시작하기), window.__guideGood(체크 바꿈 뒤 값).
+ */
+function OnboardRepro({ W, H }: { W: number; H: number }) {
+  const [good, setGood] = React.useState(!!Q.good);
+  return (
+    <View style={{ width: W, height: H }}>
+      <Onboarding
+        visible
+        language={Q.lang ?? 'ko'}
+        goodOnly={good}
+        onToggleGoodOnly={(n) => { setGood(n); (globalThis as any).__guideGood = n; }}
+        onDone={() => { (globalThis as any).__guideDone = true; }}
+      />
+    </View>
+  );
+}
+
 function CalcRepro({ W, H }: { W: number; H: number }) {
   const [topic, setTopic] = React.useState<'sunrise' | 'sunset'>(Q.topic ?? 'sunrise');
   React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
@@ -230,6 +250,7 @@ export default function App() {
   const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.calc) return <CalcRepro W={W} H={H} />;
+  if (Q.onboard) return <OnboardRepro W={W} H={H} />;
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (

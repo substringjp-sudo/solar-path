@@ -21,6 +21,8 @@ interface SettingsModalProps {
   onClose: () => void;
   theme: any;
   dynamicTheme: any;
+  /** "안내 다시 보기" — 처음 실행 안내(8번 화면)를 다시 엽니다. 없으면 이 줄을 그리지 않습니다. */
+  onOpenGuide?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -28,6 +30,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   theme,
   dynamicTheme,
+  onOpenGuide,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   const [windowHeight] = useState(Dimensions.get('window').height);
@@ -752,6 +755,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  {/* 처음 실행 안내(8번 화면)를 다시 엽니다 */}
+                  {onOpenGuide && (
+                    <PressScale
+                      style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                      onPress={onOpenGuide}
+                      accessibilityLabel={L3(language, '안내 다시 보기', 'Replay the guide', '案内をもう一度見る')}
+                    >
+                      <Text style={[styles.infoLabel, { color: theme.subText }]}>{L3(language, '안내 다시 보기', 'Replay the guide', '案内をもう一度見る')}</Text>
+                      <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>{L3(language, '열기', 'Open', '開く')}</Text>
+                    </PressScale>
+                  )}
                   <View style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
                     <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('version', language)}</Text>
                     <Text style={[styles.infoValue, { color: theme.text }]}>{Constants.expoConfig?.version ?? '—'}</Text>
