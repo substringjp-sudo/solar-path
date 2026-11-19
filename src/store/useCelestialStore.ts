@@ -165,6 +165,11 @@ interface CelestialState extends ClockState {
    * 샌드박스 모드가 만들어지면 이 스위치가 그 입구가 됩니다.
    */
   expertMode: boolean;
+  /**
+   * 기기 GPS 로 마지막에 받은 "내 위치"(2026-11-19 샌드박스). 고른 위치(`location`)가 이것과 멀면 "내 위치 아님"을 보입니다.
+   * GPS 를 한 번도 못 받았으면 null(표시 안 함). 저장합니다.
+   */
+  homeCoords: { latitude: number; longitude: number } | null;
   /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
   notifPrefs: NotifPrefs;
   isAppReady: boolean;
@@ -236,6 +241,7 @@ interface CelestialState extends ClockState {
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setExpertMode: (on: boolean) => void;
+  setHomeCoords: (c: { latitude: number; longitude: number } | null) => void;
   setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
@@ -313,6 +319,7 @@ export const useCelestialStore = create<CelestialState>()(
       themeMode: 'dark',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       expertMode: false,
+      homeCoords: null,
       isAppReady: false,
       startupLocationSettled: false,
       preloadStatus: 'initializingApp',
@@ -983,6 +990,7 @@ export const useCelestialStore = create<CelestialState>()(
           if (status === 'granted') {
             set({ errorMsg: null });
             const loc = await Location.getCurrentPositionAsync({});
+            get().setHomeCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
             await get().setLocation(loc);
             void get().preloadInitialData();
           } else {
@@ -1022,6 +1030,7 @@ export const useCelestialStore = create<CelestialState>()(
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       setExpertMode: (on) => set({ expertMode: !!on }),
+      setHomeCoords: (c) => set({ homeCoords: c }),
       setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
@@ -1056,6 +1065,7 @@ export const useCelestialStore = create<CelestialState>()(
           const lon = loc?.coords.longitude ?? defaultCoords.longitude;
  
           if (loc) {
+            get().setHomeCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
             await get().setLocation(loc);
           } else {
             await get().setLocation({
@@ -1321,6 +1331,7 @@ export const useCelestialStore = create<CelestialState>()(
         themeMode: state.themeMode,
         notifPrefs: state.notifPrefs,
         expertMode: state.expertMode,
+        homeCoords: state.homeCoords,
         hiddenPhotoIds: state.hiddenPhotoIds,
         blockedUserIds: state.blockedUserIds,
       }),
