@@ -156,6 +156,8 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
           moon={{ azDeg: 90, altDeg: -20 }}
           observer={{ latitude: 37.5512, longitude: 126.9882, fromMs: Date.parse(Q.t ?? '2026-11-19T03:00:00Z') }}
           onAlign={() => {}}
+          onCalc={() => { (globalThis as any).__calcPressed = true; }}
+          moonDiskDeg={0.52}
           onSnap={(top: boolean) => setT((p: any) => snapBuildingTarget(p, top))}
           onClear={() => setT(null)}
         />

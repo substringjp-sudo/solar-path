@@ -56,7 +56,7 @@ import {
   subscribeVolumetricStatus,
   type VolumetricPrewarmStatus,
 } from '../VolumetricProbe/volumetricStatus';
-import { getMoonPositionPrecise } from '../../utils/moonPosition';
+import { getMoonPositionPrecise, moonSemidiameterDeg } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t, L3 } from '../../utils/i18n';
@@ -885,6 +885,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               target={picked}
               sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
               moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
+              moonDiskDeg={2 * moonSemidiameterDeg(moonPos.distance)}
+              onCalc={() => { setCalcDate(currentTime); setCalcTopic('score'); setCalcOpen(true); }}
               observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
               getSkyline={() => sceneRef.current?.getSkyline?.() ?? null}
               onAlign={(hit) => {
