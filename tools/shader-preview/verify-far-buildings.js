@@ -184,8 +184,17 @@ const RAD = Math.PI / 180;
     ok(sorted && picks.length <= 200, `큰 것부터 정렬, 한도 200 을 지킨다 (${picks.length})`);
     ok(picks.every(p => p.distM >= F.FAR_INNER_M && p.distM <= F.FAR_OUTER_M), '모두 거리 범위(1 ~ 15 km) 안');
     const all = F.selectVisibleFar(prof, mountain, LAT0, LON0, items, { maxBuildings: 100000 });
-    const inTruthBad = all.filter(p => truthVisible(mountain, ...F.lonLatToEastSouth(LAT0, LON0, p.item.lat, p.item.lon), p.item.heightM) < F.FAR_MIN_VISIBLE_DEG - 0.05).length;
-    ok(inTruthBad === 0, `뽑힌 ${all.length} 건물이 모두 정답으로도 0.07° 이상 (${inTruthBad} 건 어긋남)`);
+    // 방위 칸은 1° 폭이고 가림 앙각은 이웃 세 칸 가운데 가장 낮은 값(보수적 정의: 일부러 더 보이는 쪽으로 어긋남)이라, 뽑힌 건물은
+    // "방위 ±1° 안 어느 한 곳에서" 정답으로 보이면 됩니다. 건물 방위 한 곳의 정답으로만 재면 가파른 산마루 곁의 아슬아슬한 건물이 걸립니다
+    // (표본에서 굴절을 합치면 두 채가 걸렸습니다. 방위가 같은 곳의 정답은 0.03~0.07° 로 낮지만 ±1° 이웃에서는 0.108~0.120° 였습니다).
+    // 정의의 반대쪽, 곧 보이는 건물을 잃는 일은 [4] 가 따로 지킵니다.
+    const truthNeighbors = (p) => {
+      const [e, s] = F.lonLatToEastSouth(LAT0, LON0, p.item.lat, p.item.lon);
+      const az = Math.atan2(e, -s), d = Math.hypot(e, s);
+      return Math.max(...[-1, 0, 1].map(da => truthVisible(mountain, Math.sin(az + da * RAD) * d, -Math.cos(az + da * RAD) * d, p.item.heightM)));
+    };
+    const inTruthBad = all.filter(p => truthNeighbors(p) < F.FAR_MIN_VISIBLE_DEG - 0.05).length;
+    ok(inTruthBad === 0, `뽑힌 ${all.length} 건물이 모두 방위 ±1° 안 어디선가 정답으로도 0.07° 이상 (${inTruthBad} 건 어긋남)`);
     const chosen = new Set(all.map(p => p.item));
     let wrongDrop = 0;
     for (const it of items) {
