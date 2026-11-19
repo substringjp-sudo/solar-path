@@ -21,6 +21,7 @@ import { ScoreGraph } from '../../src/components/SkyScreen/ScoreGraph';
 import { scoreWindow, sampleScores } from '../../src/utils/scoreSeries';
 import { sunPosition } from '../../src/utils/solarPosition';
 import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
+import { DialPair, MoveStick } from '../../src/components/SkyScreen/SandboxDials';
 import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
 import { ForecastScreen } from '../../src/components/ForecastScreen/ForecastScreen';
 import { UpcomingCards } from '../../src/components/SkyScreen/UpcomingCards';
@@ -65,6 +66,23 @@ if (Q.atmos === 'load') {
   (globalThis as any).__volCreateOpts = (renderer: any) => new Promise((res, rej) => {
     new PrecomputedTexturesLoader({ format: 'binary' }).setType(renderer).load('assets', (t: any) => res({ precomputed: t, spectral: false, effectiveTransmittance: false }), undefined, rej);
   });
+}
+
+/**
+ * sbxctl:1 — 샌드박스 세로 막대(높이 · 줌)와 이동 조이스틱만(2026-11-19). 값은 window.__sbx 에 남깁니다: {eye, zoom, moves:[[동 m, 북 m] …]}.
+ *   eye · zoom 처음 값, step 걸음 크기(m, 기본 100), lang. 하늘색 배경 위에 그려 읽힘을 봅니다.
+ */
+function SandboxCtlRepro({ W }: { W: number }) {
+  const [eye, setEye] = React.useState<number>(Q.eye ?? 1.6);
+  const [zoom, setZoom] = React.useState<number>(Q.zoom ?? 1);
+  const moves = React.useRef<number[][]>([]);
+  (globalThis as any).__sbx = { eye, zoom, moves: moves.current };
+  return (
+    <View style={{ width: W, padding: 16, backgroundColor: '#35557F', flexDirection: 'row', gap: 28, alignItems: 'flex-start' }}>
+      <MoveStick language={Q.lang ?? 'ko'} stepM={Q.step ?? 100} onMove={(e, n) => { moves.current.push([Math.round(e * 10) / 10, Math.round(n * 10) / 10]); }} />
+      <DialPair language={Q.lang ?? 'ko'} eyeHeightM={eye} onEyeHeight={setEye} zoomX={zoom} onZoom={setZoom} />
+    </View>
+  );
 }
 
 /** globe:1 — 지구본(MapGlobe)만 그립니다(해·달 직하점·위상 확인, §142). cLat·cLon·r 로 한가운데·반지름, morph 로 형태(§153). */
@@ -409,6 +427,7 @@ export default function App() {
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.suggest) return <SuggestRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
+  if (Q.sbxctl) return <SandboxCtlRepro W={W} />;
   return (
     <View style={{ width: W, height: H }}>
       <SkyScene3D
