@@ -47,7 +47,7 @@ import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './Scen
 import { LIT2_ENCODE_GLSL, bindTerrainLook, makeTerrainLookUniforms } from './terrainLook';
 import { createTerrainAmbientBake } from './terrainAmbient';
 import {
-  EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
+  EARTH_RADIUS_EFFECTIVE_M, EARTH_RADIUS_EFFECTIVE_M_GLSL, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
   createConcentricGeometry, ringDistanceM, ringRadius,
 } from './groundProjection';
@@ -229,7 +229,7 @@ void main() {
   vec3 p = gp_project(g, h, eyeElevM, r);
   // §117 — 화면 자리는 각도로 놓지만(p 는 미터가 아님) 구름과 견줄 거리는 미터로 따로 냅니다.
   // 곡률 강하를 빼 구름 슬랩의 구면 교차와 같은 기하로 둡니다.
-  float dzM = h - eyeElevM - d * d / (2.0 * 6371000.0);
+  float dzM = h - eyeElevM - d * d / (2.0 * ${EARTH_RADIUS_EFFECTIVE_M_GLSL});
   vSlantM = sqrt(d * d + dzM * dzM);
   // ⚠ 눈은 메시 원점에 있으므로 p 자체가 "눈에서 이 점으로" 입니다
   //   (SeaPlane 과 같은 규약). 카메라의 world Y 를 여기서 읽으면 안 됩니다.
@@ -1166,7 +1166,7 @@ void main() {
     float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
     if (inFine < 0.5 && inFar < 0.5) break;
     float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
-    float z = h - eye - t * t / (2.0 * 6371000.0);
+    float z = h - eye - t * t / (2.0 * ${EARTH_RADIUS_EFFECTIVE_M_GLSL});
     if (z / t > bestTan) { bestTan = z / t; zc = z; dOcc = t; }
     t += clamp(t * 0.006, 20.0, 150.0);
   }
@@ -1751,7 +1751,7 @@ export function horizonAngleDeg(
   for (let k = 0; k < rings; k++) {
     const d = fieldRingDistanceM(k, rings);
     const h = elevAt(Math.sin(azRad) * d, -Math.cos(azRad) * d);
-    const drop = (d * d) / (2 * EARTH_RADIUS_M);
+    const drop = (d * d) / (2 * EARTH_RADIUS_EFFECTIVE_M);
     const a = Math.atan2(h - eye - drop, d);
     if (a > best) best = a;
   }

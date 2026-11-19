@@ -4,7 +4,7 @@
  */
 
 import { findPresetTerrain } from './presetTerrains';
-import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
+import { EARTH_RADIUS_KM, EARTH_RADIUS_EFFECTIVE_M, TERRAIN_CURVATURE_MODEL } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
@@ -1390,6 +1390,8 @@ export interface TerrainData {
    * (docs/GROUND_PLAN.md 3단계).
    */
   bandAngles: number[][];
+  /** 지형각을 잰 곡률 모델(utils/earth.ts TERRAIN_CURVATURE_MODEL). 저장 자료의 낡음을 가립니다. */
+  curvatureModel?: string;
   /** `bandAngles`의 거리 (km) */
   bandDistancesKm: number[];
   /**
@@ -1541,9 +1543,9 @@ export const fetchTerrainProfile = async (
         // R 은 `TerrainRing.seaHorizonDipDeg` 와 **같은 값**을 씁니다.
         // 44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이
         // 있습니다 — 같은 종류의 결함을 만들지 않으려고 맞춰 둡니다.
-        // (둘 다 대기 굴절은 넣지 않았습니다. 넣으면 낙차가 약 13% 줄어들고,
-        //  올릴 때는 **두 곳을 같이** 올려야 합니다.)
-        const curvatureDropM = (distMeters * distMeters) / (2 * EARTH_RADIUS_M);
+        // 2026-11-19 둘 다 표준 대기 굴절(유효 반지름 7/6 R, utils/earth.ts)을 넣었습니다. 낙차가 6/7 로 줄어듭니다.
+        // 저장해 둔 지형각은 `curvatureModel` 이 다르면 버리고 다시 받습니다.
+        const curvatureDropM = (distMeters * distMeters) / (2 * EARTH_RADIUS_EFFECTIVE_M);
         const elevDiff = elev - observerElev - curvatureDropM;
         const angle = (Math.atan2(elevDiff, distMeters) * 180) / Math.PI;
 
@@ -1560,7 +1562,7 @@ export const fetchTerrainProfile = async (
     }
 
     const terrainData = {
-      panoramicAngles, farAngles, bandAngles, waterFrac,
+      panoramicAngles, farAngles, bandAngles, waterFrac, curvatureModel: TERRAIN_CURVATURE_MODEL,
       bandDistancesKm: DISTANCES.slice(),
       minAz, maxAz, observerElevation: observerElev,
       elevations: terrainPoints,

@@ -32,6 +32,7 @@ import {
   type TerrainData,
 } from '../../utils/weather';
 import { findPresetTerrain } from '../../utils/presetTerrains';
+import { isCurrentTerrainModel } from '../../utils/terrainPick';
 import { scenePrediction } from '../../utils/scenePrediction';
 import {
   weatherCacheKey,
@@ -142,7 +143,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const preset = findPresetTerrain(latitude, longitude);
     if (preset) return preset;
 
-    const cached = terrainCacheList.find(c => Math.abs(c.latitude - latitude) < 0.05 && Math.abs(c.longitude - longitude) < 0.05);
+    const cached = terrainCacheList.find(c => Math.abs(c.latitude - latitude) < 0.05 && Math.abs(c.longitude - longitude) < 0.05 && isCurrentTerrainModel(c.data));
     if (cached?.data && Array.isArray((cached.data as any).panoramicAngles)) {
       const d = cached.data as any;
       return {
@@ -193,7 +194,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
       // 2. 캐시 목록에서 탐색 (0.05° 허용치 적용)
       const cached = terrainCacheList.find(
-        (item) => Math.abs(item.latitude - latitude) < 0.05 && Math.abs(item.longitude - longitude) < 0.05
+        (item) => Math.abs(item.latitude - latitude) < 0.05 && Math.abs(item.longitude - longitude) < 0.05 && isCurrentTerrainModel(item.data)
       );
 
       if (cached && cached.data?.bandAngles?.length > 0) {

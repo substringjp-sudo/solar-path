@@ -18,17 +18,23 @@ const { PREVIEW } = require('./paths');
 let pass = 0, fail = 0;
 const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fail++; console.log('  FAIL: ' + l); } };
 
-const realTerrain = (lat, lon) => ({
+// 저장된 지형각은 어느 곡률 모델로 쟀는지(`curvatureModel`)를 달고 있고, 지금 모델과 다르면 `pickTerrainForLocation` 이 쓰지 않습니다
+// (지형 시선 굴절 PR). 그래서 "정상" 자료는 지금 모델을 달아 둡니다.
+let CURRENT_MODEL;
+const realTerrain = (lat, lon, model = CURRENT_MODEL) => ({
   latitude: lat, longitude: lon,
   data: {
     bandAngles: [0, 10, 20, 30], bandDistancesKm: [5, 15, 40],
     waterFrac: [0, 0, 0.2, 0], observerElevation: 41,
+    ...(model !== null ? { curvatureModel: model } : {}),   // null = 모델 표시 없는 옛 저장 자료
   },
 });
 
 (async () => {
   const M = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'terrainPick.js'));
-  const { pickTerrainForLocation, canDrawTerrainBands, fallbackTerrain } = M;
+  const { pickTerrainForLocation, canDrawTerrainBands, fallbackTerrain, isCurrentTerrainModel } = M;
+  const E = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'earth.js'));
+  CURRENT_MODEL = E.TERRAIN_CURVATURE_MODEL;
 
   console.log('\n[1] 결함 재현 — 예전에 넘기던 것으로는 산이 안 그려진다');
   {
@@ -46,6 +52,20 @@ const realTerrain = (lat, lon) => ({
     ok(picked !== null, '같은 자리의 캐시를 고른다');
     ok(canDrawTerrainBands(picked), '고른 지형은 산줄기 조건을 넘는다');
     ok(picked.observerElevation === 41, '관측점 고도도 실제 값이 온다 (박아 둔 50 이 아니라)');
+  }
+
+  console.log('\n[2b] 곡률 모델이 다른 저장 자료는 쓰지 않는다');
+  {
+    ok(typeof CURRENT_MODEL === 'string' && CURRENT_MODEL.length > 0, `지금 모델 이름이 있다 (${CURRENT_MODEL})`);
+    ok(isCurrentTerrainModel(realTerrain(37, 127).data) === true, '지금 모델을 단 자료는 현재 것이다');
+    ok(isCurrentTerrainModel(realTerrain(37, 127, 'old-flat-earth').data) === false, '다른 모델(예전 자료)은 현재 것이 아니다');
+    ok(isCurrentTerrainModel(realTerrain(37, 127, null).data) === false, '모델 표시가 없는 옛 저장 자료도 현재 것이 아니다');
+    ok(isCurrentTerrainModel(null) === false && isCurrentTerrainModel(undefined) === false, '자료가 없으면 현재 것이 아니다');
+    ok(pickTerrainForLocation([realTerrain(37.4863, 127.0443, 'old-flat-earth')], 37.4863, 127.0443) === null,
+       '같은 자리라도 옛 곡률 모델로 쟀던 캐시는 고르지 않는다(수평선과 어긋나 산·바다 판정이 틀어짐)');
+    const mixed = [realTerrain(37.4863, 127.0443, 'old-flat-earth'), realTerrain(37.4863, 127.0443)];
+    const got = pickTerrainForLocation(mixed, 37.4863, 127.0443);
+    ok(got !== null && got.curvatureModel === CURRENT_MODEL, '옛 것과 지금 것이 같이 있으면 지금 것을 고른다');
   }
 
   console.log('\n[3] 허용 오차');
