@@ -157,6 +157,15 @@ export function targetPointAt(
   return { azDeg, elDeg, distM, elevM, eastM, southM, latitude: ll?.latitude ?? null, longitude: ll?.longitude ?? null, visible: los.visible, marginM: los.marginM };
 }
 
+/**
+ * 대상의 겉보기 높이각(°): 같은 거리에서 꼭대기와 밑동이 눈에 보이는 앙각의 차(곡률·굴절 포함).
+ * 목업의 "높이각"이고, 달 지름(약 0.52°)으로 나누면 "달 대비 크기"입니다.
+ */
+export function apparentHeightDeg(eyeM: number, distM: number, baseElevM: number, topElevM: number): number {
+  const el = (z: number) => (Math.atan2(z - eyeM - drop(distM), distM) * 180) / Math.PI;
+  return el(topElevM) - el(baseElevM);
+}
+
 /** 고른 대상이 건물일 때의 정보. 지도 자료(`render_height`)의 높이라 실제와 다를 수 있습니다. */
 export interface BuildingInfo {
   /** 지반 위 지붕 높이(m) */
@@ -167,6 +176,8 @@ export interface BuildingInfo {
   /** 발자국 긴 변·짧은 변(m) */
   longM: number;
   shortM: number;
+  /** 눈에서 본 겉보기 높이각(°): 지붕 한가운데 거리에서 꼭대기 앙각 − 밑동 앙각 */
+  angularHeightDeg: number;
   /** 지금 대상 점이 꼭대기로 붙은 점인가(아니면 누른 자리 그대로) */
   snapped: boolean;
   /** 전환용 두 점: 누른 자리와 꼭대기(지붕 한가운데) */
