@@ -11,7 +11,7 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform, Switch } from 'react-native';
 import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, Cloud } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
@@ -58,7 +58,7 @@ import SunCalc from 'suncalc';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t, L3 } from '../../utils/i18n';
-import { color, color as DARK, radius, mono, dataColor } from '../../theme/tokens';
+import { color, color as DARK, radius, mono, dataColor, type } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { timeTo } from '../../theme/motion';
@@ -109,6 +109,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
+  // 2026-11-19 초보자 화면 덜어내기(docs/SANDBOX_MODE_PLAN.md 2.4): 꺼짐이 기본, 켜면 지금까지의 모든 조작.
+  const expertMode = useCelestialStore(s => s.expertMode);
+  const setExpertMode = useCelestialStore(s => s.setExpertMode);
+  const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
+  const setNotifPref = useCelestialStore(s => s.setNotifPref);
+  const toggleGoodOnly = (next: boolean) => {
+    setNotifPref('goodOnly', next);
+    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(02 예보와 같은 동작).
+    if (next) { setNotifPref('sunsetForecast', true); setNotifPref('sunriseForecast', true); }
+  };
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language, timezoneOffsetHours, isCacheHydrated } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeSheetTab, setActiveSheetTab] = useState<'events' | 'weather'>('events');
@@ -773,18 +783,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
         {!isCameraOverlayActive && (
         <View style={overlayStyles.sceneOverlayButtons}>
+          {/* 전문가 모드 — 꺼짐이면 아래 보기 조작(레이어 · 구/지도)과 시트의 상세가 숨습니다. 길게 누르면 개발자 튜닝 패널. */}
+          <OverlayButton
+            active={expertMode}
+            onPress={() => setExpertMode(!expertMode)}
+            onLongPress={() => setDevPanelOpen(v => !v)}
+            accessibilityLabel={L3(language, '전문가 모드', 'Expert mode', 'エキスパートモード')}
+            style={overlayStyles.expertBtn}
+          >
+            <Text style={[overlayStyles.expertBtnText, expertMode && { color: DARK.accent }]}>
+              {L3(language, '전문가 모드', 'Expert', 'エキスパート')}
+            </Text>
+          </OverlayButton>
+
           {/* 3D 요소 표시 설정 모달 */}
+          {expertMode && (
           <OverlayButton
             onPress={() => setLayerModalVisible(true)}
-            // 개발자/튜닝 패널 — 레이어 버튼 길게 누르기로 열고 닫습니다.
-            onLongPress={() => setDevPanelOpen(v => !v)}
             accessibilityLabel={t('layerTitle', language)}
           >
             <SlidersHorizontal size={16} color={DARK.text} />
           </OverlayButton>
+          )}
 
           {/* 구/지도 — 두 손가락 줌아웃의 누르기 대안(디자인 2단). 지도에서는 "착륙"으로 돌아옵니다. */}
-          {!ascended && (
+          {expertMode && !ascended && (
             <OverlayButton
               onPress={() => sceneRef.current?.flyToMap()}
               accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
@@ -921,8 +944,28 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 이벤트 & 기상정보 탭 토글 */}
+          {/* 좋은 하늘 알림 — 02 예보의 "좋음 이상 알림"과 같은 설정 */}
+          <View style={[styles.alertRow, { borderColor: theme.border }]}>
+            <Text style={[styles.alertLabel, { color: theme.text }]} numberOfLines={1}>
+              {L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
+            </Text>
+            <Switch
+              value={goodOnly}
+              onValueChange={toggleGoodOnly}
+              trackColor={{ false: color.border, true: color.accentLine }}
+              thumbColor={goodOnly ? color.accent : color.textMute}
+              accessibilityLabel={L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
+            />
+          </View>
+
+          {/* 이벤트 & 기상정보 탭 토글 (기상정보 탭은 전문가 모드만) */}
           <View style={styles.eventSection}>
+            {!expertMode && (
+              <Text style={[styles.upcomingLabel, { color: theme.subText }]}>
+                {L3(language, '다가오는 좋은 순간', 'Coming up', 'これからの見どころ')}
+              </Text>
+            )}
+            {expertMode && (
             <View style={styles.tabToggleGroup}>
               <PressScale
                 style={[styles.tabButton, activeSheetTab === 'events' && styles.tabButtonActive]}
@@ -942,9 +985,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 <Text style={[styles.tabText, activeSheetTab === 'weather' && styles.tabTextActive]}>{t('tabWeather', language)}</Text>
               </PressScale>
             </View>
+            )}
 
-            {activeSheetTab === 'events' ? (
-              combinedEventList.map(item => (
+            {!expertMode || activeSheetTab === 'events' ? (
+              (expertMode ? combinedEventList : combinedEventList.slice(0, 3)).map(item => (
                 <PressScale
                   key={item.id}
                   style={[
@@ -995,7 +1039,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             )}
           </View>
 
-          {/* 태양·달 수치 — 맨 아래: 예측(판단) → 이벤트(언제) → 수치(근거) 순으로 읽습니다. */}
+          {/* 태양·달 수치 — 맨 아래: 예측(판단) → 이벤트(언제) → 수치(근거) 순으로 읽습니다. 전문가 모드만. */}
+          {expertMode && (
           <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
             <View style={styles.frameHeader}>
               <Sun size={11} color={color.sun} />
@@ -1024,6 +1069,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               />
             </View>
           </View>
+          )}
         </ScrollView>
       </PeekSheet>
       )}
@@ -1046,6 +1092,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           seasonPcts={seasonMarkerPositions}
           isTrackingSun={trackingTarget === 'sun'}
           onToggleTrackingSun={() => setTrackingTarget(prev => prev === 'sun' ? null : 'sun')}
+          simple={!expertMode}
         />
       </View>
       )}
@@ -1079,7 +1126,10 @@ const overlayStyles = StyleSheet.create({
     right: 12,
     gap: 8,
     zIndex: 20,
+    alignItems: 'flex-end',
   },
+  expertBtn: { width: undefined, paddingHorizontal: 10 },
+  expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {
     width: 32,
     height: 32,
@@ -1284,6 +1334,16 @@ const useStyles = makeStyles((color) => ({
   eventSection: {
     gap: 6,
   },
+  upcomingLabel: { ...type.micro, marginBottom: 2 },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    borderBottomWidth: 1,
+    marginBottom: 4,
+  },
+  alertLabel: { ...type.body, flex: 1, minWidth: 0 },
   tabToggleGroup: {
     flexDirection: 'row',
     gap: 6,

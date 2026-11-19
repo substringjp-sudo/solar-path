@@ -159,6 +159,12 @@ interface CelestialState extends ClockState {
   language: 'ko' | 'en' | 'ja';
   /** 화면 모드 — 밝은 모드는 패널·창·기록 탭·헤더만 밝힙니다(docs/DESIGN_SYSTEM.md §4.1). 기본은 어둡게. */
   themeMode: 'system' | 'light' | 'dark';
+  /**
+   * 전문가 모드 (2026-11-19, docs/SANDBOX_MODE_PLAN.md 2.4). 꺼짐(기본)이면 하늘 화면이 초보자용으로 덜어낸 모습이고,
+   * 켜면 지금까지의 모든 조작(레이어·지구/지도·태양 추적·달력·기상정보·수치)이 그대로 나옵니다.
+   * 샌드박스 모드가 만들어지면 이 스위치가 그 입구가 됩니다.
+   */
+  expertMode: boolean;
   /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
   notifPrefs: NotifPrefs;
   isAppReady: boolean;
@@ -229,6 +235,7 @@ interface CelestialState extends ClockState {
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+  setExpertMode: (on: boolean) => void;
   setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
@@ -305,6 +312,7 @@ export const useCelestialStore = create<CelestialState>()(
       language: 'ko',
       themeMode: 'dark',
       notifPrefs: DEFAULT_NOTIF_PREFS,
+      expertMode: false,
       isAppReady: false,
       startupLocationSettled: false,
       preloadStatus: 'initializingApp',
@@ -1013,6 +1021,7 @@ export const useCelestialStore = create<CelestialState>()(
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
+      setExpertMode: (on) => set({ expertMode: !!on }),
       setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
@@ -1311,6 +1320,7 @@ export const useCelestialStore = create<CelestialState>()(
         language: state.language,
         themeMode: state.themeMode,
         notifPrefs: state.notifPrefs,
+        expertMode: state.expertMode,
         hiddenPhotoIds: state.hiddenPhotoIds,
         blockedUserIds: state.blockedUserIds,
       }),

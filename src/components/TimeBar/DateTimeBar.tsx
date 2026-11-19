@@ -67,6 +67,11 @@ interface Props {
   isTrackingSun?: boolean;
   /** 태양 추적 토글 핸들러 */
   onToggleTrackingSun?: () => void;
+  /**
+   * 2026-11-19 초보자용(전문가 모드 꺼짐, docs/SANDBOX_MODE_PLAN.md 2.4): 날짜 줄(하루 앞뒤 · 달력 · 1년 막대)을 오늘·내일·모레 칩으로 바꾸고
+   * 태양 추적 체크박스를 뺍니다. 시간 막대는 그대로입니다.
+   */
+  simple?: boolean;
 }
 
 const WEEKDAYS = {
@@ -170,7 +175,7 @@ function eventWindow(minutes: number, sunriseMin: number | null, sunsetMin: numb
 
 export const DateTimeBar: React.FC<Props> = ({
   currentTime, onPick, onSlidingStart, onSlidingComplete, isTimeMachineEnabled, onNow, onOpenDatePicker,
-  onCameraPress, events, seasonPcts = [], isTrackingSun = false, onToggleTrackingSun,
+  onCameraPress, events, seasonPcts = [], isTrackingSun = false, onToggleTrackingSun, simple = false,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
@@ -373,12 +378,42 @@ export const DateTimeBar: React.FC<Props> = ({
   ];
 
   const adjustDate = useCallback((dir: 1 | -1) => step(t => shiftDays(t, dir)), [step]);
+  // 오늘·내일·모레 칩 — 지금 보고 있는 시각(분)은 그대로 두고 날짜만 바꿉니다.
+  const todayStart = localDayStartMs(nowMs, tz);
+  const pickDayOffset = useCallback((off: number) => {
+    step(() => localDayStartMs(Date.now(), tzRef.current) + off * 24 * MS_HOUR + Math.floor((tRef.current - localDayStartMs(tRef.current, tzRef.current)) / MS_MIN) * MS_MIN);
+  }, [step]);
+  const dayOffsetNow = Math.round((dayStart - todayStart) / (24 * MS_HOUR));
   const adjustTime = useCallback((dir: 1 | -1) => step(t => shiftMinutes(t, dir)), [step]);
 
   return (
     <View style={styles.wrap}>
       <View style={styles.main}>
         {/* ── 1행: 날짜 — 하루 앞뒤 · 날짜(달력) · 1년 막대 펼침. 누르는 것은 모두 40(touch) ── */}
+        {simple ? (
+          <View style={styles.headerRow}>
+            {[0, 1, 2].map(off => {
+              const on = dayOffsetNow === off;
+              const label = off === 0 ? L3(language, '오늘', 'Today', '今日') : off === 1 ? L3(language, '내일', 'Tomorrow', '明日') : L3(language, '모레', 'In 2 days', '明後日');
+              return (
+                <PressScale
+                  key={off}
+                  onPress={() => pickDayOffset(off)}
+                  style={[styles.dayChip, on && styles.dayChipOn]}
+                  accessibilityLabel={label}
+                  accessibilityState={{ selected: on }}
+                >
+                  <Text style={[styles.dayChipText, on && { color: color.accent }]}>{label}</Text>
+                </PressScale>
+              );
+            })}
+            <View style={{ flex: 1 }} />
+            <View style={styles.liveTag}>
+              <View style={[styles.liveDot, { backgroundColor: isTimeMachineEnabled ? color.warning : color.success }]} />
+              <Text style={styles.liveText}>{isTimeMachineEnabled ? 'SIM' : 'LIVE'}</Text>
+            </View>
+          </View>
+        ) : (
         <View style={styles.headerRow}>
           <StepButton
             label={L3(language, '하루 전', '1 day back', '1日前')}
@@ -415,9 +450,10 @@ export const DateTimeBar: React.FC<Props> = ({
             )}
           </PressScale>
         </View>
+        )}
 
         {/* ── 펼침 1년 날짜 트랙 (토글 시 노출) ─────────────────────── */}
-        {showYearTrack && (
+        {!simple && showYearTrack && (
           <View style={styles.yearTrackContainer}>
             <StepButton
               slow
@@ -564,7 +600,7 @@ export const DateTimeBar: React.FC<Props> = ({
 
         {/* ── 3행: 상태와 주 동작 — 태양 추적 체크박스 · 지금으로(SIM 일 때만) · 촬영(이 화면의 주 버튼) ── */}
         <View style={styles.actionRow}>
-          {onToggleTrackingSun && (
+          {!simple && onToggleTrackingSun && (
             <PressScale
               onPress={onToggleTrackingSun}
               style={[styles.trackSunBtn, isTrackingSun && styles.trackSunBtnOn]}
@@ -695,6 +731,17 @@ const useStyles = makeStyles((color) => ({
 
   yearTrackContainer: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
 
+  dayChip: {
+    minHeight: TOUCH,
+    paddingHorizontal: space.md,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayChipOn: { backgroundColor: color.accentSoft, borderColor: color.accentLine },
+  dayChipText: { ...type.body, color: color.textDim, fontWeight: '500' },
   stepBtn: {
     width: TOUCH,
     height: TOUCH,

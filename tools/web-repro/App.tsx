@@ -89,6 +89,7 @@ function BarRepro({ W }: { W: number }) {
         onOpenDatePicker={() => (globalThis as any).__bar.events.push('picker')}
         onCameraPress={() => {}}
         events={{ sunrise: day(6, 41), sunset: day(17, 53), moonrise: day(13, 20), moonset: day(23, 40) }}
+        simple={!!Q.simple}
         seasonPcts={[{ key: 'a', pct: 22, color: '#4ADE80' }, { key: 'b', pct: 47, color: '#FFA500' }, { key: 'c', pct: 72, color: '#F97316' }, { key: 'd', pct: 98, color: '#38BDF8' }]}
       />
     </View>
