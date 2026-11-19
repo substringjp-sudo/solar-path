@@ -23,6 +23,8 @@ import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments, getSunPosition } from '../../src/utils/celestial';
+import { CalcStepsView } from '../../src/components/CalcSteps/CalcStepsModal';
+import { buildHorizonProfile } from '../../src/utils/horizon';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -113,6 +115,41 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
+/**
+ * calc:1 — 계산 과정 보기(해 뜨는·지는 시각). 합성 능선으로 땅 프로필을 만듭니다: 해 뜨는 쪽(방위 120° ± 15°) 4.2 km 에 높이 ridgeH m 의 띠.
+ *   예: {"calc":1,"t":"2026-12-21T03:00:00Z","lat":37.5665,"lon":126.978,"ridgeH":175,"topic":"sunrise","lang":"ko","light":0,"noTerrain":0}
+ * noTerrain:1 이면 땅 자료 없이(평평한 수평선), light:1 이면 밝은 모드.
+ */
+function CalcRepro({ W, H }: { W: number; H: number }) {
+  const [topic, setTopic] = React.useState<'sunrise' | 'sunset'>(Q.topic ?? 'sunrise');
+  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
+  const profile = React.useMemo(() => {
+    if (Q.noTerrain) return null;
+    const ridgeH = Q.ridgeH ?? 175, base = 40;
+    const hgt = (e: number, s: number) => {
+      const d = Math.hypot(e, s), az = ((Math.atan2(e, -s) * 180) / Math.PI + 360) % 360;
+      return Math.abs(az - 120) < 15 && Math.abs(d - 4200) < 150 ? ridgeH : base;
+    };
+    return buildHorizonProfile(hgt, base + 1.6, { maxDistM: 15000 });
+  }, []);
+  return (
+    <View style={{ width: W, height: H }}>
+      <CalcStepsView
+        language={Q.lang ?? 'ko'}
+        date={new Date(Q.t ?? '2026-12-21T03:00:00Z')}
+        latitude={Q.lat ?? 37.5665}
+        longitude={Q.lon ?? 126.978}
+        placeName={Q.place ?? '서울 중구'}
+        topic={topic}
+        onTopic={setTopic}
+        getHorizon={profile ? () => profile : undefined}
+        onBack={() => { (globalThis as any).__calcBack = true; }}
+        onOpenSandbox={() => { (globalThis as any).__calcSandbox = true; }}
+      />
+    </View>
+  );
+}
+
 (globalThis as any).__sky = () => (globalThis as any).__skyHandle;
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
@@ -138,6 +175,7 @@ export default function App() {
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
+  if (Q.calc) return <CalcRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>
