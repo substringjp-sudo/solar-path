@@ -17,6 +17,7 @@ import { setTerrainLook } from '../../src/components/SkyScene3D/terrainLook';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
+import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
@@ -96,6 +97,17 @@ function BarRepro({ W }: { W: number }) {
   );
 }
 
+/** sbx:1 — 샌드박스 구도 도구 패널만(눈 높이·이동·내 위치 아님). awayM 으로 "내 위치 아님" 거리를 줍니다. */
+function PanelRepro({ W, H }: { W: number; H: number }) {
+  const [eyeH, setEyeH] = React.useState(Q.eyeH ?? 1.6);
+  const [step, setStep] = React.useState(100);
+  return (
+    <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12 }}>
+      <SandboxPanel language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={Q.awayM ?? null} onHome={() => {}} />
+    </View>
+  );
+}
+
 (globalThis as any).__sky = () => (globalThis as any).__skyHandle;
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
@@ -118,6 +130,7 @@ export default function App() {
   }, []);
   const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
   if (Q.bar) return <BarRepro W={W} />;
+  if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>
@@ -144,6 +157,7 @@ export default function App() {
         // tele:N · lens:1 — 샌드박스 망원 배율과 렌즈 정보 배지(2026-11-19). lens:1 이면 눈금 HUD 를 켭니다.
         telephotoX={Q.tele ?? 1}
         showLensInfo={!!Q.lens}
+        eyeHeightM={Q.eyeH}
         fullScreen
         hideHudOverlay={!Q.lens}
         hideCompassBar={!Q.lens}

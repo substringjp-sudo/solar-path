@@ -62,6 +62,8 @@ import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor, type } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
+import { offsetLatLon, distanceM } from '../../utils/geoMove';
+import { SandboxPanel } from './SandboxPanel';
 import { timeTo } from '../../theme/motion';
 
 interface SkyScreenProps {
@@ -115,6 +117,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
   // 샌드박스 망원 배율(전문가 모드만) — 1 이면 지금까지처럼 지상 시야각 30~120°, 20 이면 1.5~6°(달 사진용).
   const [teleX, setTeleX] = useState(1);
+  // 샌드박스 눈 높이(m)와 위치 이동 간격(m). 전문가 모드가 꺼지면 씬에는 넘기지 않아 원래(1.6 m)로 돌아갑니다.
+  const [eyeH, setEyeH] = useState(1.6);
+  const [moveStepM, setMoveStepM] = useState(100);
+  const homeCoords = useCelestialStore(s => s.homeCoords);
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
@@ -759,6 +765,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           skySettings={skySettings}
           telephotoX={expertMode ? teleX : 1}
           showLensInfo={expertMode}
+          eyeHeightM={expertMode ? eyeH : undefined}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
           fullScreen={true}
@@ -783,6 +790,35 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </Text>
             <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
           </PressScale>
+        )}
+
+        {/* 샌드박스 구도 도구: 눈 높이 · 위치 이동 · 내 위치 아님 (전문가 모드, 지상에서만) */}
+        {!isCameraOverlayActive && expertMode && !ascended && (
+          <View style={overlayStyles.sandboxPanel} pointerEvents="box-none">
+            <SandboxPanel
+              language={language}
+              eyeHeightM={eyeH}
+              onEyeHeight={setEyeH}
+              stepM={moveStepM}
+              onStep={setMoveStepM}
+              onMove={(eastM, northM) => {
+                const here = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
+                const p = offsetLatLon(here.latitude, here.longitude, eastM, northM);
+                useCelestialStore.getState().setLocation({
+                  coords: { latitude: p.latitude, longitude: p.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
+                  timestamp: Date.now(),
+                });
+              }}
+              awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
+              onHome={() => {
+                if (!homeCoords) return;
+                useCelestialStore.getState().setLocation({
+                  coords: { latitude: homeCoords.latitude, longitude: homeCoords.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
+                  timestamp: Date.now(),
+                });
+              }}
+            />
+          </View>
         )}
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
@@ -1150,10 +1186,11 @@ const overlayStyles = StyleSheet.create({
     zIndex: 20,
     alignItems: 'flex-end',
   },
+  sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
   teleGroup: { gap: 4, alignItems: 'flex-end' },
   teleBtn: { width: 44, height: 28 },
   teleBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
-  expertBtn: { width: undefined, paddingHorizontal: 10 },
+  expertBtn: { width: 'auto', minWidth: 32, paddingHorizontal: 10 },
   expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {
     width: 32,

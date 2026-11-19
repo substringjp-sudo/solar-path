@@ -363,6 +363,11 @@ interface SkyScene3DProps {
   telephotoX?: number;
   /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
   showLensInfo?: boolean;
+  /**
+   * 땅 위 눈 높이(m, 기본 1.6). 2026-11-19 샌드박스: 지상 시야 단계(지도로 올라가기 전)에서만 씁니다. 지형·건물·구름이 이 높이의 눈으로 다시 그려집니다.
+   * 지도로 올라가는 구간은 자기 고도 곡선을 쓰므로 높이를 올려 둔 채 줌아웃하면 올라가기 시작할 때 한 번 낮아집니다.
+   */
+  eyeHeightM?: number;
   /** 하늘 화면의 장면을 다른 화면(촬영)이 renderRemote 로 빌려 쓰게 등록합니다(primarySky.ts). */
   registerPrimary?: boolean;
 }
@@ -547,6 +552,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     onAscendedChange,
     telephotoX = 1,
     showLensInfo = false,
+    eyeHeightM,
   },
   ref
 ) => {
@@ -647,6 +653,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const zoomProgressRef = useRef((60 - 30) / 90);
   /** 망원 배율 — `applyZoomProgress` 가 지상 시야각을 이 값으로 나눕니다(props.telephotoX). */
   const teleRef = useRef(1);
+  /** 눈 높이(m) — props.eyeHeightM. 지상 단계에서 자세의 고도를 덮어씁니다. */
+  const eyeHeightRef = useRef<number | undefined>(undefined);
   const pinchZoomProgressRef = useRef((60 - 30) / 90);
   const savedGroundElevRef = useRef(13);
   const [altitudeMState, setAltitudeMState] = useState(1.6);
@@ -1634,6 +1642,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       requestRender(3);
     }
   }, [fovProp, requestRender]);
+  // 눈 높이 — 바뀌면 다시 그립니다(렌더 루프가 읽음).
+  useEffect(() => {
+    const h = eyeHeightM !== undefined && Number.isFinite(eyeHeightM) ? Math.max(0.5, Math.min(2000, eyeHeightM)) : undefined;
+    if (eyeHeightRef.current === h) return;
+    eyeHeightRef.current = h;
+    lastViewMoveMsRef.current = Date.now();
+    requestRender(6);
+  }, [eyeHeightM, requestRender]);
   // 망원 배율 — 지상에서만. 바뀌면 지상 시야각을 다시 셉니다(손가락 줌의 기본 시야각 ÷ 배율).
   useEffect(() => {
     const t = Math.max(1, Math.min(TELE_MAX, Number.isFinite(telephotoX) ? telephotoX : 1));
@@ -2547,7 +2563,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           zoomProgressRef.current, cameraElevRef.current, cameraAzRef.current,
           homeRef.current.latitude, camera.aspect, fovRef.current,
         );
-        const altitudeM = pose.altitudeM;
+        const altitudeM = zoomProgressRef.current <= P_FOV_END && eyeHeightRef.current !== undefined ? eyeHeightRef.current : pose.altitudeM;
         const cameraY = groundY + altitudeM;
         camera.position.set(0, cameraY, 0);
         if (starFieldRef.current) starFieldRef.current.points.position.set(0, cameraY, 0);
