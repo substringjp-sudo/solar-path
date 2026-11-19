@@ -179,6 +179,16 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
                 </OverlayButton>
               ))}
             </View>
+            {rows.length === 0 && hiddenCount > 0 && (
+              <Text style={styles.empty}>
+                {L3(
+                  language,
+                  `찾은 ${hiddenCount}건이 모두 그 방향의 능선 뒤로 가려져요. "가려진 ${hiddenCount}건 숨김"을 눌러 보면 날짜를 볼 수 있어요.`,
+                  `All ${hiddenCount} approaches are hidden behind the ridge in that direction. Tap the hidden toggle to see the dates.`,
+                  `見つかった${hiddenCount}件はすべてその方向の稜線の裏に隠れます。「隠れた${hiddenCount}件」を押すと日付を確認できます。`,
+                )}
+              </Text>
+            )}
             <ScrollView style={styles.list} nestedScrollEnabled showsVerticalScrollIndicator>
               {rows.map(g => {
                 const h = g.best;
