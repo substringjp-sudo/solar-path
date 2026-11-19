@@ -74,6 +74,9 @@ const ENTRIES = [
   // (verify-moon-position.js · verify-align-search.js).
   'src/utils/moonPosition.ts',
   'src/utils/horizon.ts',
+  // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
+  'src/utils/terrainSun.ts',
+  'src/utils/calcSteps.ts',
   'src/utils/alignSearch.ts',
   'src/utils/sunsetPhysics.ts',
   // 먼 건물 가시성(지평선 프로필 · 타일 · 건물 고르기) — verify-far-buildings.js 가 합성 산으로 판정합니다.

@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform, Switch } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, Cloud } from 'lucide-react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, Cloud, ListChecks } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { WeatherInfoView } from './WeatherInfoView';
@@ -64,6 +64,7 @@ import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
+import { CalcStepsModal, type CalcTopic } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import type { PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
@@ -652,6 +653,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const alignedViewRef = useRef(false);
   // 먼 건물(샌드박스): 보는 방향만 받습니다 — 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받으면 수십 MB 입니다.
   const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
+  // 계산 과정 보기("해 뜨는·지는 시각과 방향"): 시트의 일출·일몰 줄 끝 단추로 엽니다. 날짜는 그 줄의 날짜입니다.
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcTopic, setCalcTopic] = useState<CalcTopic>('sunrise');
+  const [calcDate, setCalcDate] = useState<Date>(new Date());
   const loadFarBuildings = async () => {
     // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
     setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
@@ -1135,6 +1140,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
                   )}
                   <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
+                  {(item.id.endsWith('sunrise') || item.id.endsWith('sunset')) && (
+                    <PressScale
+                      onPress={() => {
+                        setCalcDate(item.time);
+                        setCalcTopic(item.id.endsWith('sunrise') ? 'sunrise' : 'sunset');
+                        setCalcOpen(true);
+                      }}
+                      accessibilityLabel={L3(language, '계산 과정 보기', 'How this is computed', '計算の過程を見る')}
+                      style={[styles.calcBtn, { borderColor: theme.border }]}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <ListChecks size={14} color={theme.subText} />
+                    </PressScale>
+                  )}
                 </PressScale>
               ))
             ) : (
@@ -1216,6 +1235,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
       <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
 
+      <CalcStepsModal
+        visible={calcOpen}
+        onClose={() => setCalcOpen(false)}
+        initialTopic={calcTopic}
+        language={language}
+        date={calcDate}
+        latitude={latitude}
+        longitude={longitude}
+        getHorizon={() => sceneRef.current?.getHorizonProfile?.() ?? null}
+        onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
+      />
       <LayerControlModal
         visible={isLayerModalVisible}
         onClose={() => setLayerModalVisible(false)}
@@ -1538,6 +1568,15 @@ const useStyles = makeStyles((color) => ({
     fontWeight: '800',
     fontFamily: mono,
     letterSpacing: 0.4,
+  },
+  calcBtn: {
+    width: 28,
+    height: 28,
+    marginLeft: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: radius.xs,
   },
 
   bottomPanel: {

@@ -12,6 +12,8 @@
  *     0.09°/° 의 절반). 정답은 15 km 안에서 잰 것입니다.
  *  3. 스카이라인 ≥ 가림 앙각 — 같은 방위에서 거리를 늘리면 가림 앙각은 줄지 않는다(누적 최대).
  *  4. 모서리 — 방위 359.5° 는 359°·0° 칸 사이, 땅 자료가 아예 없으면 NO_TERRAIN, 자료가 일부 없어도 값이 나온다.
+ *  4b. 능선까지의 거리 — 산 쪽 방위에서 `skylineDistM` 이 정답(앙각이 가장 큰 거리)과 거리 칸 폭(250 m) 안. 평지(땅이 낮고 고른 곳)는 아무 값이어도 되고
+ *     땅이 없으면 null.
  *  5. 빠르다 — 40 km 프로필이 1.5 초 안(앱이 눈 높이를 바꿀 때마다 다시 계산하므로).
  *
  * 사용: node tools/shader-preview/stage-esm.js
@@ -111,6 +113,26 @@ const RAD = Math.PI / 180;
     const hole = H.buildHorizonProfile((e, s) => (e > 2000 && e < 4000 ? null : 40), EYE);
     ok(Number.isFinite(H.skylineAngleDeg(hole, 90)) && H.skylineAngleDeg(hole, 90) > -90, '자료가 일부 없어도(구멍) 값이 나온다');
     ok(H.occluderAngleDeg(prof, 90, 200) === H.NO_TERRAIN, '250 m 보다 가까우면 가림 없음');
+  }
+
+  console.log('\n[4b] 능선까지의 거리');
+  {
+    let worst = 0, n = 0;
+    for (const az of [75, 90, 105]) {
+      let best = -90, bestD = 0;
+      const [ux, uy] = eastSouth(az, 1);
+      for (let d = 250; d <= 15000; d += 20) {
+        const g = mountain(ux * d, uy * d);
+        const a = Math.atan2(g - EYE - drop(d), d) / RAD;
+        if (a > best) { best = a; bestD = d; }
+      }
+      const got = H.skylineDistM(prof, az);
+      worst = Math.max(worst, Math.abs(got - bestD));
+      n++;
+    }
+    console.log(`      ${n}방위 — 정답과 최대 ${worst.toFixed(0)} m`);
+    ok(worst <= 300, `능선 거리가 정답과 300 m 안 (${worst.toFixed(0)} m)`);
+    ok(H.skylineDistM(H.buildHorizonProfile(() => null, EYE), 90) === null, '땅이 없으면 null');
   }
 
   console.log('\n[5] 속도');
