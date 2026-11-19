@@ -84,11 +84,12 @@ export interface AlignQuery {
   skyline?: (azDeg: number) => number | null;
 }
 
-interface Sky { azDeg: number; altDeg: number; diskDeg: number }
+export interface Sky { azDeg: number; altDeg: number; diskDeg: number }
 
 const wrap360 = (d: number) => ((d % 360) + 360) % 360;
 
-function bodySky(body: AlignBody, ms: number, lat: number, lon: number, elevM: number): Sky {
+/** 해·달의 겉보기 방위(북 0 시계)·고도(굴절 포함)·지름(°). 해와 달이 같은 굴절 식을 씁니다. */
+export function bodySky(body: AlignBody, ms: number, lat: number, lon: number, elevM: number): Sky {
   const date = new Date(ms);
   if (body === 'sun') {
     const p = sunPosition(date, lat, lon);

@@ -78,6 +78,8 @@ const ENTRIES = [
   'src/utils/terrainSun.ts',
   'src/utils/calcSteps.ts',
   'src/utils/alignSearch.ts',
+  // 서 있을 자리 찾기(대상에 해·달을 원하는 크기로 거는 거리·날짜·자리) — verify-stand-finder.js
+  'src/utils/standFinder.ts',
   'src/utils/sunsetPhysics.ts',
   // 먼 건물 가시성(지평선 프로필 · 타일 · 건물 고르기) — verify-far-buildings.js 가 합성 산으로 판정합니다.
   'src/utils/farBuildings.ts',
