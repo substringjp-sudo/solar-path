@@ -26,10 +26,10 @@
  * 즉 해안선은 **두 면이 실제로 만나는 자리**이고, 마스크가 아닙니다.
  */
 import * as THREE from 'three';
-import { EARTH_RADIUS_M, EARTH_RADIUS_M_GLSL, seaHorizonDipDeg, seaHorizonDistM } from '../../utils/earth';
+import { EARTH_RADIUS_M, EARTH_RADIUS_EFFECTIVE_M, EARTH_RADIUS_EFFECTIVE_M_GLSL, seaHorizonDipDeg, seaHorizonDistM } from '../../utils/earth';
 
 /** 지구는 `utils/earth.ts` 한 곳에서만 정의합니다. 여기서는 재수출만 합니다. */
-export { EARTH_RADIUS_M, seaHorizonDipDeg, seaHorizonDistM };
+export { EARTH_RADIUS_M, EARTH_RADIUS_EFFECTIVE_M, EARTH_RADIUS_EFFECTIVE_M_GLSL, seaHorizonDipDeg, seaHorizonDistM };
 
 /**
  * 격자의 **발밑** 거리 (m).
@@ -280,9 +280,10 @@ float tn_hblend(float mask, float hA, float hB) {
 `;
 
 export const GROUND_PROJECT_GLSL = /* glsl */ `
-const float GP_R_EARTH = ${EARTH_RADIUS_M_GLSL};
+// 땅 위 시선이라 표준 대기 굴절을 넣은 유효 반지름(7/6 R, utils/earth.ts)을 씁니다.
+const float GP_R_EARTH = ${EARTH_RADIUS_EFFECTIVE_M_GLSL};
 
-/** 지구 곡률 낙차 (m). 5km 에서 2m, 40km 면 108m 입니다. */
+/** 지구 곡률 낙차 (m), 굴절 포함. 5km 에서 1.7m, 40km 면 108m 입니다. */
 float gp_drop(float d) { return (d * d) / (2.0 * GP_R_EARTH); }
 
 /** 그 거리·고도가 눈에 보이는 각 (rad). */

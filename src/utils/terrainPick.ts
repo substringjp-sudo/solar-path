@@ -17,6 +17,8 @@
  * 안 나왔습니다.** 조건이 눈에 안 띄는 곳에 있어서 놓치기 쉬웠으므로,
  * 고른 결과가 그 문을 여는지 **판정에서 직접 확인**하려고 빼냅니다.
  */
+import { TERRAIN_CURVATURE_MODEL } from './earth';
+
 
 /** 산줄기를 그리는 데 필요한 최소한의 모양. */
 export interface TerrainLike {
@@ -28,8 +30,14 @@ export interface TerrainLike {
   minAz?: number;
   maxAz?: number;
   isFallback?: boolean;
+  /** 지형각을 어느 곡률 모델로 쟀는지(utils/earth.ts TERRAIN_CURVATURE_MODEL). 다르면 저장 자료를 쓰지 않습니다. */
+  curvatureModel?: string;
   [k: string]: unknown;
 }
+
+/** 저장해 둔 지형각이 지금 곡률 모델(굴절 포함)로 쟀던 것인가. 옛 자료는 수평선과 어긋나 산·바다 판정이 틀어집니다. */
+export const isCurrentTerrainModel = (d: TerrainLike | null | undefined): boolean =>
+  !!d && d.curvatureModel === TERRAIN_CURVATURE_MODEL;
 
 export interface TerrainCacheEntry {
   latitude: number;
@@ -57,7 +65,7 @@ export function pickTerrainForLocation(
   if (!cache || cache.length === 0) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   const hit = cache.find(
-    c => Math.abs(c.latitude - lat) <= tolDeg && Math.abs(c.longitude - lon) <= tolDeg,
+    c => Math.abs(c.latitude - lat) <= tolDeg && Math.abs(c.longitude - lon) <= tolDeg && isCurrentTerrainModel(c.data),
   );
   return hit?.data ?? null;
 }
