@@ -365,6 +365,16 @@ const rr = (a, b) => a + (b - a) * rnd();
     ok(toHit.building.snapped === false && toHit.distM === t.building.hitPoint.distM && toHit.elDeg === t.building.hitPoint.elDeg && toHit.azDeg === t.building.hitPoint.azDeg && toHit.kind === 'building', '누른 자리로 바꾸면 점 칸이 hitPoint 와 일치');
     const back = DP.snapBuildingTarget(toHit, true);
     ok(back.building.snapped === true && back.elDeg === t.elDeg && back.elevM === t.elevM && DP.snapBuildingTarget(t, true) === t, '꼭대기로 되돌리면 처음과 같고, 이미 그 점이면 같은 객체를 돌려준다');
+    // 높이각(목업 객체 정보 칸): 같은 거리에서 꼭대기와 밑동의 겉보기 앙각 차. 달 대비 = 높이각 ÷ 달 지름.
+    {
+      const dTop = t.building.topPoint.distM;
+      const want = elAt(200, dTop) - elAt(0, dTop);
+      ok(Math.abs(t.building.angularHeightDeg - want) < 1e-9, `높이각 ${t.building.angularHeightDeg.toFixed(4)}° = 꼭대기 앙각 − 밑동 앙각 (${want.toFixed(4)}°)`);
+      ok(DP.snapBuildingTarget(t, false).building.angularHeightDeg === t.building.angularHeightDeg, '꼭대기 ↔ 누른 곳을 바꿔도 건물의 높이각은 그대로다(건물의 성질, 점의 성질이 아님)');
+      const mock = DP.apparentHeightDeg(31, 5400, 0, 555);   // 목업 예: 555 m 탑을 5.4 km 에서 눈높이 31 m 로
+      ok(mock > 5.8 && mock < 6.6 && Math.abs(mock / 0.52 - 12) < 1.2, `555 m 탑 5.4 km: 높이각 ${mock.toFixed(2)}° · 달 지름(0.52°)의 ${(mock / 0.52).toFixed(1)}배(목업은 약 11배)`);
+      ok(DP.apparentHeightDeg(31, 2700, 0, 555) > DP.apparentHeightDeg(31, 5400, 0, 555) * 1.8, '가까울수록 크게 보인다(거리 절반이면 거의 두 배)');
+    }
     // 가까운 건물: 누른 자리 그대로
     const near = build([{ pts: rect(200, 0, 40, 40, 0), topH: 60, botH: -5 }]);
     const tn = PT.pickTargetAt({ sample: flat, eyeM: EYE, azDeg: 90, elDeg: elAt(30, 180), buildings: near });
