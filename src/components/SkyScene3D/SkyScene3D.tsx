@@ -28,10 +28,10 @@ if (Platform.OS !== 'web') {
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
-import { rayHitTerrain, climbToPeak, lineOfSightClearance, type HeightSampler, type PickedTarget } from '../../utils/demPick';
+import type { HeightSampler, PickedTarget } from '../../utils/demPick';
+import { pickTargetAt } from '../../utils/pickTarget';
 import { makeDemSampler } from '../../utils/demSampler';
 import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
-import { curvatureDropM } from '../../utils/earth';
 import { offsetLatLon } from '../../utils/geoMove';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
@@ -391,7 +391,7 @@ interface SkyScene3DProps {
   /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
   showLensInfo?: boolean;
   /**
-   * 샌드박스: 짧게 탭하면 그 방향에서 눈에 처음 닿는 땅(멀면 가까운 봉우리로 붙임)을 골라 `onPickTarget` 으로 알립니다.
+   * 샌드박스: 짧게 탭하면 그 방향에서 눈에 처음 닿는 땅이나 건물(멀면 가까운 봉우리·건물 꼭대기로 붙임)을 골라 `onPickTarget` 으로 알립니다.
    * 하늘·바다 쪽을 탭하면 null. 지상 단계에서만 동작합니다.
    */
   pickEnabled?: boolean;
@@ -667,6 +667,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
   /** 먼 건물(샌드박스): 가까운 건물 병합 기하·읽은 먼 타일·그 위치 키·진행 중 읽기. 먼 건물은 위치가 바뀌면 비웁니다. */
   const nearBuildingDataRef = useRef<BuildingMeshData | null>(null);
+  // 지금 그려지는 건물(가까운 것 + 불러온 먼 것)의 병합 기하. 화면을 눌러 건물을 고를 때 `pick` 색인을 씁니다.
+  const mergedBuildingRef = useRef<BuildingMeshData | null>(null);
   const farTilesRef = useRef<Map<string, FarTileData>>(new Map());
   const farLocKeyRef = useRef('');
   const farAbortRef = useRef<AbortController | null>(null);
@@ -1249,7 +1251,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       farAbortRef.current = ctl;
       const res = await loadFarBuildings({ lat, lon: lng, eyeM: eye, sample, sector, existing: farTilesRef.current, signal: ctl.signal, onProgress: opts?.onProgress });
       if (ctl.signal.aborted) return null;
-      field.setBuildings(mergeBuildings(nearBuildingDataRef.current, farTilesRef.current, lat, lng));
+      const merged = mergeBuildings(nearBuildingDataRef.current, farTilesRef.current, lat, lng);
+      mergedBuildingRef.current = merged;
+      field.setBuildings(merged);
       demSerialRef.current += 1;
       volSettleRef.current = Math.max(volSettleRef.current, 18);
       sceneDirtyRef.current = true;
@@ -1776,7 +1780,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       requestRender(3);
     }
   }, [fovProp, requestRender]);
-  // 샌드박스 고르기: 화면 점 → 시선(카메라 unproject, 롤·뷰 오프셋 포함) → 눈에 처음 닿는 땅 → 가까운 봉우리로 붙임 → 보이는지 확인.
+  // 샌드박스 고르기: 화면 점 → 시선(카메라 unproject, 롤·뷰 오프셋 포함) → 눈에 처음 닿는 땅이나 건물 → 먼 것은 봉우리·꼭대기로 붙임 → 보이는지 확인.
   doPickRef.current = (x: number, y: number) => {
     const cam = cameraRef.current, patch = demPatchRef.current, renderer = rendererRef.current, cb = onPickTargetRef.current;
     const { w: vw, h: vh } = layoutSizeRef.current;
@@ -1792,24 +1796,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const elDeg = (Math.asin(Math.max(-1, Math.min(1, v.y / len))) * 180) / Math.PI;
     const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
     const eye = ground + (eyeHeightRef.current ?? 1.6);
-    const hit = rayHitTerrain(sample, eye, azDeg, elDeg);
-    if (!hit) { cb(null); return; }
-    let { eastM, southM, elevM } = hit;
-    // 먼 대상은 가까운 봉우리 꼭대기로 붙입니다(산을 눌렀는데 비탈 한가운데가 잡히지 않게). 가까운 땅은 누른 자리 그대로.
-    if (hit.distM > 400) {
-      const pk = climbToPeak(sample, eastM, southM, { maxR: Math.min(250, hit.distM * 0.05) });
-      if (pk) { eastM = pk.eastM; southM = pk.southM; elevM = pk.elevM; }
-    }
-    const distM = Math.hypot(eastM, southM);
-    const tAz = ((Math.atan2(eastM, -southM) * 180) / Math.PI + 360) % 360;
-    const tEl = (Math.atan2(elevM - eye - curvatureDropM(distM), distM) * 180) / Math.PI;
-    const los = lineOfSightClearance(sample, eye, eastM, southM, elevM);
+    // 처음 닿는 지형이나 건물(utils/pickTarget.ts). 건물 층이 꺼져 있으면 건물은 고르지 않습니다. 먼 대상은 손끝 12 px 여유.
     const here = locationRef.current?.coords;
-    const ll = here ? offsetLatLon(here.latitude, here.longitude, eastM, -southM) : null;
-    cb({
-      kind: 'terrain', azDeg: tAz, elDeg: tEl, distM, elevM, eyeElevM: eye, eastM, southM,
-      latitude: ll?.latitude ?? null, longitude: ll?.longitude ?? null, visible: los.visible, marginM: los.marginM,
+    const target = pickTargetAt({
+      sample,
+      eyeM: eye,
+      azDeg,
+      elDeg,
+      buildings: layers.buildings ? mergedBuildingRef.current?.pick ?? null : null,
+      tolDeg: (12 * cam.fov) / vh,
+      toLatLon: here ? (e, s) => offsetLatLon(here.latitude, here.longitude, e, -s) : undefined,
     });
+    cb(target);
   };
   // 눈 높이 — 바뀌면 다시 그립니다(렌더 루프가 읽음).
   useEffect(() => {
@@ -4281,7 +4279,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 먼 건물은 위치마다 따로입니다 — 자리가 바뀌었으면 비우고, 같은 자리에서 다시 읽었으면 이어 붙입니다.
         if (farLocKeyRef.current !== key) { farTilesRef.current = new Map(); farLocKeyRef.current = key; }
         nearBuildingDataRef.current = meshData;
-        buildingFieldRef.current.setBuildings(mergeBuildings(meshData, farTilesRef.current, bldLat, bldLng));
+        const merged = mergeBuildings(meshData, farTilesRef.current, bldLat, bldLng);
+        mergedBuildingRef.current = merged;
+        buildingFieldRef.current.setBuildings(merged);
         buildingFieldRef.current.setVisible(true);
         demSerialRef.current += 1;
         volSettleRef.current = Math.max(volSettleRef.current, 18);

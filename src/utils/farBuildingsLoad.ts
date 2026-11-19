@@ -13,6 +13,7 @@ import {
   decodeMvtTile,
   extractOuterRings,
   fetchMvtTileRaw,
+  MAX_RENDER_HEIGHT_M,
   ringSignedArea,
   tilePointToLonLat,
   type MvtLayer,
@@ -21,6 +22,7 @@ import {
 import type { HeightSampler } from './demPick';
 import { buildHorizonProfile, type HorizonProfile } from './horizon';
 import type { BuildingMeshData, OsmBuildingElement } from './buildingTiles';
+import { concatPickIndex } from './buildingPick';
 import {
   FAR_MAX_BUILDINGS,
   FAR_MAX_TILES,
@@ -59,7 +61,7 @@ export function candidatesFromLayer(tc: TileCoord, layer: MvtLayer): FarBuilding
   for (const f of layer.features) {
     if (f.type !== 3) continue;
     const rawH = typeof f.props.render_height === 'number' ? f.props.render_height : 9;
-    const h = Math.max(3.5, Math.min(400, rawH));
+    const h = Math.max(3.5, Math.min(MAX_RENDER_HEIGHT_M, rawH));
     const minH = typeof f.props.render_min_height === 'number' ? Math.max(0, f.props.render_min_height) : 0;
     for (const ring of extractOuterRings(f.rings)) {
       if (ring.length < 3 || Math.abs(ringSignedArea(ring)) < 1) continue;
@@ -183,6 +185,7 @@ export function concatBuildingMeshData(a: BuildingMeshData | null, b: BuildingMe
   if (!b || b.vertexCount === 0) return a;
   const cat = (x: Float32Array, y: Float32Array) => { const o = new Float32Array(x.length + y.length); o.set(x, 0); o.set(y, x.length); return o; };
   return {
+    pick: concatPickIndex(a.pick, b.pick),
     positions: cat(a.positions, b.positions),
     normals: cat(a.normals, b.normals),
     groundPos: cat(a.groundPos, b.groundPos),

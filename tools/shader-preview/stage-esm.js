@@ -83,6 +83,9 @@ const ENTRIES = [
   'src/utils/farBuildings.ts',
   'src/utils/farBuildingsLoad.ts',
   'src/utils/demPick.ts',
+  // 건물 고르기(눈에서 쏜 시선이 처음 닿는 건물, 꼭대기 붙이기)와 지형·건물을 아우른 고르기 — verify-building-pick.js
+  'src/utils/buildingPick.ts',
+  'src/utils/pickTarget.ts',
   'src/utils/cloudRadar.ts',
   // 하늘 시트의 추천·일반 이벤트(점검 2026-09-29) — 판정이 불러 씁니다.
   'src/utils/skyEvents.ts',

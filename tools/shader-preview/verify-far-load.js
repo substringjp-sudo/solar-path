@@ -83,6 +83,15 @@ const RAD = Math.PI / 180;
     const [de, ds] = F.lonLatToEastSouth(exp.lat, exp.lon, first.lat, first.lon);
     ok(Math.hypot(de, ds) < 1, `후보 위치가 타일 좌표 변환과 1 m 안 (${Math.hypot(de, ds).toFixed(3)} m)`);
     ok(first.ring.length === 4, '링 꼭짓점 4 개');
+    // 높이 상한: 롯데월드타워(555 m)가 400 m 로 잘리지 않고, 터무니없는 값(5000 m)은 상한(M.MAX_RENDER_HEIGHT_M)에서 멈춘다. 계획의 최대 건물 높이와 같은 값.
+    const ringAt = (cx, cy) => [{ x: cx - 40, y: cy - 40 }, { x: cx + 40, y: cy - 40 }, { x: cx + 40, y: cy + 40 }, { x: cx - 40, y: cy + 40 }];
+    const tall = L.candidatesFromLayer(tc, { extent: 4096, features: [
+      { type: 3, props: { render_height: 555 }, rings: [ringAt(2000, 2000)] },
+      { type: 3, props: { render_height: 5000 }, rings: [ringAt(2600, 2000)] },
+    ] });
+    ok(tall.length === 2 && tall[0].heightM === 555, `555 m 는 그대로 (${tall[0] && tall[0].heightM} m)`);
+    ok(tall[1].heightM === M.MAX_RENDER_HEIGHT_M && M.MAX_RENDER_HEIGHT_M >= 828, `5000 m 는 상한 ${M.MAX_RENDER_HEIGHT_M} m 에서 멈추고, 상한은 세계에서 가장 높은 건물(828 m)보다 낮지 않다`);
+    ok(F.FAR_H_CAP_M === M.MAX_RENDER_HEIGHT_M, `타일 거르기의 가장 높은 건물(${F.FAR_H_CAP_M} m)이 읽기 상한과 같다`);
   }
 
   const SECTOR = { azDeg: 270, halfWidthDeg: 20 };

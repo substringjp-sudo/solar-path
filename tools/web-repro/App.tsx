@@ -27,6 +27,9 @@ import { CalcStepsView } from '../../src/components/CalcSteps/CalcStepsModal';
 import { buildHorizonProfile } from '../../src/utils/horizon';
 import { predictSunset } from '../../src/utils/sunsetPhysics';
 import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCard';
+import { snapBuildingTarget } from '../../src/utils/demPick';
+import { createPickIndexBuilder } from '../../src/utils/buildingPick';
+import { pickTargetAt } from '../../src/utils/pickTarget';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -124,6 +127,43 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
  * topic:"score" — 노을 점수: 합성 예보 링(낮은 low · 중간 mid · 높은 high %, 해 쪽 60 km 의 낮은 구름 sunLow %, 해 고도 sunAlt°)으로 predictSunset 을 돌립니다.
  *   예: {"calc":1,"topic":"score","low":4,"mid":18,"high":63,"sunLow":0,"sunAlt":0.5}
  */
+/**
+ * objpanel:1 — 정보 패널만(2026-11-19 건물 고르기). 합성 건물(롯데월드타워 모양: 동남동 10.9 km, 37×11 m, 555 m)을 실제 `pickTargetAt` 으로 골라
+ * 패널을 그립니다. kind:'terrain' 이면 건물 없이 지형만. lang · light 로 언어·모드. 전환 칩이 눌립니다.
+ */
+function ObjPanelRepro({ W, H }: { W: number; H: number }) {
+  const target = React.useMemo(() => {
+    const az = 113 * Math.PI / 180, d = 10940;
+    const cx = Math.sin(az) * d, cz = -Math.cos(az) * d;
+    const rot = 20 * Math.PI / 180, c = Math.cos(rot), s = Math.sin(rot);
+    const pts = [[-18, -5.5], [18, -5.5], [18, 5.5], [-18, 5.5]].map(([x, z]) => ({ x: cx + x * c - z * s, z: cz + x * s + z * c }));
+    const bld = createPickIndexBuilder();
+    bld.add(cx, cz, 555, -5, pts);
+    const idx = bld.finish();
+    const sample = () => 20;
+    // 지형 변형은 평지 3 km 앞 땅을 겨냥(−5°). 눈이 272 m 높아 −0.45° 시선은 평지에 닿지 않습니다.
+    return pickTargetAt({ sample, eyeM: 292, azDeg: 113, elDeg: Q.kind === 'terrain' ? -5 : -0.45, buildings: Q.kind === 'terrain' ? null : idx, tolDeg: 0.4,
+      toLatLon: (e: number, sth: number) => ({ latitude: 37.5512 - sth / 110574, longitude: 126.9882 + e / 88279 }) });
+  }, []);
+  const [t, setT] = React.useState<any>(target);
+  return (
+    <View style={{ width: W, height: H, backgroundColor: '#0B1220', justifyContent: 'flex-end', padding: 8 }}>
+      {t ? (
+        <ObjectInfoPanel
+          language={Q.lang ?? 'ko'}
+          target={t}
+          sun={{ azDeg: 250, altDeg: 20 }}
+          moon={{ azDeg: 90, altDeg: -20 }}
+          observer={{ latitude: 37.5512, longitude: 126.9882, fromMs: Date.parse(Q.t ?? '2026-11-19T03:00:00Z') }}
+          onAlign={() => {}}
+          onSnap={(top: boolean) => setT((p: any) => snapBuildingTarget(p, top))}
+          onClear={() => setT(null)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function CalcRepro({ W, H }: { W: number; H: number }) {
   const [topic, setTopic] = React.useState<'sunrise' | 'sunset'>(Q.topic ?? 'sunrise');
   React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
@@ -190,6 +230,7 @@ export default function App() {
   const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.calc) return <CalcRepro W={W} H={H} />;
+  if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>
@@ -242,6 +283,7 @@ export default function App() {
               setDyn((d: any) => ({ ...d, t: new Date(hit.timeMs).toISOString(), sunAlt: sp.altitude, sunAz: sp.azimuth }));
               (globalThis as any).__skyHandle?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: 0.25 });
             }}
+            onSnap={(top: boolean) => setPicked((p: any) => { const n = p ? snapBuildingTarget(p, top) : p; (globalThis as any).__picked = n; return n; })}
             onClear={() => setPicked(null)}
           />
         </View>

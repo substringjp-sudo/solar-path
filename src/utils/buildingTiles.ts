@@ -12,10 +12,12 @@ import {
   decodeMvtTile,
   extractOuterRings,
   fetchMvtTileRaw,
+  MAX_RENDER_HEIGHT_M,
   ringSignedArea,
   tileListForRadius,
   tilePointToLonLat,
 } from './mvtTiles';
+import { createPickIndexBuilder, type BuildingPickIndex } from './buildingPick';
 
 export const BUILDING_RADIUS_M = 1000;
 const OVERPASS_URLS = [
@@ -41,6 +43,8 @@ export interface OsmBuildingElement {
 }
 
 export interface BuildingMeshData {
+  /** 건물마다 발자국 고리·지붕 높이·벽 아랫단을 적은 고르기용 색인(`utils/buildingPick.ts`). 기하와 같은 반복문에서 만들어 건물 수가 같습니다. */
+  pick?: BuildingPickIndex;
   /** (eastM, heightOffsetM, southM) — THREE.BufferGeometry position 규약용으로 (eastM, heightOffsetM, southM) 배치 */
   positions: Float32Array;
   normals: Float32Array;
@@ -102,7 +106,7 @@ function parseLengthM(raw: string | undefined): number | null {
   const val = parseFloat(m[1]);
   if (!Number.isFinite(val) || val <= 0) return null;
   const meters = m[2] === 'ft' || m[2] === 'feet' || m[2] === "'" ? val * 0.3048 : val;
-  return Math.min(400, Math.max(2, meters));
+  return Math.min(MAX_RENDER_HEIGHT_M, Math.max(2, meters));
 }
 
 /**
@@ -237,6 +241,7 @@ export function buildMergedBuildingGeometry(
   const normOut: number[] = [];
   const gndOut: number[] = [];
   const winOut: number[] = [];
+  const pickBuilder = createPickIndexBuilder();
   let buildingCount = 0;
 
   const pushTri = (
@@ -343,11 +348,13 @@ export function buildMergedBuildingGeometry(
       pushTri(a.x, baseH, a.z, a.x, topH, a.z, b.x, topH, b.z, nx, 0, nz, cx, cz, u0, vBot, u0, vTop, u1, vTop, winCols, winRows);
       pushTri(a.x, baseH, a.z, b.x, topH, b.z, b.x, baseH, b.z, nx, 0, nz, cx, cz, u0, vBot, u1, vTop, u1, vBot, winCols, winRows);
     }
+    pickBuilder.add(cx, cz, topH, baseH, oriented);
     buildingCount++;
   }
 
   if (buildingCount === 0 || posOut.length === 0) return null;
   return {
+    pick: pickBuilder.finish(),
     positions: new Float32Array(posOut),
     normals: new Float32Array(normOut),
     groundPos: new Float32Array(gndOut),
@@ -411,7 +418,7 @@ async function fetchBuildingsFromMvt(
     for (const f of bld.features) {
       if (f.type !== 3) continue;
       const rawH = typeof f.props.render_height === 'number' ? f.props.render_height : 9;
-      const h = Math.max(3.5, Math.min(400, rawH));
+      const h = Math.max(3.5, Math.min(MAX_RENDER_HEIGHT_M, rawH));
       const minH = typeof f.props.render_min_height === 'number' ? Math.max(0, f.props.render_min_height) : 0;
       for (const ring of extractOuterRings(f.rings)) {
         if (ring.length < 3 || Math.abs(ringSignedArea(ring)) < 1) continue;

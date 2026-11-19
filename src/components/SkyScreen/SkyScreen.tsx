@@ -67,7 +67,7 @@ import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
-import type { PickedTarget } from '../../utils/demPick';
+import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
 
 /** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
@@ -894,6 +894,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 alignedViewRef.current = true;
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
+              onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
               onClear={() => setPicked(null)}
             />
           </View>

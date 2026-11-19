@@ -122,17 +122,14 @@ export function angularSeparationDeg(az1: number, el1: number, az2: number, el2:
   return Math.acos(Math.max(-1, Math.min(1, c))) / RAD;
 }
 
-/** 화면을 눌러 고른 대상(2026-11-19). 지금은 지형 한 점(봉우리 포함). 건물·랜드마크는 이 모양에 이름·높이를 더해 이어 갑니다. */
-export interface PickedTarget {
-  kind: 'terrain';
-  /** 눈에서 본 방위(°, 북에서 시계방향)·앙각(°, 곡률 포함) */
+/** 대상 위의 한 점: 눈에서 본 방위(°, 북에서 시계방향)·앙각(°, 곡률 포함)·지상 거리와 해발, 눈 기준 지상 좌표(동, 남), 위경도, 땅이 시선을 가리는지. */
+export interface TargetPoint {
   azDeg: number;
   elDeg: number;
   /** 눈에서의 지상 거리(m) */
   distM: number;
-  /** 대상 해발(m)과 눈 해발(m) */
+  /** 대상 해발(m) */
   elevM: number;
-  eyeElevM: number;
   /** 눈 기준 지상 좌표(동, 남, m) */
   eastM: number;
   southM: number;
@@ -141,4 +138,57 @@ export interface PickedTarget {
   /** 땅이 시선을 가리지 않는가, 가장 빠듯한 곳의 여유(m) */
   visible: boolean;
   marginM: number;
+}
+
+/** 지상 좌표(눈 기준 동·남 m)와 해발로 대상 점을 채웁니다(앙각은 곡률 포함, 가림은 땅만). `toLatLon` 이 없으면 위경도는 null. */
+export function targetPointAt(
+  sample: HeightSampler,
+  eyeM: number,
+  eastM: number,
+  southM: number,
+  elevM: number,
+  toLatLon?: (eastM: number, southM: number) => { latitude: number; longitude: number } | null,
+): TargetPoint {
+  const distM = Math.hypot(eastM, southM);
+  const azDeg = ((Math.atan2(eastM, -southM) * 180) / Math.PI + 360) % 360;
+  const elDeg = (Math.atan2(elevM - eyeM - drop(distM), distM) * 180) / Math.PI;
+  const los = lineOfSightClearance(sample, eyeM, eastM, southM, elevM);
+  const ll = toLatLon ? toLatLon(eastM, southM) : null;
+  return { azDeg, elDeg, distM, elevM, eastM, southM, latitude: ll?.latitude ?? null, longitude: ll?.longitude ?? null, visible: los.visible, marginM: los.marginM };
+}
+
+/** 고른 대상이 건물일 때의 정보. 지도 자료(`render_height`)의 높이라 실제와 다를 수 있습니다. */
+export interface BuildingInfo {
+  /** 지반 위 지붕 높이(m) */
+  heightM: number;
+  /** 지반 해발과 지붕 해발(m) */
+  baseElevM: number;
+  topElevM: number;
+  /** 발자국 긴 변·짧은 변(m) */
+  longM: number;
+  shortM: number;
+  /** 지금 대상 점이 꼭대기로 붙은 점인가(아니면 누른 자리 그대로) */
+  snapped: boolean;
+  /** 전환용 두 점: 누른 자리와 꼭대기(지붕 한가운데) */
+  hitPoint: TargetPoint;
+  topPoint: TargetPoint;
+}
+
+/**
+ * 화면을 눌러 고른 대상(2026-11-19). 지형 한 점(봉우리 포함)이거나 건물입니다. 건물이면 `building` 에 정보가 있고, 점 칸(방위·앙각·거리 …)은
+ * `building.snapped` 가 참이면 꼭대기, 아니면 누른 자리입니다. 랜드마크는 이 모양에 이름·높이를 더해 이어 갑니다.
+ */
+export interface PickedTarget extends TargetPoint {
+  kind: 'terrain' | 'building';
+  /** 눈 해발(m) */
+  eyeElevM: number;
+  building?: BuildingInfo;
+}
+
+/** 건물 대상의 점 칸을 꼭대기(true) 또는 누른 자리(false)로 바꿉니다. 건물이 아니거나 이미 그 점이면 그대로 돌려줍니다. */
+export function snapBuildingTarget(t: PickedTarget, snapTop: boolean): PickedTarget {
+  const b = t.building;
+  if (!b || b.snapped === snapTop) return t;
+  const p = snapTop ? b.topPoint : b.hitPoint;
+  return { ...t, ...p, building: { ...b, snapped: snapTop } };
 }
