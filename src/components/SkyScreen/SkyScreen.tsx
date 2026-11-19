@@ -63,7 +63,7 @@ import { color, color as DARK, radius, mono, dataColor, type } from '../../theme
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
-import { SandboxPanel } from './SandboxPanel';
+import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import type { PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
@@ -650,6 +650,22 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const sceneRef = useRef<SkyScene3DHandle>(null);
   // 해·달 걸기로 시선을 옮겼다면(시야 중심을 올려 둠) 고른 대상을 지울 때 되돌립니다.
   const alignedViewRef = useRef(false);
+  // 먼 건물(샌드박스): 보는 방향만 받습니다 — 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받으면 수십 MB 입니다.
+  const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
+  const loadFarBuildings = async () => {
+    // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
+    setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
+    setFarStatus({ state: 'loading', tilesDone: 0, tilesTotal: 0, bytes: 0 });
+    try {
+      const r = await sceneRef.current?.loadFarBuildings?.({ onProgress: p => setFarStatus({ state: 'loading', ...p }) });
+      setFarStatus(r
+        ? { state: 'done', tilesDone: r.fetched, tilesTotal: r.planned, bytes: r.bytes, buildings: r.buildings, truncated: r.truncated, failed: r.failed }
+        : { state: 'off', tilesDone: 0, tilesTotal: 0, bytes: 0 });
+    } catch {
+      setFarStatus({ state: 'error', tilesDone: 0, tilesTotal: 0, bytes: 0 });
+    }
+  };
+  useEffect(() => { setFarStatus(null); }, [latitude, longitude]);   // 자리가 바뀌면 먼 건물은 비워지므로 표시도 지웁니다
   useEffect(() => {
     if (!picked && alignedViewRef.current) {
       alignedViewRef.current = false;
@@ -817,6 +833,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <View style={overlayStyles.sandboxPanel} pointerEvents="box-none">
             <SandboxPanel
               language={language}
+              far={{ status: farStatus, onLoad: loadFarBuildings }}
               eyeHeightM={eyeH}
               onEyeHeight={setEyeH}
               stepM={moveStepM}
