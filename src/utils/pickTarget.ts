@@ -10,7 +10,7 @@
  * 지형을 잡을 때의 "먼 대상은 가까운 봉우리로 붙임"과 같은 규칙입니다.
  */
 import {
-  rayHitTerrain, climbToPeak, targetPointAt,
+  rayHitTerrain, climbToPeak, targetPointAt, apparentHeightDeg,
   type HeightSampler, type PickedTarget, type BuildingInfo,
 } from './demPick';
 import { rayHitBuildings, roofCenter, footprintDimsM, type BuildingPickIndex, type BuildingHit } from './buildingPick';
@@ -65,6 +65,7 @@ function buildingTarget(a: PickArgs, idx: BuildingPickIndex, hit: BuildingHit): 
     topElevM: hit.topElevM,
     longM: dims.longM,
     shortM: dims.shortM,
+    angularHeightDeg: apparentHeightDeg(a.eyeM, topPoint.distM, hit.baseElevM, hit.topElevM),
     snapped,
     hitPoint,
     topPoint,
