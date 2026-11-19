@@ -105,6 +105,8 @@ const ENTRIES = [
   // 카메라 화면으로 AR 자세 보정(능선·해·달). 순수 논리라 합성 화면으로 판정합니다
   // (verify-ar-vision.js).
   'src/utils/arVision.ts',
+  // 01 하늘의 쉬운 말(구름 한 줄 · 해 방향) — verify-sky-words.js
+  'src/utils/skyWords.ts',
   'src/utils/demCpu.ts',
   // 화면의 시각이 시계를 따라가는가(스토어의 시각 조각 + 1분 타이머·앱 복귀). 가짜 타이머로
   // 판정합니다(verify-live-clock.js).
