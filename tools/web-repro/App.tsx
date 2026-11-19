@@ -23,7 +23,8 @@ import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments, getSunPosition } from '../../src/utils/celestial';
-import { CalcStepsView } from '../../src/components/CalcSteps/CalcStepsModal';
+import { CalcStepsView, type CalcTopic } from '../../src/components/CalcSteps/CalcStepsModal';
+import { starArgsFor } from '../../src/utils/starTonight';
 import { buildHorizonProfile } from '../../src/utils/horizon';
 import { predictSunset } from '../../src/utils/sunsetPhysics';
 import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCard';
@@ -126,6 +127,9 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
  * noTerrain:1 이면 땅 자료 없이(평평한 수평선), light:1 이면 밝은 모드.
  * topic:"score" — 노을 점수: 합성 예보 링(낮은 low · 중간 mid · 높은 high %, 해 쪽 60 km 의 낮은 구름 sunLow %, 해 고도 sunAlt°)으로 predictSunset 을 돌립니다.
  *   예: {"calc":1,"topic":"score","low":4,"mid":18,"high":63,"sunLow":0,"sunAlt":0.5}
+ * topic:"stars" — 별 보기 조건: 앱과 같은 `starArgsFor`(해·달·달 지는 시각은 t·lat·lon 에서 계산)에 합성 날씨를 넣습니다.
+ *   cloud(운량 %) · aod · vis(시정 m) · rh(습도 %) · pm(PM2.5) · lp(빛 지도 한계등급). noCloud:1 이면 구름 예보 없음, noLp:1 이면 빛 지도 없음.
+ *   예: {"calc":1,"topic":"stars","t":"2026-12-21T03:00:00Z","cloud":25,"aod":0.12,"rh":55,"lp":6.2}
  */
 /**
  * objpanel:1 — 정보 패널만(2026-11-19 건물 고르기). 합성 건물(롯데월드타워 모양: 동남동 10.9 km, 37×11 m, 555 m)을 실제 `pickTargetAt` 으로 골라
@@ -165,7 +169,7 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
 }
 
 function CalcRepro({ W, H }: { W: number; H: number }) {
-  const [topic, setTopic] = React.useState<'sunrise' | 'sunset'>(Q.topic ?? 'sunrise');
+  const [topic, setTopic] = React.useState<CalcTopic>(Q.topic ?? 'sunrise');
   React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
   const profile = React.useMemo(() => {
     if (Q.noTerrain) return null;
@@ -184,10 +188,19 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
     const pred = predictSunset(path as any, T, Q.sunAlt ?? 0.5, 20000, 55, 37.5, 30, 323, 250);
     return { prediction: pred, ring: path.map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.hourly.low[0], mid: p.hourly.mid[0], high: p.hourly.high[0] })), time: T, eventMs: T.getTime(), sunAzDeg: Q.sunAz ?? 250, kind: 'sunset' as const };
   }, []);
+  const starArgs = React.useMemo(() => starArgsFor({
+    date: new Date(Q.t ?? '2026-12-21T03:00:00Z'),
+    lat: Q.lat ?? 37.5665,
+    lon: Q.lon ?? 126.978,
+    elevM: 38,
+    weatherAt: () => (Q.noCloud ? null : { cloudPct: Q.cloud ?? 25, aod550: Q.aod ?? 0.12, humidityPct: Q.rh ?? 55, visibilityM: Q.vis ?? null, pm25: Q.pm ?? null }),
+    lightPollutionMag: Q.noLp ? null : (Q.lp ?? 6.2),
+  }), []);
   return (
     <View style={{ width: W, height: H }}>
       <CalcStepsView
         getScoreInput={() => scoreInput}
+        getStarArgs={() => starArgs}
         qualityWord={(q) => verdictWord(q as any, Q.lang ?? 'ko')}
         language={Q.lang ?? 'ko'}
         date={new Date(Q.t ?? '2026-12-21T03:00:00Z')}

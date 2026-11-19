@@ -85,6 +85,7 @@ const ENTRIES = [
   'src/utils/demPick.ts',
   // 별 보기 조건(한계등급) — verify-star-visibility.js
   'src/utils/starVisibility.ts',
+  'src/utils/starTonight.ts',
   // 건물 고르기(눈에서 쏜 시선이 처음 닿는 건물, 꼭대기 붙이기)와 지형·건물을 아우른 고르기 — verify-building-pick.js
   'src/utils/buildingPick.ts',
   'src/utils/pickTarget.ts',

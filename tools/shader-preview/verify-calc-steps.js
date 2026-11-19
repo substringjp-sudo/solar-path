@@ -19,6 +19,23 @@
  *     점수 카드의 두 몫 합 = 점수(±1), 지도 칸의 방위 = 해 방위 + 링의 상대 방위, 해 쪽 구름·맑음·낮(key 없음, 이유를 아래 글이)·breakdown 없음 분기.
  *     key 는 날씨·해 쪽 빛의 길 가운데 15% 넘게 깎은 더 큰 쪽(둘 다 적게 깎고 점수가 60 미만이면 구름 단계).
  *
+ *  9. 별 보기 카드 — `buildStarCards` 가 모델(`starLimit`)의 값을 거짓 없이 그린다. 물리 자체는 `verify-star-visibility.js` 가, 입력 모으기는 `verify-star-tonight.js` 가 본다.
+ *     a. 모양: 어두운 밤이면 구름 · 달빛 · 빛 공해 · 연무(metric) + 보이는 별(bar) 5 장, 해가 −18° 보다 얕으면 구름 다음에 박명이 끼어 6 장.
+ *     b. 숫자: 카드의 줄어든 등급이 모델의 단계별 값과 같고(소수 1자리), 시작 6.5 에서 보이는 줄어듦을 다 빼면 마지막 한계와 0.25 등급 안
+ *        (네 단계 반올림 4 × 0.05 와 마지막 반올림 0.05). 막대 값은 (한계 − 1)/5.5(0~1), 글은 "N.N 등급까지".
+ *     c. key: 0.3 등급 이상 줄인 단계 가운데 가장 큰 하나만 key. 달이 센 밤은 달빛, 도시 하늘은 빛 공해, 뿌연 날은 연무, 박명 속은 박명. 다 맑거나 줄어듦이 모두 0.3 미만이면 아무것도 key 아님.
+ *        (돌려 보기 전에 정한 보완: 줄어듦이 0.1 등급 같은 밤에도 단계 하나가 "문제" 로 짚이는 것은 거짓 강조라 문턱을 둔다.)
+ *     d. 구름: 모름이면 "모름"·줄 없음·"예보가 없어요". 20 % 이하 좋음 · 50 % 이하 보통 · 그 위 나쁨과 색조. 구름은 한계등급을 바꾸지 않는다(0 % 와 100 % 의 막대 값이 같다).
+ *     e. 달빛: 달이 없으면 "없음" · "지평선 아래" · "영향이 없어요", 떠 있으면 밝은 면 %와 고도 줄.
+ *        영향이 작은 단계(줄어듦 0.15 등급 미만, 짚이지 않을 때)는 "영향이 작아요" 류로 말하고 "밝혀요/가려져요" 라고 하지 않는다: 달빛 · 빛 공해 · 박명. 크면(0.15 이상) 원래 글.
+ *     f. 달 진 뒤: 달이 떠 있고 모델의 "달 없는 한계" 가 0.3 등급 넘게 좋아질 때만 "달이 지는 HH:MM 뒤에는 N.N 등급까지" 가 붙고 N.N 은 모델 값, 4.5 이상이면 은하수 권유가 붙는다. 달이 이미 없거나 좋아짐이 0.3 미만이면 붙지 않는다. en · ja 도 같은 사실을 말한다.
+ *     g. 빛 공해·연무: 자료가 없으면 "모름" 과 이유 글(맑은 대기로 셌다/지도를 못 읽었다), 있으면 줄(빛 지도 한계 · AOD · 시정+어림 AOD · 습도 · PM2.5)이 입력과 같다.
+ *        빛 지도를 못 읽었으면(lightPollutionMag null) 보이는 별 글 끝에 "도시에서는 이보다 덜 보일 수 있어요" 류 안내가 붙고(세 언어), 있으면 안 붙는다. 모르는 것을 좋게 말하지 않는다.
+ *     h. 글: NaN · undefined · Infinity 없음, en · ja 에 한글 없음. 아래 글에 출처(Krisciunas)가 있다.
+ *     i. 사슬: `starArgsFor`(서울 12-21 저녁) → `buildStarCards`. 어두운 곳 값(빛 지도 6.2)이면 달 지는 시각 글이 `moonSetMs`·모델 값과 같다.
+ *        서울 실제 빛 지도 값(3.6)에서는 달이 져도 좋아짐이 0.3 등급 미만이면 글이 없고(규칙 f), 이상이면 있다(양쪽 모두 모델 값에서 따진다).
+ *        (처음 적을 때는 도시 하늘에서도 글이 붙는다고 잘못 짚었다. 규칙 f 가 먼저이므로 기대를 고쳤다.)
+ *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-calc-steps.js
  */
@@ -172,6 +189,155 @@ const RAD = Math.PI / 180;
     }
     ok(badTxt === 0, '세 언어 · 네 장면의 글에 NaN · undefined · Infinity 가 없다');
     ok(hanOther === 0, 'en · ja 글에 한글이 없다(판정 단어 제외)');
+  }
+
+  // ── [9] 별 보기 ─────────────────────────────────────────────────────────
+  console.log('\n[9] 별 보기 카드');
+  {
+    const SV = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'starVisibility.js'));
+    const ST = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'starTonight.js'));
+    const TIME = Date.parse('2026-12-21T10:21:00Z');
+    const sIn = (o) => ({ cloudPct: 10, sunAltDeg: -30, moonAltDeg: -20, moonIllum: 0.5, lightPollutionMag: 6.0, aod550: 0.05, ...o });
+    const sRun = (o, ex = {}, lang = 'ko') => {
+      const input = sIn(o);
+      return { input, r: SV.starLimit(input), out: C.buildStarCards({ language: lang, timeMs: TIME, input, cloudKnown: true, moonSetMs: null, fmtTime: fmt, ...ex }) };
+    };
+    const card = (x, id) => x.out.cards.find(c => c.id === id);
+    const fm = (d) => `${d <= -0.05 ? '−' : ''}${Math.abs(d).toFixed(1)}`;
+    const num = (str) => parseFloat(String(str).replace('−', '-'));
+
+    // a. 모양
+    const dark = sRun({});
+    ok(dark.out.cards.map(c => c.id).join() === 'cloud,moon,light,haze,limit' && dark.out.cards.map(c => c.shape).join() === 'metric,metric,metric,metric,bar', `어두운 밤: ${dark.out.cards.map(c => c.id).join()}`);
+    const twi = sRun({ sunAltDeg: -10 });
+    ok(twi.out.cards.map(c => c.id).join() === 'cloud,twilight,moon,light,haze,limit', `박명 속(해 −10°): ${twi.out.cards.map(c => c.id).join()}`);
+    ok(sRun({ sunAltDeg: -18 }).out.cards.every(c => c.id !== 'twilight'), '해 −18° 면 박명 카드가 없다');
+    ok(dark.out.title === '별 보기 조건' && dark.out.eventLabel === fmt(TIME) && dark.out.limitMag === dark.r.limitMag, `제목 "${dark.out.title}" · 부제 "${dark.out.eventLabel}"`);
+
+    // b. 숫자
+    const strong = sRun({ moonAltDeg: 50, moonIllum: 0.9, lightPollutionMag: 5.5, aod550: 0.2 }, { moonSetMs: TIME + 6 * 3600e3, sunAltAtMoonSetDeg: -30 });
+    const deltas = { moon: strong.r.moon.deltaMag, light: strong.r.light.deltaMag, haze: strong.r.haze.deltaMag };
+    ok(card(strong, 'moon').result === `${fm(deltas.moon)} 등급` && card(strong, 'light').result === `${fm(deltas.light)} 등급` && card(strong, 'haze').result === `${fm(deltas.haze)} 등급`,
+      `줄어든 등급 달 ${card(strong, 'moon').result} · 빛 ${card(strong, 'light').result} · 연무 ${card(strong, 'haze').result} 가 모델의 단계별 값`);
+    const lim = card(strong, 'limit');
+    ok(lim.bar.display === `${strong.r.limitMag.toFixed(1)} 등급까지` && Math.abs(lim.bar.value - Math.max(0, Math.min(1, (strong.r.limitMag - 1) / 5.5))) < 1e-12, `막대 "${lim.bar.display}" 값 ${lim.bar.value.toFixed(3)}`);
+    const shown = ['moon', 'light', 'haze'].reduce((a, id) => a + num(card(strong, id).result), 0);
+    ok(Math.abs(6.5 + shown - num(lim.bar.display)) <= 0.25, `6.5 + 보이는 줄어듦 ${shown.toFixed(1)} = ${(6.5 + shown).toFixed(1)} 가 마지막 ${lim.bar.display} 와 0.25 안`);
+    const val = (c) => (c && /^[−-]?\d/.test(c.result) ? num(c.result) : 0);   // "없음" 은 줄어듦 0
+    const twSum = ['twilight', 'moon', 'light', 'haze'].reduce((a, id) => a + val(card(twi, id)), 0);
+    ok(Math.abs(6.5 + twSum - num(card(twi, 'limit').bar.display)) <= 0.25, `박명 장면도 합이 맞는다: 6.5 + ${twSum.toFixed(1)} = ${(6.5 + twSum).toFixed(1)} → ${card(twi, 'limit').bar.display}`);
+
+    // c. key
+    const keyIds = (x) => x.out.cards.filter(c => c.key).map(c => c.id);
+    const scen = [
+      ['달이 센 밤', sRun({ moonAltDeg: 55, moonIllum: 0.95, lightPollutionMag: 6.2, aod550: 0.05 }), 'moon'],
+      ['도시 하늘', sRun({ lightPollutionMag: 3.2, aod550: 0.05 }), 'light'],
+      ['뿌연 날', sRun({ lightPollutionMag: 6.4, aod550: 0.9 }), 'haze'],
+      ['박명 속', sRun({ sunAltDeg: -10, lightPollutionMag: 6.2, aod550: 0.05 }), 'twilight'],
+    ];
+    for (const [name, x, want] of scen) ok(keyIds(x).join() === want && x.out.keyId === want, `${name}: key ${keyIds(x).join() || '없음'} (기대 ${want}), keyId ${x.out.keyId}`);
+    const allClear = sRun({ lightPollutionMag: 6.5, aod550: 0.05 });
+    ok(keyIds(allClear).length === 0 && allClear.out.keyId === null, '다 맑은 밤: key 없음');
+    const smallOnly = sRun({ lightPollutionMag: 6.5, aod550: 0.12 });
+    ok(smallOnly.r.haze.deltaMag < -0.05 && smallOnly.r.haze.deltaMag > -0.3 && keyIds(smallOnly).length === 0 && smallOnly.out.keyId === null, `줄어듦이 0.3 미만(연무 ${smallOnly.r.haze.deltaMag.toFixed(2)})이면 아무 단계도 짚지 않는다`);
+
+    // d. 구름
+    const c0 = C.buildStarCards({ language: 'ko', timeMs: TIME, input: sIn({}), cloudKnown: false, moonSetMs: null, fmtTime: fmt });
+    const cc = c0.cards[0];
+    ok(cc.id === 'cloud' && cc.tone === 'plain' && cc.result === '모름' && cc.rows.length === 0 && /예보가 없어요/.test(cc.note), `구름 모름: "${cc.result}" · 줄 ${cc.rows.length} · "${cc.note}"`);
+    const tone = (p) => { const x = sRun({ cloudPct: p }); const c = card(x, 'cloud'); return `${c.result}/${c.tone}/${c.rows[0].value}`; };
+    ok(tone(10) === '좋음/good/10 %' && tone(20) === '좋음/good/20 %' && tone(35) === '보통/warn/35 %' && tone(50) === '보통/warn/50 %' && tone(80) === '나쁨/bad/80 %', `구름 10 · 20 · 35 · 50 · 80 % → ${[10, 20, 35, 50, 80].map(tone).join(' , ')}`);
+    ok(card(sRun({ cloudPct: 0 }), 'limit').bar.value === card(sRun({ cloudPct: 100 }), 'limit').bar.value, '구름 0 % 와 100 % 의 한계등급 막대가 같다(구름은 등급을 안 바꾼다)');
+    ok(/^구름이 많아 대부분 가려져요/.test(card(sRun({ cloudPct: 90 }), 'limit').note) && !/구름이 많아/.test(card(sRun({ cloudPct: 10 }), 'limit').note), '구름이 많을 때만 보이는 별 글이 그 말로 시작한다');
+
+    // e. 달빛
+    const mn = card(dark, 'moon');
+    ok(mn.result === '없음' && mn.rows.length === 1 && mn.rows[0].value === '지평선 아래' && /영향이 없어요/.test(mn.note), `달이 없을 때: "${mn.result}" / "${mn.rows[0].value}" / "${mn.note}"`);
+    const ms = card(strong, 'moon');
+    ok(ms.rows.map(r => `${r.label} ${r.value}`).join(' | ') === '밝은 면 90 % | 고도 50°', `달이 떠 있을 때 줄: ${ms.rows.map(r => `${r.label} ${r.value}`).join(' | ')}`);
+
+    // e2. 영향이 작을 때의 글
+    const lowLight = card(sRun({ lightPollutionMag: 6.4, aod550: 0.05 }), 'light');   // 달이 없으면 줄어듦 = 6.5 − 한계 → 6.4 는 −0.1
+    ok(/영향이 작아요/.test(lowLight.note) && !/밝혀요/.test(lowLight.note), `빛 공해가 작으면(${lowLight.result}) "${lowLight.note}"`);
+    const midLight = sRun({ lightPollutionMag: 5.6, aod550: 0.9 });
+    ok(keyIds(midLight).join() === 'haze' && /도시 불빛이 하늘을 밝혀요/.test(card(midLight, 'light').note), `빛 공해가 크지만 가장 크진 않으면(${card(midLight, 'light').result}) 원래 글: "${card(midLight, 'light').note}"`);
+    const faintMoon = card(sRun({ moonAltDeg: 30, moonIllum: 0.05 }), 'moon');
+    ok(faintMoon.rows.length === 2 && /영향이 작아요/.test(faintMoon.note) && !/가려져요/.test(faintMoon.note), `가는 달은(${faintMoon.result}) "${faintMoon.note}"`);
+    const midMoon = card(sRun({ moonAltDeg: 20, moonIllum: 0.4, lightPollutionMag: 4.0, aod550: 0.05 }), 'moon');
+    ok(/가려져요|가장 많이/.test(midMoon.note), `달 영향이 어느 정도면(${midMoon.result}) 원래 글 "${midMoon.note}"`);
+    const twiLate = sRun({ sunAltDeg: -17.8, lightPollutionMag: 6.5 });   // 기본 빛 지도 6.0 은 0.5 등급을 깎아 key 가 되므로 6.5 로 둔다
+    ok(card(twiLate, 'twilight') && twiLate.r.twilight.deltaMag > -0.15 && /거의 다 내려가/.test(card(twiLate, 'twilight').note) && keyIds(twiLate).length === 0, `해 −17.8° 박명(${card(twiLate, 'twilight').result}): "${card(twiLate, 'twilight').note}" · key 없음`);
+    ok(/아직 충분히 내려가지 않아/.test(card(twi, 'twilight').note), '해 −10° 박명은 "아직 충분히 내려가지 않아" 글');
+
+    // f. 달 진 뒤
+    const SETMS = TIME + 6 * 3600e3;
+    const after = SV.limitWithoutMoon({ ...strong.input, sunAltDeg: -30 });
+    ok(after - strong.r.limitMag >= 0.3 && lim.note.includes(`달이 지는 ${fmt(SETMS)} 뒤에는 ${after.toFixed(1)} 등급까지 보여요.`), `꼬리: "${lim.note.slice(-34)}" (모델 ${after.toFixed(2)})`);
+    const dk = sRun({ moonAltDeg: 55, moonIllum: 0.95, lightPollutionMag: 6.4, aod550: 0.05 }, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -30 });
+    const afterDk = SV.limitWithoutMoon({ ...dk.input, sunAltDeg: -30 });
+    ok(afterDk >= 4.5 && /은하수는 달이 진 뒤를 권해요/.test(card(dk, 'limit').note), `어두운 곳이라 달이 진 뒤 ${afterDk.toFixed(1)} 등급이면 은하수 권유가 붙는다`);
+    ok(!/달이 지는/.test(card(strong, 'limit').note.replace(lim.note, '')) && !/달이 지는/.test(card(dark, 'limit').note), '달이 이미 없을 때는 꼬리가 없다');
+    const noSet = sRun({ moonAltDeg: 50, moonIllum: 0.9 }, { moonSetMs: null });
+    ok(!/달이 지는/.test(card(noSet, 'limit').note), 'moonSetMs 가 null 이면 꼬리가 없다(밤새 안 진다)');
+    const dusk = sRun({ moonAltDeg: 50, moonIllum: 0.9, lightPollutionMag: 5.5 }, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -5 });
+    const afterDusk = SV.limitWithoutMoon({ ...dusk.input, sunAltDeg: -5 });
+    ok(afterDusk - dusk.r.limitMag < 0.3 && !/달이 지는/.test(card(dusk, 'limit').note), `달이 박명에 지면(해 −5°) 좋아짐 ${(afterDusk - dusk.r.limitMag).toFixed(2)} 등급이라 꼬리가 없다`);
+    const faint = sRun({ moonAltDeg: 30, moonIllum: 0.05, lightPollutionMag: 6.0 }, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -30 });
+    const afterFaint = SV.limitWithoutMoon({ ...faint.input, sunAltDeg: -30 });
+    ok(afterFaint - faint.r.limitMag < 0.3 && !/달이 지는/.test(card(faint, 'limit').note), `가는 달은 좋아짐 ${(afterFaint - faint.r.limitMag).toFixed(2)} 등급이라 꼬리가 없다`);
+    const en = sRun({ moonAltDeg: 50, moonIllum: 0.9, lightPollutionMag: 5.5, aod550: 0.2 }, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -30 }, 'en');
+    const ja = sRun({ moonAltDeg: 50, moonIllum: 0.9, lightPollutionMag: 5.5, aod550: 0.2 }, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -30 }, 'ja');
+    ok(card(en, 'limit').note.includes(`After the moon sets at ${fmt(SETMS)}, stars to magnitude ${after.toFixed(1)} show.`), 'en 도 같은 시각·등급을 말한다');
+    ok(card(ja, 'limit').note.includes(`月が沈む${fmt(SETMS)}以降は${after.toFixed(1)}等級まで見えます。`), 'ja 도 같은 시각·등급을 말한다');
+
+    // g. 빛 공해 · 연무
+    const lpNone = sRun({ lightPollutionMag: null });
+    const lc = card(lpNone, 'light');
+    ok(lc.result === '모름' && lc.rows.length === 0 && /못 읽어/.test(lc.note), `빛 지도 없음: "${lc.result}" · "${lc.note}"`);
+    const lcv = card(sRun({ lightPollutionMag: 3.2 }), 'light');
+    ok(lcv.rows.length === 1 && lcv.rows[0].label === '빛 지도 기준 한계' && lcv.rows[0].value === '3.2 등급', `빛 지도 값 줄: ${lcv.rows[0].label} ${lcv.rows[0].value}`);
+    const hz = (o) => card(sRun({ aod550: null, visibilityM: null, ...o }), 'haze');
+    const h1 = hz({ aod550: 0.3 });
+    ok(h1.rows[0].label === '에어로졸' && h1.rows[0].value === 'AOD 0.30', `AOD 줄: ${h1.rows[0].label} ${h1.rows[0].value}`);
+    const h2 = hz({ visibilityM: 12000 });
+    ok(h2.rows[0].label === '시정' && h2.rows[0].value === '12 km' && h2.rows[1].label === '어림 AOD' && h2.rows[1].value === SV.aodFromVisibility(12000).toFixed(2), `시정만 있으면: ${h2.rows.map(r => `${r.label} ${r.value}`).join(' | ')}`);
+    const h3 = hz({});
+    ok(h3.result === '모름' && h3.rows.length === 0 && /맑은 대기로 셌어요/.test(h3.note), `연무 자료 없음: "${h3.result}" · "${h3.note}"`);
+    const h4 = hz({ aod550: 0.1, humidityPct: 70, pm25: 18 });
+    ok(h4.rows.map(r => `${r.label} ${r.value}`).join(' | ') === 'AOD 에어로졸 0.10 | 습도 70 % | PM2.5 18 µg/m³'.replace('AOD 에어로졸', '에어로졸 AOD'), `습도·PM2.5 줄: ${h4.rows.map(r => `${r.label} ${r.value}`).join(' | ')}`);
+    ok(card(sRun({ aod550: 0.05 }), 'haze').note === '대기가 맑아 영향이 작아요.' && /연무가 별빛을 줄여요/.test(card(sRun({ aod550: 0.9 }), 'haze').note), '연무 글이 맑음/뿌연 정도에 따라 다르다');
+
+    // g2. 빛 지도를 못 읽었을 때의 한계 안내
+    const cav = (lang, lp) => card(sRun({ lightPollutionMag: lp }, {}, lang), 'limit').note;
+    ok(/도시에서는 이보다 덜 보일 수 있어요\.$/.test(cav('ko', null)) && /fewer stars may show in a city\.$/.test(cav('en', null)) && /街中ではこれより少なくなることがあります。$/.test(cav('ja', null)), '빛 지도가 없으면 세 언어 모두 글 끝에 "도시에서는 덜 보일 수 있다" 안내');
+    ok(!/도시에서는 이보다/.test(cav('ko', 5.5)) && !/in a city/.test(cav('en', 5.5)), '빛 지도가 있으면 그 안내가 없다');
+
+    // h. 글
+    let badTxt = 0, hanOther = 0, noSrc = 0;
+    const kinds = [{}, { sunAltDeg: -10 }, { moonAltDeg: 55, moonIllum: 0.9, aod550: 0.9, lightPollutionMag: 3.2 }, { lightPollutionMag: null, aod550: null, visibilityM: 9000, humidityPct: 80, pm25: 30, cloudPct: 90 }];
+    for (const L of ['ko', 'en', 'ja']) for (const o of kinds) for (const known of [true, false]) {
+      const x = sRun(o, { moonSetMs: SETMS, sunAltAtMoonSetDeg: -30, cloudKnown: known }, L);
+      const txt = JSON.stringify(x.out);
+      if (/NaN|undefined|Infinity/.test(txt)) badTxt++;
+      if (L !== 'ko' && /[가-힣]/.test(txt)) hanOther++;
+      if (!/Krisciunas/.test(x.out.footnote)) noSrc++;
+    }
+    ok(badTxt === 0, '세 언어 · 네 장면 · 구름 있음/없음의 글에 NaN · undefined · Infinity 가 없다');
+    ok(hanOther === 0, 'en · ja 글에 한글이 없다');
+    ok(noSrc === 0, '아래 글이 모두 출처(Krisciunas & Schaefer)를 밝힌다');
+
+    // i. 사슬
+    const seoulAt = (lp) => ST.starArgsFor({ date: new Date('2026-12-21T03:00:00Z'), lat: 37.5665, lon: 126.978, elevM: 38, weatherAt: () => ({ cloudPct: 25, aod550: 0.1, humidityPct: 55 }), lightPollutionMag: lp });
+    const dkSeoul = seoulAt(6.2);   // 어두운 곳을 가정(서울 자리의 실제 빛 지도 값은 아래)
+    const chain = C.buildStarCards({ ...dkSeoul, language: 'ko', fmtTime: fmt });
+    ok(chain.cards.map(c => c.id).join() === 'cloud,moon,light,haze,limit' && card({ out: chain }, 'moon').result !== '없음', `서울 12-21 저녁(해 ${dkSeoul.input.sunAltDeg.toFixed(0)}° · 달 ${dkSeoul.input.moonAltDeg.toFixed(0)}°): 카드 ${chain.cards.map(c => c.id).join()}`);
+    const afterChain = SV.limitWithoutMoon({ ...dkSeoul.input, sunAltDeg: dkSeoul.sunAltAtMoonSetDeg });
+    const limChain = card({ out: chain }, 'limit').note;
+    ok(chain.eventLabel === fmt(dkSeoul.timeMs) && limChain.includes(`달이 지는 ${fmt(dkSeoul.moonSetMs)} 뒤에는 ${afterChain.toFixed(1)} 등급까지`), `달 지는 ${fmt(dkSeoul.moonSetMs)} · 부제 ${chain.eventLabel} · "${limChain.slice(-40)}"`);
+    const cityS = seoulAt(3.6);
+    const cityOut = C.buildStarCards({ ...cityS, language: 'ko', fmtTime: fmt });
+    const gain = SV.limitWithoutMoon({ ...cityS.input, sunAltDeg: cityS.sunAltAtMoonSetDeg }) - SV.starLimit(cityS.input).limitMag;
+    ok(/달이 지는/.test(card({ out: cityOut }, 'limit').note) === (gain >= 0.3), `서울의 실제 빛 지도 값(3.6)은 달이 져도 ${gain.toFixed(2)} 등급 좋아져 ${gain >= 0.3 ? '꼬리가 붙는다' : '0.3 미만이라 꼬리가 없다'}`);
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);

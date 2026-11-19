@@ -118,6 +118,11 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
     ok(near(rl.limitMag, 5.3, 1e-6) && near(rl.light.deltaMag, -1.2, 1e-6) && rl.keyStep === 'light', `빛 공해만(지도 5.3): 한계 ${rl.limitMag.toFixed(3)}, 줄어든 ${rl.light.deltaMag.toFixed(3)}`);
     const rh = S.starLimit({ ...dark, aod550: 0.25 });
     ok(near(rh.haze.deltaMag, -(0.2 + 1.086 * 0.2 - 0.2) * 1.5, 1e-9) && near(rh.haze.deltaMag, -0.3258, 0.0005) && rh.keyStep === 'haze' && rh.haze.aodSource === 'aod', `연무만(AOD 0.25): ${rh.haze.deltaMag.toFixed(4)} 등급`);
+    // 짚을 단계의 문턱 0.3 등급: 연무만의 줄어듦은 1.086·(AOD − 0.05)·1.5 → AOD 0.22 는 −0.2769(짚지 않음), AOD 0.24 는 −0.3095(짚음).
+    const rh1 = S.starLimit({ ...dark, aod550: 0.22 }), rh2 = S.starLimit({ ...dark, aod550: 0.24 });
+    ok(near(rh1.haze.deltaMag, -0.2769, 0.0005) && rh1.keyStep === null && near(rh2.haze.deltaMag, -0.3095, 0.0005) && rh2.keyStep === 'haze', `문턱 0.3: AOD 0.22 → ${rh1.haze.deltaMag.toFixed(4)} 짚지 않음(${rh1.keyStep}), AOD 0.24 → ${rh2.haze.deltaMag.toFixed(4)} 짚음(${rh2.keyStep})`);
+    const rb = S.starLimit({ ...dark, lightPollutionMag: 5.3, aod550: 0.25 });
+    ok(near(rb.light.deltaMag, -1.2, 1e-6) && near(rb.haze.deltaMag, -0.3258, 0.0005) && rb.keyStep === 'light', `둘 다 문턱을 넘으면 더 큰 쪽(빛 −1.2 · 연무 −0.33): ${rb.keyStep}`);
     const rv = S.starLimit({ ...dark, aod550: undefined, visibilityM: 24000 });
     ok(rv.haze.aodSource === 'visibility' && near(rv.haze.aod, 0.2265, 0.0005), '연무 자료가 시정뿐이면 시정으로 어림하고 그렇다고 표시');
     const rn = S.starLimit({ ...dark, aod550: null, visibilityM: null });

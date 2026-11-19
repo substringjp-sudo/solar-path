@@ -23,6 +23,7 @@
  *
  * 단계 카드의 "줄어든 등급"은 **차례로 하나씩 더했을 때** 줄어든 만큼(박명 → 달빛 → 빛 공해 → 연무)이라 합이 처음 6.5 와 마지막 한계등급의 차와
  * 정확히 같습니다. 순서가 바뀌면 단계별 몫은 바뀌어도 마지막 값은 같습니다.
+ * "가장 크게 줄인 단계"(`keyStep`)는 줄어든 등급이 `KEY_MIN_DROP_MAG`(0.3) 이상인 것 가운데 가장 큰 것입니다. 다 작으면 짚을 단계가 없습니다.
  *
  * 순수 함수입니다. 달이 지는 시각은 부르는 쪽이 고도 함수를 넘겨 `findMoonSet` 으로 찾습니다.
  */
@@ -87,6 +88,9 @@ export function twilightSb(sunAltDeg: number): number | null {
   return null;
 }
 
+/** 단계 카드에서 "가장 크게 줄인 단계" 로 짚으려면 줄어든 등급이 적어도 이만큼은 되어야 합니다(작은 줄어듦은 짚지 않습니다). */
+export const KEY_MIN_DROP_MAG = 0.3;
+
 /** 맑은 날의 소광계수 k 와 AOD, 별이 지나는 평균 대기 질량 */
 export const EXTINCTION_CLEAN = 0.2;
 export const AOD_CLEAN = 0.05;
@@ -131,7 +135,7 @@ export interface StarResult {
   moon: { illum: number; altDeg: number; up: boolean; deltaMag: number };
   light: { baseMag: number | null; deltaMag: number };
   haze: { k: number; aod: number | null; aodSource: 'aod' | 'visibility' | 'none'; deltaMag: number };
-  /** 줄어든 등급이 가장 큰 단계(없으면 null) */
+  /** 줄어든 등급이 가장 큰 단계. 가장 큰 것도 `KEY_MIN_DROP_MAG`(0.3 등급) 에 못 미치면 null. */
   keyStep: 'twilight' | 'moon' | 'light' | 'haze' | null;
 }
 
@@ -155,8 +159,8 @@ export function starLimit(i: StarInput): StarResult {
   const limit = clamp(m3 + hazeRaw, 0, NELM_DARK);
 
   const deltas = { twilight: m1 - m0, moon: m2 - m1, light: m3 - m2, haze: limit - m3 };
-  let keyStep: StarResult['keyStep'] = null, worst = -0.05;
-  for (const s of ['twilight', 'moon', 'light', 'haze'] as const) if (deltas[s] < worst) { worst = deltas[s]; keyStep = s; }
+  let keyStep: StarResult['keyStep'] = null, worst = 0;
+  for (const s of ['twilight', 'moon', 'light', 'haze'] as const) if (deltas[s] <= -KEY_MIN_DROP_MAG && deltas[s] < worst) { worst = deltas[s]; keyStep = s; }
 
   return {
     limitMag: limit,
