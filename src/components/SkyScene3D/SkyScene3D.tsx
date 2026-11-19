@@ -34,6 +34,7 @@ import { curvatureDropM } from '../../utils/earth';
 import { offsetLatLon } from '../../utils/geoMove';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
+import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
 import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
 
@@ -3425,7 +3426,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     // ── 달빛 조명 연산 (공통) ────────────────────────────────────────────────
-    const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+    const moonPos = getMoonPositionPrecise(targetDate, lat, lng);
     const moonIllum = SunCalc.getMoonIllumination(targetDate);
     // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
     // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
@@ -3434,7 +3435,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
     let moonIrr: { r: number; g: number; b: number } | null = null;
     let moonBeamRadiance: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 };
-    const moonApparentAltRad = (getApparentAltitude(mAltDegG) * Math.PI) / 180;
+    // moonPos.altitude 는 이미 겉보기(굴절 포함)입니다 — 달 원반(MoonMesh)과 같은 자리. 예전엔 여기서 굴절을 한 번 더 더했습니다.
+    const moonApparentAltRad = moonPos.altitude;
     const moonAzRad = (mAzDegG * Math.PI) / 180;
 
     if (mGain > 0 && mAltDegG > 0) {
@@ -3738,7 +3740,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000 ||
       Math.abs(baseMagLimit - cachedMoonBaseMagRef.current) > 1e-3
     ) {
-      const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+      const moonPos = getMoonPositionPrecise(targetDate, lat, lng);
       const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
       const illum = SunCalc.getMoonIllumination(targetDate).fraction;
       cachedMoonMagLimitRef.current = effectiveMagLimit(baseMagLimit, moonAltDeg, illum);

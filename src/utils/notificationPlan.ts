@@ -19,6 +19,7 @@
  * `budget` 40개까지, 가까운 것부터 남깁니다.
  */
 import SunCalc from 'suncalc';
+import { moonRiseSet } from './moonPosition';
 import { sunCrossings, sunTimes } from './solarPosition';
 import { buildSkyEvents } from './skyEvents';
 import type { Language } from './i18n';
@@ -77,18 +78,9 @@ const BLUE_EVE_ALT_DEG = -4;
 
 const valid = (d?: Date | null): d is Date => !!d && !isNaN(d.getTime());
 
-/** 달 중심이 고도 +0.133°(SunCalc 와 같은 기준: 굴절·시반경)를 아래에서 위로 지나는 시각 — 10분 걸음 + 선형 보간. */
+/** `startMs` 부터 24 시간 안의 첫 월출 — 달 윗가장자리가 겉보기 수평선에 닿는 순간(`moonRiseSet`, 시차·굴절 포함). */
 export function moonriseInLocalDay(startMs: number, lat: number, lon: number): Date | null {
-  const H0 = 0.133 * Math.PI / 180;
-  const alt = (ms: number) => SunCalc.getMoonPosition(new Date(ms), lat, lon).altitude - H0;
-  const step = 10 * 60e3;
-  let prev = alt(startMs);
-  for (let t = startMs + step; t <= startMs + 864e5; t += step) {
-    const cur = alt(t);
-    if (prev < 0 && cur >= 0) return new Date(t - step + (step * -prev) / (cur - prev));
-    prev = cur;
-  }
-  return null;
+  return moonRiseSet(startMs, lat, lon, 24).rise;
 }
 
 export function planSkyNotifications(p: {

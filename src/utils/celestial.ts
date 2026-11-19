@@ -2,6 +2,7 @@ import SunCalc from 'suncalc';
 import { addHours, startOfDay, addDays } from 'date-fns';
 import { sunEquatorial, sunPosition, sunTimes } from './solarPosition';
 import { getGMSTDeg } from './celestialCoords';
+import { getMoonPositionPrecise, moonEquatorial, moonRiseSet } from './moonPosition';
 
 export interface CelestialPosition {
   azimuth: number;
@@ -28,8 +29,12 @@ export const getSunPosition = (date: Date, lat: number, lng: number): CelestialP
   };
 };
 
+/**
+ * 달의 겉보기 방위·고도(굴절·시차 포함) — `moonPosition.ts`(Meeus 47 장). 예전 `SunCalc.getMoonPosition` 은
+ * 1~3° 어긋나(중앙값 1.2°) 달 원반(0.5°)을 대상에 걸 수 없었습니다.
+ */
 export const getMoonPosition = (date: Date, lat: number, lng: number): CelestialPosition => {
-  const pos = SunCalc.getMoonPosition(date, lat, lng);
+  const pos = getMoonPositionPrecise(date, lat, lng);
   return {
     azimuth: (pos.azimuth * 180) / Math.PI + 180,
     altitude: (pos.altitude * 180) / Math.PI,
@@ -40,14 +45,17 @@ export const getCelestialEvents = (date: Date, lat: number, lng: number): Celest
   // 기준 날짜(date) 당일의 일출, 일몰, 월출, 월몰 물리 시각을 기기 시스템 시간대로 구합니다.
   // (이후 사용부에서 현지 법정 오프셋을 적용해 포맷팅합니다.)
   const times = sunTimes(date, lat, lng);
-  const moonTimes = SunCalc.getMoonTimes(date, lat, lng);
-  
+  // `SunCalc.getMoonTimes` 와 같은 하루: 기기 시간대 자정부터 24 시간.
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const moon = moonRiseSet(dayStart.getTime(), lat, lng, 24);
+
   return {
     sunrise: times.sunrise,
     sunset: times.sunset,
     goldenHour: times.goldenHour,
-    moonrise: moonTimes.rise || null,
-    moonset: moonTimes.set || null,
+    moonrise: moon.rise,
+    moonset: moon.set,
   };
 };
 
@@ -116,24 +124,16 @@ export const getSubsolarPoint = (date: Date): IsochronePoint => {
 /**
  * 달의 직하점(sublunar point) — 달이 바로 머리 위에 있는 지표 좌표.
  *
- * 3D 하늘의 달(`SunCalc.getMoonPosition`)과 **같은 저정밀 월령식**(SunCalc moonCoords: 평균 황경·근점이각·
- * 승교점 이각)으로 적경·적위를 내고, 그리니치 항성시를 빼서 경도로 바꿉니다. 지구본의 달 위치가 하늘의
- * 달과 갈라지지 않게 같은 식을 씁니다(차이 ≲ 0.5°, 지구본에서는 화소 한두 칸).
+ * 3D 하늘의 달(`getMoonPosition`)과 **같은 월령식**(`moonPosition.ts`, Meeus 47 장)으로 적경·적위를 내고,
+ * 그리니치 항성시를 빼서 경도로 바꿉니다. 지구본의 달 위치가 하늘의 달과 갈라지지 않게 같은 식을 씁니다.
+ * (달이 머리 위에 있으면 시차가 0 이라, 지심 방향이 곧 그 자리에서 본 방향입니다.)
  */
 export const getSublunarPoint = (date: Date): IsochronePoint => {
   const RAD = Math.PI / 180;
-  const d = date.getTime() / 86400000 + 2440587.5 - 2451545;   // J2000 기준 일수
-  const L = RAD * (218.316 + 13.176396 * d);
-  const M = RAD * (134.963 + 13.064993 * d);
-  const F = RAD * (93.272 + 13.229350 * d);
-  const l = L + RAD * 6.289 * Math.sin(M);   // 황경
-  const b = RAD * 5.128 * Math.sin(F);       // 황위
-  const e = RAD * 23.4397;                   // 황도경사
-  const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
-  const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
-  let longitude = ra / RAD - getGMSTDeg(date);
+  const { raRad, decRad } = moonEquatorial(date);
+  let longitude = raRad / RAD - getGMSTDeg(date);
   longitude = ((longitude + 180) % 360 + 360) % 360 - 180;
-  return { latitude: dec / RAD, longitude };
+  return { latitude: decRad / RAD, longitude };
 };
 
 /**

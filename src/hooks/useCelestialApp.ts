@@ -352,7 +352,7 @@ export function useCelestialApp() {
   }, [currentTime, timezoneOffsetHours]);
 
   // 일출·일몰·월출·월몰은 **하루 단위**입니다 — 시각이 아니라 그 지역 날짜가 바뀔 때만 다시 셉니다.
-  // (예전에는 렌더마다 셌고, `getMoonTimes` 는 48시간을 훑어 가장 무거운 호출입니다.)
+  // (예전에는 렌더마다 셌고, 월출·월몰(`moonRiseSet`)이 위치 계산을 수십 번 부르는 가장 무거운 호출입니다.)
   const eventsDayKey = localDayKey(currentTime.getTime(), timezoneOffsetHours);
   const events = useMemo(
     () => getCelestialEvents(targetSystemNoon, lat0, lon0),

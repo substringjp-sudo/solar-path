@@ -1,9 +1,10 @@
 /**
  * **지구본의 달이 하늘의 달과 같은 자리·같은 위상인가** 합격 판정. 브라우저가 필요 없습니다.
  *
- * `celestial.getSublunarPoint` 는 3D 하늘(SunCalc)과 같은 저정밀 월령식으로 적경·적위를 내고 항성시를 빼
- * 직하점을 냅니다. 순환을 피하려고 여기서는 **SunCalc 의 지평 고도**로 잽니다: 직하점에 선 관측자에게
- * 달은 천정에 있어야 합니다(SunCalc 는 시차를 넣지 않으므로 고도 ≈ 90°). 해 직하점도 같은 방법으로 봅니다.
+ * `celestial.getSublunarPoint` 는 3D 하늘과 같은 월령식(`moonPosition.ts`, Meeus 47 장)으로 적경·적위를 내고
+ * 항성시를 빼 직하점을 냅니다. 순환을 피하려고 여기서는 **하늘의 달 함수가 내는 지평 고도**로 잽니다:
+ * 직하점에 선 관측자에게 달은 천정에 있어야 합니다(천정에서는 시차·굴절이 0 이므로 고도 ≈ 90°. 남는 것은
+ * 직하점의 위도를 지심 위도로 읽은 몫 ≤ 0.19°). 해 직하점도 같은 방법으로 봅니다.
  * 위상은 달–해 직하점 각거리(이각)에서 기하로 낸 밝은 비율 (1 − cos 이각)/2 와 SunCalc 값을 견줍니다.
  *
  * 사용: node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-moon-globe.js
@@ -20,11 +21,12 @@ const dist = (a, b) => Math.acos(Math.min(1, Math.sin(a.latitude * RAD) * Math.s
 
 (async () => {
   const C = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'celestial.js'));
+  const MP = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'moonPosition.js'));
   let worstMoon = 0, worstSun = 0, worstPhase = 0, worstWax = 0;
   for (let i = 0; i < 400; i++) {
     const d = new Date(Date.UTC(2024, 0, 1) + i * 2.37 * 86400000 + (i % 24) * 3600000);
     const m = C.getSublunarPoint(d), s = C.getSubsolarPoint(d);
-    worstMoon = Math.max(worstMoon, 90 - SunCalc.getMoonPosition(d, m.latitude, m.longitude).altitude / RAD);
+    worstMoon = Math.max(worstMoon, 90 - MP.getMoonPositionPrecise(d, m.latitude, m.longitude).altitude / RAD);
     worstSun = Math.max(worstSun, 90 - C.getSunPosition(d, s.latitude, s.longitude).altitude);
     const ph = C.getMoonPhase(d);
     const geo = (1 - Math.cos(dist(m, s) * RAD)) / 2;
@@ -33,8 +35,8 @@ const dist = (a, b) => Math.acos(Math.min(1, Math.sin(a.latitude * RAD) * Math.s
     const east = ((m.longitude - s.longitude) % 360 + 360) % 360 < 180;
     if (Math.abs(ph.fraction - 0.5) < 0.45 && east !== ph.waxing) worstWax++;
   }
-  console.log('[1] 달 직하점: 그 자리에서 SunCalc 달 고도');
-  ok(worstMoon < 1.0, `400 시각 최악 천정 거리 ${worstMoon.toFixed(3)}° < 1°`);
+  console.log('[1] 달 직하점: 그 자리에서 하늘의 달 고도');
+  ok(worstMoon < 0.25, `400 시각 최악 천정 거리 ${worstMoon.toFixed(3)}° < 0.25° (지심·측지 위도 차 0.19° 안쪽)`);
   console.log('[2] 해 직하점: 그 자리에서 앱 태양 고도');
   ok(worstSun < 0.01, `최악 천정 거리 ${worstSun.toFixed(4)}° < 0.01°`);
   console.log('[3] 위상: 직하점 이각으로 낸 밝은 비율 ↔ SunCalc');

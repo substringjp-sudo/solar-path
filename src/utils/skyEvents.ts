@@ -16,6 +16,7 @@
  *  - 일반: 그날 실제로 있는 출몰만(극지·달 없는 날엔 빠짐).
  */
 import SunCalc from 'suncalc';
+import { getMoonPositionPrecise } from './moonPosition';
 import { sunTimes } from './solarPosition';
 import { getCalculatedPlanets, type PlanetKey } from './celestialPlanets';
 import { t, type Language } from './i18n';
@@ -53,7 +54,7 @@ export function buildSkyEvents(inp: SkyEventsInput): SkyEventItem[] {
   const { date, latitude: lat, longitude: lon, events, language: L } = inp;
   const out: SkyEventItem[] = [];
   const score = (n: number) => t('evScore', L).replace('{n}', String(Math.round(n)));
-  const moonAlt = (tm: Date) => SunCalc.getMoonPosition(tm, lat, lon).altitude * R2D;
+  const moonAlt = (tm: Date) => getMoonPositionPrecise(tm, lat, lon).altitude * R2D;
 
   // ── 일몰 · 일출 — 예측이 있을 때만 품질을 말합니다 ─────────────────────────
   const glow = (id: 'sunset' | 'sunrise', time: Date | null | undefined, pred?: { score: number; quality: string } | null) => {

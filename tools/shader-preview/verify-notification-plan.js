@@ -6,7 +6,7 @@
  *  1. 전부 끄면 계획이 비어 있다.
  *  2. 골든아워 저녁 알림의 이벤트 시각에 해 고도가 6°(±0.3°), 아침은 일출(−0.83° ±0.3°).
  *  3. 블루아워 저녁은 해 −4°(±0.3°), 아침은 −6°(±0.3°).
- *  4. 월출 알림 시각에 달은 막 떠오른다: 고도 +0.133° ±0.3°, 10분 뒤엔 더 높다.
+ *  4. 월출 알림 시각에 달은 막 떠오른다: 겉보기 중심 고도 = −반지름(윗가장자리가 수평선, `moonRiseSet`) ±0.02°, 10분 뒤엔 더 높다.
  *  5. 은하수 알림은 보름 무렵(2026-09-26 전후 이틀)엔 없고, 그믐 무렵(2026-10-10)엔 있다 —
  *     하늘 시트와 같은 판단.
  *  6. 모든 알림은 지금 이후, 보내는 시각 = 이벤트 − 미리 알림 분, 가까운 순, id 는 겹치지 않는다.
@@ -24,7 +24,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
 
 (async () => {
   const P = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'notificationPlan.js'));
-  const SunCalc = require(path.join(__dirname, '..', '..', 'node_modules', 'suncalc'));
+  const MP = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'moonPosition.js'));
   // 해는 앱의 태양력으로 잽니다 — 알림이 쓰는 그 해입니다. 출몰이 그 위치 함수의 근이라
   // 문턱을 0.01° 로 조였습니다. SunCalc 시절엔 getTimes 와 getPosition 이 서로 0.2° 어긋나
   // 0.3° 를 둬야 했습니다(solarPosition.ts 머리말).
@@ -34,7 +34,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   const off = Object.fromEntries(P.SKY_NOTIF_KINDS.map(k => [k, false]));
   const plan = (now, prefs, extra = {}) => P.planSkyNotifications({ latitude: LAT, longitude: LON, now: new Date(now), prefs: { ...base, ...off, ...prefs }, language: 'ko', tzOffsetHours: TZ, ...extra });
   const sunAlt = (d) => sunPosition(d, LAT, LON).altitude * D;
-  const moonAlt = (d) => SunCalc.getMoonPosition(d, LAT, LON).altitude * D;
+  const moonAlt = (d) => MP.getMoonPositionPrecise(d, LAT, LON).altitude * D;
+  const moonSd = (d) => MP.moonSemidiameterDeg(MP.getMoonPositionPrecise(d, LAT, LON).distance);
   const NOW = '2026-09-30T03:00:00Z'; // 서울 정오
   const hasHangul = (s) => /[가-힣]/.test(s);
 
@@ -65,7 +66,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     const L = plan(NOW, { moonrise: true });
     console.log(`      ${L.length}개 · 고도 ${L.map(n => moonAlt(n.eventAt).toFixed(2)).join(' ')}`);
     ok(L.length >= 5, '일주일에 월출 알림 5개 이상(월출 없는 날 있을 수 있음)');
-    ok(L.every(n => Math.abs(moonAlt(n.eventAt) - 0.133) < 0.3 && moonAlt(new Date(n.eventAt.getTime() + 600e3)) > moonAlt(n.eventAt)), '이벤트 시각에 고도 +0.13° 근처이고 오르는 중');
+    ok(L.every(n => Math.abs(moonAlt(n.eventAt) + moonSd(n.eventAt)) < 0.02 && moonAlt(new Date(n.eventAt.getTime() + 600e3)) > moonAlt(n.eventAt)), '이벤트 시각에 달 윗가장자리가 수평선(고도 = −반지름 ±0.02°)이고 오르는 중');
   }
 
   console.log('\n[5] 은하수 — 보름엔 없고 그믐엔 있다');

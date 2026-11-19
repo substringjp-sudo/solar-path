@@ -52,7 +52,7 @@ import {
 } from './weather';
 import { makeAtmosphereParams, type AtmosphereParams } from './atmosphere';
 import { representativeTauForObserver } from './cloudPresets';
-import SunCalc from 'suncalc';
+import { getMoonPositionPrecise } from './moonPosition';
 import { sunPosition } from './solarPosition';
 
 const R2D = 180 / Math.PI;
@@ -218,7 +218,7 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     const sunPos = sunPosition(t, latitude, longitude);
     const sunAltDeg = sunPos.altitude * R2D;
     const sunAzDeg = sunPos.azimuth * R2D + 180;
-    const moonPos = SunCalc.getMoonPosition(t, latitude, longitude);
+    const moonPos = getMoonPositionPrecise(t, latitude, longitude);
 
     const weather = getInterpolatedWeather(ring, t);
     const obs = weather.find(w => (w.distance ?? 0) === 0) ?? weather[0];

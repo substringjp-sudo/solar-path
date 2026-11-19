@@ -55,7 +55,7 @@ import {
   subscribeVolumetricStatus,
   type VolumetricPrewarmStatus,
 } from '../VolumetricProbe/volumetricStatus';
-import SunCalc from 'suncalc';
+import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t, L3 } from '../../utils/i18n';
@@ -250,7 +250,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const sunAltitude = (sunPos.altitude * 180) / Math.PI;
   const sunAzimuth = (sunPos.azimuth * 180) / Math.PI + 180;
 
-  const moonPos = SunCalc.getMoonPosition(currentTime, latitude, longitude);
+  const moonPos = getMoonPositionPrecise(currentTime, latitude, longitude);
   const moonAltitude = (moonPos.altitude * 180) / Math.PI;
   const moonAzimuth = (moonPos.azimuth * 180) / Math.PI + 180;
 
