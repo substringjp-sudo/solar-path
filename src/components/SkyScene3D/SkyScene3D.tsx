@@ -28,7 +28,7 @@ if (Platform.OS !== 'web') {
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
-import { rayHitTerrain, climbToPeak, lineOfSightClearance, type PickedTarget } from '../../utils/demPick';
+import { rayHitTerrain, climbToPeak, lineOfSightClearance, type HeightSampler, type PickedTarget } from '../../utils/demPick';
 import { makeDemSampler } from '../../utils/demSampler';
 import { curvatureDropM } from '../../utils/earth';
 import { offsetLatLon } from '../../utils/geoMove';
@@ -1671,8 +1671,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const cam = cameraRef.current, patch = demPatchRef.current, renderer = rendererRef.current, cb = onPickTargetRef.current;
     const { w: vw, h: vh } = layoutSizeRef.current;
     if (!cam || !patch || !renderer || !cb || !vw || !vh) return;
-    const sample = makeDemSampler(renderer, patch);
-    if (!sample) return;
+    // 가까운 촘촘한 패치(수 km)를 먼저, 그 밖은 지형 셰이더가 멀리 쓰는 광역 패치로 — 먼 산(수십 km)도 고를 수 있게.
+    const fine = makeDemSampler(renderer, patch);
+    const farPatch = demMaskPatchRef.current;
+    const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
+    if (!fine && !far) return;
+    const sample: HeightSampler = (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
     cam.updateMatrixWorld();
     const v = new THREE.Vector3((x / vw) * 2 - 1, 1 - (y / vh) * 2, 0.5).unproject(cam).sub(cam.position);
     const len = v.length();
