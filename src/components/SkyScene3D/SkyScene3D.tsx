@@ -3978,9 +3978,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         urbanSerialRef.current += 1;
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
         if (mask.bld) {
-          bldCoverRef.current = { key, cover: mask.bld };
+          // 2026-11-19 건물 발자국도 함께 — 건물마다 바닥을 한 높이로(demBuildingFlatten.flattenFootprints).
+          const cover: BuildingCover = { ...mask.bld, footprints: mask.footprints };
+          bldCoverRef.current = { key, cover };
           const patch = demPatchRef.current, renderer = rendererRef.current;
-          if (patch && renderer && demLoadedKeyRef.current === key && flattenDemForBuildings(renderer, patch, mask.bld)) {
+          if (patch && renderer && demLoadedKeyRef.current === key && flattenDemForBuildings(renderer, patch, cover)) {
             const maskPatch = demMaskPatchRef.current;
             terrainFieldRef.current.setPatch(patch, patch, maskPatch);
             buildingFieldRef.current?.setPatch(patch, patch, maskPatch);

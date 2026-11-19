@@ -492,6 +492,11 @@ export interface UrbanMaskResult {
   lamps?: Float32Array;
   /** 건물 덮개(0/255, 관측자 둘레 ±halfM, 512칸 ≈ 12.5 m). 고도의 건물 높이 깎기(demBuildingFlatten.ts)에 씁니다. */
   bld?: { size: number; halfM: number; data: Uint8Array };
+  /**
+   * 2026-11-19 건물 발자국 바깥 고리(동 x, 남 z, m 쌍을 이어 붙인 것, 닫는 점 없음). 관측자 둘레 ±FOOTPRINT_MAX_M 안, 너무 작은 것은 뺌.
+   * 건물마다 바닥을 한 높이로 맞추는 데 씁니다(demBuildingFlatten.flattenFootprints).
+   */
+  footprints?: Float32Array[];
   /** 물(바다·호수·강, 0/255, 관측자 둘레 ±halfM, size²). 해발 0m 매립지/인공섬과 내륙 수면을 가르는 데 씁니다. */
   water?: Uint8Array;
   /** 고해상도 물 마스크(0~255, ±paveHalfM, paveSize²). 지형 위 호수·하천·운하 경계에 씁니다. */
@@ -517,6 +522,10 @@ export const LAMP_POOL_R_M = 13;
 export const LAMP_MAX = 9000;
 /** 건물 덮개 격자 한 변 칸 수(±3200 m 에서 12.5 m 칸). */
 export const BLD_COVER_SIZE = 512;
+/** 발자국을 모으는 범위(m, 관측자 둘레) — 고도 패치가 덮는 안쪽만 있으면 됩니다. */
+export const FOOTPRINT_MAX_M = 1700;
+/** 이보다 작은 발자국(m², 대략)은 모으지 않습니다 — 창고 문짝·정자 같은 것. */
+export const FOOTPRINT_MIN_AREA_M2 = 12;
 
 /** 선분 둘레 반지름 r(m) 안의 칸을 value 로(최댓값). buf 는 stride 2 의 채널 ch. */
 function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
@@ -604,6 +613,7 @@ export async function fetchUrbanMask(
 
   const grid = new Uint8Array(size * size);
   const bldCover = new Uint8Array(BLD_COVER_SIZE * BLD_COVER_SIZE);
+  const footprints: Float32Array[] = [];
   const toLocal = (tc: TileCoord, u: number, v: number, ext: number) => {
     const ll = tilePointToLonLat(tc.x, tc.y, tc.z, u, v, ext);
     return {
@@ -667,6 +677,20 @@ export async function fetchUrbanMask(
           const pts = r.map((p) => toLocal(tc, p.x, p.y, bld.extent));
           fillPolygonXZ(grid, size, halfM, pts, 255);
           fillPolygonXZ(bldCover, BLD_COVER_SIZE, halfM, pts, 255);
+          if (pts.length >= 3) {
+            let sx = 0, sz = 0, area2 = 0;
+            for (let k = 0; k < pts.length; k++) {
+              const a = pts[k], b = pts[(k + 1) % pts.length];
+              sx += a.x; sz += a.z;
+              area2 += a.x * b.z - b.x * a.z;
+            }
+            const cx = sx / pts.length, cz = sz / pts.length;
+            if (Math.abs(area2) / 2 >= FOOTPRINT_MIN_AREA_M2 && Math.abs(cx) <= FOOTPRINT_MAX_M && Math.abs(cz) <= FOOTPRINT_MAX_M) {
+              const fp = new Float32Array(pts.length * 2);
+              for (let k = 0; k < pts.length; k++) { fp[2 * k] = pts[k].x; fp[2 * k + 1] = pts[k].z; }
+              footprints.push(fp);
+            }
+          }
         }
       }
     }
@@ -858,6 +882,7 @@ export async function fetchUrbanMask(
     data: smooth,
     pave: { size: pSize, halfM: pHalf, data: pave, lamp: lampPool }, lamps: Float32Array.from(lampXZ),
     bld: { size: BLD_COVER_SIZE, halfM, data: bldCover },
+    footprints,
     water: waterGrid,
     waterHi: { size: pSize, halfM: pHalf, data: waterHi },
   };
