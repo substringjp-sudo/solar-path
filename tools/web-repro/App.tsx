@@ -18,6 +18,7 @@ import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
 import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
+import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
@@ -130,6 +131,8 @@ export default function App() {
   }, []);
   const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
   if (Q.bar) return <BarRepro W={W} />;
+  // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
+  const [picked, setPicked] = React.useState<any>(null);
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
@@ -158,12 +161,20 @@ export default function App() {
         telephotoX={Q.tele ?? 1}
         showLensInfo={!!Q.lens}
         eyeHeightM={Q.eyeH}
+        pickEnabled={!!Q.pick}
+        onPickTarget={(t: any) => { (globalThis as any).__picked = t; setPicked(t); }}
+        pickedTarget={picked}
         fullScreen
         hideHudOverlay={!Q.lens}
         hideCompassBar={!Q.lens}
         isActive
       />
       {/* panel:1 — 개발자 튜닝 패널을 함께 띄웁니다(폰 폭에서 헤더·볼륨 상태 확인용). */}
+      {picked ? (
+        <View style={{ position: 'absolute', left: 8, right: 8, bottom: 8 }}>
+          <ObjectInfoPanel language="ko" target={picked} sun={{ azDeg: sunAz ?? 180, altDeg: sunAlt ?? 30 }} moon={{ azDeg: 90, altDeg: -20 }} onClear={() => setPicked(null)} />
+        </View>
+      ) : null}
       {Q.panel ? <DevTuningPanel visible onClose={() => { (globalThis as any).__panelClosed = true; }} /> : null}
     </View>
   );
