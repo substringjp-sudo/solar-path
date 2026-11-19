@@ -749,6 +749,49 @@ export interface SkyStop {
   color: string;
 }
 
+/** 구름 한 층이 점수에 보태는 몫. `lit` = visible × 층 가중 × redBeam (구름을 붉게 칠한 양의 한 몫). */
+export interface SunsetLayerPart {
+  /** 그 층의 구름 비율 0~1 */
+  cover: number;
+  /** 아래 층에 가리지 않고 시야에 드러난 비율 0~1 */
+  visible: number;
+  /** 그 고도에 닿는 빛(지구 그림자 안쪽이면 0) 0~1 */
+  illum: number;
+  /** 그 고도에 닿는 빛이 얼마나 붉은가(색 순도 × 세기) × illum, 0~1 */
+  redBeam: number;
+  lit: number;
+}
+
+/**
+ * 점수가 어떤 값들의 합인지 — **계산 과정 보기**가 씁니다(docs/SANDBOX_MODE_PLAN.md 9.7). `predictSunset` 이 점수를 만들며
+ * 이미 구한 중간값을 그대로 꺼낸 것이라 점수는 이것 때문에 달라지지 않습니다(`verify-sunset-breakdown.js` 가 지킴).
+ *
+ *   score = round( baseSkyGlow + cloudRedScore ),   baseSkyGlow = 38 · sunWindow · pathClarity · weatherClear^0.85
+ *                                                    cloudRedScore = 62 · paintedCloud · weatherClear^0.55
+ */
+export interface SunsetScoreBreakdown {
+  /** 1 단계: 관측점 예보 원자료 */
+  obs: { low: number; mid: number; high: number; humidity: number; visibilityM: number; precipMm: number; dni?: number; waterKg: number };
+  sunAltDeg: number;
+  effectiveSunAlt: number;
+  /** 해 높이 창 0~1: 지평선 근처(약 −1.5°~+10°)에서만 1 에 가깝다 */
+  sunWindow: number;
+  /** 3 단계: 해 쪽 경로 투과율 0.15~1 */
+  pathClarity: number;
+  /** 4 단계: 구름이 붉게 칠해진 정도 0~1 과 층별 몫 */
+  paintedCloud: number;
+  rawLitCloud: number;
+  layers: { high: SunsetLayerPart; mid: SunsetLayerPart; low: SunsetLayerPart };
+  /** 날씨가 흐리지 않고 공기가 맑은 정도 0~1 = skyClear × airClear */
+  weatherClear: number;
+  skyClear: number;
+  airClear: number;
+  weatherDreary: number;
+  /** 5 단계: 점수의 두 몫(합을 반올림하고 0~100 으로 자른 것이 score) */
+  baseSkyGlow: number;
+  cloudRedScore: number;
+}
+
 export interface SunsetPrediction {
   score: number;
   quality: 'Overcast' | 'Muted' | 'Fair' | 'Great' | 'Epic';
@@ -778,6 +821,8 @@ export interface SunsetPrediction {
     illumMid: number;
     illumHigh: number;
   };
+  /** 점수가 나온 단계별 중간값(계산 과정 보기용). 입력이 잘못돼 점수를 못 낸 경우엔 없다. */
+  breakdown?: SunsetScoreBreakdown;
 }
 
 export const predictSunset = (
@@ -893,10 +938,13 @@ export const predictSunset = (
   const visLow = lowVal * (1 - 0.35 * lowVal);
   const visMid = midVal * (1 - 0.80 * lowVal);
   const visHigh = highVal * (1 - 0.80 * lowVal) * (1 - 0.40 * midVal);
+  const redHigh = layerRedBeam(CLOUD_ALT_HIGH_KM, illumHigh);
+  const redMid = layerRedBeam(CLOUD_ALT_MID_KM, illumMid);
+  const redLow = layerRedBeam(CLOUD_ALT_LOW_KM, illumLow);
   const rawLitCloud =
-    visHigh * 1.25 * layerRedBeam(CLOUD_ALT_HIGH_KM, illumHigh) +
-    visMid * 1.55 * layerRedBeam(CLOUD_ALT_MID_KM, illumMid) +
-    visLow * 0.90 * layerRedBeam(CLOUD_ALT_LOW_KM, illumLow);
+    visHigh * 1.25 * redHigh +
+    visMid * 1.55 * redMid +
+    visLow * 0.90 * redLow;
   const paintedCloud = (1 - Math.exp(-2.8 * rawLitCloud)) * Math.pow(pathClarity, 0.85);
 
   // 2) 날씨가 흐리지 않고 공기가 맑은 정도 (적당한 중·상층 노을 구름은 감점하지 않고 두꺼운 저층·수증기·강수·황사만 연속 감쇠)
@@ -1085,6 +1133,29 @@ export const predictSunset = (
       illumLow,
       illumMid,
       illumHigh,
+    },
+    breakdown: {
+      obs: {
+        low: obsPoint.low, mid: obsPoint.mid, high: obsPoint.high,
+        humidity: rhVal, visibilityM: visM, precipMm: precip, dni, waterKg: liquidWater,
+      },
+      sunAltDeg,
+      effectiveSunAlt,
+      sunWindow,
+      pathClarity,
+      paintedCloud,
+      rawLitCloud,
+      layers: {
+        high: { cover: highVal, visible: visHigh, illum: illumHigh, redBeam: redHigh, lit: visHigh * 1.25 * redHigh },
+        mid: { cover: midVal, visible: visMid, illum: illumMid, redBeam: redMid, lit: visMid * 1.55 * redMid },
+        low: { cover: lowVal, visible: visLow, illum: illumLow, redBeam: redLow, lit: visLow * 0.90 * redLow },
+      },
+      weatherClear,
+      skyClear,
+      airClear,
+      weatherDreary,
+      baseSkyGlow,
+      cloudRedScore,
     },
   };
 };
