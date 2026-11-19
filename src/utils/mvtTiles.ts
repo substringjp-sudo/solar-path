@@ -6,6 +6,12 @@
  */
 import { gunzipSync } from 'fflate';
 
+/**
+ * 지도 자료 건물 높이(`render_height`)의 상한(m). 오타 같은 터무니없는 값을 막는 안전장치입니다. 지금까지 가장 높은 건물이 828 m(부르즈 할리파)라
+ * 상한은 그보다 조금 높게 둡니다. 예전에는 400 m 로 잘라 롯데월드타워(555 m)도 400 m 로 그려지고 "꼭대기에 달 걸기" 같은 계산이 135 m 낮게 나왔습니다.
+ */
+export const MAX_RENDER_HEIGHT_M = 900;
+
 export interface MvtRingPoint {
   x: number;
   y: number;

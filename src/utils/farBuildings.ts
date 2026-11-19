@@ -17,7 +17,7 @@
 import { curvatureDropM } from './earth';
 import type { HeightSampler } from './demPick';
 import { normAz, occluderAngleDeg, type HorizonProfile } from './horizon';
-import { tileListForRadius, tilePointToLonLat, type TileCoord } from './mvtTiles';
+import { MAX_RENDER_HEIGHT_M, tileListForRadius, tilePointToLonLat, type TileCoord } from './mvtTiles';
 
 const RAD = Math.PI / 180;
 const drop = curvatureDropM;
@@ -28,8 +28,8 @@ export const FAR_INNER_M = 1000;
 export const FAR_OUTER_M = 15000;
 /** 보이는 각높이가 이보다 작은 건물은 화면에서 한 줄에 못 미쳐 생략(10 km 에서 약 21 m). */
 export const FAR_MIN_VISIBLE_DEG = 0.12;
-/** 타일에 서 있을 수 있는 가장 높은 건물(m) — 이보다 낮은 것만 있다고 보고 타일을 거릅니다. */
-export const FAR_H_CAP_M = 600;
+/** 타일에 서 있을 수 있는 가장 높은 건물(m) — 이보다 낮은 것만 있다고 보고 타일을 거릅니다. 건물 높이 읽기의 상한과 같은 값이라야 높은 탑을 놓치지 않습니다. */
+export const FAR_H_CAP_M = MAX_RENDER_HEIGHT_M;
 export const FAR_MAX_TILES = 150;
 export const FAR_MAX_BUILDINGS = 3000;
 
