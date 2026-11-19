@@ -169,10 +169,22 @@ const R2D = 180 / Math.PI, D2R = Math.PI / 180;
   console.log('\n[6] 묶음');
   {
     const mk = (hours, err, visible) => ({ timeMs: FROM + hours * 3600e3, errDeg: err, visible });
-    const g = S.groupStandHits([mk(1, 0.2, true), mk(8, 0.05, true), mk(40, 0.1, false), mk(41, 0.2, true), mk(100, 0.3, true)]);
-    ok(g.length === 3 && g[0].count === 2 && g[0].best.timeMs === FROM + 8 * 3600e3, '12 시간 안 둘이 한 묶음, 대표는 어긋남이 작은 것');
+    const g = S.groupStandHits([mk(1, 0.2, true), mk(3, 0.05, true), mk(40, 0.1, false), mk(41, 0.2, true), mk(100, 0.3, true)]);
+    ok(g.length === 3 && g[0].count === 2 && g[0].best.timeMs === FROM + 3 * 3600e3, '4 시간 안 둘이 한 묶음, 대표는 어긋남이 작은 것');
     ok(g[1].count === 2 && g[1].best.visible === true && g[1].best.timeMs === FROM + 41 * 3600e3, '보이는 것이 어긋남이 작은 가려진 것보다 먼저 대표가 된다');
     ok(g[2].count === 1 && S.groupStandHits([]).length === 0, '혼자인 후보는 한 묶음, 빈 목록은 빈 목록');
+    ok(S.groupStandHits([mk(0, 0.1, true), mk(11, 0.1, true), mk(23, 0.1, true)]).length === 3, '11~12 시간 간격(뜨는 쪽과 지는 쪽)은 합치지 않는다');
+    ok(S.groupStandHits([mk(0, 0.1, true), mk(4, 0.1, true), mk(8.1, 0.1, true)]).length === 2, '경계: 4 시간 간격은 한 묶음, 4.1 시간은 따로');
+    {
+      // 평지 90 일: 후보가 모두 6 시간 넘게 떨어져 있어 묶어도 줄지 않는다(뜨는 쪽 하루 한 번, 지는 쪽 하루 한 번)
+      const hits = await S.findStandPoints(base({ days: 90 }));
+      const alt = (ms) => A.bodySky('moon', ms, LAT, LON, T_ELEV).altDeg;
+      const rising = hits.filter(h => alt(h.timeMs + 60e3) - alt(h.timeMs - 60e3) > 0).length;
+      const gaps = hits.slice(1).map((h, i) => (h.timeMs - hits[i].timeMs) / 3600e3);
+      ok(S.groupStandHits(hits).length === hits.length && Math.min(...gaps) > 6, `평지 90 일 ${hits.length} 곳: 최소 간격 ${Math.min(...gaps).toFixed(1)} h 로 묶어도 그대로`);
+      const expectedPasses = 2 * 90 / 1.0351;   // 하루 = 24.84 h(달의 하루) 라 90 일에 뜸 · 짐이 각각 약 87 번
+      ok(Math.abs(rising - hits.length / 2) <= 1 && Math.abs(hits.length - expectedPasses) <= 3, `뜨는 쪽 ${rising} · 지는 쪽 ${hits.length - rising}, 기대 ${expectedPasses.toFixed(1)} 곳(달의 하루 24.84 h)`);
+    }
   }
 
   // ── [7] 속도 · 진행 · 취소 ──

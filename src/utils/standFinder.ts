@@ -228,7 +228,13 @@ export async function findStandPoints(
   return hits;
 }
 
-/** 서로 `gapHours` 안의 후보는 한 묶음(같은 저녁·같은 밤). 묶음마다 대표 하나: 보이는 것 먼저, 그다음 어긋남이 작은 것. */
+/**
+ * 서로 `gapHours` 안의 후보는 한 묶음 — **한 번 지나가는 동안 여러 번 드는 것**(울퉁불퉁한 땅에서 ε 구간이 갈라질 때)을 하나로 줄입니다.
+ * 묶음마다 대표 하나: 보이는 것 먼저, 그다음 어긋남이 작은 것.
+ *
+ * 평지에서 재 보니 달은 하루에 뜨는 쪽 한 번, 지는 쪽 한 번 드는데(90 일에 87 + 87 곳) 인접 후보 간격이 6~20 시간입니다.
+ * 기준을 12 시간으로 두면 뜨는 쪽과 지는 쪽이 절반쯤 엉뚱하게 합쳐져서 한 장면이 사라지므로, 6 시간보다 짧은 4 시간이 기본입니다.
+ */
 export interface StandGroup { best: StandHit; count: number; hits: StandHit[] }
 
 const betterStand = (a: StandHit, b: StandHit) => {
@@ -236,7 +242,7 @@ const betterStand = (a: StandHit, b: StandHit) => {
   return Math.abs(a.errDeg) < Math.abs(b.errDeg);
 };
 
-export function groupStandHits(hits: StandHit[], gapHours = 12): StandGroup[] {
+export function groupStandHits(hits: StandHit[], gapHours = 4): StandGroup[] {
   const sorted = [...hits].sort((x, y) => x.timeMs - y.timeMs);
   const groups: StandGroup[] = [];
   for (const h of sorted) {
