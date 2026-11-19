@@ -76,6 +76,9 @@ const ENTRIES = [
   'src/utils/horizon.ts',
   'src/utils/alignSearch.ts',
   'src/utils/sunsetPhysics.ts',
+  // 먼 건물 가시성(지평선 프로필 · 타일 · 건물 고르기) — verify-far-buildings.js 가 합성 산으로 판정합니다.
+  'src/utils/farBuildings.ts',
+  'src/utils/demPick.ts',
   'src/utils/cloudRadar.ts',
   // 하늘 시트의 추천·일반 이벤트(점검 2026-09-29) — 판정이 불러 씁니다.
   'src/utils/skyEvents.ts',
