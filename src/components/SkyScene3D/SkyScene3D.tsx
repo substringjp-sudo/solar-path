@@ -30,7 +30,7 @@ import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { rayHitTerrain, climbToPeak, lineOfSightClearance, type HeightSampler, type PickedTarget } from '../../utils/demPick';
 import { makeDemSampler } from '../../utils/demSampler';
-import { buildHorizonProfile, skylineAngleDeg } from '../../utils/horizon';
+import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
 import { curvatureDropM } from '../../utils/earth';
 import { offsetLatLon } from '../../utils/geoMove';
 import { Target } from 'lucide-react-native';
@@ -505,6 +505,11 @@ export interface SkyScene3DHandle {
    */
   getSkyline?: () => ((azDeg: number) => number | null) | null;
   /**
+   * 눈에서 본 땅 프로필(`utils/horizon.ts`) — 스카이라인과 능선까지의 거리를 다 알 수 있습니다. 계산 과정 보기("해 뜨는 시각")가 씁니다.
+   * 땅 자료가 아직 없으면 null. `getSkyline` 과 같은 캐시를 씁니다.
+   */
+  getHorizonProfile?: () => HorizonProfile | null;
+  /**
    * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
    * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
    * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있어도
@@ -667,8 +672,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const farAbortRef = useRef<AbortController | null>(null);
   /** 핸들(한 번만 만들어짐)이 읽는 관측 중심 위경도 — 매 렌더 갱신 */
   const bldCenterRef = useRef<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
-  /** 땅 스카이라인 캐시(해·달 걸기) — 지형 패치 번호와 눈 높이가 같은 동안 재사용. */
-  const skylineCacheRef = useRef<{ key: string; fn: (azDeg: number) => number | null } | null>(null);
+  /** 땅 프로필·스카이라인 캐시(해·달 걸기, 계산 과정 보기) — 지형 패치 번호와 눈 높이가 같은 동안 재사용. */
+  const skylineCacheRef = useRef<{ key: string; prof: HorizonProfile; fn: (azDeg: number) => number | null } | null>(null);
+  /** 캐시된(없으면 지금 만드는) 땅 프로필. 땅 자료가 아직 없으면 null. 핸들(한 번만 만들어짐)이 부르므로 ref 로만 읽습니다. */
+  const horizonCacheRef = useRef<() => { prof: HorizonProfile; fn: (azDeg: number) => number | null } | null>(() => null);
+  const horizonCache = () => horizonCacheRef.current();
   const buildingLoadedKeyRef = useRef<string | null>(null);
   const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildingRetryCountRef = useRef(0);
@@ -1162,6 +1170,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastSnapshotErrorRef = useRef<string | null>(null);
   /** 스냅샷 직전에 GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기. −1 = 못 쟀음. */
   const lastBufferMeanRef = useRef<number>(-1);
+  // 땅 프로필: 지형 패치 번호와 눈 높이가 같은 동안은 다시 만들지 않습니다(40 km 프로필은 샘플 십수만 번).
+  horizonCacheRef.current = () => {
+    const renderer = rendererRef.current, patch = demPatchRef.current;
+    if (!renderer || !patch) return null;
+    const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
+    if (!sample) return null;
+    const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
+    const eye = ground + (eyeHeightRef.current ?? 1.6);
+    const key = `${demSerialRef.current}|${eye.toFixed(1)}`;
+    if (skylineCacheRef.current?.key === key) return skylineCacheRef.current;
+    const prof = buildHorizonProfile(sample, eye, { maxDistM: 40000 });
+    const fn = (az: number) => { const v = skylineAngleDeg(prof, az); return v > -89 ? v : null; };
+    return (skylineCacheRef.current = { key, prof, fn });
+  };
   useImperativeHandle(ref, () => { const h = ({
     renderRemote: null as unknown as SkyScene3DHandle['renderRemote'],
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
@@ -1236,20 +1258,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       for (const t of farTilesRef.current.values()) buildings += t.picks.length;
       return { planned: res.plan.tiles.length, fetched: res.fetched, failed: res.failed, bytes: res.bytes, truncated: res.truncated, tilesTotal: farTilesRef.current.size, buildings: Math.min(buildings, FAR_MAX_BUILDINGS_SHOWN) };
     },
-    getSkyline: () => {
-      const renderer = rendererRef.current, patch = demPatchRef.current;
-      if (!renderer || !patch) return null;
-      const sample = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
-      if (!sample) return null;
-      const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
-      const eye = ground + (eyeHeightRef.current ?? 1.6);
-      const key = `${demSerialRef.current}|${eye.toFixed(1)}`;
-      if (skylineCacheRef.current?.key === key) return skylineCacheRef.current.fn;
-      const prof = buildHorizonProfile(sample, eye, { maxDistM: 40000 });
-      const fn = (az: number) => { const v = skylineAngleDeg(prof, az); return v > -89 ? v : null; };
-      skylineCacheRef.current = { key, fn };
-      return fn;
-    },
+    getSkyline: () => horizonCache()?.fn ?? null,
+    getHorizonProfile: () => horizonCache()?.prof ?? null,
     clearCameraLensOverride: () => {
       cameraRollRef.current = 0;
       viewCenterOffsetYFracRef.current = 0;

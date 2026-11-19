@@ -14,7 +14,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { PressScale, Chip } from '../ui';
-import { makeStyles, useThemeColors } from '../../theme/useTheme';
+import { makeStyles } from '../../theme/useTheme';
 import { mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 import { buildSunHorizonCards, type SkyPicture, type StepCard } from '../../utils/calcSteps';
@@ -44,7 +44,6 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const fmtLocalTime = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
 export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, longitude, placeName, topic, onTopic, getHorizon, onBack, onOpenSandbox }) => {
-  const color = useThemeColors();
   const styles = useStyles();
   const result = useMemo(() => {
     const profile = getHorizon?.() ?? null;
@@ -91,7 +90,6 @@ export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, l
 };
 
 const StepCardView: React.FC<{ index: number; card: StepCard; language: Lang }> = ({ index, card, language }) => {
-  const color = useThemeColors();
   const styles = useStyles();
   if (card.shape === 'result') {
     return (
