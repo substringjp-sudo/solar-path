@@ -141,9 +141,12 @@ export default function App() {
           // §130 흐름 모형 — volFlow:1 · volFlowUv:1 · volq:'low'|'medium'|'high' · volres:0.25~1 (장치 크기 알갱이 자)
           volumetricFlow: !!Q.volFlow, volumetricFlowUv: !!Q.volFlowUv,
           ...(Q.volq ? { volumetricQuality: Q.volq } : {}), ...(Q.volres != null ? { volumetricRes: Q.volres, volumetricAutoRes: false } : {}) }}
+        // tele:N · lens:1 — 샌드박스 망원 배율과 렌즈 정보 배지(2026-11-19). lens:1 이면 눈금 HUD 를 켭니다.
+        telephotoX={Q.tele ?? 1}
+        showLensInfo={!!Q.lens}
         fullScreen
-        hideHudOverlay
-        hideCompassBar
+        hideHudOverlay={!Q.lens}
+        hideCompassBar={!Q.lens}
         isActive
       />
       {/* panel:1 — 개발자 튜닝 패널을 함께 띄웁니다(폰 폭에서 헤더·볼륨 상태 확인용). */}
