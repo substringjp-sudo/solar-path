@@ -11,6 +11,7 @@
  *  3. 능선 — 능선이 해 방위에서 평평한 수평선보다 1분 넘게 늦추면 3 장이 key(테두리), 능선 앙각·거리 글이 들어간다.
  *     평평한 수평선(땅 자료 없음)이면 usedTerrain=false, 지형 자료가 없다는 문장, key 아님.
  *  4. 하늘 그림 — 방위 범위 폭 44°, 윤곽 점이 방위 순서로 45 개, 고도 범위가 윤곽과 해 자리(평평한 때·보이기 시작)를 모두 담는다.
+ *     두 해가 30초 안으로 겹치면 하나만, 스카이라인이 0.3° 도 안 되면 "능선" 이 아니라 "낮은 지평선" 이라고 쓴다.
  *  5. 일출과 일몰은 말이 다르다(보이기 시작 ↔ 사라짐, 일찍 ↔ 늦게까지), 극야는 null.
  *  6. 아래 한 줄 — 늦은 분이 계산의 deltaMin 을 반올림한 값, 같은 정도면 "거의 같아요".
  *  7. 글 — NaN · undefined · Infinity 가 어느 글에도 없고, en · ja 글에 한글이 없다.
@@ -75,6 +76,10 @@ const RAD = Math.PI / 180;
     ok(s.elRange[0] <= Math.min(...allEl) && s.elRange[1] >= Math.max(...allEl), `고도 범위 [${s.elRange.map(v => v.toFixed(2))}] 가 윤곽과 해 자리를 모두 담는다`);
     ok(s.suns.length === 2 && s.suns[0].kind === 'flat' && s.suns[1].kind === 'visible' && s.suns[1].az > s.suns[0].az - 5, '해 자리 둘: 평평한 수평선 기준 · 실제로 보이기 시작');
     ok(s.suns[1].el >= 1.8 - 0.6, `보이기 시작하는 해 윗가장자리가 능선 근처(중심 고도 ${s.suns[1].el.toFixed(2)}°)`);
+    const flatPic = C.buildSunHorizonCards({ ...base, kind: 'rise', language: 'ko' }).cards[2].sky;
+    ok(flatPic.suns.length === 1 && flatPic.suns[0].kind === 'visible', '평평한 수평선이면 해 하나만(두 해가 겹침)');
+    const lowTerrain = C.buildSunHorizonCards({ ...base, kind: 'set', language: 'ko', skyline: () => -0.05, profile: prof }).cards[2].sky;
+    ok(/낮은 지평선/.test(lowTerrain.caption) && !/능선/.test(lowTerrain.caption), `땅 자료가 있어도 낮으면 "${lowTerrain.caption}"`);
   }
 
   console.log('\n[5] 일출과 일몰');

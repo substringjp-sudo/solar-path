@@ -102,7 +102,7 @@ const StepCardView: React.FC<{ index: number; card: StepCard; language: Lang }> 
   }
   return (
     <View style={[styles.card, card.key && styles.cardKey]}>
-      <View style={styles.cardRow}>
+      <View style={styles.cardRowTop}>
         <Text style={styles.num}>{index}</Text>
         <View style={styles.cardMain}>
           <Text style={styles.cardTitle}>{card.title}</Text>
@@ -178,6 +178,7 @@ const useStyles = makeStyles((color) => ({
   card: { backgroundColor: color.panel, borderRadius: 10, padding: 10 },
   cardKey: { borderWidth: 1, borderColor: color.accentLine },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardRowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   cardMain: { flex: 1, minWidth: 0, gap: 6 },
   num: { width: 14, fontFamily: mono, fontSize: 11, color: color.textMute },
   cardTitle: { fontSize: 13, fontWeight: '700', color: color.text },

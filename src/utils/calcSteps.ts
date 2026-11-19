@@ -62,7 +62,7 @@ export interface SunHorizonCards {
 }
 
 /** 도 표기. 반올림하면 0 이 되는 음수(−0.0°)는 0.0° 로 적습니다. */
-const fmtDeg = (d: number, digits = 1) => `${(Math.abs(d) < 0.5 * 10 ** -digits ? 0 : d).toFixed(digits)}°`;
+const fmtDeg = (d: number, digits = 1) => `${(Math.abs(d) < 0.5 * 10 ** -digits ? 0 : d).toFixed(digits).replace('-', '−')}°`;
 const signed = (d: number, digits = 2) => `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(digits)}°`;
 
 export interface BuildSunHorizonArgs {
@@ -132,9 +132,12 @@ export function buildSunHorizonCards(a: BuildSunHorizonArgs): SunHorizonCards | 
   const skyMax = Math.max(...pts.map(p => p[1]));
   const flatSun = sunPosition(new Date(ev.flatMs), lat, lon);
   const flatSunEl = flatSun.altitude * R2D + refractionDeg(flatSun.altitude * R2D);
-  const suns: SkyPicture['suns'] = [
-    { az: (flatSun.azimuth * R2D + 180 + 360) % 360, el: flatSunEl, kind: 'flat', label: fmtTime(ev.flatMs) },
-  ];
+  const delay = ev.deltaMin ?? 0;
+  // 평평한 수평선 기준 해와 실제로 보이는 해가 30초 안으로 겹치면 하나만 그립니다(같은 자리에 같은 글이 두 번 나오지 않게).
+  const suns: SkyPicture['suns'] = [];
+  if (ev.visibleMs == null || Math.abs(delay) >= 0.5) {
+    suns.push({ az: (flatSun.azimuth * R2D + 180 + 360) % 360, el: flatSunEl, kind: 'flat', label: fmtTime(ev.flatMs) });
+  }
   if (ev.visibleMs != null) {
     const vs = sunPosition(new Date(ev.visibleMs), lat, lon);
     suns.push({ az: ev.azDeg, el: vs.altitude * R2D + refractionDeg(vs.altitude * R2D), kind: 'visible', label: fmtTime(ev.visibleMs) });
@@ -143,10 +146,12 @@ export function buildSunHorizonCards(a: BuildSunHorizonArgs): SunHorizonCards | 
   const elRange: [number, number] = [Math.min(-1, skyMin - 0.5), Math.max(skyMax, sunMax) + 1.5];
   const ridgeM = a.profile ? skylineDistM(a.profile, ev.azDeg) : null;
   const skyHere = ev.skylineDeg ?? (a.profile ? skylineAngleDeg(a.profile, ev.azDeg) : 0);
+  // 스카이라인이 0.3° 도 안 되면 능선이 아니라 낮은 지평선입니다(평지·바다) — "능선 0.0°" 라고 쓰지 않습니다.
   const caption = usedTerrain
-    ? `${L3(L, '능선', 'Ridge', '稜線')} ${fmtDeg(skyHere)}${ridgeM != null ? `, ${(ridgeM / 1000).toFixed(1)} km` : ''}`
+    ? (skyHere >= 0.3
+      ? `${L3(L, '능선', 'Ridge', '稜線')} ${fmtDeg(skyHere)}${ridgeM != null ? `, ${(ridgeM / 1000).toFixed(1)} km` : ''}`
+      : `${L3(L, '낮은 지평선', 'Low horizon', '低い地平線')} ${fmtDeg(skyHere)}`)
     : L3(L, '평평한 수평선 0°', 'Flat horizon 0°', '平らな水平線 0°');
-  const delay = ev.deltaMin ?? 0;
   const big = usedTerrain && Math.abs(delay) >= 1;
   const c3: StepCard = {
     id: 'skyline',
