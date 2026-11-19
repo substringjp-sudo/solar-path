@@ -2004,7 +2004,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 미끄러지던 줌은 손을 대는 자리에서 멈추고 이어 받습니다.
         cancelSettleRef.current();
         pinchSamplesRef.current = [];
-        tapStartMsRef.current = Date.now();
+        tapStartMsRef.current = evt.nativeEvent?.timestamp ?? Date.now();   // 이벤트 시각(느린 프레임에 밀려도 손가락 시간 그대로)
         // 드래그 시 자동 천체 트래킹 해제 -> 자유 조작 모드로 전환
         if (trackingTargetRef.current && onSelectTrackingTargetRef.current) {
           onSelectTrackingTargetRef.current(null);
@@ -2112,7 +2112,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       onPanResponderRelease: (evt) => {
         // 짧게 눌렀다 뗐고 움직임이 없었으면 탭(샌드박스 고르기). 움직이면 touchStartLocRef 가 이미 비어 있습니다.
         const wasTap = pickEnabledRef.current && touchStartLocRef.current !== null && pinchDistRef.current === null
-          && pinchSamplesRef.current.length === 0 && zoomProgressRef.current <= P_FOV_END && Date.now() - tapStartMsRef.current < 350;
+          && pinchSamplesRef.current.length === 0 && zoomProgressRef.current <= P_FOV_END && (evt?.nativeEvent?.timestamp ?? Date.now()) - tapStartMsRef.current < 350;
         const tapX = evt?.nativeEvent?.locationX, tapY = evt?.nativeEvent?.locationY;
         if (wasTap && typeof tapX === 'number' && typeof tapY === 'number') doPickRef.current(tapX, tapY);
         if (longPressTimerRef.current) {
