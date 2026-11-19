@@ -64,6 +64,8 @@ import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel } from './SandboxPanel';
+import { ObjectInfoPanel } from './ObjectInfoPanel';
+import type { PickedTarget } from '../../utils/demPick';
 import { timeTo } from '../../theme/motion';
 
 interface SkyScreenProps {
@@ -121,6 +123,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [eyeH, setEyeH] = useState(1.6);
   const [moveStepM, setMoveStepM] = useState(100);
   const homeCoords = useCelestialStore(s => s.homeCoords);
+  // 샌드박스에서 화면을 탭해 고른 대상(지형 지점). 전문가 모드를 끄거나 위치가 바뀌면 지웁니다.
+  const [picked, setPicked] = useState<PickedTarget | null>(null);
+  useEffect(() => { if (!expertMode) setPicked(null); }, [expertMode]);
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
@@ -140,6 +145,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.9780;
+  useEffect(() => { setPicked(null); }, [latitude, longitude]);   // 자리가 바뀌면 고른 대상은 옛 자리 기준이라 지웁니다
 
   const currentDateStr = useMemo(
     () => `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`,
@@ -766,6 +772,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           telephotoX={expertMode ? teleX : 1}
           showLensInfo={expertMode}
           eyeHeightM={expertMode ? eyeH : undefined}
+          pickEnabled={expertMode && !isCameraOverlayActive}
+          onPickTarget={setPicked}
+          pickedTarget={picked}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
           fullScreen={true}
@@ -817,6 +826,19 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                   timestamp: Date.now(),
                 });
               }}
+            />
+          </View>
+        )}
+
+        {/* 고른 대상 정보 (전문가 모드, 지상에서만) */}
+        {!isCameraOverlayActive && expertMode && !ascended && picked && (
+          <View style={overlayStyles.objectPanel} pointerEvents="box-none">
+            <ObjectInfoPanel
+              language={language}
+              target={picked}
+              sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
+              moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
+              onClear={() => setPicked(null)}
             />
           </View>
         )}
@@ -1187,6 +1209,7 @@ const overlayStyles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
+  objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
   teleGroup: { gap: 4, alignItems: 'flex-end' },
   teleBtn: { width: 44, height: 28 },
   teleBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },

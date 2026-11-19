@@ -28,6 +28,10 @@ if (Platform.OS !== 'web') {
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
+import { rayHitTerrain, climbToPeak, lineOfSightClearance, type PickedTarget } from '../../utils/demPick';
+import { makeDemSampler } from '../../utils/demSampler';
+import { curvatureDropM } from '../../utils/earth';
+import { offsetLatLon } from '../../utils/geoMove';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 import { sunPosition } from '../../utils/solarPosition';
@@ -364,6 +368,14 @@ interface SkyScene3DProps {
   /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
   showLensInfo?: boolean;
   /**
+   * 샌드박스: 짧게 탭하면 그 방향에서 눈에 처음 닿는 땅(멀면 가까운 봉우리로 붙임)을 골라 `onPickTarget` 으로 알립니다.
+   * 하늘·바다 쪽을 탭하면 null. 지상 단계에서만 동작합니다.
+   */
+  pickEnabled?: boolean;
+  onPickTarget?: (t: PickedTarget | null) => void;
+  /** 고른 대상 — 화면에 표시(고리)합니다. null 이면 표시 없음. */
+  pickedTarget?: PickedTarget | null;
+  /**
    * 땅 위 눈 높이(m, 기본 1.6). 2026-11-19 샌드박스: 지상 시야 단계(지도로 올라가기 전)에서만 씁니다. 지형·건물·구름이 이 높이의 눈으로 다시 그려집니다.
    * 지도로 올라가는 구간은 자기 고도 곡선을 쓰므로 높이를 올려 둔 채 줌아웃하면 올라가기 시작할 때 한 번 낮아집니다.
    */
@@ -553,6 +565,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     telephotoX = 1,
     showLensInfo = false,
     eyeHeightM,
+    pickEnabled = false,
+    onPickTarget,
+    pickedTarget = null,
   },
   ref
 ) => {
@@ -653,6 +668,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const zoomProgressRef = useRef((60 - 30) / 90);
   /** 망원 배율 — `applyZoomProgress` 가 지상 시야각을 이 값으로 나눕니다(props.telephotoX). */
   const teleRef = useRef(1);
+  /** 샌드박스 고르기 — 탭 판정과 결과를 렌더 루프·손짓 처리가 읽습니다. */
+  const pickEnabledRef = useRef(false);
+  pickEnabledRef.current = pickEnabled;
+  const onPickTargetRef = useRef(onPickTarget);
+  onPickTargetRef.current = onPickTarget;
+  const pickedTargetRef = useRef<PickedTarget | null>(null);
+  pickedTargetRef.current = pickedTarget;
+  const tapStartMsRef = useRef(0);
+  const doPickRef = useRef<(x: number, y: number) => void>(() => {});
   /** 눈 높이(m) — props.eyeHeightM. 지상 단계에서 자세의 고도를 덮어씁니다. */
   const eyeHeightRef = useRef<number | undefined>(undefined);
   const pinchZoomProgressRef = useRef((60 - 30) / 90);
@@ -1642,6 +1666,40 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       requestRender(3);
     }
   }, [fovProp, requestRender]);
+  // 샌드박스 고르기: 화면 점 → 시선(카메라 unproject, 롤·뷰 오프셋 포함) → 눈에 처음 닿는 땅 → 가까운 봉우리로 붙임 → 보이는지 확인.
+  doPickRef.current = (x: number, y: number) => {
+    const cam = cameraRef.current, patch = demPatchRef.current, renderer = rendererRef.current, cb = onPickTargetRef.current;
+    const { w: vw, h: vh } = layoutSizeRef.current;
+    if (!cam || !patch || !renderer || !cb || !vw || !vh) return;
+    const sample = makeDemSampler(renderer, patch);
+    if (!sample) return;
+    cam.updateMatrixWorld();
+    const v = new THREE.Vector3((x / vw) * 2 - 1, 1 - (y / vh) * 2, 0.5).unproject(cam).sub(cam.position);
+    const len = v.length();
+    if (len < 1e-9) return;
+    const azDeg = ((Math.atan2(v.x, -v.z) * 180) / Math.PI + 360) % 360;
+    const elDeg = (Math.asin(Math.max(-1, Math.min(1, v.y / len))) * 180) / Math.PI;
+    const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
+    const eye = ground + (eyeHeightRef.current ?? 1.6);
+    const hit = rayHitTerrain(sample, eye, azDeg, elDeg);
+    if (!hit) { cb(null); return; }
+    let { eastM, southM, elevM } = hit;
+    // 먼 대상은 가까운 봉우리 꼭대기로 붙입니다(산을 눌렀는데 비탈 한가운데가 잡히지 않게). 가까운 땅은 누른 자리 그대로.
+    if (hit.distM > 400) {
+      const pk = climbToPeak(sample, eastM, southM, { maxR: Math.min(250, hit.distM * 0.05) });
+      if (pk) { eastM = pk.eastM; southM = pk.southM; elevM = pk.elevM; }
+    }
+    const distM = Math.hypot(eastM, southM);
+    const tAz = ((Math.atan2(eastM, -southM) * 180) / Math.PI + 360) % 360;
+    const tEl = (Math.atan2(elevM - eye - curvatureDropM(distM), distM) * 180) / Math.PI;
+    const los = lineOfSightClearance(sample, eye, eastM, southM, elevM);
+    const here = locationRef.current?.coords;
+    const ll = here ? offsetLatLon(here.latitude, here.longitude, eastM, -southM) : null;
+    cb({
+      kind: 'terrain', azDeg: tAz, elDeg: tEl, distM, elevM, eyeElevM: eye, eastM, southM,
+      latitude: ll?.latitude ?? null, longitude: ll?.longitude ?? null, visible: los.visible, marginM: los.marginM,
+    });
+  };
   // 눈 높이 — 바뀌면 다시 그립니다(렌더 루프가 읽음).
   useEffect(() => {
     const h = eyeHeightM !== undefined && Number.isFinite(eyeHeightM) ? Math.max(0.5, Math.min(2000, eyeHeightM)) : undefined;
@@ -1946,6 +2004,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 미끄러지던 줌은 손을 대는 자리에서 멈추고 이어 받습니다.
         cancelSettleRef.current();
         pinchSamplesRef.current = [];
+        tapStartMsRef.current = Date.now();
         // 드래그 시 자동 천체 트래킹 해제 -> 자유 조작 모드로 전환
         if (trackingTargetRef.current && onSelectTrackingTargetRef.current) {
           onSelectTrackingTargetRef.current(null);
@@ -2050,7 +2109,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
         }
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (evt) => {
+        // 짧게 눌렀다 뗐고 움직임이 없었으면 탭(샌드박스 고르기). 움직이면 touchStartLocRef 가 이미 비어 있습니다.
+        const wasTap = pickEnabledRef.current && touchStartLocRef.current !== null && pinchDistRef.current === null
+          && pinchSamplesRef.current.length === 0 && zoomProgressRef.current <= P_FOV_END && Date.now() - tapStartMsRef.current < 350;
+        const tapX = evt?.nativeEvent?.locationX, tapY = evt?.nativeEvent?.locationY;
+        if (wasTap && typeof tapX === 'number' && typeof tapY === 'number') doPickRef.current(tapX, tapY);
         if (longPressTimerRef.current) {
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;
@@ -3204,6 +3268,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 }
               });
             }
+
+          // 샌드박스: 고른 대상 표시(고리) — 눈에서 그 방향으로 400 떨어진 점을 라벨과 같은 식으로 투영합니다.
+          const pk = pickedTargetRef.current;
+          if (pk && zoomProgressRef.current <= P_FOV_END + 0.05) {
+            const ce = Math.cos((pk.elDeg * Math.PI) / 180), se = Math.sin((pk.elDeg * Math.PI) / 180);
+            const a = (pk.azDeg * Math.PI) / 180;
+            const pv = new THREE.Vector3(Math.sin(a) * ce * 400, se * 400, -Math.cos(a) * ce * 400).add(camera.position);
+            const pp = proj(pv);
+            if (pp.visible) labs.push({ id: 'pick', name: '', x: pp.px, y: pp.py, color: '#38BDF8' });
+          }
           }
 
           const prevLabs = prevLabelsRef.current;
@@ -4434,6 +4508,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         };
 
         return celestialLabels.map(lbl => {
+          if (lbl.id === 'pick') {
+            return (
+              <View key="pick" pointerEvents="none" style={[styles.pickRing, { left: lbl.x - 15, top: lbl.y - 15 }]}>
+                <View style={styles.pickDot} />
+              </View>
+            );
+          }
           const isTrackingThis = trackingTarget === lbl.id;
           const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 18));
           const preferredY = lbl.y >= 46 ? lbl.y - 34 : lbl.y + 18;
@@ -4636,6 +4717,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
   },
+  pickRing: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#38BDF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+  },
+  pickDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#38BDF8' },
   celestialLabelPin: {
     position: 'absolute',
     flexDirection: 'row',
