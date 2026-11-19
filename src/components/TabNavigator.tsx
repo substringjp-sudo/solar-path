@@ -11,13 +11,14 @@
  * `selectedCategory`는 그대로였고, `sim3dView`는 배열에 없어 스와이프로
  * 오갈 수조차 없었습니다. 카테고리 개념을 없애 이 어긋남을 구조적으로 제거합니다.
  */
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
 import { Gallery } from './Gallery';
 import { ForecastScreen } from './ForecastScreen/ForecastScreen';
 import { TAB_ORDER, type AppTab } from './AppHeader';
+import type { ForecastFocus } from '../utils/upcomingMoments';
 import { springTo } from '../theme/motion';
 
 interface TabNavigatorProps {
@@ -66,6 +67,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   const { width } = Dimensions.get('window');
 
   const activeIndex = TAB_ORDER.indexOf(activeTab);
+  // 01 하늘의 "다가오는 좋은 순간" 카드에서 02 예보로 올 때 강조할 칸. 02 예보를 떠나면 02 예보가 지웁니다.
+  const [forecastFocus, setForecastFocus] = useState<ForecastFocus | null>(null);
   const startX = useRef(0);
   const activeTabRef = useRef(activeTab);
   const activeIndexRef = useRef(activeIndex);
@@ -145,6 +148,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           onOpenDatePicker={onOpenDatePicker}
           isActive={activeTab === 'sky' && !isSuspended}
           isCameraOverlayActive={isCameraOverlayActive}
+          onOpenForecast={(f) => { setForecastFocus(f); setActiveTab('forecast'); }}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'forecast' && styles.hiddenPage]}>
@@ -152,6 +156,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           isActive={activeTab === 'forecast' && !isSuspended}
           setCurrentTime={setCurrentTime}
           onOpenSky={() => setActiveTab('sky')}
+          focus={forecastFocus}
+          onClearFocus={() => setForecastFocus(null)}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>

@@ -123,6 +123,8 @@ const ENTRIES = [
   'src/utils/dateSlider.ts',
   // 02 예보 — 16일 해 쪽 줄 자료로 날마다 일출 · 일몰 판정(verify-sun-forecast.js).
   'src/utils/sunForecast.ts',
+  // 01 하늘의 "다가오는 좋은 순간" 카드 고르기 — verify-upcoming-moments.js
+  'src/utils/upcomingMoments.ts',
   // 촬영 화면 전체 화면 — 미리보기 화각 · 해 경로 투영(verify-camera-overlay.js).
   'src/utils/cameraOverlay.ts',
   // 야간 장노출 예측 · 지구자전 역투영 정합 (verify-astro-forecast.js · verify-astro-stack.js).

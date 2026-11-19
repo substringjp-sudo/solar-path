@@ -14,6 +14,9 @@
  * - **P4 쪽을 섞지 않는다**: 일몰 쪽 줄만 저층 95 % 면, 자료가 있는 모든 날 일몰 점수 < 일출 점수.
  * - **P5 가장 좋은 때**: 지난 출몰과 7일 너머(`low`)는 고르지 않고, 남은 것 중 점수가 가장 높은 것.
  * - **P6 시간**: 16일 × 2 출몰 판정이 Node 에서 300 ms 이하(기기는 몇 배 느리다고 보고 잡은 값).
+ * - **P7 이유 문장**(2026-11-19, 01 하늘 카드와 02 예보 강조 카드가 씁니다): 점수가 있는 출몰은 `description` 이 비어 있지 않은 글이고 예측의 것과 같으며,
+ *   예보 없는 출몰은 null. 가장 붉을 때 카드의 문장이 판정과 따로 놀지 않게 합니다.
+ * - **P8 날 수**: `days` 를 주면 그만큼만 셉니다(3 이면 오늘 포함 3 날). 안 주면 16일.
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-sun-forecast.js
  */
@@ -122,6 +125,18 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   const late = evs.filter(e => e.at.getTime() >= cut), early = evs.filter(e => e.at.getTime() + 31 * 60e3 < cut);
   ok(late.length > 0 && late.every(e => e.score == null && e.quality == null && e.source == null) && early.every(e => e.score != null),
      `P3 7일째부터 빈 자료 — 뒤 ${late.length}개 출몰 모두 예보 없음 · 앞 ${early.length}개 모두 점수 있음`);
+
+  // ── P7 이유 문장
+  const withScore = evs.filter(e => e.score != null), noScore = evs.filter(e => e.score == null);
+  ok(withScore.length > 0 && withScore.every(e => typeof e.description === 'string' && e.description.length > 0) && noScore.every(e => e.description === null),
+     `P7 점수 있는 ${withScore.length}개 출몰은 이유 문장이 있고 예보 없는 ${noScore.length}개는 null`);
+  const vSame = F.eventVerdict(fc, today, 'sunset', LAT, LON, 10);
+  ok(!!vSame && d0.description === vSame.prediction.description, `P7 오늘 일몰의 이유 문장이 예측의 것과 같다 ("${String(d0.description).slice(0, 36)}…")`);
+
+  // ── P8 날 수
+  const days3 = F.buildForecastDays({ latitude: LAT, longitude: LON, now, tzHours: TZ, observerElevM: 10, forecast: fc, days: 3 });
+  const days16 = F.buildForecastDays({ latitude: LAT, longitude: LON, now, tzHours: TZ, observerElevM: 10, forecast: fc });
+  ok(days3.length === 3 && days16.length === 16 && days3.every((d, i) => d.noonMs === days16[i].noonMs && d.sunset?.score === days16[i].sunset?.score), `P8 days 3 → ${days3.length}날, 기본 ${days16.length}날, 앞 3날은 같은 값`);
 
   // ── P4 쪽을 섞지 않는다
   const fcWest = F.pathFromResponse(pts, response((d, side) => (d === 0 ? OBS : side === 'sunset' ? { low: 95, mid: 0, high: 0 } : { low: 0, mid: 0, high: 0 })));

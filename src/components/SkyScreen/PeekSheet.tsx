@@ -44,6 +44,8 @@ interface PeekSheetProps {
   expandedRatio?: number;
   /** 무대(부모) 높이 — 펼친 높이가 이보다 커지지 않게 */
   maxHeight?: number;
+  /** 펼쳐졌는지(살짝이라도 열렸는지)가 바뀔 때 — 펼칠 때만 필요한 자료를 받는 데 씁니다. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export const PeekSheet: React.FC<PeekSheetProps> = ({
@@ -52,6 +54,7 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
   theme,
   expandedRatio = 0.62,
   maxHeight,
+  onOpenChange,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   const { height } = useWindowDimensions();
@@ -134,6 +137,9 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
     const id = progress.addListener(({ value }) => setOpen((o) => (value > 0.05) !== o ? value > 0.05 : o));
     return () => progress.removeListener(id);
   }, [progress]);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  React.useEffect(() => { onOpenChangeRef.current?.(open); }, [open]);
 
   return (
     <>

@@ -57,6 +57,8 @@ export interface ForecastEvent {
   tier: AccuracyTier;
   /** 무엇으로 셌나. null 이면 예보 없음. */
   source: 'ring' | 'forecast' | null;
+  /** 판정의 이유 한 문장(예측의 `description`, 영어 원문 — 화면은 `translateSunsetDesc` 로 옮깁니다). 예보가 없으면 null. */
+  description?: string | null;
 }
 
 export interface ForecastDay {
@@ -224,9 +226,9 @@ export function buildForecastDays(p: {
       for (const [path, source] of tries) {
         if (!path?.length) continue;
         const v = eventVerdict(path, at, side, lat, lon, observerElevM);
-        if (v) return { side, at, peakAt: v.time, score: v.score, quality: v.prediction.quality, tier, source };
+        if (v) return { side, at, peakAt: v.time, score: v.score, quality: v.prediction.quality, tier, source, description: v.prediction.description ?? null };
       }
-      return { side, at, peakAt: null, score: null, quality: null, tier, source: null };
+      return { side, at, peakAt: null, score: null, quality: null, tier, source: null, description: null };
     };
     return { noonMs, sunrise: one('sunrise'), sunset: one('sunset') };
   });
