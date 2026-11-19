@@ -52,6 +52,8 @@ import { ScoreGraph } from './ScoreGraph';
 import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
+import { cloudSummary, skyDirection } from '../../utils/skyWords';
+import { CloudCaption } from './CloudCaption';
 import { DevTuningPanel } from './DevTuningPanel';
 import {
   getVolumetricStatus,
@@ -939,6 +941,23 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';
 
+  // 쉬운 말(목업 1): 해가 뜨고 지는 쪽("서쪽 하늘")과 하늘 위 구름 한 줄("낮은 구름 조금 · 높은 구름 많음", `utils/skyWords.ts`).
+  // 구름 줄은 예보가 있을 때만 — 받는 중 · 실패 · 맑은 하늘 대체 자료(`usingFallbackSky`) · 받아 둔 시간 밖에서는 숫자를 말로 옮길 근거가 없어 적지 않습니다.
+  const dirEvent = isSunriseSide ? events?.sunrise : events?.sunset;
+  const glowDirection = useMemo(
+    () => (dirEvent && Number.isFinite(dirEvent.getTime()) ? skyDirection(sunPosition(dirEvent, latitude, longitude).azimuth * (180 / Math.PI) + 180, language) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dirEvent?.getTime(), latitude, longitude, language],
+  );
+  const weatherCoversNow = (() => {
+    const h = pathData[0]?.hourly;
+    const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
+    return !!times?.length && currentTime.getTime() >= times[0] && currentTime.getTime() <= times[times.length - 1];
+  })();
+  const cloudCaption = !expertMode && !weatherError && !isWeatherLoading && !usingFallbackSky && weatherCoversNow
+    ? cloudSummary(interpolatedWeather[0], language)
+    : null;
+
   return (
     <View style={styles.container}>
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
@@ -975,6 +994,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           hideCompassBar={isCameraOverlayActive}
           registerPrimary
         />
+
+        {/* 하늘 위 구름 한 줄(쉬운 말) — 초보자 화면만 */}
+        {cloudCaption && !isCameraOverlayActive && <CloudCaption text={cloudCaption} />}
 
         {trackingTarget && (
           <PressScale
@@ -1219,6 +1241,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               theme={theme}
               isSunrise={isSunriseSide}
               peakTime={glow?.time}
+              directionText={glowDirection}
               onWhy={() => { setCalcDate(glow?.time ?? currentTime); setCalcTopic('score'); setCalcOpen(true); }}
             />
           )}

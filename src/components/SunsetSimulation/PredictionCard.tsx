@@ -69,6 +69,8 @@ export interface PredictionCardProps {
   peakTime?: Date | null;
   /** "왜 그런가요?" — 점수가 나온 단계를 보여 주는 계산 과정 보기로 갑니다(docs/SANDBOX_MODE_PLAN.md 9 장). 없으면 링크를 그리지 않습니다. */
   onWhy?: () => void;
+  /** 해가 뜨고 지는 쪽("서쪽 하늘") — 머리 줄에 덧붙입니다(`utils/skyWords.ts`). 모르면 적지 않습니다. */
+  directionText?: string | null;
 }
 
 export const PredictionCard: React.FC<PredictionCardProps> = ({
@@ -78,6 +80,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   onPressSource,
   peakTime,
   onWhy,
+  directionText,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
@@ -89,7 +92,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   return (
     <View style={styles.card}>
       <View style={styles.headRow}>
-        <Text style={styles.sectionLabel}>{isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}</Text>
+        <Text style={styles.sectionLabel}>{`${isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}${directionText ? ` · ${directionText}` : ''}`}</Text>
         {weatherSource === 'ultra-short' && (
           <PressScale
             style={[styles.sourceBadge, { backgroundColor: tint(dataColor.qClean, 0.14), borderColor: tint(dataColor.qClean, 0.4) }]}

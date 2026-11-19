@@ -16,6 +16,9 @@ import { VOLUMETRIC_TERRAIN_ALBEDO } from '../../src/components/SkyScene3D/Terra
 import { setTerrainLook } from '../../src/components/SkyScene3D/terrainLook';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
+import { CloudCaption } from '../../src/components/SkyScreen/CloudCaption';
+import { PredictionCard } from '../../src/components/SunsetSimulation/PredictionCard';
+import { cloudSummary, skyDirection } from '../../src/utils/skyWords';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
 import { ScoreGraph } from '../../src/components/SkyScreen/ScoreGraph';
 import { scoreWindow, sampleScores } from '../../src/utils/scoreSeries';
@@ -113,6 +116,30 @@ function GlobeRepro({ W, H }: { W: number; H: number }) {
 }
 
 /** bar:1 — 하단 날짜·시간 막대만(§143). t·now·tz 로 시각·지금·시간대. 커밋 횟수·시각을 window.__bar 에 남깁니다. */
+/**
+ * words:1 — 쉬운 말(2026-11-19): 판정 카드의 해 방향 머리 줄과 하늘 위 구름 한 줄. 실제 `predictSunset` 으로 카드를 그리고 구름 줄은 같은 운량에서 만듭니다.
+ *   low · mid · high 운량 %, az 해 방위(기본 245), lang · light.   예: {"words":1,"low":20,"mid":5,"high":70,"az":245}
+ */
+function WordsRepro({ W }: { W: number }) {
+  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark', language: Q.lang ?? 'ko' } as any); }, []);
+  const lo = Q.low ?? 20, mi = Q.mid ?? 5, hi = Q.high ?? 70, lang = Q.lang ?? 'ko';
+  const pred = React.useMemo(() => {
+    const T0 = new Date('2026-11-21T17:00:00+09:00');
+    const mk = (l: number, m: number, h: number, d: number, off: number) => ({ distance: d, azimuthOffset: off, source: 'standard', hourly: { time: ['x'], timeMs: [T0.getTime()], low: [l], mid: [m], high: [h] } });
+    const path = [mk(lo, mi, hi, 0, 0), ...[30, 60, 100, 200].flatMap(d => [0, 90, 180, 270].map(a => mk(a === 0 ? 0 : lo, mi, hi, d, a)))];
+    return predictSunset(path as any, T0, 0.5, 20000, 55, 37.5, 38, 325, Q.az ?? 245);
+  }, []);
+  const line = cloudSummary({ low: lo, mid: mi, high: hi }, lang);
+  return (
+    <View style={{ width: W, backgroundColor: Q.light ? '#E9EEF4' : '#070A12' }}>
+      <View style={{ height: 150, backgroundColor: '#35557F' }}>{line ? <CloudCaption text={line} /> : null}</View>
+      <View style={{ padding: 12 }}>
+        <PredictionCard prediction={pred} isSunrise={false} peakTime={new Date('2026-11-21T17:11:00+09:00')} directionText={skyDirection(Q.az ?? 245, lang)} onWhy={() => {}} />
+      </View>
+    </View>
+  );
+}
+
 function BarRepro({ W }: { W: number }) {
   const [t, setT] = React.useState(new Date(Q.t ?? Date.now()));
   const [sim, setSim] = React.useState(true);
@@ -419,6 +446,7 @@ export default function App() {
   if (Q.bar) return <BarRepro W={W} />;
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);
+  if (Q.words) return <WordsRepro W={W} />;
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.forecast) return <ForecastRepro W={W} H={H} />;
   if (Q.cards) return <CardsRepro W={W} />;
