@@ -15,6 +15,9 @@
  *  5. 일출과 일몰은 말이 다르다(보이기 시작 ↔ 사라짐, 일찍 ↔ 늦게까지), 극야는 null.
  *  6. 아래 한 줄 — 늦은 분이 계산의 deltaMin 을 반올림한 값, 같은 정도면 "거의 같아요".
  *  7. 글 — NaN · undefined · Infinity 가 어느 글에도 없고, en · ja 글에 한글이 없다.
+ *  8. 노을 점수 카드 — 5 장(예보·지도·투과·구름 종류·점수)이 `predictSunset` 의 breakdown 과 맞다: 예보 줄 = 입력, 막대 = 해 쪽 경로 투과율,
+ *     점수 카드의 두 몫 합 = 점수(±1), 지도 칸의 방위 = 해 방위 + 링의 상대 방위, 해 쪽 구름·맑음·낮(key 없음, 이유를 아래 글이)·breakdown 없음 분기.
+ *     key 는 날씨·해 쪽 빛의 길 가운데 15% 넘게 깎은 더 큰 쪽(둘 다 적게 깎고 점수가 60 미만이면 구름 단계).
  *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-calc-steps.js
@@ -113,6 +116,62 @@ const RAD = Math.PI / 180;
     }
     ok(badNum === 0, 'NaN · undefined · Infinity 가 어느 글에도 없다');
     ok(hanInOther === 0, 'en · ja 글에 한글이 없다');
+  }
+
+  // ── [8] 노을 점수 ───────────────────────────────────────────────────────
+  console.log('\n[8] 노을 점수 카드');
+  {
+    const SP = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'sunsetPhysics.js'));
+    const mk = (low, mid, high, d, off) => ({ distance: d, azimuthOffset: off, source: 'standard', hourly: { time: ['2026-11-19T17:00'], timeMs: [Date.parse('2026-11-19T17:00:00+09:00')], low: [low], mid: [mid], high: [high], directNormalIrradiance: [300], totalColumnWaterVapour: [18], precipitation: [0], visibility: [20000], humidity: [55] } });
+    const T0 = new Date('2026-11-19T17:00:00+09:00');
+    // 링: 관측점 + 거리 4 겹 × 해 기준 방위 4 방향. sunLow 는 해 쪽(0°) 줄의 낮은 구름 %.
+    const ringPath = (lo, mi, hi, sunLow, sunLowDist = 60) => [mk(lo, mi, hi, 0, 0), ...[30, 60, 100, 200].flatMap(d => [0, 90, 180, 270].map(a => mk(a === 0 && d === sunLowDist ? sunLow : (a === 0 ? 0 : lo * 0.8), mi, hi, d, a)))];
+    const flat = (path) => path.map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.hourly.low[0], mid: p.hourly.mid[0], high: p.hourly.high[0] }));
+    const QW = { Epic: '훌륭함', Great: '좋음', Fair: '보통', Muted: '아쉬움', Overcast: '흐림' };
+    const run = (lo, mi, hi, sunLow, alt, lang = 'ko', kind = 'sunset') => {
+      const path = ringPath(lo, mi, hi, sunLow);
+      const pred = SP.predictSunset(path, T0, alt, 20000, 55, 37.5, 30, 323, 250);
+      return { pred, out: C.buildSunsetScoreCards({ prediction: pred, ring: flat(path), time: T0, eventMs: T0.getTime(), sunAzDeg: 250, kind, language: lang, fmtTime: fmt, qualityWord: (q) => QW[q] }) };
+    };
+    const good = run(4, 18, 63, 0, 0.5);
+    ok(good.out && good.out.cards.map(c => c.id).join() === 'forecast,map,path,cloudtype,score' && good.out.cards.map(c => c.shape).join() === 'rows,map,bar,rows,result', '카드 5 장: 예보(rows) · 지도(map) · 투과(bar) · 구름 종류(rows) · 점수(result)');
+    const f = good.out.cards[0].rows.map(r => r.value).join('|');
+    ok(f.startsWith('4 %|18 %|63 %|55 %'), `예보 줄이 입력과 같다 (${f})`);
+    const sc = good.out.cards[4];
+    ok(sc.result === `${QW[good.pred.quality]} ${good.pred.score}` && good.out.score === good.pred.score, `점수 카드 "${sc.result}" = 예측의 판정·점수`);
+    const parts = sc.rows.map(r => parseInt(r.value, 10));
+    ok(Math.abs(parts[0] + parts[1] - good.pred.score) <= 1 && sc.note === '', `두 몫 ${parts[0]} + ${parts[1]} 가 점수 ${good.pred.score} 와 ±1 (반올림)`);
+    const m = good.out.cards[1].map;
+    ok(m.cells.length === 16 && m.ringsKm.join() === '30,60,100,200' && m.maxKm === 200 && m.cells.every(c => c.azDeg >= 0 && c.azDeg < 360), `지도 칸 ${m.cells.length} 개, 거리 고리 ${m.ringsKm.join('·')} km`);
+    const sunCell = m.cells.find(c => c.distKm === 60 && Math.abs(c.azDeg - 250) < 1e-6);
+    ok(!!sunCell, '해 방위(250°) 쪽 칸이 지도에 해 방위로 놓인다');
+    const bar = good.out.cards[2].bar;
+    ok(Math.abs(bar.value - good.pred.factors.pathClarity) < 1e-12 && bar.display === `${Math.round(bar.value * 100)} %`, `막대 값 ${bar.display} = 해 쪽 경로 투과율`);
+
+    const blocked = run(10, 10, 10, 90, 0.5);
+    ok(/60 km/.test(blocked.out.cards[1].note) && /낮은/.test(blocked.out.cards[1].note) && /90 %/.test(blocked.out.cards[1].note), `해 쪽 60 km 낮은 구름 90% 를 지도 글이 짚는다 ("${blocked.out.cards[1].note.slice(0, 36)}…")`);
+    ok(blocked.out.keyId === 'path' && blocked.out.cards[2].key === true && /가장 크게 깎은/.test(blocked.out.cards[2].note), `해 쪽 길이 막히면 투과 단계가 key (keyId ${blocked.out.keyId})`);
+    ok(good.out.keyId === 'path' && /가장 크게 깎은/.test(good.out.cards[2].note), `목업과 같은 장면(낮은 4 · 중간 18 · 높은 63): 투과 단계가 key (${good.out.keyId})`);
+    const wet = run(95, 80, 10, 0, 0.5);
+    ok(wet.out.keyId === 'forecast' && wet.out.cards[0].key === true, `두껍게 흐린 날은 예보 단계가 key (${wet.out.keyId})`);
+    const clear = run(0, 0, 0, 0, 1);
+    ok(/거의 맑아요/.test(clear.out.cards[1].note) && /구름이 거의 없어요/.test(clear.out.cards[3].note) && clear.out.cards[3].rows[0].value === '거의 없음', '맑은 하늘이면 지도·구름 종류 글이 맑다고 말한다');
+    const noon = run(10, 10, 10, 0, 40);
+    ok(noon.out.keyId === null && /해 고도가 40°/.test(noon.out.footnote) && /너무 높아/.test(noon.out.footnote), `낮에는 key 없음, 아래 글이 이유를 말한다 ("${noon.out.footnote.slice(0, 30)}…")`);
+    ok(good.pred.breakdown && C.buildSunsetScoreCards({ prediction: { score: 0, quality: 'Muted' }, ring: [], time: T0, sunAzDeg: 0, kind: 'sunset', language: 'ko', fmtTime: fmt, qualityWord: (q) => q }) === null, 'breakdown 이 없으면 null');
+    ok(good.out.title === '노을 점수가 나오기까지' && good.out.eventLabel === `일몰 ${fmt(T0.getTime())}`, `제목·부제 "${good.out.title}" / "${good.out.eventLabel}"`);
+    const dawn = run(4, 18, 63, 0, 0.5, 'ko', 'sunrise');
+    ok(dawn.out.title === '새벽 노을 점수가 나오기까지', '일출 쪽이면 제목이 새벽 노을');
+
+    let badTxt = 0, hanOther = 0;
+    for (const L of ['ko', 'en', 'ja']) for (const args of [[4, 18, 63, 0, 0.5], [10, 10, 10, 90, 0.5], [0, 0, 0, 0, 1], [10, 10, 10, 0, 40]]) {
+      const o = run(...args, L).out;
+      const txt = JSON.stringify(o);
+      if (/NaN|undefined|Infinity/.test(txt.replace(/"eventLabel":null/, ''))) badTxt++;
+      if (L !== 'ko' && /[가-힣]/.test(txt.replace(/"result":"[^"]*"/g, ''))) hanOther++;   // result 의 판정 단어는 앱의 번역을 따르므로 이 시험의 한글 표(QW)가 섞입니다
+    }
+    ok(badTxt === 0, '세 언어 · 네 장면의 글에 NaN · undefined · Infinity 가 없다');
+    ok(hanOther === 0, 'en · ja 글에 한글이 없다(판정 단어 제외)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
