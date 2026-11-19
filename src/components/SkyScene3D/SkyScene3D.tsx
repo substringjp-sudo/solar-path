@@ -356,6 +356,13 @@ interface SkyScene3DProps {
   hideCompassBar?: boolean;
   /** 땅을 떠나 위로 올라갔는지(지상 시야각 단계를 넘었는지) 바뀔 때. 화면이 "지도로" 버튼을 숨기는 데 씁니다. */
   onAscendedChange?: (ascended: boolean) => void;
+  /**
+   * 망원 배율(1 이상, 기본 1). 2026-11-19 샌드박스: 지상 시야각(30~120°)을 이 값으로 나눕니다. 20 배면 1.5~6°(달이 화면 3분의 1).
+   * 손가락 줌(30~120°)은 그대로 기본 시야각을 정하고, 망원은 그 위에 곱해집니다. 시야각을 읽는 곳(드래그 속도·해 크기·눈금)이 모두 같이 따라갑니다.
+   */
+  telephotoX?: number;
+  /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
+  showLensInfo?: boolean;
   /** 하늘 화면의 장면을 다른 화면(촬영)이 renderRemote 로 빌려 쓰게 등록합니다(primarySky.ts). */
   registerPrimary?: boolean;
 }
@@ -363,6 +370,8 @@ interface SkyScene3DProps {
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
 /** 촬영 화면용 한 장(renderRemote)을 찍기 전 새 시선으로 그릴 프레임 수 — 구름 시간 누적 한 바퀴(16) + 여유. */
 const REMOTE_SETTLE_FRAMES = 20;
+/** 망원 배율 상한 — 지상 시야각 30~120° 를 이 값으로 나눕니다(1.5~6°). */
+export const TELE_MAX = 20;
 
 export type LongExposureSimMode = 'trails' | 'tracked' | 'tracked_fixed_ground';
 
@@ -536,6 +545,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     hideHudOverlay = false,
     hideCompassBar = false,
     onAscendedChange,
+    telephotoX = 1,
+    showLensInfo = false,
   },
   ref
 ) => {
@@ -634,6 +645,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const viewCenterOffsetYFracRef = useRef(0);
   // 무한 줌 스펙트럼 (0~1: 지상 FOV 30°~120°, 1~2: 상공 고도 상승 1.6m~20km 구름 레이더, 2~3: 우주 궤도 3차원 지구본 및 노을 등시선)
   const zoomProgressRef = useRef((60 - 30) / 90);
+  /** 망원 배율 — `applyZoomProgress` 가 지상 시야각을 이 값으로 나눕니다(props.telephotoX). */
+  const teleRef = useRef(1);
   const pinchZoomProgressRef = useRef((60 - 30) / 90);
   const savedGroundElevRef = useRef(13);
   const [altitudeMState, setAltitudeMState] = useState(1.6);
@@ -853,7 +866,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const prev = zoomProgressRef.current;
     zoomProgressRef.current = p;
     if (Math.abs(p - prev) > 1e-6) lastViewMoveMsRef.current = Date.now();
-    if (p <= P_FOV_END) fovRef.current = 30 + p * 90;
+    if (p <= P_FOV_END) fovRef.current = (30 + p * 90) / teleRef.current;
     const { w, h } = viewSizeRef.current;
     const aspect = w / h;
     // 3D 가 보이는 동안 지도 한가운데는 관측점(카메라 바로 아래). 지도에서 줌인하면
@@ -1084,7 +1097,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
         setCameraFov(fovRef.current);
       } else if (zoomProgressRef.current > P_FOV_END) {
-        zoomProgressRef.current = (fovRef.current - 30) / 90;
+        zoomProgressRef.current = (fovRef.current * teleRef.current - 30) / 90;
       }
       if (opts?.rollDeg !== undefined && Number.isFinite(opts.rollDeg)) {
         cameraRollRef.current = opts.rollDeg;
@@ -1621,6 +1634,23 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       requestRender(3);
     }
   }, [fovProp, requestRender]);
+  // 망원 배율 — 지상에서만. 바뀌면 지상 시야각을 다시 셉니다(손가락 줌의 기본 시야각 ÷ 배율).
+  useEffect(() => {
+    const t = Math.max(1, Math.min(TELE_MAX, Number.isFinite(telephotoX) ? telephotoX : 1));
+    if (Math.abs(teleRef.current - t) < 1e-6) return;
+    teleRef.current = t;
+    const p = zoomProgressRef.current;
+    if (p <= P_FOV_END) {
+      fovRef.current = (30 + p * 90) / t;
+      if (cameraRef.current) {
+        cameraRef.current.fov = fovRef.current;
+        cameraRef.current.updateProjectionMatrix();
+      }
+      setCameraFov(fovRef.current);
+      lastViewMoveMsRef.current = Date.now();
+      requestRender(6);
+    }
+  }, [telephotoX, requestRender]);
 
   const teleportTarget = useCelestialStore((s) => s.teleportTarget);
   const language = useCelestialStore((s) => s.language);
@@ -4350,6 +4380,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           cameraFov={cameraFov}
           theme={theme}
           adjusting={viewAdjusting}
+          lensAspect={showLensInfo ? width / Math.max(1, height) : undefined}
         />
       )}
 

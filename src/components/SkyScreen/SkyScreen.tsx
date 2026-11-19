@@ -113,6 +113,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 2026-11-19 초보자 화면 덜어내기(docs/SANDBOX_MODE_PLAN.md 2.4): 꺼짐이 기본, 켜면 지금까지의 모든 조작.
   const expertMode = useCelestialStore(s => s.expertMode);
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
+  // 샌드박스 망원 배율(전문가 모드만) — 1 이면 지금까지처럼 지상 시야각 30~120°, 20 이면 1.5~6°(달 사진용).
+  const [teleX, setTeleX] = useState(1);
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
@@ -755,6 +757,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           theme={OVERLAY_THEME}
           layers={layers}
           skySettings={skySettings}
+          telephotoX={expertMode ? teleX : 1}
+          showLensInfo={expertMode}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
           fullScreen={true}
@@ -815,6 +819,23 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             >
               <Globe size={16} color={DARK.text} />
             </OverlayButton>
+          )}
+
+          {/* 망원 배율 — 전문가 모드, 지상에서만 */}
+          {expertMode && !ascended && (
+            <View style={overlayStyles.teleGroup}>
+              {[1, 2, 5, 10, 20].map(x => (
+                <OverlayButton
+                  key={x}
+                  active={teleX === x}
+                  onPress={() => setTeleX(x)}
+                  accessibilityLabel={L3(language, `망원 ${x}배`, `Telephoto ${x}x`, `望遠 ${x}倍`)}
+                  style={overlayStyles.teleBtn}
+                >
+                  <Text style={[overlayStyles.teleBtnText, teleX === x && { color: DARK.accent }]}>{x}×</Text>
+                </OverlayButton>
+              ))}
+            </View>
           )}
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
@@ -1129,6 +1150,9 @@ const overlayStyles = StyleSheet.create({
     zIndex: 20,
     alignItems: 'flex-end',
   },
+  teleGroup: { gap: 4, alignItems: 'flex-end' },
+  teleBtn: { width: 44, height: 28 },
+  teleBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   expertBtn: { width: undefined, paddingHorizontal: 10 },
   expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {

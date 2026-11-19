@@ -11,6 +11,7 @@
  */
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import { lensLine } from '../../utils/lensInfo';
 
 interface ViewfinderOverlayProps {
   cameraAzimuth: number;    // 0 ~ 360°
@@ -19,6 +20,8 @@ interface ViewfinderOverlayProps {
   theme?: any;
   /** 손으로 시선·줌을 바꾸는 중(놓고 잠시 뒤 false). 이때만 고도·시야각 눈금을 보입니다. */
   adjusting?: boolean;
+  /** 샌드박스: 값이 있으면(화면 비율 w/h) 렌즈 정보 배지를 늘 보입니다(utils/lensInfo.ts). */
+  lensAspect?: number;
 }
 
 export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
@@ -27,6 +30,7 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
   cameraFov,
   theme,
   adjusting = false,
+  lensAspect,
 }) => {
   const normAz = ((cameraAzimuth % 360) + 360) % 360;
   const roundedAz = Math.round(normAz);
@@ -221,8 +225,17 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
     return ticks;
   }, [roundedFov]);
 
+  const lens = useMemo(() => (lensAspect != null ? lensLine(cameraFov, lensAspect) : null), [cameraFov, lensAspect]);
+  const fovText = cameraFov < 10 ? cameraFov.toFixed(1) : String(roundedFov);
+
   return (
     <View style={styles.container} pointerEvents="none">
+      {lens && (
+        <View style={styles.lensBadge}>
+          <Text style={styles.lensText}>FOV {fovText}°  {lens.mmText}</Text>
+          <Text style={styles.lensSub}>{lens.lensText}</Text>
+        </View>
+      )}
       {/* ── 방위 눈금 한 줄 (읽기 — 늘 보임) ─────────────────────────────── */}
       <View style={styles.topRulerContainer}>
         <View style={styles.topCenterIndicator}>
@@ -260,6 +273,20 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
+
+  // ── 렌즈 정보(샌드박스) ──
+  lensBadge: {
+    position: 'absolute',
+    top: 52,
+    left: 12,
+    backgroundColor: 'rgba(10, 15, 26, 0.82)',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 2,
+  },
+  lensText: { color: '#F1F5F9', fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  lensSub: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
 
   // ── 상단 방위 눈금자 ──
   topRulerContainer: {
