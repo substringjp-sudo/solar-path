@@ -77,6 +77,8 @@ const ENTRIES = [
   // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
   'src/utils/terrainSun.ts',
   'src/utils/calcSteps.ts',
+  // 01 하늘의 시간대별 점수 그래프(창 · 표본 · 경로 · 눈금) — verify-score-series.js
+  'src/utils/scoreSeries.ts',
   'src/utils/alignSearch.ts',
   // 서 있을 자리 찾기(대상에 해·달을 원하는 크기로 거는 거리·날짜·자리) — verify-stand-finder.js
   'src/utils/standFinder.ts',

@@ -17,6 +17,9 @@ import { setTerrainLook } from '../../src/components/SkyScene3D/terrainLook';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
+import { ScoreGraph } from '../../src/components/SkyScreen/ScoreGraph';
+import { scoreWindow, sampleScores } from '../../src/utils/scoreSeries';
+import { sunPosition } from '../../src/utils/solarPosition';
 import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
 import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
@@ -139,6 +142,42 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
  *   cloud(운량 %) · aod · vis(시정 m) · rh(습도 %) · pm(PM2.5) · lp(빛 지도 한계등급). noCloud:1 이면 구름 예보 없음, noLp:1 이면 빛 지도 없음.
  *   예: {"calc":1,"topic":"stars","t":"2026-12-21T03:00:00Z","cloud":25,"aod":0.12,"rh":55,"lp":6.2}
  */
+/**
+ * graph:1 — 시간대별 점수 그래프만(2026-11-19, 계획 2.4). 실제 노을 예측(`predictSunset`)과 해 위치로 9시간 창을 10분 간격으로 훑어 그립니다.
+ *   t: 출몰 시각(ISO), side: "sunset"|"sunrise", tz: 관측지 UTC 오프셋(시간), now: 지금 보는 시각(ISO), low · mid · high: 해 쪽 구름 %, noWx:1 이면 구름 예보 없음(그래프 없음),
+ *   lang · light 로 언어·모드. 누르면 window.__picked 에 그 시각(ISO)이 남고 세로선이 그리로 옮겨 갑니다.
+ *   예: {"graph":1,"t":"2026-11-21T08:17:00Z","side":"sunset","tz":9,"now":"2026-11-21T07:40:00Z","low":4,"mid":18,"high":63}
+ */
+function GraphRepro({ W }: { W: number }) {
+  const lat = Q.lat ?? 37.5665, lon = Q.lon ?? 126.978, tz = Q.tz ?? 9, side = Q.side ?? 'sunset';
+  const win = React.useMemo(() => scoreWindow(Date.parse(Q.t ?? '2026-11-21T08:17:00Z'), side, tz), []);
+  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
+  const points = React.useMemo(() => {
+    if (Q.noWx) return [];
+    const T0 = new Date(win.fromMs);
+    const mk = (l: number, m: number, h: number, d: number, off: number) => ({ distance: d, azimuthOffset: off, source: 'standard', hourly: { time: ['x'], timeMs: [T0.getTime()], low: [l], mid: [m], high: [h] } });
+    const lo = Q.low ?? 4, mi = Q.mid ?? 18, hi = Q.high ?? 63;
+    const path = [mk(lo, mi, hi, 0, 0), ...[30, 60, 100, 200].flatMap(d => [0, 90, 180, 270].map(a => mk(a === 0 ? 0 : lo, mi, hi, d, a)))];
+    return sampleScores(win, 10, (d) => {
+      const sp = sunPosition(d, lat, lon);
+      return predictSunset(path as any, d, sp.altitude * 180 / Math.PI, 20000, 55, lat, 38, 325, sp.azimuth * 180 / Math.PI + 180).score;
+    });
+  }, []);
+  const [now, setNow] = React.useState<number>(Date.parse(Q.now ?? '2026-11-21T07:40:00Z'));
+  return (
+    <View style={{ width: W, padding: 16, backgroundColor: Q.light ? '#F8FAFC' : '#0D1320' }}>
+      <ScoreGraph
+        points={points}
+        window={win}
+        nowMs={now}
+        tzHours={tz}
+        language={Q.lang ?? 'ko'}
+        onPickTime={(ms) => { (globalThis as any).__picked = new Date(ms).toISOString(); setNow(ms); }}
+      />
+    </View>
+  );
+}
+
 /**
  * objpanel:1 — 정보 패널만(2026-11-19 건물 고르기). 합성 건물(롯데월드타워 모양: 동남동 10.9 km, 37×11 m, 555 m)을 실제 `pickTargetAt` 으로 골라
  * 패널을 그립니다. kind:'terrain' 이면 건물 없이 지형만. lang · light 로 언어·모드. 전환 칩이 눌립니다.
@@ -316,6 +355,7 @@ export default function App() {
     (Q.ringFile ? fetch(Q.ringFile).then(r => r.json()).then(j => j.map((d: any) => ({ ...d, hourly: { ...d.hourly, time: d.hourly.time } }))) : fetchDayWeatherRing(lat ?? 37.5, lon ?? 127, new Date(tNow ?? Date.now()), true)).then(p => { setRing(p as any[]); (globalThis as any).__ringReady = (p as any[]).length; }).catch(e => { (globalThis as any).__ringReady = 'err ' + String(e); });
   }, []);
   const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
+  if (Q.graph) return <GraphRepro W={W} />;
   if (Q.bar) return <BarRepro W={W} />;
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);

@@ -47,6 +47,8 @@ import {
 } from '../../utils/skyTimeline';
 import { PredictionCard, VerdictMeter, verdictColor, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
 import { findGlowPeak, type GlowPeak } from '../../utils/glowPeak';
+import { scoreWindow, sampleScores, hasAnyScore, canGlow } from '../../utils/scoreSeries';
+import { ScoreGraph } from './ScoreGraph';
 import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
@@ -847,6 +849,24 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return next;
   }, [isSliding, isSunriseSide, events, pathData, latitude, longitude, terrainData.observerElevation]);
 
+  // 시간대별 점수 그래프(목업 1): 판정 줄이 겨누는 출몰 둘레 9시간을 10분 간격으로, 하늘 화면과 같은 예측(`predictionAt`)으로 훑습니다.
+  // 받아 둔 예보 시각 범위 밖의 점은 비웁니다(가장자리 값을 지어 쓰지 않음). 점수가 하나도 없으면 그래프를 그리지 않습니다.
+  const graphEvent = isSunriseSide ? events?.sunrise : events?.sunset;
+  const scoreGraph = useMemo(() => {
+    if (!graphEvent || !Number.isFinite(graphEvent.getTime()) || !pathData.length) return null;
+    const win = scoreWindow(graphEvent.getTime(), isSunriseSide ? 'sunrise' : 'sunset', tz);
+    const h = pathData[0]?.hourly;
+    const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
+    const covered = (ms: number) => !!times?.length && ms >= times[0] && ms <= times[times.length - 1];
+    const points = sampleScores(win, 10, (tm) => {
+      // 해가 노을이 생길 수 없는 높이·깊이면 예측 없이 0 (utils/scoreSeries.ts `GLOW_ALT_*`). 예측은 한 시각에 보간이 두 번 돕니다.
+      if (!canGlow(sunPosition(tm, latitude, longitude).altitude * (180 / Math.PI))) return 0;
+      return covered(tm.getTime()) ? predictionAt(tm)?.score ?? null : null;
+    });
+    return hasAnyScore(points) ? { win, points } : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphEvent?.getTime(), isSunriseSide, pathData, latitude, longitude, tz, terrainData.observerElevation]);
+
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
   // 추천 이벤트를 상단에 배치하고 일반 이벤트를 이어서 단일 목록으로 합침
@@ -1186,6 +1206,18 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               isSunrise={isSunriseSide}
               peakTime={glow?.time}
               onWhy={() => { setCalcDate(glow?.time ?? currentTime); setCalcTopic('score'); setCalcOpen(true); }}
+            />
+          )}
+
+          {/* 시간대별 점수 그래프 — 누르면 그 시각으로(초보자 화면) */}
+          {!expertMode && scoreGraph && (
+            <ScoreGraph
+              points={scoreGraph.points}
+              window={scoreGraph.win}
+              nowMs={currentTime.getTime()}
+              tzHours={tz}
+              language={language}
+              onPickTime={(ms) => setCurrentTime(new Date(ms))}
             />
           )}
 
