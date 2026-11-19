@@ -889,7 +889,7 @@ export function createVisionCalibrator(opts: { window?: number; agreeDeg?: numbe
 /**
  * 해의 **겉보기** 고도(도). 천문 계산(SunCalc)은 기하 고도를 주는데, 카메라가 보는 것은 대기
  * 굴절로 떠오른 해입니다 — 고도 5° 에서 0.16°, 1° 에서 0.4°. 보정 정밀도(0.15°)보다 커서 넣습니다.
- * (Sæmundsson 식. 달은 SunCalc 가 이미 굴절을 더해 줍니다.)
+ * (Sæmundsson 식. 달은 `getMoonPositionPrecise`(moonPosition.ts)가 이미 굴절을 더해 줍니다.)
  */
 export function apparentAltitude(geometricAltDeg: number): number {
   const h = geometricAltDeg;

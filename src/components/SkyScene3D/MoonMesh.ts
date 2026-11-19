@@ -6,8 +6,8 @@
  * AdditiveBlending 기반 대기 투과/지구조(Earthshine)를 적용합니다.
  */
 import * as THREE from 'three';
-import SunCalc from 'suncalc';
 import { getMoonPosition, getSunPosition } from '../../utils/celestial';
+import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { beamAtAltitude, type AtmosphereParams } from '../../utils/atmosphere';
 
 /** 태양(0.267°)과 동일한 순수 각반지름 기준(실제 평균 각반지름 0.259°, 시직경 ~0.518°) */
@@ -244,7 +244,7 @@ export function updateMoonPosition(
     typeof fovDegOrOpts === 'object' ? fovDegOrOpts : optsMaybe;
   const fovDeg = typeof fovDegOrOpts === 'number' ? fovDegOrOpts : opts?.fovDeg;
 
-  const rawPos = SunCalc.getMoonPosition(date, lat, lng);
+  const rawPos = getMoonPositionPrecise(date, lat, lng);
   const moonAltDeg = (rawPos.altitude * 180) / Math.PI;
   const moonAzDeg = (rawPos.azimuth * 180) / Math.PI + 180;
 
