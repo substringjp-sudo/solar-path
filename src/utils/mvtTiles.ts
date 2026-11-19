@@ -382,10 +382,12 @@ async function fetchBinaryBytes(url: string, signal: AbortSignal): Promise<Uint8
 
 /**
  * 단일 OpenFreeMap `.pbf` 타일을 가져옵니다(메모리 LRU 캐시, 실패 시 null 또는 throw).
+ * `cache: false` 면 캐시에 **넣지 않습니다**(있으면 읽습니다). 먼 건물처럼 한 번에 수십 장을 받는 쪽이 24 장짜리 캐시에서
+ * 가까운 건물·도시 마스크가 쓰는 타일을 밀어내지 않게.
  */
 export async function fetchMvtTileRaw(
   tile: TileCoord,
-  opts: { signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal; cache?: boolean } = {},
 ): Promise<Uint8Array> {
   const key = `${tile.z}/${tile.x}/${tile.y}`;
   const hit = rawTileCache.get(key);
@@ -408,11 +410,13 @@ export async function fetchMvtTileRaw(
 
   try {
     const bytes = await fetchBinaryBytes(url, ctl.signal);
-    rawTileCache.set(key, bytes);
-    while (rawTileCache.size > RAW_CACHE_MAX) {
-      const oldest = rawTileCache.keys().next().value;
-      if (oldest !== undefined) rawTileCache.delete(oldest);
-      else break;
+    if (opts.cache !== false) {
+      rawTileCache.set(key, bytes);
+      while (rawTileCache.size > RAW_CACHE_MAX) {
+        const oldest = rawTileCache.keys().next().value;
+        if (oldest !== undefined) rawTileCache.delete(oldest);
+        else break;
+      }
     }
     return bytes;
   } finally {
