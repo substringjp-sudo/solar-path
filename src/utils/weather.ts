@@ -1286,6 +1286,29 @@ export const fetchDayWeatherRing = async (
 };
 
 /**
+ * Fritsch–Carlson 단조 3차 에르미트 스플라인(Monotone Cubic Hermite, C¹ 연속).
+ * 정시 경계(12:00, 13:00 등)에서 기울기(1차 도함수)가 부드러운 곡선으로 이어지며,
+ * 국소 구간 [min(y1, y2), max(y1, y2)] 밖으로 튀는 오버슈트가 발생하지 않습니다.
+ */
+const monotoneCubicHermite = (y0: number, y1: number, y2: number, y3: number, u: number): number => {
+  if (u <= 0) return y1;
+  if (u >= 1) return y2;
+  const d0 = y1 - y0;
+  const d1 = y2 - y1;
+  const d2 = y3 - y2;
+  const m1 = d0 * d1 > 0 ? (2 * d0 * d1) / (d0 + d1) : 0;
+  const m2 = d1 * d2 > 0 ? (2 * d1 * d2) / (d1 + d2) : 0;
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return (
+    (2 * u3 - 3 * u2 + 1) * y1 +
+    (u3 - 2 * u2 + u) * m1 +
+    (-2 * u3 + 3 * u2) * y2 +
+    (u3 - u2) * m2
+  );
+};
+
+/**
  * Interpolates hourly weather data for a specific time.
  */
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
@@ -1312,21 +1335,34 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
     const t2 = times[i + 1] || t1 + 3600000;
     const ratio = Math.max(0, Math.min(1, (targetMs - t1) / (t2 - t1)));
 
-    const interpolate = (v1: number, v2: number) => v1 + (v2 - v1) * ratio;
+    const interpolateReq = (arr: number[]): number => {
+      const y1 = arr[i] ?? 0;
+      const y2 = arr[i + 1] ?? y1;
+      const raw0 = i > 0 ? arr[i - 1] : y1;
+      const raw3 = i + 2 < arr.length ? arr[i + 2] : y2;
+      const y0 = raw0 != null && Number.isFinite(raw0) ? raw0 : y1;
+      const y3 = raw3 != null && Number.isFinite(raw3) ? raw3 : y2;
+      return monotoneCubicHermite(y0, y1, y2, y3, ratio);
+    };
     const interpolateOpt = (arr?: number[]): number | undefined => {
       if (!arr) return undefined;
       const a = arr[i];
-      const b = arr[i + 1] ?? a;
+      const b = i + 1 < arr.length ? (arr[i + 1] ?? a) : a;
       if (a == null) return undefined;
-      return interpolate(a, b);
+      if (!Number.isFinite(a) || !Number.isFinite(b as number)) return a + ((b as number) - a) * ratio;
+      const raw0 = i > 0 ? arr[i - 1] : a;
+      const raw3 = i + 2 < arr.length ? arr[i + 2] : (b as number);
+      const y0 = raw0 != null && Number.isFinite(raw0) ? raw0 : a;
+      const y3 = raw3 != null && Number.isFinite(raw3) ? raw3 : (b as number);
+      return monotoneCubicHermite(y0, a, b as number, y3, ratio);
     };
 
     return {
       distance: p.distance,
       azimuthOffset: p.azimuthOffset,
-      low: interpolate(p.hourly.low[i] ?? 0, p.hourly.low[i+1] ?? p.hourly.low[i] ?? 0),
-      mid: interpolate(p.hourly.mid[i] ?? 0, p.hourly.mid[i+1] ?? p.hourly.mid[i] ?? 0),
-      high: interpolate(p.hourly.high[i] ?? 0, p.hourly.high[i+1] ?? p.hourly.high[i] ?? 0),
+      low: interpolateReq(p.hourly.low),
+      mid: interpolateReq(p.hourly.mid),
+      high: interpolateReq(p.hourly.high),
       total: interpolateOpt(p.hourly.total),
       layerAltLowKm: interpolateOpt(p.hourly.layerAltLowKm),
       layerAltMidKm: interpolateOpt(p.hourly.layerAltMidKm),
@@ -1358,7 +1394,7 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       satShortwaveRadiation: interpolateOpt(p.hourly.satShortwaveRadiation as number[] | undefined),
       totalColumnWaterVapour: interpolateOpt(p.hourly.totalColumnWaterVapour),
       precipitation: interpolateOpt(p.hourly.precipitation),
-      // 성분이라 선형 보간이 그대로 맞습니다 (CloudData 주석 참고).
+      // 성분도 단조 3차 에르미트 곡선으로 매끄럽게 보간합니다.
       windULow: interpolateOpt(p.hourly.windULow),
       windVLow: interpolateOpt(p.hourly.windVLow),
       windUMid: interpolateOpt(p.hourly.windUMid),

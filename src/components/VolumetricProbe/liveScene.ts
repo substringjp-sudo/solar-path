@@ -351,6 +351,40 @@ function integratedDriftKm(a: LiveSceneArgs, band: 'low' | 'mid' | 'high', fallb
   return [Math.round(x * 100) / 100, Math.round(y * 100) / 100];
 }
 
+const macroKnotCache = new Map<string, Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>>>();
+const MACRO_KNOT_CACHE_MAX = 24;
+
+function toMacroRing(list: CloudData[]): Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>> | undefined {
+  const ringPts = dropSeamCopies(list.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
+  if (ringPts.length < 20) return undefined;
+  return {
+    low: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.low ?? 0) / 100)) })),
+    mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),
+    high: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.high ?? 0) / 100)) })),
+  };
+}
+
+function getCachedMacroKnot(pathData: CloudPathData[], knotMs: number): Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>> | undefined {
+  const p0 = pathData[0];
+  const sig = `${pathData.length}|${p0?.hourly?.time?.[0] ?? ''}|${p0?.hourly?.low?.[0] ?? ''}|${p0?.hourly?.low?.[12] ?? ''}|${knotMs}`;
+  const hit = macroKnotCache.get(sig);
+  if (hit) {
+    macroKnotCache.delete(sig);
+    macroKnotCache.set(sig, hit);
+    return hit;
+  }
+  const wx = getInterpolatedWeather(pathData, new Date(knotMs));
+  const ring = toMacroRing(wx);
+  if (ring) {
+    macroKnotCache.set(sig, ring);
+    if (macroKnotCache.size > MACRO_KNOT_CACHE_MAX) {
+      const oldest = macroKnotCache.keys().next().value;
+      if (oldest !== undefined) macroKnotCache.delete(oldest);
+    }
+  }
+  return ring;
+}
+
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // §175 해 위치는 엔진(NOAA, solarPosition)으로 — 렌더(takram)와 0.003° 안. 예전 SunCalc 는 0.19~0.21° 높아 요약 패널·빔·τ 가 렌더와 어긋났음.
   const sun = sunPosition(a.date, a.lat, a.lon);
@@ -380,6 +414,14 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     precipitationMm: obs.precipitation, humidityPct: obs.humidity,
     isDay: sunAltDeg > 0,
   });
+  // 0 < 운량 < 20% 구간에서 classifyGenus 기본 문턱(minCover=20) 때문에 genus 가 null(takram 기본 잡음)로 빠져
+  // 20% 경계를 넘을 때 구름 형태가 통째로 튀는 현상을 막기 위해 렌더용 보조 분류는 최소 운량 바닥을 20%로 올려 판정합니다.
+  const renderForecast = classifyGenus({
+    low: Math.max(obs.low, 20), mid: Math.max(obs.mid, 20), high: Math.max(obs.high, 20),
+    profile: profileOf(obs), groundM: a.heightM,
+    precipitationMm: obs.precipitation, humidityPct: obs.humidity,
+    isDay: sunAltDeg > 0,
+  });
 
   // §130 층별 바람(부는 방향 성분, km/h, 동·북) — 예보 기압면 바람(850/600/250 hPa)이 있으면 그것, 없으면 대용값(skyColumn).
   // 5 km/h 눈금, 전단 방향 10° 눈금으로 묶습니다 — 10분 예보 보간마다 날씨 타일(수 초)을 다시 만들지 않게. 흐름 시드는 자리·날짜 해시.
@@ -393,22 +435,23 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     return [w.speedKmh * Math.sin(to), w.speedKmh * Math.cos(to)];
   };
   const W = { low: windOf('low'), mid: windOf('mid'), high: windOf('high') };
+  const ptsAll = a.pathData ?? [];
+  let obsPt = ptsAll[0];
+  for (const q of ptsAll) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
+  const DAY = 86400000, lonMs = (a.lon / 360) * DAY;
+  const dayT0 = Math.floor((a.date.getTime() + lonMs) / DAY) * DAY - lonMs;
+  const dayT1 = dayT0 + DAY;
+
   const dayWindOf = (band: 'low' | 'mid' | 'high'): [number, number] | null => {
-    const pts = a.pathData ?? [];
-    if (!pts.length) return null;
-    let obsPt = pts[0];
-    for (const q of pts) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
+    if (!ptsAll.length) return null;
     const h = obsPt?.hourly;
     const ts = h?.timeMs;
     const key = band === 'low' ? 'Low' : band === 'mid' ? 'Mid' : 'High';
     const us = h?.[`windU${key}` as const], vs = h?.[`windV${key}` as const];
     if (!ts || !us || !vs || ts.length === 0) return null;
-    const DAY = 86400000, lonMs = (a.lon / 360) * DAY;
-    const t0 = Math.floor((a.date.getTime() + lonMs) / DAY) * DAY - lonMs;
-    const t1 = t0 + DAY;
     let su = 0, sv = 0, cnt = 0;
     for (let i = 0; i < ts.length; i++) {
-      if (ts[i] >= t0 && ts[i] <= t1 && Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
+      if (ts[i] >= dayT0 && ts[i] <= dayT1 && Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
         su += us[i]; sv += vs[i]; cnt++;
       }
     }
@@ -424,6 +467,65 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const dLow = dayWindOf('low'), dMid = dayWindOf('mid'), dHigh = dayWindOf('high');
   const hasDayWind = !!(dLow && dMid && dHigh);
   const Wpat = hasDayWind ? { low: dLow!, mid: dMid!, high: dHigh! } : W;
+
+  // 하루 전체 고리 예보에서 띠별 최대 운량 상한과 주간 대표 대류/상층 상태를 구해,
+  // 정시(13:00 등)를 넘을 때 2D 베이스 타일이 다른 문턱이나 종류(cu↔sc)로 재합성되어 구름 형태가 튀는 현상을 막습니다.
+  const dayBandMax: Record<'low' | 'mid' | 'high', number> = { low: 0, mid: 0, high: 0 };
+  if (ptsAll.length >= 20) {
+    for (const p of ptsAll) {
+      if (!Number.isFinite(p.distance) || (p.distance ?? 0) > 400) continue;
+      const h = p.hourly;
+      const ts = h?.timeMs;
+      if (!h) continue;
+      const n = ts?.length ?? h.low?.length ?? 0;
+      for (let i = 0; i < n; i++) {
+        if (ts && ts.length === n && (ts[i] < dayT0 - 3600000 || ts[i] > dayT1 + 3600000)) continue;
+        const lv = (h.low?.[i] ?? 0) / 100;
+        const mv = (h.mid?.[i] ?? 0) / 100;
+        const hv = (h.high?.[i] ?? 0) / 100;
+        if (lv > dayBandMax.low) dayBandMax.low = lv;
+        if (mv > dayBandMax.mid) dayBandMax.mid = mv;
+        if (hv > dayBandMax.high) dayBandMax.high = hv;
+      }
+    }
+  }
+  const tileCoverEnvelope: Partial<Record<'low' | 'mid' | 'high', number>> | undefined = ptsAll.length >= 20 ? {
+    low: dayBandMax.low >= 0.98 ? 1.0 : dayBandMax.low >= 0.02 ? 0.96 : 0,
+    mid: dayBandMax.mid >= 0.98 ? 1.0 : dayBandMax.mid >= 0.02 ? 0.96 : 0,
+    high: dayBandMax.high >= 0.98 ? 1.0 : dayBandMax.high >= 0.02 ? 0.96 : 0,
+  } : undefined;
+
+  const dayFairLowGenus = ((): 'cu' | 'sc' | null => {
+    if (!hasDayWind || !obsPt?.hourly) return null;
+    const h = obsPt.hourly;
+    const ts = h.timeMs;
+    const db = h.lowDeckBaseKm, dt = h.lowDeckTopKm;
+    if (!ts || !db || !dt) return null;
+    let sumLow = 0, cntLow = 0, sumThick = 0, cntThick = 0;
+    for (let i = 0; i < ts.length; i++) {
+      if (ts[i] < dayT0 + 8 * 3600000 || ts[i] > dayT0 + 18 * 3600000) continue;
+      const c = h.low?.[i] ?? 0;
+      if (c >= 5) { sumLow += c; cntLow++; }
+      const b = db[i], t = dt[i];
+      if (Number.isFinite(b) && Number.isFinite(t) && t > b) { sumThick += (t - b); cntThick++; }
+    }
+    if (cntLow === 0 || cntThick === 0) return null;
+    return (sumLow / cntLow) < 55 && (sumThick / cntThick) >= 0.6 ? 'cu' : 'sc';
+  })();
+
+  const dayHighMeanPct = ((): number | null => {
+    if (!hasDayWind || !obsPt?.hourly?.high) return null;
+    const h = obsPt.hourly;
+    const ts = h.timeMs;
+    let s = 0, c = 0;
+    for (let i = 0; i < h.high.length; i++) {
+      if (ts && (ts[i] < dayT0 || ts[i] > dayT1)) continue;
+      const v = h.high[i] ?? 0;
+      if (v > 5) { s += v; c++; }
+    }
+    return c > 0 ? s / c : 50;
+  })();
+
   const shearOf = (band: 'low' | 'mid' | 'high'): [number, number] => {
     const [au, av] = band === 'low' ? Wpat.mid : Wpat.high, [bu, bv] = band === 'low' ? Wpat.low : Wpat.mid;
     const su = au - bu, sv = av - bv, m = Math.hypot(su, sv);
@@ -434,11 +536,19 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // 2026-11-13 무늬 씨앗은 하루 하나(지방 태양시 자정에 바뀜) — 한 시간마다 바뀌면 시간 막대가 정시를 넘을 때마다 구름 배치가 통째로 새로 나왔음.
   // 운량·종류가 바뀌면 같은 무늬에서 문턱만 달라져 구름이 자라거나 줄어듦. 자리는 아래 driftKm(바람 적분)이 옮김.
   const flowSeed = flowSeedOf(a.lat, a.lon, a.date, 24);
-  const driftKm = (band: 'low' | 'mid' | 'high'): [number, number] => integratedDriftKm(a, band, W[band]);
+  const driftKm = (band: 'low' | 'mid' | 'high'): [number, number] => {
+    if (hasDayWind) {
+      // setGenusDrift 가 q5(Wpat) 속도로 장면 시각 이후 드리프트를 외삽하므로, 자정(dayT0)부터 장면 시각까지의 누적 이동도
+      // 동일한 q5(Wpat) 속도로 적분해야 장면 시각(버킷)이 바뀔 때 위상 단차(UV 점프)가 0이 됩니다.
+      const dtH = (a.date.getTime() - dayT0) / 3600000;
+      return [q5(Wpat[band][0]) * dtH, q5(Wpat[band][1]) * dtH];
+    }
+    return integratedDriftKm(a, band, W[band]);
+  };
   const NBAND: Record<'low' | 'mid' | 'high', [number, number]> = { low: [1000, 2500], mid: [3000, 6000], high: [7000, 11000] };
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
     const [u, v] = Wpat[band], [su, sv] = shearOf(band);
-    const nB = band === 'high' || !hasDayWind ? bruntN(thermo, NBAND[band][0], NBAND[band][1]) : 0.012;
+    const nB = !hasDayWind ? bruntN(thermo, NBAND[band][0], NBAND[band][1]) : (band === 'high' ? 0.014 : 0.012);
     const mGrad = macro[band];
     return {
       windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed,
@@ -458,10 +568,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
 
   const layers: VolumetricLayerInput[] = [];
   // 2026-11-19 먼 구름만 있는 층(서울 일출: 관측점 저층 0~11 %, 동쪽 70~130 km 저층 47~76 %). 관측점 운량이 0 이면 레인이 없어
-  // 테두리 덱(50~385 km)이 그 층을 아예 그리지 못했음 → 고리 400 km 안 상위 분위수(p90)가 15 % 이상이면 아주 작은 운량의 레인을 둠.
+  // 테두리 덱(50~385 km)이 그 층을 아예 그리지 못했음 → 고리 400 km 안 상위 분위수(p90)가 15 % 이상이거나 하루 중 그 띠에 구름이 있으면 작은 운량 레인을 유지합니다.
   // 타일 운량은 volumetricScene 의 macroTileCover 가 고리 값으로 올리고, 가까운 하늘은 거시 문턱이 관측점 운량(≈0)으로 깎습니다.
   const farRing = interpolatedList.filter(q => Number.isFinite(q.distance) && (q.distance ?? 0) > 0 && (q.distance ?? 0) <= 400);
   const farCap = (band: 'low' | 'mid' | 'high') => {
+    if (tileCoverEnvelope && (tileCoverEnvelope[band] ?? 0) > 0) return Math.max(0.2, tileCoverEnvelope[band]!);
     if (farRing.length < 12) return 0;
     const v = farRing.map(q => Math.min(100, Math.max(0, q[band] ?? 0)) / 100).sort((x, y) => x - y);
     return v[Math.min(v.length - 1, Math.floor(v.length * 0.9))];
@@ -470,15 +581,20 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const farOnlyLayer = (band: 'low' | 'mid' | 'high'): VolumetricLayerInput | null => {
     if (farCap(band) < FAR_ONLY_MIN) return null;
     if (band === 'low') {
+      const gLow = dayFairLowGenus ?? 'sc';
       const baseKm = Math.max(groundKm + 0.15, forecast.lowBaseKm ?? (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low) - 0.5);
-      return { genus: 'sc', cover: FAR_ONLY_COVER, baseKm, thicknessM: 1000, band, opts: { ...flowOpts('low'), spacingKm: aspectSpacingKm('sc', 1000) } };
+      return { genus: gLow, cover: FAR_ONLY_COVER, baseKm, thicknessM: 1000, band, opts: { ...flowOpts('low'), spacingKm: aspectSpacingKm(gLow, 1000) } };
     }
     if (band === 'mid') {
       const baseKm = Math.max(groundKm + 0.5, 2.2, forecast.midBaseKm ?? (obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - 0.3);
       return { genus: 'ac', cover: FAR_ONLY_COVER, baseKm, band, opts: flowOpts('mid') };
     }
     const baseKm = Math.max(7.2, forecast.highBaseKm ?? (obs.layerAltHighKm ?? FALLBACK_ALT_KM.high) - 0.2);
-    return { genus: 'ci', cover: FAR_ONLY_COVER, baseKm, band, opts: flowOpts('high') };
+    const baseOpts = flowOpts('high');
+    const ciKnobs = dayHighMeanPct != null
+      ? cirrusVeilKnobs({ highPct: dayHighMeanPct, midPct: 25, lowPct: 25, shearU: baseOpts.shearU, shearV: baseOpts.shearV, thicknessM: 1000 })
+      : {};
+    return { genus: 'ci', cover: FAR_ONLY_COVER, baseKm, band, opts: { ...baseOpts, ...ciKnobs } };
   };
   let anvil: VolumetricLayerInput | null = null;
   /**
@@ -527,17 +643,18 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       minBaseKm,
       forecast.lowBaseKm ?? centerKm - (thicknessM ?? 1200) / 2000,
     );
-    if (forecast.low === 'cb') {
+    const rawLowGenus = forecast.low ?? renderForecast.low ?? 'sc';
+    if (rawLowGenus === 'cb') {
       // 적란운: 탑은 밑면~권계면 한 층, 모루는 4번째 채널에 같은 씨앗으로 — 바람 방향은 중층 바람.
       const topKm = Math.max(baseKm + 4, CB_TOP_KM);
       const windDeg = obs.windUMid != null && obs.windVMid != null ? ((Math.atan2(obs.windUMid, obs.windVMid) * 180) / Math.PI + 360) % 360 : 30;
       const opts = { seed: 7, windDeg, ...flowOpts('low') };
       layers.push({ genus: 'cb', cover: obs.low / 100, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts, physBaseKm: lclKm ?? undefined });
       anvil = { genus: 'cbanvil', cover: 1, baseKm: topKm - CB_ANVIL_THICK_M / 1000 * 0.8, thicknessM: CB_ANVIL_THICK_M, band: 'high', opts };
-    } else if (forecast.low === 'cg') {
+    } else if (rawLowGenus === 'cg') {
       layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
     } else {
-      const g = renderGenusFor(forecast.low);
+      const g = (rawLowGenus === 'cu' || rawLowGenus === 'sc') && dayFairLowGenus ? dayFairLowGenus : renderGenusFor(rawLowGenus);
       // 2026-11-18 적운(cu)은 덱 두께를 1.5 km 에서 자름 — 맑은 날 적운(humilis·mediocris)은 깊이가 폭보다 작음. 예보 덱(최대 3 km)을 그대로 쓰면 높고 뾰족한 탑.
       if (g === 'cu' && thicknessM != null) thicknessM = Math.min(thicknessM, CU_MAX_THICK_M);
       // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
@@ -562,7 +679,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const highThicknessM = Number.isFinite(highDeckThick) ? clamp(highDeckThick, 300, 3000) : undefined;
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
-    const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
+    const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid ?? renderForecast.mid ?? 'ac');
     const baseKm = Math.max(a.heightM / 1000 + 0.5, 2.2, forecast.midBaseKm ?? (centerKm - 0.3));
     layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm, thicknessM: midThicknessM, band: 'mid', opts: flowOpts('mid') });
   } else layers.push(farOnlyLayer('mid') ?? { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
@@ -574,9 +691,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, (tauDni! / 57) * (1000 / (highThicknessM ?? 1000))));
       layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
     } else {
-      const highGenus = renderGenusFor(forecast.high);
+      const highGenus = renderGenusFor(forecast.high ?? renderForecast.high ?? 'ci');
       const baseOpts = flowOpts('high');
-      const ciKnobs = highGenus === 'ci'
+      const liveCiKnobs = highGenus === 'ci'
         ? cirrusVeilKnobs({
             highPct: obs.high,
             midPct: obs.mid ?? 0,
@@ -588,6 +705,21 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
             thicknessM: highThicknessM,
           })
         : {};
+      // 2D 타일 생성에 쓰이는 flowVeil·flowDPow 는 하루 평균 상층 운량으로 고정해 정시마다 타일이 재합성되지 않게 하고,
+      // 셰이더 유니폼(densityScale·flowTop·flowEdge·densPow 등)은 실시간 보간 값을 그대로 반영합니다.
+      const tileCiKnobs = highGenus === 'ci' && dayHighMeanPct != null
+        ? cirrusVeilKnobs({
+            highPct: dayHighMeanPct,
+            midPct: 25,
+            lowPct: 25,
+            shearU: baseOpts.shearU,
+            shearV: baseOpts.shearV,
+            thicknessM: 1000,
+          })
+        : null;
+      const ciKnobs = tileCiKnobs
+        ? { ...liveCiKnobs, flowVeil: tileCiKnobs.flowVeil, flowDPow: tileCiKnobs.flowDPow }
+        : liveCiKnobs;
       layers.push({ genus: highGenus, cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...baseOpts, ...ciKnobs } });
     }
   } else layers.push(farOnlyLayer('high') ?? { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
@@ -684,13 +816,31 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   // 습한 막이 있으면 그 막이 곧 습한 에어로졸층(직달일사 감소 전체로 두께를 정함) — 연무를 따로 더하면 두 번 셈.
   const haze = mist ? undefined : hazeFromObs(obs);
-  // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
-  const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
-  const macroRing = ringPts.length >= 20 ? {
-    low: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.low ?? 0) / 100)) })),
-    mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),
-    high: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.high ?? 0) / 100)) })),
-  } : undefined;
+  // §156 거시 운량 격자 입력 — 30분 간격 에르미트 곡선 매듭([K0, K1])을 전후로 잡아 GPU에서 연속 블렌딩합니다.
+  const MACRO_KNOT_MS = 1800000;
+  const k0Ms = Math.floor(a.date.getTime() / MACRO_KNOT_MS) * MACRO_KNOT_MS;
+  const k1Ms = k0Ms + MACRO_KNOT_MS;
+  const macroRing = ptsAll.length >= 20
+    ? (getCachedMacroKnot(ptsAll, k0Ms) ?? toMacroRing(interpolatedList))
+    : toMacroRing(interpolatedList);
+  const macroRingNext = ptsAll.length >= 20
+    ? getCachedMacroKnot(ptsAll, k1Ms)
+    : undefined;
   const genus = { low: forecast.low, mid: promoteMid ? 'as' as const : forecast.mid, high: promoteHigh ? 'cs' as const : forecast.high };
-  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}), ...(macroRing ? { macro: macroRing } : {}) }, forecast, obs, summary, tauDni, genus };
+  return {
+    input: {
+      ...base,
+      layers,
+      thermo,
+      ...(haze ? { haze } : {}),
+      ...(macroRing ? { macro: macroRing } : {}),
+      ...(macroRingNext ? { macroNext: macroRingNext, macroSpanMs: [k0Ms, k1Ms] as [number, number] } : {}),
+      ...(tileCoverEnvelope ? { tileCoverEnvelope } : {}),
+    },
+    forecast,
+    obs,
+    summary,
+    tauDni,
+    genus,
+  };
 }

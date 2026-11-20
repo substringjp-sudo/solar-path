@@ -60,7 +60,7 @@ import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixF
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 // §179 검토 반영(회귀 1): 구축기(tsunAtlas.ts)는 하네스(tools/genus-ruler/tsun/tsun-build.ts)만 부름 — 앱 묶음에는 형만(지워지는 import type).
 import type { TsunBuildInput, TsunLaneInput } from './tsunAtlas';
-import type { FlowSceneParams } from './cloudFlow';
+import { GENUS_FLOW, type FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
 import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT, GENUS_SHEET_B_GLSL } from './cloudFlowShader';
@@ -143,6 +143,12 @@ export interface VolumetricSceneInput {
    * 타일 운량은 그 띠 표본의 상위 분위수(150 km 안)로 올려 잡고, 셰이더가 자리마다 문턱으로 깎습니다(macroShader).
    */
   macro?: Partial<Record<'low' | 'mid' | 'high', MacroRingPoint[]>>;
+  /** 다음 키프레임 시각의 거시 운량 격자 입력 — `macro` 와 `macroNext` 사이를 `macroSpanMs` 구간에서 부드럽게 보간합니다. */
+  macroNext?: Partial<Record<'low' | 'mid' | 'high', MacroRingPoint[]>>;
+  /** 거시 운량 격자 보간 구간 [시작 ms, 끝 ms] */
+  macroSpanMs?: [number, number];
+  /** 하루 전체(또는 다중 시간대) 띠별 타일 기준 운량 상한 — 정시 경계에서 2D 베이스 타일이 불필요하게 재합성되지 않도록 고정합니다. */
+  tileCoverEnvelope?: Partial<Record<'low' | 'mid' | 'high', number>>;
 }
 export interface MacroRingPoint { distance: number; azimuthOffset: number; cover: number }
 
@@ -564,6 +570,8 @@ export interface VolumetricScene {
   setView(az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number, offsetYFrac?: number): void;
   /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
   setDate(date: Date, driftSec?: number): void;
+  /** 2D 베이스 타일 재생성 없이 연속 보간된 층 높이·두께·밀도·연무·거시 격자 키프레임을 부드럽게 갱신합니다. */
+  updateContinuousScene?(input: VolumetricSceneInput): void;
   /** 도시 불빛 세기 0~1(광공해 설정: 6.5 등급 0 ~ 3 등급 1). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
   setCityLight(v: number): void;
   /** 개발자 튜닝 노출 배율(기본 1.0). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
@@ -919,7 +927,7 @@ export async function createVolumetricScene(
       '  return cloud * t + inScat;',
       '}',
       'uniform sampler2D farWeatherTex;', 'uniform float farWeatherOn;',
-      'uniform sampler2D farMacroTex;', 'uniform sampler2D farMacroLut;', 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
+      'uniform sampler2D farMacroTex;', 'uniform sampler2D farMacroTexB;', 'uniform float farMacroMix;', 'uniform sampler2D farMacroLut;', 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
       'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
       'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
       'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
@@ -974,7 +982,7 @@ export async function createVolumetricScene(
       '    if (farLsAmt > 0.0) dens = clamp(dens * (1.0 + farLsAmt * (2.0 * farLsField(planeKm + dKm) - 1.0)), 0.0, 1.0);',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
-      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(texture(farMacroTex, mUv), mMask);',
+      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(mix(texture(farMacroTex, mUv), texture(farMacroTexB, mUv), farMacroMix), mMask);',
       '      if (lutCol >= -0.5) {',
       '        vec4 sVec = texture(farMacroLut, vec2((mCov * 63.0 + 0.5) / 64.0, 0.5));',
       '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
@@ -998,12 +1006,21 @@ export async function createVolumetricScene(
       '  float phF = (1.0 - gP * gP) / (12.5663706 * pow(max(1.0 + gP * gP - 2.0 * gP * cosS, 1e-2), 1.5));',
       '  float ph = mix(0.0795775, phF, 0.55);',
       '  float ms = exp(-min(tauRay * 0.25, 2.5));',
-      '  vec3 sunTerm = sunE * sunLit * mix(0.05, ph, ms) * (1.0 - 0.6 * farAirShade);',
+      // 태양 정면 역광(cosS > 0)일 때 원거리 2D 구름 몸통이 전방 산란(phF)으로 노랗게 발광하지 않도록 광학두께(tauRay)에 따른 역광 자기 차폐를 적용합니다.
+      '  float backlit = cosS > 0.0 ? exp(-0.42 * tauRay * cosS * cosS) : 1.0;',
+      '  vec3 sunTerm = sunE * sunLit * mix(0.03, ph, ms * backlit) * (1.0 - 0.6 * farAirShade);',
       '  vec3 skyTerm = skyE * (1.0 / 12.5663706) * mix(0.65, 1.0, ms);',
       '  vec3 cloudLit = (sunTerm + skyTerm) * (0.7 + 0.3 * ms) + farCityUp * 0.35;',
-      '  float shKm = clamp(max(cloudAirShade, farAirShade), 0.0, 1.0) * min(d, 350.0);',
+      // 원거리 구름이 해 쪽(cosS > 0)에 있을 때는 그 구름 자체가 앞쪽 대기 기둥에 긴 그림자를 드리우므로 공기 원근 산란(inAtm)의 그늘 구간(shKm)에 구름 자기 차폐를 반영합니다.
+      '  float fOwnShade = cosS > 0.0 ? alpha * smoothstep(0.0, 0.65, cosS) : 0.0;',
+      '  float effAirShade = clamp(max(max(cloudAirShade, farAirShade), fOwnShade), 0.0, 1.0);',
+      '  float shKm = effAirShade * min(d, 350.0);',
       '  vec3 tAtm;',
       '  vec3 inAtm = max(GetSkyRadianceToPoint(camPosKm, hit, shKm, sunDirection, tAtm), vec3(0.0));',
+      '  if (effAirShade > 0.01) {',
+      '    float inL = dot(inAtm, vec3(0.2126, 0.7152, 0.0722));',
+      '    inAtm = mix(inAtm, vec3(inL), 0.55 * effAirShade) * mix(1.0, max(0.35, cloudSkyT), 0.65 * fOwnShade);',
+      '  }',
       '  vec3 col = cloudLit * tAtm + inAtm;',
       '  accRgb = mix(accRgb, col, alpha);',
       '  accAlpha = 1.0 - (1.0 - accAlpha) * (1.0 - alpha);',
@@ -1249,6 +1266,8 @@ export async function createVolumetricScene(
       '        fCloudAlpha = visA;',
       '        fCloudRgb = accRgb * (1.0 - fOv.a);',
       '        fCloudDist = firstHit;',
+      // 100~385 km 원거리 2D 지평선 구름 불투명도도 출력 알파(uCloudAlphaTex)에 합산해 태양 원반과 글레어가 지평선 구름 뒤에 가려지게 합니다.
+      '        if (cloudAlphaOut > 0.5) outputColor.a = max(outputColor.a, clamp(fOv.a + visA, 0.0, 1.0));',
       '      }',
       '    }',
       '  }',
@@ -1295,16 +1314,19 @@ export async function createVolumetricScene(
       '  vec3 hSunE, hSkyE, hTBg, hLBg, hTCl, hLCl;',
       '  volHazeIrradiance(vCameraPosition, hUp, hNSun, hSunE, hSkyE);',
       '  volEvalHaze(hRd, hUp, hNSun, hSunE, hSkyE, hUBg, hTBg, hLBg);',
-      // 2026-11-18 구름 앞 연무도 같은 자기 그림자(구름 패스 cOwn 과 같은 모형): 해 쪽 R/sinθ 구간은 햇빛을 못 받음.
-      '  float hCosS = dot(hRd, hNSun);',
-      `  float hOwnFrac = hCosS > 0.0 ? clamp((${(CLOUD_OWN_SHADOW_R_M / 1000).toFixed(2)} / sqrt(max(1e-4, 1.0 - hCosS * hCosS))) / max(hClKm, 0.01), 0.0, 1.0) * fCloudAlpha : 0.0;`,
-      '  volEvalHaze(hRd, hUp, hNSun, hSunE * (1.0 - hOwnFrac), hSkyE, hUCl, hTCl, hLCl);',
       '  vec4 hOv = vec4(0.0);',
       '  #ifdef HAS_OVERLAY',
       '  hOv = texture(overlayBuffer, uv);',
       '  #endif',
       '  vec3 hClPart = hOv.rgb + fCloudRgb;',
       '  float hClCov = clamp(hOv.a + fCloudAlpha, 0.0, 1.0);',
+      // 2026-11-18 구름 앞 연무 자기 그림자: 3D 구름(hOv.a)과 2D 원거리 구름(fCloudAlpha)을 합친 전체 불투명도(hClCov)를 반영하고,
+      // 일몰 직전 낮은 태양 고도에서는 구름 꼭대기(cloudAirTopKm)가 앞쪽 연무층에 긴 그림자(cloudAirTopKm / sin(태양고도))를 드리우도록 확장합니다.
+      '  float hCosS = dot(hRd, hNSun);',
+      '  float hSinSun = max(0.025, dot(hUp, hNSun));',
+      `  float hShadowSpanKm = max(${(CLOUD_OWN_SHADOW_R_M / 1000).toFixed(2)} / sqrt(max(1e-4, 1.0 - hCosS * hCosS)), max(cloudAirTopKm, 1.5) / hSinSun * smoothstep(0.0, 0.75, hCosS));`,
+      '  float hOwnFrac = hCosS > 0.0 ? clamp(hShadowSpanKm / max(hClKm, 0.01), 0.0, 1.0) * hClCov : 0.0;',
+      '  volEvalHaze(hRd, hUp, hNSun, hSunE * (1.0 - hOwnFrac), hSkyE, hUCl, hTCl, hLCl);',
       '  vec3 hBgPart = max(outputColor.rgb - hClPart, vec3(0.0));',
       '  outputColor.rgb = hBgPart * hTBg + hClPart * hTCl + (1.0 - hClCov) * hLBg + hClCov * hLCl;',
       '}',
@@ -1335,6 +1357,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('farWeatherTex', new Uniform(null));
     fx.uniforms.set('farWeatherOn', new Uniform(0));
     fx.uniforms.set('farMacroTex', new Uniform(null));
+    fx.uniforms.set('farMacroTexB', new Uniform(null));
+    fx.uniforms.set('farMacroMix', new Uniform(0));
     fx.uniforms.set('farMacroLut', new Uniform(null));
     fx.uniforms.set('farMacroOn', new Uniform(0));
     fx.uniforms.set('farMacroExtentKm', new Uniform(768));
@@ -1449,7 +1473,10 @@ export async function createVolumetricScene(
     const ap = '      applyAerialPerspective(cameraPosition, frontPosition, shadowLength, color);';
     if (!cm.fragmentShader.includes(ap)) throw new Error('volumetricScene: cloud aerial anchor missing');
     cm.fragmentShader = cm.fragmentShader.replace(hd, 'uniform float cloudAirShadeC;\nuniform float cloudSkyTC;\n' + hd)
-      .replace(hz, '  vec3 inscatter = sunIrradiance * (1.0 - cloudAirShadeC) * phaseFunction(cosTheta) * shadowTransmittance;')
+      .replace(hz, [
+        '  float ownHazeShade = cosTheta > 0.0 ? clamp(1.0 - exp(-opticalDepth), 0.0, 1.0) * smoothstep(0.0, 0.7, cosTheta) : 0.0;',
+        '  vec3 inscatter = sunIrradiance * (1.0 - max(cloudAirShadeC, ownHazeShade)) * phaseFunction(cosTheta) * shadowTransmittance;',
+      ].join('\n'))
       // 불투명 구름 화소의 공기 원근은 구름 패스가 직접 더함(대기 효과는 겹쳐 그리지 않음) — 눈~구름 앞면 구간의 그 비율을 그늘로.
       // 2026-11-13 구름 앞 공기의 하늘빛: 구름층이 하늘을 덮었으면 그 공기는 맑은 하늘의 푸른 산란빛이 아니라 구름층을 지나온 회색빛(투과 T 배)만 받음
       //   — 덮인 만큼(cloudAirShadeC) 채도를 70 % 빼고 T 쪽으로 줄임. 해 막힌 비 오는 해 질 녘에 지평선 띠·먼 구름층이 진한 남색이던 것.
@@ -1457,13 +1484,19 @@ export async function createVolumetricScene(
         '      {',
         '        vec3 cT;',
         // 2026-11-18 구름 자기 그림자: 해 가까이 보이는 구름 앞 공기는 그 구름에 해가 가려 있습니다(그 점에서 해 쪽으로 가는 빛이
-        // 바로 그 구름을 지남). 시선과 해의 각 θ 에서 구름 반폭 R 이면 구름 앞 R/sinθ 구간이 그늘 — 빛줄기 길이에 넣습니다.
-        // 빠지면 공기의 앞쪽 산란(미 산란 봉우리)이 구름 위에 얹혀 해가 구름 뒤에서 비추듯 해 둘레 구름이 하얗게 뜹니다.
+        // 바로 그 구름을 지남). 시선과 해의 각 θ 에서 구름 반폭 R 이면 구름 앞 R/sinθ 구간이 그늘이며, 낮은 태양 고도에서는 구름 높이(zClM)가
+        // 앞쪽 대기 기둥에 zClM/sin(태양고도) 길이의 긴 그림자를 드리웁니다.
         '        float cCosS = dot(rayDirection, sunDirection);',
-        `        float cOwn = cCosS > 0.0 ? min(length(frontPosition - cameraPosition), ${CLOUD_OWN_SHADOW_R_M.toFixed(1)} / sqrt(max(1e-4, 1.0 - cCosS * cCosS))) * color.a : 0.0;`,
+        '        float cDistM = length(frontPosition - cameraPosition);',
+        '        vec3 cUp = normalize(frontPosition);',
+        '        float cSinSun = max(0.025, dot(cUp, sunDirection));',
+        '        float cZClM = max(1500.0, length(frontPosition) - length(cameraPosition));',
+        `        float cSpanM = max(${CLOUD_OWN_SHADOW_R_M.toFixed(1)} / sqrt(max(1e-4, 1.0 - cCosS * cCosS)), (cZClM / cSinSun) * smoothstep(0.0, 0.75, cCosS));`,
+        '        float cOwn = cCosS > 0.0 ? min(cDistM, cSpanM) * color.a : 0.0;',
+        '        float cEffShade = max(cloudAirShadeC, cDistM > 1.0 ? clamp(cOwn / cDistM, 0.0, 1.0) * smoothstep(0.0, 0.65, cCosS) : 0.0);',
         '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, max(shadowLength, cOwn) * METER_TO_LENGTH_UNIT, sunDirection, cT);',
         '        float cL = dot(cIn, vec3(0.2126, 0.7152, 0.0722));',
-        '        cIn = mix(cIn, vec3(cL), 0.7 * cloudAirShadeC) * mix(1.0, max(0.35, cloudSkyTC), cloudAirShadeC);',
+        '        cIn = mix(cIn, vec3(cL), 0.7 * cEffShade) * mix(1.0, max(0.35, cloudSkyTC), cEffShade);',
         '        color.rgb = color.rgb * cT + cIn * color.a;',
         '      }',
       ].join('\n'));
@@ -1696,11 +1729,63 @@ export async function createVolumetricScene(
     samples: Partial<Record<MacroBand, MacroSample[]>>; states: Partial<Record<MacroBand, MacroState>>; fields: Partial<Record<MacroBand, MacroField>>;
     texA: DataTexture; texB: DataTexture; lut: DataTexture; laneBand: Array<MacroBand | null>; n: number; extentKm: number;
     lastSec: number | null;
+    spanMs?: [number, number];
+    cachedTex?: boolean;
   } | null = null;
   const MACRO_STEP_SEC = 60;
+  const macroTexCache = new Map<string, DataTexture>();
+  const MACRO_TEX_CACHE_MAX = 16;
+  const macroRingSamplesOf = (ring?: Partial<Record<MacroBand, MacroRingPoint[]>>): Partial<Record<MacroBand, MacroSample[]>> => {
+    const samples: Partial<Record<MacroBand, MacroSample[]>> = {};
+    if (!ring) return samples;
+    for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+      const pts = ring[b];
+      if (pts && pts.length >= 12) samples[b] = samplesFromRing(pts.map(q => ({ distance: q.distance, azimuthOffset: q.azimuthOffset, cover: q.cover * 100 })));
+    }
+    return samples;
+  };
+  const getOrBuildCachedMacroTex = (samples: Partial<Record<MacroBand, MacroSample[]>>, n: number, extentKm: number): DataTexture => {
+    let sig = `${n}|${extentKm}`;
+    for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+      const sm = samples[b];
+      sig += `|${b}:`;
+      if (sm) for (let i = 0; i < sm.length; i++) sig += `${Math.round(sm[i].cover * 1000)},`;
+    }
+    const hit = macroTexCache.get(sig);
+    if (hit) {
+      macroTexCache.delete(sig);
+      macroTexCache.set(sig, hit);
+      return hit;
+    }
+    const fields: Partial<Record<MacroBand, Float32Array>> = {};
+    for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+      const sm = samples[b];
+      if (!sm) continue;
+      fields[b] = buildMacroField(sm, { n, cellKm: extentKm / n, noise: false }, null).cover;
+    }
+    const tex = makeMacroTexture(n, { low: fields.low, mid: fields.mid, high: fields.high });
+    macroTexCache.set(sig, tex);
+    for (const [k, old] of macroTexCache) {
+      if (macroTexCache.size <= MACRO_TEX_CACHE_MAX) break;
+      if (macro && (old === macro.texA || old === macro.texB)) continue;
+      macroTexCache.delete(k);
+      old.dispose();
+    }
+    return tex;
+  };
+  const macroMixAt = (date: Date, spanMs?: [number, number]): number => {
+    if (!spanMs) return 0;
+    const [t0, t1] = spanMs;
+    if (!(t1 > t0)) return 0;
+    return Math.min(1, Math.max(0, (date.getTime() - t0) / (t1 - t0)));
+  };
   const disposeMacro = () => {
     if (!macro) return;
-    macro.texA.dispose(); if (macro.texB !== macro.texA) macro.texB.dispose(); macro.lut.dispose();
+    if (!macro.cachedTex) {
+      macro.texA.dispose();
+      if (macro.texB !== macro.texA) macro.texB.dispose();
+    }
+    macro.lut.dispose();
     macro = null;
   };
   const macroBuildFields = (m: NonNullable<typeof macro>, noise: boolean) => {
@@ -1716,13 +1801,17 @@ export async function createVolumetricScene(
    * 150 km 안 p75 에 더해 2026-11-19 테두리 덱(50~385 km) 몫으로 400 km 안 p90 — 서울 일출에서 동쪽 70~130 km 저층 47~76 % 가
    * 관측점 운량(11 %)짜리 타일에 막혀 지평선에 거의 안 그려졌음.
    */
-  const macroTileCover = (pts: MacroRingPoint[] | undefined, cover: number) => {
-    if (!pts || pts.length < 12) return cover;
-    const pick = (maxKm: number, q: number) => {
-      const v = pts.filter(x => x.distance <= maxKm).map(x => Math.min(1, Math.max(0, x.cover))).sort((a, b) => a - b);
-      return v.length < 6 ? 0 : v[Math.min(v.length - 1, Math.floor(v.length * q))];
+  const macroTileCover = (pts: MacroRingPoint[] | undefined, cover: number, nextPts?: MacroRingPoint[], envCover?: number) => {
+    if (envCover != null && envCover > 0) return Math.max(cover, envCover);
+    const calc = (arr: MacroRingPoint[] | undefined) => {
+      if (!arr || arr.length < 12) return cover;
+      const pick = (maxKm: number, q: number) => {
+        const v = arr.filter(x => x.distance <= maxKm).map(x => Math.min(1, Math.max(0, x.cover))).sort((a, b) => a - b);
+        return v.length < 6 ? 0 : v[Math.min(v.length - 1, Math.floor(v.length * q))];
+      };
+      return Math.max(cover, pick(150, 0.75), pick(400, 0.9));
     };
-    return Math.max(cover, pick(150, 0.75), pick(400, 0.9));
+    return Math.max(calc(pts), nextPts ? calc(nextPts) : 0);
   };
   /** §155 하늘 화면이 준 드리프트 시각(초) — `setDate` 의 두 번째 인자. 없으면 씬 시각. */
   let driftSecOverride: number | null = null;
@@ -1980,7 +2069,10 @@ export async function createVolumetricScene(
     const S = isFast ? 128 : 256;
     const quantStep = isFast ? 0.05 : 0.01;
     const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) / quantStep) * quantStep;
-    const inputs = p.layers.slice(0, 4).map(L => (opt.macro > 0 && p.macro ? { ...L, cover: macroTileCover(p.macro[bandOfInput(L)], L.cover) } : L));
+    const inputs = p.layers.slice(0, 4).map(L => {
+      const b = bandOfInput(L);
+      return opt.macro > 0 && p.macro ? { ...L, cover: macroTileCover(p.macro[b], L.cover, p.macroNext?.[b], p.tileCoverEnvelope?.[b]) } : L;
+    });
     const useFlow = opt.flow && opt.genus;
     const useMorph = opt.morph && opt.genus && !useFlow && !opt.skeleton;
     const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
@@ -2047,6 +2139,9 @@ export async function createVolumetricScene(
         flowTilt: _fti,
         densPow: _fd,
         flowErode: _fer,
+        flowCarve: _fc,
+        flowGrain: _fg,
+        flowWisp: _fw,
         ...restOpts
       } = g.opts as Record<string, unknown>;
       if (useFlow) delete restOpts.spacingKm;
@@ -2098,7 +2193,9 @@ export async function createVolumetricScene(
     (au.get('farDriftKmV')!.value as Vector4).set(pick(kdv, s[0]), pick(kdv, s[1]), pick(kdv, s[2]), pick(kdv, s[3]));
     (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
     (au.get('farMacroDriftV')!.value as Vector4).set(pick(mdv, s[0]), pick(mdv, s[1]), pick(mdv, s[2]), pick(mdv, s[3]));
-    au.get('farMacroTex')!.value = macro ? macro.texB : null;
+    au.get('farMacroTex')!.value = macro ? macro.texA : null;
+    au.get('farMacroTexB')!.value = macro ? macro.texB : null;
+    au.get('farMacroMix')!.value = (cu.genusMacroMix?.value as number | undefined) ?? 0;
     au.get('farMacroLut')!.value = macro ? macro.lut : null;
     au.get('farMacroOn')!.value = macro ? 1 : 0;
     au.get('farMacroExtentKm')!.value = macro ? macro.extentKm : 768;
@@ -2317,27 +2414,30 @@ export async function createVolumetricScene(
       if (opt.macro > 0 && p.macro) {
         const laneBand = [0, 1, 2, 3].map(i => (inputs[i] ? bandOfInput(inputs[i]) : null));
         const S = tex.image.width;
-        if (isInteracting && macro) {
-          macro.laneBand = laneBand;
-          macro.lut.dispose();
-          macro.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && macro!.samples[laneBand[i]!] ? getCachedMacroTable(tex, S, i) : null)));
-          for (const mm of genusMats) setMacroUniforms(mm, { texA: macro.texA, texB: macro.texB, mix: 0, extentKm: macro.extentKm, laneBand, lut: macro.lut });
-        } else {
-          disposeMacro();
-          const samples: Partial<Record<MacroBand, MacroSample[]>> = {};
-          for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
-            const pts = p.macro[b];
-            if (pts && pts.length >= 12) samples[b] = samplesFromRing(pts.map(q => ({ distance: q.distance, azimuthOffset: q.azimuthOffset, cover: q.cover * 100 })));
-          }
-          if (Object.keys(samples).length) {
-            const n = opt.macroN, extentKm = 768;
-            const m: NonNullable<typeof macro> = { samples, states: {}, fields: {}, texA: null as unknown as DataTexture, texB: null as unknown as DataTexture, lut: null as unknown as DataTexture, laneBand, n, extentKm, lastSec: driftSecOverride };
+        disposeMacro();
+        const samples = macroRingSamplesOf(p.macro);
+        const samplesNext = p.macroNext ? macroRingSamplesOf(p.macroNext) : {};
+        if (Object.keys(samples).length) {
+          const n = opt.macroN, extentKm = 768;
+          const useCachedDual = opt.macro === 1;
+          const m: NonNullable<typeof macro> = {
+            samples, states: {}, fields: {},
+            texA: null as unknown as DataTexture, texB: null as unknown as DataTexture, lut: null as unknown as DataTexture,
+            laneBand, n, extentKm, lastSec: driftSecOverride,
+            spanMs: p.macroSpanMs,
+            cachedTex: useCachedDual,
+          };
+          if (useCachedDual) {
+            m.texA = getOrBuildCachedMacroTex(samples, n, extentKm);
+            m.texB = Object.keys(samplesNext).length ? getOrBuildCachedMacroTex(samplesNext, n, extentKm) : m.texA;
+          } else {
             const tex0 = macroBuildFields(m, opt.macro === 2);
             m.texA = tex0; m.texB = tex0;
-            m.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && samples[laneBand[i]!] ? getCachedMacroTable(tex, S, i) : null)));
-            macro = m;
-            for (const mm of genusMats) setMacroUniforms(mm, { texA: m.texA, texB: m.texB, mix: 0, extentKm, laneBand, lut: m.lut });
           }
+          m.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && samples[laneBand[i]!] ? getCachedMacroTable(tex, S, i) : null)));
+          macro = m;
+          const initMix = useCachedDual ? macroMixAt(p.date, p.macroSpanMs) : 0;
+          for (const mm of genusMats) setMacroUniforms(mm, { texA: m.texA, texB: m.texB, mix: initMix, extentKm, laneBand, lut: m.lut });
         }
       } else {
         disposeMacro();
@@ -2518,13 +2618,18 @@ export async function createVolumetricScene(
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
-      const macroSec = driftSec - (genDate ?? date).getTime() / 1000;
+      // macroSpanMs 가 있으면 거시 격자는 이미 date 시각으로 오일러 보간되어 있으므로 실제 경과 드리프트(driftSec - date)만 밀어 정시 점프를 없앱니다.
+      const macroRefSec = (macro?.spanMs ? date : (genDate ?? date)).getTime() / 1000;
+      const macroSec = driftSec - macroRefSec;
       const w0 = genLayers[0];
       const wu0 = w0 ? flowParam(w0, 'windU', 0) : 0;
       const wv0 = w0 ? flowParam(w0, 'windV', 0) : 0;
       for (const m of genusMats) { setGenusLife(m, driftSec); setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setWaveDrift(m, wu0, wv0, driftSec - (genDate ?? date).getTime() / 1000, lastInput.layers[0]?.driftKm); setMacroDrift(m, genLayers, macroSec); }
-      // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다. 잡음 없는 모드(1)는 걸음이 없습니다.
-      if (macro && opt.macro === 2) {
+      if (macro && opt.macro === 1 && macro.spanMs) {
+        const mix = macroMixAt(date, macro.spanMs);
+        for (const m of genusMats) setMacroMix(m, mix);
+      } else if (macro && opt.macro === 2) {
+        // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다.
         if (macro.lastSec == null) macro.lastSec = driftSec;
         const elapsed = driftSec - macro.lastSec;
         if (elapsed >= MACRO_STEP_SEC || elapsed < 0) {
@@ -2543,8 +2648,79 @@ export async function createVolumetricScene(
     updateCity(lastInput, date);
     const exposure = exposureFor(sunAltDeg, lastInput);
     applyHaze(lastInput.haze);
+    applyCloudAir(lastInput);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
+  };
+  const updateContinuousScene = (cont: VolumetricSceneInput) => {
+    if (!lastInput || !weather) return;
+    const densityMul = opt.debugDensityMul;
+    const flowDens = !!opt.flow && opt.genus && opt.flowDensity;
+    const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
+    const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003 } : b === 'mid' ? { height: 900, densityScale: 0.015 } : { height: 1200, densityScale: 0.02 });
+    for (let i = 0; i < 4; i++) {
+      const cl = clouds.cloudLayers[i];
+      const cL = cont.layers[i];
+      const g = genLayers[i];
+      if (!cl || !cL) continue;
+      if (g && cL.genus === g.genus) {
+        const origCover = Math.max(0, Math.min(1, cL.cover));
+        let nextOpts = { ...g.opts, ...cL.opts };
+        const rawCarve = (GENUS_FLOW[g.genus] as { flowCarve?: number } | undefined)?.flowCarve ?? (nextOpts as { flowCarve?: number }).flowCarve;
+        if (typeof rawCarve === 'number' && rawCarve > 0 && origCover > 0.8) {
+          const carveScale = Math.max(0, Math.min(1, (0.96 - origCover) / 0.16));
+          nextOpts = { ...nextOpts, flowCarve: Math.round(rawCarve * carveScale * 100) / 100 };
+        } else if (typeof rawCarve === 'number') {
+          nextOpts = { ...nextOpts, flowCarve: rawCarve };
+        }
+        genLayers[i] = { ...g, opts: nextOpts };
+      }
+      const shape = g ? genusLayerShape(genLayers[i]!, flowDens) : bandShape(bandOf(cL));
+      const height = cL.thicknessM ?? shape.height ?? cl.height;
+      cl.altitude = cL.baseKm * 1000;
+      cl.height = height;
+      if (!activeWaveField || i > 0) {
+        const ds = (cL.opts?.densityScale ?? shape.densityScale ?? cl.densityScale) * densityMul;
+        if (Number.isFinite(ds) && ds >= 0) cl.densityScale = ds;
+      }
+    }
+    if (genLayers.some(Boolean)) {
+      for (const m of genusMats) {
+        setGenusUniforms(m, genLayers);
+        setGenusDiffuse(m, opt.diffuse);
+        setFlowUniforms(m, genLayers, { density: flowDens, uv: genUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
+      }
+    }
+    if (macro && opt.macro === 1 && cont.macro) {
+      const spanChanged = !macro.spanMs || !cont.macroSpanMs || macro.spanMs[0] !== cont.macroSpanMs[0] || macro.spanMs[1] !== cont.macroSpanMs[1];
+      if (spanChanged) {
+        const smA = macroRingSamplesOf(cont.macro);
+        const smB = cont.macroNext ? macroRingSamplesOf(cont.macroNext) : {};
+        if (Object.keys(smA).length) {
+          macro.samples = smA;
+          macro.texA = getOrBuildCachedMacroTex(smA, macro.n, macro.extentKm);
+          macro.texB = Object.keys(smB).length ? getOrBuildCachedMacroTex(smB, macro.n, macro.extentKm) : macro.texA;
+          macro.spanMs = cont.macroSpanMs;
+          const mix = macroMixAt(cont.date, macro.spanMs);
+          for (const mm of genusMats) setMacroUniforms(mm, { texA: macro.texA, texB: macro.texB, mix, extentKm: macro.extentKm, laneBand: macro.laneBand, lut: macro.lut });
+        }
+      }
+    }
+    genDate = cont.date;
+    lastInput = {
+      ...lastInput,
+      date: cont.date,
+      layers: cont.layers,
+      haze: cont.haze,
+      thermo: cont.thermo ?? lastInput.thermo,
+      macro: cont.macro ?? lastInput.macro,
+      macroNext: cont.macroNext ?? lastInput.macroNext,
+      macroSpanMs: cont.macroSpanMs ?? lastInput.macroSpanMs,
+      tileCoverEnvelope: cont.tileCoverEnvelope ?? lastInput.tileCoverEnvelope,
+    };
+    if (opt.farSun) applyFarSun(lastInput, lastSunAltForLight);
+    applyHaze(lastInput.haze);
+    applyCloudAir(lastInput);
   };
 
   /**
@@ -2665,6 +2841,7 @@ export async function createVolumetricScene(
     },
     setView,
     setDate,
+    updateContinuousScene,
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {

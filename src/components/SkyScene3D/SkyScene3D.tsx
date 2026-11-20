@@ -983,6 +983,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastCityLightValRef = useRef<number>(-1);
   const lastVolCityLightRef = useRef<number>(-1);
   const lastVolDateSyncRef = useRef<VolDateSyncState>({ targetMs: null, wallMs: 0 });
+  const lastVolContMinRef = useRef<number | null>(null);
   const prevLabelsRef = useRef<Array<{ id: string; name: string; x: number; y: number; color: string }>>([]);
   const lastSentAzElevRef = useRef<{ az: number; el: number }>({ az: -999, el: -999 });
   const volInteractingRef = useRef<boolean>(false);
@@ -3075,11 +3076,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               }
             }
             if (volKeyChanged && live) {
+              const curWx = vPath.length ? getInterpolatedWeather(vPath, vDate) : (weatherRef.current ?? []);
               const built = live.buildLiveScene({
-                lat: vLat, lon: vLon, heightM: vElev, date: new Date(vBucketMs),
+                lat: vLat, lon: vLon, heightM: vElev, date: vDate,
                 pathData: vPath,
-                obs: vObs,
-                interpolatedWeather: vWx,
+                obs: curWx[0] ?? vObs,
+                interpolatedWeather: curWx.length ? curWx : vWx,
                 az: effectiveAz, el: effectiveElev, fov: camera.fov,
                 altitudeM,
                 metar: metarRef.current,
@@ -3093,6 +3095,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volKeyRef.current = key;
                 volPendingRef.current = false;
                 vol.setScene(built.input);
+                lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
                 volumetricStats.weatherMs = vol.weatherMs();
                 volHasSceneRef.current = true;
                 if (!isSlidingNow) setVolumetricStatus({ summary: built.summary });
@@ -3135,6 +3138,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   volumetricStats.weatherMs = vol.weatherMs();
                   if (applied) {
                     volHasSceneRef.current = true;
+                    lastVolContMinRef.current = null;
                     setVolumetricStatus({ summary: built.summary });
                     const g = built.genus;
                     lastVolSceneRef.current = built.obs ? {
@@ -3258,6 +3262,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               });
               driftAnchorRef.current = syncDecision.nextAnchor;
               lastVolDateSyncRef.current = syncDecision.nextLastSync;
+              const curMin = Math.floor(vMs / 60000);
+              if (live && !volPendingRef.current && vol.updateContinuousScene && lastVolContMinRef.current !== curMin) {
+                lastVolContMinRef.current = curMin;
+                const contWx = vPath.length ? getInterpolatedWeather(vPath, vDate) : (weatherRef.current ?? []);
+                if (contWx.length > 0) {
+                  const contBuilt = live.buildLiveScene({
+                    lat: vLat, lon: vLon, heightM: vElev, date: vDate,
+                    pathData: vPath,
+                    obs: contWx[0] ?? null,
+                    interpolatedWeather: contWx,
+                    az: effectiveAz, el: effectiveElev, fov: camera.fov,
+                    altitudeM,
+                    metar: metarRef.current,
+                    fill: skySettingsRef.current.volumetricFill ?? true,
+                  });
+                  vol.updateContinuousScene(contBuilt.input);
+                  if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary });
+                }
+              }
               if (syncDecision.shouldCallSetDate) {
                 vol.setDate(vDate, syncDecision.driftSec);
               }

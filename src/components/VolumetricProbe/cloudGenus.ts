@@ -1096,6 +1096,9 @@ function layerPatternKey(
     flowTilt: _fti,
     densPow: _fd,
     flowErode: _fer,
+    flowCarve: _fc,
+    flowGrain: _fg,
+    flowWisp: _fw,
     ...patternOpts
   } = o;
   if (useFlow) delete patternOpts.spacingKm;
@@ -1372,7 +1375,7 @@ const THRU_BLOCK = [
   '        // 태양 정면(cosTheta > 0.0)을 마주볼 때, 광학두께(opticalDepth)가 두꺼운 구름 내부는',
   '        // 다중산란에 의해 하얗게 뜨지 않고 관찰자 시점에서 짙은 그늘(실루엣)이 지도록 감쇠합니다.',
   '        if (cosTheta > 0.0) {',
-  '          float backlitDarken = exp(-0.035 * opticalDepth * cosTheta);',
+  '          float backlitDarken = exp(-0.075 * opticalDepth * cosTheta);',
   // 2026-11-13 직사광 몫(gSunPart)에만 — 예전에는 하늘빛·지면 반사까지 곱해 해 쪽 구름이 거의 검은 남회색(서초 11/13 08:04 사진은 밝은 회색).
   '          radiance -= gSunPart * (1.0 - mix(1.0, backlitDarken, dot(genusOn, media.weight)));',
   '        }',
