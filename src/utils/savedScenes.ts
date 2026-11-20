@@ -236,6 +236,13 @@ function skyWords(azDeg: number, lang: SceneLang): string {
   return pick(lang, `${COMPASS_KO[i]}쪽 하늘`, `${COMPASS_EN[i]} sky`, `${COMPASS_JA[i]}の空`);
 }
 
+/** 해가 시선 기준 어디인가("정면 · 오른쪽 · 왼쪽 하늘"). 나침반이 아니라 보는 사람 기준이라 위도와 상관없이 맞습니다. 정면은 ±15° 안(경계 포함). */
+export const SUN_AHEAD_DEG = 15;
+function sunSide(d: number, lang: SceneLang): string {
+  if (Math.abs(d) <= SUN_AHEAD_DEG) return pick(lang, '정면 하늘', 'Ahead', '正面の空');
+  return d > 0 ? pick(lang, '오른쪽 하늘', 'Right side', '右の空') : pick(lang, '왼쪽 하늘', 'Left side', '左の空');
+}
+
 /** 그 시각 해의 자리. `rising` 은 뜨는 중(고도가 늘어나는 중)인가. */
 export interface SunNote {
   altDeg: number;
@@ -267,7 +274,7 @@ const SUN_NEAR_DEG = 60;
 
 /**
  * 목록의 두 번째 줄: 고른 대상이 있으면 그 설명("건물 · 555 m", "지형 지점 · 3.1 km"), 없으면 하늘 글
- * ("일몰 · 남서쪽 하늘": 해가 지평선 가까이이고 시선이 해와 60° 안일 때만 일출 · 일몰을 붙입니다).
+ * ("일몰 · 오른쪽 하늘": 해가 지평선 가까이이고 시선이 해와 60° 안일 때만 일출 · 일몰을 붙이고, 해는 시선 기준 정면 · 오른쪽 · 왼쪽으로 말합니다).
  */
 export function sceneNote(s: SavedScene, sun: SunNote | null, lang: SceneLang): string {
   const t = s.target;
@@ -279,8 +286,8 @@ export function sceneNote(s: SavedScene, sun: SunNote | null, lang: SceneLang): 
   }
   const words = skyWords(s.azDeg, lang);
   if (sun && fin(sun.altDeg) && fin(sun.azDeg) && Math.abs(sun.altDeg) <= HORIZON_ALT_DEG) {
-    const d = Math.abs((((sun.azDeg - s.azDeg) % 360) + 540) % 360 - 180);
-    if (d <= SUN_NEAR_DEG) return `${sun.rising ? pick(lang, '일출', 'Sunrise', '日の出') : pick(lang, '일몰', 'Sunset', '日没')} · ${words}`;
+    const d = (((sun.azDeg - s.azDeg) % 360) + 540) % 360 - 180; // 시선 기준 해의 각(오른쪽 +)
+    if (Math.abs(d) <= SUN_NEAR_DEG) return `${sun.rising ? pick(lang, '일출', 'Sunrise', '日の出') : pick(lang, '일몰', 'Sunset', '日没')} · ${sunSide(d, lang)}`;
   }
   return words;
 }

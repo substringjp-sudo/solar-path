@@ -49,7 +49,7 @@ interface Props {
   mode: MoveMode;
   onMode: (m: MoveMode) => void;
   /** 이동이 장면 · 저장소에 닿는 길(`useJoystickDriver`): 저장된 위치 읽기, 장면의 눈 옮기기 · 거두기, 새 위치 저장. */
-  drive: Pick<DriverHost, 'getOrigin' | 'setEye' | 'clearEye' | 'commit'>;
+  drive: Pick<DriverHost, 'getOrigin' | 'setEye' | 'clearEye' | 'commit' | 'onGrab'>;
   /** 저장된 위치에서 기기 위치까지의 거리(m). 기기 위치를 모르면 null. */
   awayM: number | null;
   /** 기기 위치. 주면 움직이는 동안 "내 위치 아님" 거리를 눈의 자리 기준으로 실시간 갱신합니다. */

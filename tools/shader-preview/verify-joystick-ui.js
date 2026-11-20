@@ -11,7 +11,8 @@
  *  2. 안내 글: 칩 아래에 "끝까지 밀면 N m/s"(N = 지금 모드의 최고 속도 `MODE_MAX_SPEED_MPS[mode]`; 영어 · 일본어 포함)가 있다.
  *  3. 지금 속도: 구동기가 내보내는 속도를 `formatSpeed` 로 적고("지금 속도" 글머리), 스크린리더 글에도 같은 값이 들어간다. 움직이는 동안에는 강조 색.
  *  4. 구동기 연결: 패널이 `useJoystickDriver` 를 모드 · 기준(`ref`) · 시선 방위와 함께 부르고, 손잡이의 `onStick` · `onNudge` 에 구동기의 `onStick` · `nudge` 를 넘긴다.
- *     "내 위치로" 단추는 **구동기를 먼저 접고**(`driver.cancel()`) 위치를 바꾼다. 장면의 눈 · 저장은 `drive`(`getOrigin` · `setEye` · `clearEye` · `commit`)로만 닿는다.
+ *     "내 위치로" 단추는 **구동기를 먼저 접고**(`driver.cancel()`) 위치를 바꾼다. 장면의 눈 · 저장은 `drive`(`getOrigin` · `setEye` · `clearEye` · `commit`, 그리고 손잡이를 새로 쥘 때 부르는 선택 항목 `onGrab`)로만 닿는다.
+ *     (2026-11-20 정정: "여기로 가기" 가 들어오며 `onGrab` 이 붙었다. 쥐는 순간 가던 걸음을 그 자리에서 끝내 옛 자리로 튀지 않게 하려는 것이라, 이름 목록만 넓히고 "drive 로만 닿는다"는 기준은 그대로.)
  *  5. 예전 걸음 단위 이동이 남지 않는다: 예전 조이스틱에만 있던 이름(`MOVE_STEP_CHOICES_M` · `stepMove` · `stickIntervalMs` · `rotateByView` · `moveStepM`)이 앱 소스(`src/`) 전체와 하네스(`tools/web-repro/App.tsx`)에 없고
  *     (`joystickMotion.ts` 의 "옛 조이스틱은 … `sandboxDials.stepMove`" 같은 옛 동작을 설명하는 머리글만 뺀다), 흔한 이름(`stepM` · `onStep` · `onMove`)은 조이스틱 파일(패널 · 하늘 화면 · 손잡이 · 하네스)에 없다.
  *     (처음에는 흔한 이름까지 `src/` 전체를 단어로 훑었다가 무관한 것 — 세로 막대와 시간 막대의 `onStep`, 구름 · 봉우리 계산의 `stepM` — 이 걸려 거짓으로 실패했습니다. 기준의 뜻은 "예전 조이스틱의 걸음 단위가 남지 않는다"였으므로 위처럼 범위를 좁혔습니다.)
@@ -65,7 +66,7 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   ok(/useJoystickDriver\(\{ \.\.\.drive, mode, ref, getHeading: \(\) => getView\?\.\(\)\?\.az \?\? null \}\)/.test(panel), '패널이 useJoystickDriver 를 drive · 모드 · 기준 · 시선 방위와 함께 부른다');
   ok(/<MoveStick[^>]*onStick=\{driver\.onStick\}[^>]*onNudge=\{driver\.nudge\}/.test(panel), '손잡이의 onStick · onNudge 에 구동기의 onStick · nudge 를 넘긴다');
   ok(/onPress=\{\(\) => \{ driver\.cancel\(\); onHome\(\); \}\}/.test(panel), '"내 위치로" 는 구동기를 먼저 접고 위치를 바꾼다');
-  ok(/drive: Pick<DriverHost, 'getOrigin' \| 'setEye' \| 'clearEye' \| 'commit'>;/.test(panel), '장면 · 저장소에는 drive(getOrigin · setEye · clearEye · commit)로만 닿는다');
+  ok(/drive: Pick<DriverHost, 'getOrigin' \| 'setEye' \| 'clearEye' \| 'commit' \| 'onGrab'>;/.test(panel), '장면 · 저장소에는 drive(getOrigin · setEye · clearEye · commit · onGrab)로만 닿는다');
 
   console.log('\n[5] 예전 걸음 단위 이동이 남지 않는다');
   const uniq = /MOVE_STEP_CHOICES_M|\bstepMove\b|stickIntervalMs|rotateByView|moveStepM/;
@@ -87,7 +88,10 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   ok(/const away = home && eye \? distanceM\(home, eye\) : awayM;/.test(panel), '움직이는 동안 눈의 자리에서 실시간, 멈춘 뒤 저장된 위치 기준');
 
   console.log('\n[8] 하늘 화면');
-  ok(/useState<MoveMode>\('walk'\)/.test(sky) && /mode=\{moveMode\}/.test(sky) && /onMode=\{setMoveMode\}/.test(sky), '모드의 처음 값은 걷기');
+  ok(/useState<MoveMode>\('walk'\)/.test(sky) && /mode=\{moveMode\}/.test(sky) && /onMode=\{changeMoveMode\}/.test(sky) && /setMoveMode\(m\);/.test(sky), '모드의 처음 값은 걷기, 모드 바꾸기는 changeMoveMode 를 거쳐 setMoveMode 로 간다');
+  ok(/eyeForMode\(moveMode, m, eyeH, flyStashRef\.current\)/.test(sky) && /if \(r\.eyeH !== eyeH\) setEyeH\(r\.eyeH\);/.test(sky), '모드를 바꿀 때 eyeForMode 로 눈 높이를 고친다(비행 100 m, 돌아오면 되돌림)');
+  ok(/useGlide\(\{/.test(sky) && /onGrab: glide\.finish/.test(sky) && /glide\.cancel\(\);\n\s+sceneRef\.current\?\.setEyeLocation\?\.\(homeCoords/.test(sky), '여기로 가기: 조이스틱을 쥘 때 그 자리에서 끝내고, 내 위치로 가기 전에 접는다');
+  ok(/onGo=\{\(\) => \{\s+const pt = targetPointOf\(picked\);\s+if \(pt\) glide\.start\(\{ latitude: pt\.latitude, longitude: pt\.longitude \}\);/.test(sky) && /<Text style=\{styles\.actionText\}>\{L3\(language, '여기로 가기', 'Go here', 'ここへ行く'\)\}/.test(read('src', 'components', 'SkyScreen', 'ObjectInfoPanel.tsx')), '고른 점의 위경도로 glide.start, 단추 글자 "여기로 가기"');
   ok(/getOrigin: \(\) => \{\s*const c = useCelestialStore\.getState\(\)\.location\?\.coords \?\? \{ latitude, longitude \};/.test(sky), 'getOrigin 은 저장소에서 바로 저장된 위치를 읽는다');
   ok(/setEye: \(p\) => sceneRef\.current\?\.setEyeLocation\?\.\(p\.latitude, p\.longitude\)/.test(sky) && /clearEye: \(\) => sceneRef\.current\?\.clearEyeLocation\?\.\(\)/.test(sky) && /commit: setSpot/.test(sky), 'setEye → setEyeLocation, clearEye → clearEyeLocation, commit → setSpot');
   ok(/const setSpot = \(p: \{ latitude: number; longitude: number \}\) => \{\s*useCelestialStore\.getState\(\)\.setLocation\(\{\s*coords: \{ latitude: p\.latitude, longitude: p\.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 \},\s*timestamp: Date\.now\(\),/.test(sky), 'setSpot = setLocation(좌표 + 시각 도장)');

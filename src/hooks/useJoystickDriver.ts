@@ -29,6 +29,8 @@ export interface DriverHost {
   clearEye: () => void;
   /** 이 자리를 새 위치로 저장합니다. */
   commit: (p: LatLon) => void;
+  /** 손잡이를 새로 쥘 때(움직임이 시작되기 직전). 다른 이동(여기로 가기)을 그 자리에서 끝낼 때 씁니다. */
+  onGrab?: () => void;
 }
 
 export interface DriverReadout {
@@ -91,6 +93,7 @@ export function useJoystickDriver(host: DriverHost) {
 
   /** 손잡이 상태가 바뀔 때마다. 쥐었거나 미끄러지는 중이면 프레임 순환을 시작합니다. */
   const onStick = useCallback((s: StickState) => {
+    if (s.active && !stick.current.active) hostRef.current.onGrab?.();
     stick.current = s;
     if ((s.active || state.current.eye) && timer.current === null) {
       lastT.current = nowMs();

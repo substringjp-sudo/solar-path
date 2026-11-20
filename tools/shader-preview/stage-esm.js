@@ -124,6 +124,8 @@ const ENTRIES = [
   // 연속 이동 조이스틱의 구동기(프레임 이어 붙이기 · 멈춘 뒤 한 번 확정)와 건물 받기 진행 막대 — verify-joystick-driver.js
   'src/utils/joystickDriver.ts',
   'src/utils/loadProgress.ts',
+  // 비행 모드 눈 높이와 "여기로 가기" 부드러운 이동 — verify-fly-glide.js
+  'src/utils/flightAssist.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
