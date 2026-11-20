@@ -44,13 +44,6 @@ import { snapBuildingTarget } from '../../src/utils/demPick';
 import { createPickIndexBuilder } from '../../src/utils/buildingPick';
 import { pickTargetAt } from '../../src/utils/pickTarget';
 import { Onboarding } from '../../src/components/Onboarding/Onboarding';
-import { StandSuggestView } from '../../src/components/SkyScreen/StandSuggest';
-import { outlookFromHourly } from '../../src/utils/standSuggest';
-import { localOffsetM } from '../../src/utils/geoMove';
-import { findStandPoints, groupStandHits } from '../../src/utils/standFinder';
-import { standQueryFor, rankStands, rebuildPicked } from '../../src/utils/standSuggest';
-import { bodySky } from '../../src/utils/alignSearch';
-import { fetchUrbanMask } from '../../src/utils/mvtTiles';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -275,7 +268,6 @@ function ObjPanelRepro({ W, H }: { W: number; H: number }) {
           observer={{ latitude: 37.5512, longitude: 126.9882, fromMs: Date.parse(Q.t ?? '2026-11-19T03:00:00Z') }}
           onAlign={() => {}}
           onCalc={() => { (globalThis as any).__calcPressed = true; }}
-          onSuggest={() => { (globalThis as any).__suggestPressed = true; }}
           moonDiskDeg={0.52}
           onSnap={(top: boolean) => setT((p: any) => snapBuildingTarget(p, top))}
           onClear={() => setT(null)}
@@ -299,52 +291,6 @@ function OnboardRepro({ W, H }: { W: number; H: number }) {
         goodOnly={good}
         onToggleGoodOnly={(n) => { setGood(n); (globalThis as any).__guideGood = n; }}
         onDone={() => { (globalThis as any).__guideDone = true; }}
-      />
-    </View>
-  );
-}
-
-/**
- * suggest:1 — 추천 화면(2026-11-19 목업 3번). 합성 세계: 눈 위치(원점) 37.5512, 126.9882 에서 동남동 약 11 km 의 롯데월드타워 모양(555 m, 꼭대기 해발 575 m).
- * 땅은 해발 20 m 평지 + 대상 남서 3 km 의 언덕(420 m, 뒤쪽 자리는 가려짐) + 대상 북쪽을 지나는 강(물 띠). 예보: 16일, 날마다 맑음 · 보통 · 많음이 돌아가고 그 뒤는 모름.
- * kind:'terrain' 이면 건물 없이 지형 한 점(해발 400 m), noTerrain:1 이면 지형을 못 받은 상태, noWater:1 이면 지도 물 격자를 못 받은 상태,
- * noOutlook:1 이면 예보 없음(날씨 모름), lang · light.
- * 후보를 누르면 window.__suggestPicked 에 시각·위경도가 남습니다.
- */
-function SuggestRepro({ W, H }: { W: number; H: number }) {
-  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
-  const origin = { latitude: 37.5512, longitude: 126.9882 };
-  const T = { latitude: 37.5126, longitude: 127.1026 };
-  const o = localOffsetM(origin, T.latitude, T.longitude);
-  const tx = o.eastM, tz = -o.northM;
-  const ground = React.useCallback((e: number, s: number) => {
-    const hx = tx - 2100, hz = tz + 2100;   // 대상의 남서쪽 약 3 km
-    return 20 + 420 * Math.exp(-(((e - hx) ** 2 + (s - hz) ** 2) / (2 * 800 ** 2)));
-  }, [tx, tz]);
-  const isWater = React.useCallback((e: number, s: number) => Math.abs(s - (tz - 2800)) < 220 && e > tx - 9000 && e < tx + 9000, [tx, tz]);
-  const t0 = Date.parse(Q.t ?? '2026-11-19T00:00:00Z');
-  const outlook = React.useMemo(() => {
-    if (Q.noOutlook) return null;
-    const n = 24 * 16;
-    return outlookFromHourly({ timeMs: Array.from({ length: n }, (_, i) => t0 + i * 3600e3), total: Array.from({ length: n }, (_, i) => [10, 40, 85, 20][Math.floor(i / 24) % 4]) });
-  }, [t0]);
-  const building = Q.kind !== 'terrain';
-  const top = { azDeg: 113, elDeg: 0.3, distM: Math.hypot(tx, tz), elevM: building ? 575 : 400, eastM: tx, southM: tz, latitude: T.latitude, longitude: T.longitude, visible: true, marginM: 30 };
-  const target: any = building
-    ? { kind: 'building', ...top, eyeElevM: 21.6, building: { heightM: 555, baseElevM: 20, topElevM: 575, longM: 40, shortM: 11, snapped: true, hitPoint: top, topPoint: top, angularHeightDeg: 3.2 } }
-    : { kind: 'terrain', ...top, eyeElevM: 21.6 };
-  return (
-    <View style={{ width: W, height: H }}>
-      <StandSuggestView
-        language={Q.lang ?? 'ko'}
-        target={target}
-        fromMs={t0}
-        eyeAboveGroundM={Q.eye ?? 1.6}
-        getSamplers={() => (Q.noTerrain ? null : { origin, ground, isWater, waterReady: !Q.noWater })}
-        outlook={outlook}
-        outlookState={Q.noOutlook ? 'failed' : 'ready'}
-        onPick={(c) => { (globalThis as any).__suggestPicked = { timeMs: c.hit.timeMs, lat: c.hit.latitude, lon: c.hit.longitude, score: c.score }; }}
-        onBack={() => { (globalThis as any).__suggestBack = true; }}
       />
     </View>
   );
@@ -461,8 +407,6 @@ function CardsRepro({ W }: { W: number }) {
 }
 
 (globalThis as any).__sky = () => (globalThis as any).__skyHandle;
-// 서 있을 자리 찾기 계산을 실제 장면의 표본기로 돌려 보는 용도(window.__stand.findStandPoints 등) — 장면 시험 스크립트가 씁니다.
-(globalThis as any).__stand = { findStandPoints, groupStandHits, standQueryFor, rankStands, rebuildPicked, bodySky, fetchUrbanMask };
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
   // 시선·시각·해 위치를 페이지를 다시 열지 않고 바꿉니다 — 볼륨 대기 표(SwiftShader 60~70초)를 한 번만 만들려고.
@@ -494,7 +438,6 @@ export default function App() {
   if (Q.calc) return <CalcRepro W={W} H={H} />;
   if (Q.onboard) return <OnboardRepro W={W} H={H} />;
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
-  if (Q.suggest) return <SuggestRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   if (Q.sbxctl) return <SandboxCtlRepro W={W} />;
   return (
