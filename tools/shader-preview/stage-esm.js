@@ -52,6 +52,9 @@ const ENTRIES = [
   'src/utils/waterMask.ts',
   // DEM 타일 (해안선 계획 1단계)
   'src/utils/demTiles.ts',
+  // 지형이 눈을 따라가는 기하(눈의 블록 안 타일 좌표 · 블록이 덮는가) — verify-eye-follow.js
+  'src/utils/demGeometry.ts',
+  'src/utils/geoMove.ts',
   // 지형 평탄화(건물 발자국 바닥 · 강 수면) — verify-dem-flatten.js
   'src/utils/demBuildingFlatten.ts',
   // AR 방위각 ↔ 화소 사상. 나침반 눈금자와 시뮬레이터가 **같은 함수**를
@@ -110,9 +113,6 @@ const ENTRIES = [
   'src/utils/cloudDeck.ts',
   // 샌드박스 세로 막대(높이·줌)와 이동 조이스틱 계산 — verify-sandbox-dials.js
   'src/utils/sandboxDials.ts',
-  // 지형이 눈을 따라가는 기하(눈의 블록 안 타일 좌표 · 블록이 덮는가) — verify-eye-follow.js
-  'src/utils/demGeometry.ts',
-  'src/utils/geoMove.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
