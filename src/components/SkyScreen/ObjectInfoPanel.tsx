@@ -34,6 +34,8 @@ interface Props {
   moonDiskDeg?: number;
   /** "계산 과정" 단추. 없으면 단추를 그리지 않습니다. */
   onCalc?: () => void;
+  /** 제목 줄 아래에 끼우는 줄: "장면 저장 · 저장한 장면"(`SceneBar`, 목업 2번). 없으면 그리지 않습니다. */
+  sceneRow?: React.ReactNode;
   onClear: () => void;
 }
 
@@ -41,7 +43,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, sceneRow, onClear }) => {
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const b = target.kind === 'building' ? target.building : undefined;
@@ -78,6 +80,7 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           <X size={14} color={DARK.text} />
         </OverlayButton>
       </View>
+      {sceneRow}
       <View style={styles.grid}>
         {cells.map(c => (
           <View key={c.label} style={styles.cell}>

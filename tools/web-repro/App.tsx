@@ -24,6 +24,9 @@ import { ScoreGraph } from '../../src/components/SkyScreen/ScoreGraph';
 import { scoreWindow, sampleScores } from '../../src/utils/scoreSeries';
 import { sunPosition } from '../../src/utils/solarPosition';
 import { SandboxPanel } from '../../src/components/SkyScreen/SandboxPanel';
+import { SceneBar } from '../../src/components/SkyScreen/SceneBar';
+import { SceneSheet, type SaveResult } from '../../src/components/SkyScreen/SceneSheet';
+import { addScene, makeScene, nextSceneId, removeScene, renameScene, type SavedScene } from '../../src/utils/savedScenes';
 import { DialPair, MoveStick } from '../../src/components/SkyScreen/SandboxDials';
 import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
 import { ForecastScreen } from '../../src/components/ForecastScreen/ForecastScreen';
@@ -161,6 +164,64 @@ function BarRepro({ W }: { W: number }) {
         events={{ sunrise: day(6, 41), sunset: day(17, 53), moonrise: day(13, 20), moonset: day(23, 40) }}
         simple={!!Q.simple}
         seasonPcts={[{ key: 'a', pct: 22, color: '#4ADE80' }, { key: 'b', pct: 47, color: '#FFA500' }, { key: 'c', pct: 72, color: '#F97316' }, { key: 'd', pct: 98, color: '#38BDF8' }]}
+      />
+    </View>
+  );
+}
+
+/**
+ * scenes:1 — 장면 저장 줄(`SceneBar`)과 저장한 장면 시트(`SceneSheet`)만(2026-11-20, 계획 12.3). 저장소 대신 이 컴포넌트의 상태에 목록을 둡니다.
+ *   n 처음 장면 수(기본 3: 시안의 잠실한강공원 남단 · 탄천 둔치 · 남산 전망대, 0 이면 비어 있음, 50 이면 가득), open:1 이면 시트가 열린 채로, lang, tz(기본 9),
+ *   t 지금 시각(ISO, 기본 2026-11-24T09:30:00Z = 현지 18:30), noDraft:1 이면 지금 장면을 못 읽는 상태.
+ *   결과는 window.__scenes = {list, opened: [id …], saves: [이름 …], results: […]} 에 남깁니다. 시트가 읽는 "지금 장면"은 31 m · 128.4° · 20× · 롯데월드타워 꼭대기 입니다.
+ */
+function ScenesRepro({ W, H }: { W: number; H: number }) {
+  const lang = (Q.lang ?? 'ko') as any;
+  const tz = Q.tz ?? 9;
+  const nowMs = Q.t ? Date.parse(Q.t) : Date.UTC(2026, 10, 24, 9, 30);
+  const tower = { kind: 'building', latitude: 37.5126, longitude: 127.1026, elevM: 593, distM: 5400, building: { heightM: 555, baseElevM: 38, topElevM: 593, longM: 80, shortM: 60 } } as const;
+  const mk = (id: string, name: string, over: any) => makeScene({ latitude: 37.5126, longitude: 127.1026, eyeHeightM: 1.6, azDeg: 128, elDeg: 5.9, zoomX: 5, timeMs: nowMs, target: tower, ...over }, { name, nowMs, id, tzHours: tz, lang })!;
+  const seedList = React.useMemo(() => {
+    const n = Q.n ?? 3;
+    const base: SavedScene[] = [
+      mk('s1', '잠실한강공원 남단', { timeMs: Date.UTC(2026, 10, 24, 9, 12) }),
+      mk('s2', '탄천 둔치', { timeMs: Date.UTC(2026, 11, 4, 9, 47), azDeg: 131 }),
+      mk('s3', '남산 전망대', { timeMs: Date.UTC(2026, 10, 24, 8, 4), eyeHeightM: 245, azDeg: 245, zoomX: 1, target: null, latitude: 37.5512, longitude: 126.9882 }),
+    ];
+    const out: SavedScene[] = base.slice(0, Math.min(n, 3));
+    for (let i = 3; i < n; i++) out.push(mk('x' + i, '장면 ' + (i + 1), { timeMs: nowMs - i * 3600e3 }));
+    return out;
+  }, []);
+  const [list, setList] = React.useState<SavedScene[]>(seedList);
+  const [open, setOpen] = React.useState(!!Q.open);
+  const counter = React.useRef(0);
+  const log = React.useRef<any>({ opened: [] as string[], saves: [] as string[], results: [] as string[] });
+  (globalThis as any).__scenes = { list, ...log.current };
+  const draft = Q.noDraft ? null : makeScene({ latitude: 37.5126, longitude: 127.1026, eyeHeightM: 31, azDeg: 128.4, elDeg: 5.9, zoomX: 20, timeMs: nowMs, target: tower }, { name: '', nowMs, id: 'draft', tzHours: tz, lang });
+  const onSave = (name: string): SaveResult => {
+    if (!draft) { log.current.results.push('unavailable'); return 'unavailable'; }
+    const sc = makeScene({ latitude: draft.latitude, longitude: draft.longitude, eyeHeightM: draft.eyeHeightM, azDeg: draft.azDeg, elDeg: draft.elDeg, zoomX: draft.zoomX, timeMs: draft.timeMs, target: draft.target }, { name, nowMs, id: nextSceneId(nowMs + counter.current++), tzHours: tz, lang });
+    const r = sc ? addScene(list, sc) : { ok: false, list, reason: 'full' as const };
+    const res: SaveResult = r.ok ? 'saved' : 'full';
+    if (r.ok) { setList(r.list); log.current.saves.push(sc!.name); }
+    log.current.results.push(res);
+    return res;
+  };
+  return (
+    <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12, gap: 10 }}>
+      <SceneBar boxed language={lang} scenes={list} onSave={() => setOpen(true)} onOpen={(sc) => { log.current.opened.push(sc.id); }} onAll={() => setOpen(true)} />
+      <SceneSheet
+        visible={open}
+        language={lang}
+        scenes={list}
+        draft={draft}
+        nowMs={nowMs}
+        tzHours={tz}
+        onSave={onSave}
+        onOpen={(sc) => { log.current.opened.push(sc.id); setOpen(false); }}
+        onRename={(id, nm) => setList(l => renameScene(l, id, nm))}
+        onRemove={(id) => setList(l => removeScene(l, id))}
+        onClose={() => setOpen(false)}
       />
     </View>
   );
@@ -432,6 +493,7 @@ export default function App() {
   const locRef = React.useRef({ latitude: 0, longitude: 0 });
   locRef.current = { latitude: lat ?? 37.5, longitude: lon ?? 127 };
   if (Q.words) return <WordsRepro W={W} />;
+  if (Q.scenes) return <ScenesRepro W={W} H={H} />;
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.forecast) return <ForecastRepro W={W} H={H} />;
   if (Q.cards) return <CardsRepro W={W} />;

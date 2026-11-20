@@ -76,6 +76,10 @@ import { PressScale, OverlayButton, Reveal } from '../ui';
 import { distanceM } from '../../utils/geoMove';
 import type { MoveMode } from '../../utils/joystickMotion';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
+import { SceneBar } from './SceneBar';
+import { SceneSheet, type SaveResult } from './SceneSheet';
+import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
+import { rebuildPicked } from '../../utils/pickedTarget';
 import { DialPair } from './SandboxDials';
 import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
@@ -680,6 +684,62 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       timestamp: Date.now(),
     });
   };
+  // ── 장면 저장(docs/SANDBOX_MODE_PLAN.md 12.3) ───────────────────────────────
+  // 자리 · 눈 높이 · 보는 방향 · 줌 · 시각 · 고른 대상을 이 기기에만 저장하고(날씨는 저장하지 않고 열 때 새로 받습니다) 저장한 장면 시트에서 엽니다.
+  const savedScenes = useCelestialStore(s => s.savedScenes);
+  const [sceneSheetOpen, setSceneSheetOpen] = useState(false);
+  const pendingSceneTargetRef = useRef<ReturnType<typeof pendingTargetFromScene>>(null);
+  const scenePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopScenePoll = () => { if (scenePollRef.current) { clearInterval(scenePollRef.current); scenePollRef.current = null; } };
+  useEffect(() => stopScenePoll, []);
+  /** 지금 장면을 읽습니다. 장면이 아직 안 올라와 시선을 못 읽으면 null. 눈이 움직이는 중이면 눈의 자리를 씁니다. */
+  const readScene = (name: string): SavedScene | null => {
+    const view = sceneRef.current?.getRenderState?.()?.view;
+    if (!view) return null;
+    const spot = sceneRef.current?.getEyeState?.().eye ?? { latitude, longitude };
+    const now = Date.now();
+    return makeScene(
+      { latitude: spot.latitude, longitude: spot.longitude, eyeHeightM: eyeH, azDeg: view.az, elDeg: view.el, zoomX: teleX, timeMs: currentTime.getTime(), target: targetFromPicked(picked) },
+      { name, nowMs: now, id: nextSceneId(now), tzHours: tz, lang: language },
+    );
+  };
+  const saveScene = (name: string): SaveResult => {
+    const sc = readScene(name);
+    if (!sc) return 'unavailable';
+    const r = useCelestialStore.getState().addSavedScene(sc);
+    return r.ok ? 'saved' : r.reason === 'full' ? 'full' : 'unavailable';
+  };
+  /**
+   * 저장한 장면으로 샌드박스를 엽니다: 자리, 눈 높이, 줌, 시각을 맞추고 시선을 돌린 뒤, 고른 대상이 있었으면 새 자리의 지형이 오는 대로(최대 1 분)
+   * 같은 대상을 새 눈 기준으로 다시 잡습니다(`targetFromLatLon` + `rebuildPicked`). 날씨는 새 자리와 시각으로 새로 받습니다("내 위치 아님" 표시는 거리로 저절로 켜집니다).
+   */
+  const openScene = (sc: SavedScene) => {
+    setSceneSheetOpen(false);
+    stopScenePoll();
+    pendingSceneTargetRef.current = null;
+    setPicked(null);
+    setEyeH(sc.eyeHeightM);
+    setTeleX(sc.zoomX);
+    setCurrentTime(new Date(sc.timeMs));
+    setSpot({ latitude: sc.latitude, longitude: sc.longitude });
+    sceneRef.current?.setCameraView?.(sc.azDeg, sc.elDeg);
+    const p = pendingTargetFromScene(sc);
+    if (!p) return;
+    pendingSceneTargetRef.current = p;
+    let tries = 0;
+    scenePollRef.current = setInterval(() => {
+      const w = pendingSceneTargetRef.current;
+      if (!w) { stopScenePoll(); return; }
+      const tp = sceneRef.current?.targetFromLatLon?.(w.latitude, w.longitude, w.elevM);
+      if (!tp) {
+        if (++tries > 120) { pendingSceneTargetRef.current = null; stopScenePoll(); }   // 1 분이 지나도 지형이 안 오면 대상은 포기합니다
+        return;
+      }
+      pendingSceneTargetRef.current = null;
+      stopScenePoll();
+      setPicked(rebuildPicked(w.kind, w.building, tp));
+    }, 500);
+  };
   const loadFarBuildings = async () => {
     // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
     setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
@@ -913,7 +973,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           showLensInfo={expertMode}
           eyeHeightM={expertMode ? eyeH : undefined}
           pickEnabled={expertMode && !isCameraOverlayActive}
-          onPickTarget={(t) => setPicked(t)}
+          onPickTarget={(t) => { pendingSceneTargetRef.current = null; setPicked(t); }}
           pickedTarget={picked}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
@@ -999,10 +1059,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
               onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
-              onClear={() => setPicked(null)}
+              sceneRow={<SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />}
+              onClear={() => { pendingSceneTargetRef.current = null; setPicked(null); }}
             />
           </View>
         )}
+
+        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (전문가 모드, 지상에서만) */}
+        {!isCameraOverlayActive && expertMode && !ascended && !picked && (
+          <View style={overlayStyles.objectPanel} pointerEvents="box-none">
+            <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />
+          </View>
+        )}
+        <SceneSheet
+          visible={sceneSheetOpen && expertMode}
+          language={language}
+          scenes={savedScenes}
+          draft={sceneSheetOpen ? readScene('') : null}
+          nowMs={Date.now()}
+          tzHours={tz}
+          onSave={saveScene}
+          onOpen={openScene}
+          onRename={(id, n) => useCelestialStore.getState().renameSavedScene(id, n)}
+          onRemove={(id) => useCelestialStore.getState().removeSavedScene(id)}
+          onClose={() => setSceneSheetOpen(false)}
+        />
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
         {!isCameraOverlayActive && (
