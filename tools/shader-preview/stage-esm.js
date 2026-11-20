@@ -80,10 +80,9 @@ const ENTRIES = [
   // 01 하늘의 시간대별 점수 그래프(창 · 표본 · 경로 · 눈금) — verify-score-series.js
   'src/utils/scoreSeries.ts',
   'src/utils/alignSearch.ts',
-  // 서 있을 자리 찾기(대상에 해·달을 원하는 크기로 거는 거리·날짜·자리) — verify-stand-finder.js
-  'src/utils/standFinder.ts',
-  'src/utils/standSuggest.ts',
-  'src/utils/cloudOutlook.ts',
+  // 고른 대상을 위경도로 기억했다가 새 눈 기준으로 다시 만들기(저장한 장면 열기) — verify-picked-target.js
+  'src/utils/pickedTarget.ts',
+  'src/utils/geoMove.ts',
   'src/utils/sunsetPhysics.ts',
   // 먼 건물 가시성(지평선 프로필 · 타일 · 건물 고르기) — verify-far-buildings.js 가 합성 산으로 판정합니다.
   'src/utils/farBuildings.ts',
