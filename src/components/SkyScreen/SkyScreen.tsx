@@ -81,9 +81,6 @@ import { DialPair } from './SandboxDials';
 import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
-import { StandSuggestModal } from './StandSuggest';
-import { fetchCloudOutlook, cachedOutlook } from '../../utils/cloudOutlook';
-import { suggestTargetPoint, rebuildPicked, refineAlignTime, type CloudOutlook, type StandCandidate } from '../../utils/standSuggest';
 import { timeTo } from '../../theme/motion';
 
 /** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
@@ -677,79 +674,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [calcOpen, setCalcOpen] = useState(false);
   const [calcTopic, setCalcTopic] = useState<CalcTopic>('sunrise');
   const [calcDate, setCalcDate] = useState<Date>(new Date());
-  // 추천(서 있을 자리 찾기): 열면 대상 위치의 구름 예보를 받습니다. 후보를 고르면 그 자리로 옮기고 시각과 시선을 맞춘 뒤,
-  // 새 자리의 지형이 오면 같은 대상을 그 자리 기준으로 다시 잡습니다(자리를 옮기면 고른 대상은 지워지므로 위경도를 기억해 둡니다).
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestFromMs, setSuggestFromMs] = useState(0);
-  const [outlook, setOutlook] = useState<CloudOutlook | null>(null);
-  const [outlookState, setOutlookState] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const pendingTargetRef = useRef<{
-    kind: PickedTarget['kind']; latitude: number; longitude: number; elevM: number; building?: PickedTarget['building'];
-    /** 후보를 찾을 때의 천체·시각·서 있는 자리 — 도착해서 실제 앙각을 알게 되면 시각을 다시 맞추는 데 씁니다. */
-    body: StandCandidate['hit']['body']; timeMs: number; stand: { latitude: number; longitude: number };
-  } | null>(null);
-  const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopPendingPoll = () => { if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; } };
-  useEffect(() => stopPendingPoll, []);
-  const suggestPoint = picked ? suggestTargetPoint(picked) : null;
-  const sugLat = suggestPoint?.latitude, sugLon = suggestPoint?.longitude;
-  useEffect(() => {
-    if (!suggestOpen || sugLat == null || sugLon == null) return;
-    const cached = cachedOutlook(sugLat, sugLon);
-    if (cached) { setOutlook(cached); setOutlookState('ready'); return; }
-    let live = true;
-    setOutlook(null);   // 옛 대상의 예보로 순위를 매기지 않게 비웁니다
-    setOutlookState('loading');
-    fetchCloudOutlook(sugLat, sugLon)
-      .then(o => { if (live) { setOutlook(o); setOutlookState('ready'); } })
-      .catch(() => { if (live) { setOutlook(null); setOutlookState('failed'); } });
-    return () => { live = false; };
-  }, [suggestOpen, sugLat, sugLon]);
-  /** 새 자리의 지형이 오면 기억해 둔 대상을 이 자리 기준으로 다시 만들어 정보 패널과 고리를 잇고, 대상 쪽 먼 건물을 받습니다. */
-  const startPendingPoll = () => {
-    stopPendingPoll();
-    let tries = 0;
-    const tick = () => {
-      const p = pendingTargetRef.current;
-      if (!p) { stopPendingPoll(); return; }
-      const tp = sceneRef.current?.targetFromLatLon?.(p.latitude, p.longitude, p.elevM);
-      if (!tp) {
-        if (++tries > 120) {   // 1 분이 지나도 지형이 안 오면 포기합니다(대상은 지워진 채, 시선만 맞춰 둔 상태를 되돌립니다).
-          pendingTargetRef.current = null;
-          stopPendingPoll();
-          alignedViewRef.current = false;
-          sceneRef.current?.clearCameraLensOverride?.();
-        }
-        return;
-      }
-      pendingTargetRef.current = null;
-      stopPendingPoll();
-      setPicked(rebuildPicked(p.kind, p.building, tp));
-      // 먼 자리의 땅 높이는 성긴 패치에서 읽어 찾았으므로(5 km 에서 10 m 차 = 0.1°), 도착해서 촘촘한 땅으로 잰 앙각에 해·달이 가장 가까운 시각으로 맞춥니다.
-      const fit = refineAlignTime(p.body, p.timeMs, p.stand.latitude, p.stand.longitude, tp.eyeElevM, tp.azDeg, tp.elDeg);
-      setCurrentTime(new Date(fit.timeMs));
-      alignedViewRef.current = true;
-      sceneRef.current?.setCameraView?.(tp.azDeg, tp.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
-      loadFarBuildings();
-    };
-    pendingTimerRef.current = setInterval(tick, 500);
-  };
-  const onStand = (c: StandCandidate) => {
-    const t = picked;
-    const pt = t ? suggestTargetPoint(t) : null;
-    if (!t || !pt) return;
-    pendingTargetRef.current = { kind: t.kind, latitude: pt.latitude, longitude: pt.longitude, elevM: pt.elevM, building: t.building, body: c.hit.body, timeMs: c.hit.timeMs, stand: { latitude: c.hit.latitude, longitude: c.hit.longitude } };
-    setSuggestOpen(false);
-    setCurrentTime(new Date(c.hit.timeMs));
-    useCelestialStore.getState().setLocation({
-      coords: { latitude: c.hit.latitude, longitude: c.hit.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
-      timestamp: Date.now(),
-    });
-    // 시선을 대상에 맞춥니다(화각은 원반이 보일 만큼 좁히고, 시야 중심을 위로 올려 패널 위에 보이게). 지형이 오기 전에도 방위·고도는 정해져 있습니다.
-    alignedViewRef.current = true;
-    sceneRef.current?.setCameraView?.(c.hit.azDeg, c.hit.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
-    startPendingPoll();
-  };
   const loadFarBuildings = async () => {
     // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
     setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
@@ -765,7 +689,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   };
   useEffect(() => { setFarStatus(null); }, [latitude, longitude]);   // 자리가 바뀌면 먼 건물은 비워지므로 표시도 지웁니다
   useEffect(() => {
-    if (!picked && alignedViewRef.current && !pendingTargetRef.current) {
+    if (!picked && alignedViewRef.current) {
       alignedViewRef.current = false;
       sceneRef.current?.clearCameraLensOverride?.();
     }
@@ -993,7 +917,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           showLensInfo={expertMode}
           eyeHeightM={expertMode ? eyeH : undefined}
           pickEnabled={expertMode && !isCameraOverlayActive}
-          onPickTarget={(t) => { pendingTargetRef.current = null; setPicked(t); }}
+          onPickTarget={(t) => setPicked(t)}
           pickedTarget={picked}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
@@ -1080,8 +1004,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
               onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
-              onSuggest={() => { setSuggestFromMs(currentTime.getTime()); setSuggestOpen(true); }}
-              onClear={() => { pendingTargetRef.current = null; setPicked(null); }}
+              onClear={() => setPicked(null)}
             />
           </View>
         )}
@@ -1471,21 +1394,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         qualityWord={(q) => verdictWord(q as any, language)}
         onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
       />
-      {picked && (
-        <StandSuggestModal
-          visible={suggestOpen}
-          language={language}
-          target={picked}
-          fromMs={suggestFromMs}
-          eyeAboveGroundM={eyeH}
-          getSamplers={() => sceneRef.current?.getStandSamplers?.() ?? null}
-          outlook={outlook}
-          outlookState={outlookState}
-          onPick={onStand}
-          onBack={() => setSuggestOpen(false)}
-          onReloadMap={() => sceneRef.current?.reloadUrbanMask?.()}
-        />
-      )}
       <LayerControlModal
         visible={isLayerModalVisible}
         onClose={() => setLayerModalVisible(false)}
