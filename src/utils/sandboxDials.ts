@@ -4,8 +4,9 @@
  *  - 세로 막대는 **로그 눈금**입니다(아래 = 최솟값, 위 = 최댓값). 눈 높이 1.6 m → 300 m, 줌 1× → 20×. 낮은 값에서 잘게, 높은 값에서 크게 움직입니다.
  *  - 눈금(미리 정한 값: 눈 높이 1.6 · 10 · 30 · 100 · 300 m, 줌 1 · 2 · 5 · 10 · 20×) **가까이(±3.5 %)에서 놓으면 그 값으로 붙습니다.**
  *    예전의 칩과 망원 단추가 하던 일을 막대 위 눈금이 이어받습니다.
- *  - 조이스틱은 손잡이를 민 방향으로, **누르고 있는 동안 한 걸음(걸음 크기만큼)씩 반복**해서 움직입니다. 많이 밀수록 더 자주(450 ms → 120 ms).
- *    중심 둘레 데드존(28 %) 안에서는 움직이지 않습니다. 방향은 나침반 기준(위 = 북, 오른쪽 = 동)이라 예전 동서남북 단추와 같습니다.
+ *  - 조이스틱은 손잡이를 민 **방향과 정도**(`stickState`)만 냅니다. 중심 둘레 데드존(28 %) 안에서는 움직이지 않고, 방향은 손잡이 축(위 = 앞, 오른쪽 = 오른쪽)입니다.
+ *    이 축을 지도의 동 · 북 속도로 바꾸고(시선 기준 · 나침반 기준) 프레임마다 이어 붙여 눈을 옮기는 일은 `joystickMotion.ts` · `joystickDriver.ts` 가 합니다.
+ *    (예전에는 누르고 있는 동안 걸음 크기만큼씩 끊어 움직였습니다. 순간이동처럼 보여 연속 이동으로 바꿨습니다 — 사용자 승인 2026-11-20.)
  */
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -82,9 +83,6 @@ export function stickState(dx: number, dy: number, travelPx: number): StickState
   return { active: true, east: dx / r, north: -dy / r, mag: (m - STICK_DEADZONE) / (1 - STICK_DEADZONE) };
 }
 
-/** 한 걸음과 다음 걸음 사이(ms). 데드존 바로 밖 450, 끝까지 밀면 120. */
-export const stickIntervalMs = (mag: number): number => Math.round(450 - 330 * clamp(mag, 0, 1));
-
 /** 손잡이를 그릴 자리: 중심에서 `travelPx` 안으로 자릅니다. */
 export function clampKnob(dx: number, dy: number, travelPx: number): { x: number; y: number } {
   const r = Math.hypot(dx, dy);
@@ -92,10 +90,7 @@ export function clampKnob(dx: number, dy: number, travelPx: number): { x: number
   return { x: (dx / r) * travelPx, y: (dy / r) * travelPx };
 }
 
-/** 한 걸음의 이동량(m): 걸음 크기(`stepM`)만큼, 민 방향으로. */
-export const stepMove = (s: StickState, stepM: number): { eastM: number; northM: number } => ({ eastM: s.east * stepM, northM: s.north * stepM });
-
-// ── 시선 읽음 줄 · 시선 기준 이동 ────────────────────────────────────────────
+// ── 시선 읽음 줄 ─────────────────────────────────────────────────────────────
 
 /** 방위(도)를 0 이상 360 미만의 한 자리 글자로("128.4"). 반올림해 360.0 이 되는 값(359.96)은 0.0 으로 접습니다. */
 export function fmtAz(azDeg: number): string {
@@ -121,13 +116,4 @@ export function viewDiffers(prev: ViewAzEl | null, next: ViewAzEl | null, epsDeg
   if (!prev || !next) return prev !== next;
   const dAz = Math.abs((((next.az - prev.az) % 360) + 540) % 360 - 180);
   return dAz > epsDeg || Math.abs(next.el - prev.el) > epsDeg;
-}
-
-/**
- * 조이스틱 방향(동 +, 북 +: 손잡이를 위로 밀면 북 +)을 **시선 기준**으로 돌립니다 — 손잡이 위 = 지금 보는 방향, 오른쪽 = 시선의 오른쪽.
- * `viewAzDeg` 는 나침반 방위(북 0, 동 90). 길이(걸음 크기)는 그대로입니다.
- */
-export function rotateByView(eastM: number, northM: number, viewAzDeg: number): { eastM: number; northM: number } {
-  const t = (viewAzDeg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
-  return { eastM: eastM * c + northM * s, northM: -eastM * s + northM * c };
 }

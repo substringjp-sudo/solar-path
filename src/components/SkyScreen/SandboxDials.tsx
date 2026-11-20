@@ -1,15 +1,15 @@
 /**
  * SandboxDials.tsx — 샌드박스의 **세로 막대(높이 · 줌)** 와 **이동 조이스틱**(docs/SANDBOX_MODE_PLAN.md 2.2, 목업 2번).
- * 계산(로그 눈금 · 눈금에 붙이기 · 반올림 · 조이스틱 방향과 반복 간격)은 `utils/sandboxDials.ts` 에서 하고, 여기는 손가락을 받아 그립니다.
+ * 계산(로그 눈금 · 눈금에 붙이기 · 반올림 · 조이스틱 방향과 민 정도)은 `utils/sandboxDials.ts` 에서 하고, 여기는 손가락을 받아 그립니다.
  *
  *  - 세로 막대: 누르거나 끌면 그 높이의 값이 됩니다. 놓을 때 눈금 가까이면 그 눈금 값으로 붙습니다. 끄는 동안은 12 번/초 안쪽으로만 값을 내보냅니다
  *    (값이 바뀔 때마다 하늘 화면 전체가 다시 그려지므로).
- *  - 조이스틱: 민 방향으로 누르고 있는 동안 걸음 크기만큼씩 반복해서 움직입니다. 방향은 나침반 기준(위 = 북). `relative` 면 글만 "앞" 으로 바뀝니다 — 시선 기준으로
- *    돌리는 일은 부르는 쪽(`SandboxPanel`)이 `onMove` 로 받은 걸음을 돌려서 합니다.
+ *  - 조이스틱: 손잡이를 민 방향과 정도(`stickState`)를 `onStick` 으로 알리기만 합니다(놓으면 꺼진 상태). 속도 · 시선 기준 회전 · 프레임마다 이어 붙이기 · 위치 확정은
+ *    부르는 쪽(`useJoystickDriver`)이 합니다. `relative` 면 글만 "앞" 으로 바뀝니다.
  *  - 읽음 줄(`ViewReadout`): 지금 시선의 방위 · 앙각 · 눈 높이. 장면이 시선을 알려 주는 함수(`getView`)를 5 번/초 읽고, 읽을 만큼 바뀔 때만 다시 그립니다.
  *  - 손가락 자리는 **바깥 누름 영역**에서 읽고(그림은 `pointerEvents="none"`) 화면 좌표(`moveX`/`moveY`)로 잇습니다 — `ScrubTrack` 머리말의
  *    `locationX` 가 닿은 자식 기준으로 어긋나는 결함을 피합니다.
- *  - 스크린리더: 막대는 올리기·내리기가 한 눈금씩, 조이스틱은 북·동·남·서 동작이 한 걸음씩입니다.
+ *  - 스크린리더: 막대는 올리기·내리기가 한 눈금씩, 조이스틱은 북·동·남·서(시선 기준이면 앞·오른쪽·뒤·왼쪽) 동작이 한 번씩(`onNudge`)입니다.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, Text, View } from 'react-native';
@@ -18,7 +18,7 @@ import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 import {
   EYE_RANGE, EYE_TICKS, ZOOM_RANGE, ZOOM_TICKS,
-  clampKnob, fmtAz, fmtEl, fmtEye, fmtZoom, roundEye, roundZoom, snapValue, stepMove, stepToTick, stickIntervalMs, stickState, tFromY, tToValue, valueToT, viewDiffers, yFromT,
+  clampKnob, fmtAz, fmtEl, fmtEye, fmtZoom, roundEye, roundZoom, snapValue, stepToTick, stickState, tFromY, tToValue, valueToT, viewDiffers, yFromT,
   type DialRange, type StickState, type ViewAzEl,
 } from '../../utils/sandboxDials';
 
@@ -151,10 +151,10 @@ export const DialPair: React.FC<PairProps> = ({ language, eyeHeightM, onEyeHeigh
 
 interface StickProps {
   language: Lang;
-  /** 한 걸음의 크기(m) */
-  stepM: number;
-  /** 동쪽(+) · 북쪽(+) 미터 */
-  onMove: (eastM: number, northM: number) => void;
+  /** 손잡이를 밀 때마다 지금 상태(방향 · 민 정도)를 알립니다. 놓으면 꺼진 상태(`active: false`). */
+  onStick: (s: StickState) => void;
+  /** 스크린리더 한 동작: 손잡이 축(동 +, 북 +)의 방향 하나. 시선 기준 회전은 부르는 쪽이 합니다. */
+  onNudge: (dir: { east: number; north: number }) => void;
   /** 시선 기준으로 쓰는 중 — 위쪽 글이 "N" 대신 "앞", 스크린리더 동작이 앞으로 · 오른쪽으로 · 뒤로 · 왼쪽으로. */
   relative?: boolean;
 }
@@ -164,35 +164,26 @@ const STICK_KNOB = 38;
 const TRAVEL = (STICK - STICK_KNOB) / 2;
 const OFF: StickState = { active: false, east: 0, north: 0, mag: 0 };
 
-export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove, relative = false }) => {
-  const cb = useRef({ stepM, onMove });
-  cb.current = { stepM, onMove };
-  const state = useRef<StickState>(OFF);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, relative = false }) => {
+  const cb = useRef({ onStick, onNudge });
+  cb.current = { onStick, onNudge };
+  const held = useRef(false);
   const center = useRef({ x: 0, y: 0 });
   const [knob, setKnob] = useState({ x: 0, y: 0 });
 
-  const loop = () => {
-    timer.current = null;
-    const s = state.current;
-    if (!s.active) return;
-    const m = stepMove(s, cb.current.stepM);
-    cb.current.onMove(m.eastM, m.northM);
-    timer.current = setTimeout(loop, stickIntervalMs(s.mag));
-  };
   const stop = () => {
-    state.current = OFF;
-    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    held.current = false;
     setKnob({ x: 0, y: 0 });
+    cb.current.onStick(OFF);
   };
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // 쥔 채로 사라지면(패널이 닫힘) 놓은 것으로 알립니다.
+  useEffect(() => () => { if (held.current) cb.current.onStick(OFF); }, []);
 
   const track = (moveX: number, moveY: number) => {
     const dx = moveX - center.current.x, dy = moveY - center.current.y;
     setKnob(clampKnob(dx, dy, TRAVEL));
-    const was = state.current.active;
-    state.current = stickState(dx, dy, TRAVEL);
-    if (state.current.active && !was && !timer.current) loop();   // 움직이기 시작하는 순간 바로 한 걸음
+    held.current = true;
+    cb.current.onStick(stickState(dx, dy, TRAVEL));
   };
 
   const pan = useRef(PanResponder.create({
@@ -232,7 +223,7 @@ export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove, relat
         ? L3(language, '누르고 밀면 보는 방향 기준으로 움직입니다', 'Press and push to move relative to where you look', '押して倒すと視線を基準に動きます')
         : L3(language, '누르고 밀면 그 방향으로 움직입니다', 'Press and push to move that way', '押して倒すとその方向へ動きます')}
       accessibilityActions={dirs.map(d => ({ name: d.name, label: d.label }))}
-      onAccessibilityAction={(e) => { const d = dirs.find(x => x.name === e.nativeEvent.actionName); if (d) cb.current.onMove(d.e * cb.current.stepM, d.n * cb.current.stepM); }}
+      onAccessibilityAction={(e) => { const d = dirs.find(x => x.name === e.nativeEvent.actionName); if (d) cb.current.onNudge({ east: d.e, north: d.n }); }}
     >
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <View style={styles.crossV} />

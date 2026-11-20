@@ -73,7 +73,8 @@ import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor, type } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
-import { offsetLatLon, distanceM } from '../../utils/geoMove';
+import { distanceM } from '../../utils/geoMove';
+import type { MoveMode } from '../../utils/joystickMotion';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { DialPair } from './SandboxDials';
 import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
@@ -141,9 +142,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
   // 샌드박스 망원 배율(전문가 모드만) — 1 이면 지금까지처럼 지상 시야각 30~120°, 20 이면 1.5~6°(달 사진용).
   const [teleX, setTeleX] = useState(1);
-  // 샌드박스 눈 높이(m)와 위치 이동 간격(m). 전문가 모드가 꺼지면 씬에는 넘기지 않아 원래(1.6 m)로 돌아갑니다.
+  // 샌드박스 눈 높이(m)와 이동 모드(걷기 · 자전거 · 차 · 비행). 전문가 모드가 꺼지면 씬에는 눈 높이를 넘기지 않아 원래(1.6 m)로 돌아갑니다.
   const [eyeH, setEyeH] = useState(1.6);
-  const [moveStepM, setMoveStepM] = useState(100);
+  const [moveMode, setMoveMode] = useState<MoveMode>('walk');
   const homeCoords = useCelestialStore(s => s.homeCoords);
   // 샌드박스에서 화면을 탭해 고른 대상(지형 지점). 전문가 모드를 끄거나 위치가 바뀌면 지웁니다.
   const [picked, setPicked] = useState<PickedTarget | null>(null);
@@ -732,6 +733,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     };
     pendingTimerRef.current = setInterval(tick, 500);
   };
+  /** 저장된 위치를 (lat, lon) 으로 바꿉니다(샌드박스 이동의 확정 · 내 위치로 · 서 있을 자리). */
+  const setSpot = (p: { latitude: number; longitude: number }) => {
+    useCelestialStore.getState().setLocation({
+      coords: { latitude: p.latitude, longitude: p.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
+      timestamp: Date.now(),
+    });
+  };
   const onStand = (c: StandCandidate) => {
     const t = picked;
     const pt = t ? suggestTargetPoint(t) : null;
@@ -739,10 +747,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     pendingTargetRef.current = { kind: t.kind, latitude: pt.latitude, longitude: pt.longitude, elevM: pt.elevM, building: t.building, body: c.hit.body, timeMs: c.hit.timeMs, stand: { latitude: c.hit.latitude, longitude: c.hit.longitude } };
     setSuggestOpen(false);
     setCurrentTime(new Date(c.hit.timeMs));
-    useCelestialStore.getState().setLocation({
-      coords: { latitude: c.hit.latitude, longitude: c.hit.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
-      timestamp: Date.now(),
-    });
+    setSpot({ latitude: c.hit.latitude, longitude: c.hit.longitude });
     // 시선을 대상에 맞춥니다(화각은 원반이 보일 만큼 좁히고, 시야 중심을 위로 올려 패널 위에 보이게). 지형이 오기 전에도 방위·고도는 정해져 있습니다.
     alignedViewRef.current = true;
     sceneRef.current?.setCameraView?.(c.hit.azDeg, c.hit.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
@@ -1019,25 +1024,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               language={language}
               far={{ status: farStatus, onLoad: loadFarBuildings }}
               getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
+              getLoad={() => sceneRef.current?.getBuildingProgress?.() ?? null}
               eyeHeightM={eyeH}
               onEyeHeight={setEyeH}
-              stepM={moveStepM}
-              onStep={setMoveStepM}
-              onMove={(eastM, northM) => {
-                const here = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
-                const p = offsetLatLon(here.latitude, here.longitude, eastM, northM);
-                useCelestialStore.getState().setLocation({
-                  coords: { latitude: p.latitude, longitude: p.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
-                  timestamp: Date.now(),
-                });
+              mode={moveMode}
+              onMode={setMoveMode}
+              drive={{
+                // 움직이는 동안 저장된 위치는 그대로 두고 장면의 눈만 옮깁니다. 손을 놓고 속도가 가라앉으면 그 자리를 새 위치로 한 번 저장하고(날씨 · 지형 · 건물은 그때 받습니다),
+                // 확정 없이 접으면 눈을 저장된 위치로 되돌립니다. 저장소에서 바로 읽어야 방금 확정한 위치가 옵니다.
+                getOrigin: () => {
+                  const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
+                  return { latitude: c.latitude, longitude: c.longitude };
+                },
+                setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
+                clearEye: () => sceneRef.current?.clearEyeLocation?.(),
+                commit: setSpot,
               }}
               awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
+              home={homeCoords}
               onHome={() => {
                 if (!homeCoords) return;
-                useCelestialStore.getState().setLocation({
-                  coords: { latitude: homeCoords.latitude, longitude: homeCoords.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
-                  timestamp: Date.now(),
-                });
+                // 움직이던 눈이 옛 자리로 번쩍 되돌아가지 않게, 눈을 먼저 그 자리로 옮기고 위치를 바꿉니다.
+                sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
+                setSpot(homeCoords);
               }}
             />
           </View>
