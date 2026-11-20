@@ -32,6 +32,20 @@ export const LEARN_TOPICS: readonly LearnTopic[] = ['score', 'sunrise', 'sunset'
 /** 고른 날: 관측지 현지 정오(UTC ms)와 그 날의 일출·일몰 중 어느 쪽. */
 export interface LearnPick { noonMs: number; side: EventSide }
 
+/**
+ * 다른 화면에서 학습 페이지로 들어올 때 싣는 요청. 점수 숫자 · 왜 그런가요 · 별 보기 카드 · 다가오는 좋은 순간 카드 · 하늘 일정 줄이
+ * 각자 맞는 구역과 주제, 날을 가리킵니다. 들어올 때마다 `nonce` 가 달라져 같은 곳으로 다시 들어와도 다시 맞춰집니다.
+ */
+export interface LearnEntry {
+  /** 맞춰 둘 구역. 없으면 맨 위 그대로. */
+  section?: LearnSection;
+  /** 결과가 나온 과정에서 펼칠 주제 */
+  topic?: LearnTopic;
+  /** 고를 날 · 쪽(01 하늘의 카드에서 왔을 때). 없으면 앞으로 가장 좋은 때. */
+  focus?: ForecastFocus | null;
+  nonce: number;
+}
+
 const HALF_DAY = 12 * 3_600_000;
 /** 정오 두 값이 같은 날인가(계산한 때가 달라도 반나절 안이면 같은 날). */
 export const sameNoon = (a: number, b: number): boolean => Math.abs(a - b) < HALF_DAY;

@@ -58,7 +58,9 @@ export const TodaySection: React.FC<Props> = ({ language, tz, isToday, dateLabel
   const n = q ? verdictLevel(q) : 0;
   const word = q ? verdictWord(q, language) : L3(language, '예보 없음', 'No forecast', '予報なし');
   const score = event && q && showsScore(event.tier) && event.score != null ? Math.round(event.score) : null;
-  const peak = event ? localHHMM(event.peakAt ?? event.at, tz) : null;
+  // 일몰 · 일출 시각과 "가장 붉을 때" 는 다른 시각입니다(보통 일몰 10~20분 전). 머리 줄은 출몰 시각, 가장 붉을 때는 따로 적습니다.
+  const eventTime = event ? localHHMM(event.at, tz) : null;
+  const peak = event?.peakAt ? localHHMM(event.peakAt, tz) : null;
   const reason = event?.description ? translateSunsetDesc(event.description, language) : '';
 
   const row = (it: SkyEventItem) => (
@@ -93,7 +95,8 @@ export const TodaySection: React.FC<Props> = ({ language, tz, isToday, dateLabel
               <Text style={[styles.word, { color: tone }]}>{word}</Text>
               {score != null && <Text style={styles.score}>{score}</Text>}
             </View>
-            <Text style={styles.headline}>{`${sideWord} ${peak}${direction ? ` · ${direction}` : ''}`}</Text>
+            <Text style={styles.headline}>{`${sideWord} ${eventTime}${direction ? ` · ${direction}` : ''}`}</Text>
+            {!!peak && <Text style={styles.sub}>{`${L3(language, '가장 붉을 때', 'Peak glow', '一番赤い時')} ${peak}`}</Text>}
             {!!reason && <Text style={styles.sub}>{reason}</Text>}
           </>
         ) : (

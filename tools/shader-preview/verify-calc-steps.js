@@ -425,15 +425,21 @@ const RAD = Math.PI / 180;
        C.cloudSceneUsable(new Date(T0 - 1801e3).toISOString(), T0) === false && C.cloudSceneUsable(new Date(T0 + 1801e3).toISOString(), T0) === false && C.cloudSceneUsable('not a date', T0) === false && C.cloudSceneUsable(new Date(T0).toISOString(), NaN) === false,
        '(h) cloudSceneUsable: 30분 이내(경계 포함) true, 30분 1초 false, 못 읽는 시각 글 · NaN false');
 
+    // 2026-11-20: 계산 과정 창(CalcStepsModal)이 학습 페이지의 "결과가 나온 과정" 구역으로 옮겨 갔습니다. 같은 불변식을 새 연결에서 읽습니다.
     const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, 'src', ...p), 'utf8');
-    const modal = read('components', 'CalcSteps', 'CalcStepsModal.tsx');
+    const learn = read('components', 'LearnScreen', 'LearnScreen.tsx');
+    const why = read('components', 'LearnScreen', 'WhySection.tsx');
+    const topic = read('utils', 'calcTopic.ts');
     const sky = read('components', 'SkyScreen', 'SkyScreen.tsx');
-    const getCloud = (sky.match(/const getCloudArgs = \(\) => \{[\s\S]*?\n  \};/) || [''])[0];
-    ok(/export type CalcTopic = [^;]*'cloud'/.test(modal) && /\{shows\('cloud'\) && <Chip/.test(modal) && /if \(topic === 'cloud'\) \{\s*const ca = getCloudArgs\?\.\(\) \?\? null;\s*return ca \? buildCloudShapeCards\(\{ \.\.\.ca, language \}\) : null;/.test(modal) && /구름 그림이 아직 없어서/.test(modal) &&
-       /getRenderState\?\.\(\)\?\.scene/.test(getCloud) && /cloudSceneUsable\(st\.t, calcDate\.getTime\(\)\)/.test(getCloud) && /layerWindsFrom\(obs\)/.test(getCloud) && /getCloudArgs=\{getCloudArgs\}/.test(sky) &&
-       /setCalcTopic\('cloud'\)/.test(sky) && /<CloudCaption[\s\S]*?onPress=\{\(\) => \{ setCalcDate\(currentTime\); setCalcTopic\('cloud'\); setCalcOpen\(true\); \}\}/.test(sky),
-       '(i) 앱 연결: 틀에 cloud 주제 · 칩 · getCloudArgs(없으면 알림), SkyScreen 이 장면 상태와 cloudSceneUsable 로 입력을 만들고 구름 한 줄 누르면 열린다');
-    ok(/topics: \{ flexDirection: 'row', flexWrap: 'wrap'/.test(modal), '(i) 주제 칩 줄이 줄바꿈된다(칩 다섯이 390 폭에서 잘리지 않게)');
+    const cloudMemo = (learn.match(/const cloudArgs = useMemo\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/) || [''])[0];
+    ok(/if \(topic === 'cloud'\) \{\s*return a\.cloudArgs \? buildCloudShapeCards\(\{ \.\.\.a\.cloudArgs, language \}\) : null;/.test(topic) &&
+       /getRenderState\?\.\(\)\?\.scene/.test(learn) && /layerWindsFrom\(obs\)/.test(cloudMemo) && /new Date\(st\.t\)/.test(cloudMemo) &&
+       /cloudSceneUsable\(scene\.st\.t, atMs\)/.test(learn) &&
+       /구름을 그리지 않았어요/.test(why) && /LEARN_TOPICS\.map\(topic =>/.test(why) &&
+       /<CloudCaption[\s\S]*?onPress=\{\(\) => learnAt\(currentTime, isSunriseSide \? 'sunrise' : 'sunset', 'why', 'cloud'\)\}/.test(sky),
+       '(i) 앱 연결: 만들기 길이 cloud 입력이 없으면 null, 학습 페이지가 장면 상태와 그 그림의 시각 층별 바람으로 입력을 만들고 고른 칸의 시각과 다르면 알리며, 구름 한 줄을 누르면 학습의 구름 모양으로 간다');
+    ok(/<ScrollView horizontal showsHorizontalScrollIndicator=\{false\}[^>]*>\s*\{LEARN_SECTIONS\.map/.test(learn),
+       '(i) 구역 칩 줄이 가로로 밀린다(칩 다섯이 390 폭에서 잘리지 않게; 옛 주제 칩 줄바꿈과 같은 뜻)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);

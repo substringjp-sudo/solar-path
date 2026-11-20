@@ -136,7 +136,7 @@ export const ForecastSection: React.FC<Props> = ({ days, load, hasForecast, onRe
         onPress={() => onPick({ noonMs: d.noonMs, side: e.side })}
         accessibilityRole="button"
         accessibilityState={{ selected: picked }}
-        accessibilityLabel={`${date} ${sideWord(e)} ${word}${score ? ` ${score}` : ''}, ${time} — ${L3(language, '아래 근거와 과정을 이 날로 바꾸기', 'Show the data and steps below for this day', '下の根拠と過程をこの日にする')}`}
+        accessibilityLabel={`${date} ${sideWord(e)} ${word}${score ? ` ${score}` : ''}, ${time}${picked ? `, ${L3(language, '보는 중', 'viewing', '表示中')}` : ''} — ${L3(language, '아래 근거와 과정을 이 날로 바꾸기', 'Show the data and steps below for this day', '下の根拠と過程をこの日にする')}`}
       >
         <View style={styles.halfTop}>
           <Text style={[styles.word, { color: tone }]} numberOfLines={1}>{word}</Text>
@@ -146,7 +146,7 @@ export const ForecastSection: React.FC<Props> = ({ days, load, hasForecast, onRe
           <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             {VERDICT_ORDER.map((_, i) => <MeterCell key={i} on={i < n} tier={e.tier} tone={tone} off={color.border} w={cellW} />)}
           </View>
-          <Text style={styles.time}>{picked ? `${time} · ${L3(language, '보는 중', 'viewing', '表示中')}` : time}</Text>
+          <Text style={styles.time}>{time}</Text>
         </View>
       </PressScale>
     );

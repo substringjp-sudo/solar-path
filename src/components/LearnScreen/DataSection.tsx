@@ -78,6 +78,7 @@ export const DataSection: React.FC<Props> = ({ language, tz, latitude, longitude
   // 고른 시각의 관측점(distance 0) 보간 값과 층별 바람
   const obs = useMemo(() => (path?.length ? getInterpolatedWeather(path, at)[0] : undefined), [path, at]);
   const winds = useMemo(() => layerWindsFrom(obs), [obs]);
+  const hasWind = !!(winds?.low || winds?.mid || winds?.high);
 
   // 원본 배열에서 그 시각에 가장 가까운 칸
   const rawHourly: any = matchingRaw?.mainForecast?.hourly || path?.[0]?.hourly;
@@ -202,7 +203,15 @@ export const DataSection: React.FC<Props> = ({ language, tz, latitude, longitude
             </View>
           </Collapsible>
 
-          <Collapsible title={L3(language, '고도별 풍향 · 풍속', 'Wind by altitude', '高度別の風向・風速')} peek={L3(language, '불어오는 쪽 기준', 'Direction the wind blows from', '吹いてくる方向')}>
+          <Collapsible
+            title={L3(language, '고도별 풍향 · 풍속', 'Wind by altitude', '高度別の風向・風速')}
+            peek={hasWind
+              ? L3(language, '불어오는 쪽 기준', 'Direction the wind blows from', '吹いてくる方向')
+              // 16일 예보는 구름 · 습도 · 일사 · 수증기 · 강수만 받습니다(`sunForecast.HOURLY_VARS`). 그 자료로 센 칸에는 바람이 없다고 알립니다.
+              : (source === 'forecast'
+                ? L3(language, '이 자료에는 고도별 바람이 없어요. 16일 예보는 바람을 받지 않습니다.', 'This data has no wind by altitude. The 16-day forecast does not fetch wind.', 'このデータには高度別の風がありません。16日予報は風を取得しません。')
+                : L3(language, '이 자료에는 고도별 바람이 들어 있지 않아요.', 'This data has no wind by altitude.', 'このデータには高度別の風が含まれていません。'))}
+          >
             <View style={styles.table}>
               {row(L3(language, '저층 (1000~850hPa)', 'Low (1000–850 hPa)', '下層 (1000~850hPa)'), windText(winds?.low))}
               {row(L3(language, '중층 (700~500hPa)', 'Mid (700–500 hPa)', '中層 (700~500hPa)'), windText(winds?.mid))}
@@ -211,13 +220,20 @@ export const DataSection: React.FC<Props> = ({ language, tz, latitude, longitude
           </Collapsible>
 
           <Collapsible
-            title={L3(language, '360° 전방위 고리 샘플', '360° ring samples', '360°リングのサンプル')}
+            title={source === 'forecast'
+              ? L3(language, '해 쪽 구름 샘플', 'Samples toward the sun', '太陽側の雲のサンプル')
+              : L3(language, '360° 전방위 고리 샘플', '360° ring samples', '360°リングのサンプル')}
             right={L3(language, `${path.length}개 지점`, `${path.length} points`, `${path.length}地点`)}
           >
+            {/* 16일 예보는 해가 뜨고 지는 쪽 방위만 잰 표본이고, 그날 받아 둔 주변 예보(링)는 둘레 전체입니다. 둘을 같은 말로 부르지 않습니다. */}
             <Text style={styles.sub}>
-              {L3(language, '관측점 둘레의 방위마다 구름을 재서(최대 반경 380km) 하늘 3D 돔과 등치선 지도에 씁니다.',
-                'Clouds are sampled in every direction around the observer (up to 380 km) and used by the 3D sky and the isoline map.',
-                '観測点の周りの方位ごとに雲を測り(最大半径380km)、3D空と等値線地図に使います。')}
+              {source === 'forecast'
+                ? L3(language, '16일 예보는 해가 뜨고 지는 쪽 방위만 거리별로 재서 노을 점수를 셉니다.',
+                  'The 16-day forecast samples only the directions where the sun rises and sets, by distance, to work out the glow score.',
+                  '16日予報は、日の出・日の入りの方位だけを距離ごとに測って夕焼けスコアを計算します。')
+                : L3(language, '관측점 둘레의 방위마다 구름을 재서(최대 반경 380km) 하늘 3D 돔과 등치선 지도에 씁니다.',
+                  'Clouds are sampled in every direction around the observer (up to 380 km) and used by the 3D sky and the isoline map.',
+                  '観測点の周りの方位ごとに雲を測り(最大半径380km)、3D空と等値線地図に使います。')}
             </Text>
           </Collapsible>
 

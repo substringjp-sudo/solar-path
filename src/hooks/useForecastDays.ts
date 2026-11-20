@@ -101,5 +101,5 @@ export function useForecastDays({ fetch, compute, days: dayCount, haptic = true 
     return ev.source === 'forecast' ? fetchedAt : null;
   }, [ringEntryFor, fetchedAt]);
 
-  return { days, forecast, fetchedAt, load, get, now, inputFor, pathFor, stampFor };
+  return { days, forecast, fetchedAt, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM: elev };
 }
