@@ -76,6 +76,8 @@ import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
 import { TimelapsePanel } from './AstroCamera/TimelapsePanel';
+import { ResultCompare } from './ResultCompare';
+import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
 import { previewTimeAt, type TimelapsePlan } from '../utils/timelapsePlan';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
@@ -593,6 +595,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 당시 메타데이터 상태
   const [capturedWeatherInfo, setCapturedWeatherInfo] = useState<any>(null);
   const [capturedSimSample, setCapturedSimSample] = useState<any>(null);
+  /** 해가 찍은 사진의 어디인지(가로 · 세로 비율). 셔터 순간의 자세로 구하고, 모르면 null(해 근처 비교가 빠집니다). */
+  const [capturedSunXY, setCapturedSunXY] = useState<{ x: number; y: number } | null>(null);
   const [uploadedPhotoForModal, setUploadedPhotoForModal] = useState<MyPhoto | null>(null);
 
 
@@ -1674,6 +1678,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 4. 임시 상태에 저장하여 프리뷰 화면 전환
       setCapturedWeatherInfo(weatherInfo);
       setCapturedSimSample(simulationSample);
+      setCapturedSunXY(visionSensor
+        ? sunFractionInPhoto(currentSunPos.azimuth, currentSunPos.altitude, visionSensor, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification)
+        : null);
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri || null);
       setSimPreviewError(simUri ? null : simFailReason);
@@ -1693,7 +1700,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState, measuredHfov, currentMagnification]);
 
   const handleAstroToggleRed = useCallback(() => {
     const next = !astroMonochromeRedRef.current;
@@ -2179,44 +2186,43 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             >
               <Text style={styles.previewTitle}>{t('recordSunset', language)}</Text>
               
-              {/* 이미지 비교 영역 (촬영 결과물 & 시뮬레이션 예측) */}
-              <View style={styles.compareImagesRow}>
-                <View style={styles.compareImageWrapper}>
-                  <Image source={{ uri: previewUri }} style={styles.compareImage} />
-                  <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
-                </View>
-                {/* ⚠ 칸을 **조용히 지우지 않습니다.** 예전에는 simPreviewUri 가
-                    없으면 이 칸을 통째로 안 그려서, 화면에서는 아무 설명 없이
-                    시뮬레이터 썸네일만 사라졌습니다. 이제 자리를 지키고 왜
-                    없는지 적습니다. */}
-                <View style={styles.compareImageWrapper}>
-                  {simPreviewUri ? (
-                    <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                  ) : (
-                    <View style={styles.compareImageMissing}>
-                      <Text style={styles.compareImageMissingText}>
-                        {simNotReady
-                          ? L3(language, '3D 준비 중', '3D not ready', '3D準備中')
-                          : L3(language, '3D 스냅샷을 못 찍었습니다', '3D snapshot unavailable', '3Dスナップショットを取得できませんでした')}
+              {/* 이미지 비교 영역: 크게 비교하기(반씩 · 겹침 · 위아래) + 차이 짚기 + 그때 예보 한 줄 (계획 8.7, 목업 5).
+                  ⚠ 칸을 **조용히 지우지 않습니다.** 예전에는 simPreviewUri 가 없으면 이 칸을 통째로 안 그려서, 화면에서는 아무 설명 없이
+                  시뮬레이터 썸네일만 사라졌습니다. 이제 자리를 지키고 왜 없는지 적습니다. */}
+              <View style={{ position: 'relative' }}>
+              <ResultCompare
+                language={language}
+                photoUri={previewUri}
+                simUri={simPreviewUri}
+                sunXY={capturedSunXY}
+                forecast={forecastLine(
+                  capturedWeatherInfo ? translateSunsetDesc(capturedWeatherInfo.description, language) : '',
+                  capturedSimSample ? capturedSimSample.sunAltitude : NaN,
+                  capturedSimSample ? capturedSimSample.sunAzimuth : NaN,
+                  language,
+                )}
+                missing={(
+                  <View style={styles.compareImageMissing}>
+                    <Text style={styles.compareImageMissingText}>
+                      {simNotReady
+                        ? L3(language, '3D 준비 중', '3D not ready', '3D準備中')
+                        : L3(language, '3D 스냅샷을 못 찍었습니다', '3D snapshot unavailable', '3Dスナップショットを取得できませんでした')}
+                    </Text>
+                    {simPreviewError ? (
+                      <Text style={styles.compareImageMissingReason} numberOfLines={3}>
+                        {simPreviewError}
                       </Text>
-                      {simPreviewError ? (
-                        <Text style={styles.compareImageMissingReason} numberOfLines={3}>
-                          {simPreviewError}
-                        </Text>
-                      ) : null}
-                    </View>
-                  )}
-                  <Text style={styles.compareImageLabel}>{L3(language, '3D 시뮬레이션 예측', '3D simulation', '3Dシミュレーション予測')}</Text>
-                  {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL
-                      버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가
-                      검은 것이고, 0 이 아닌데 그림이 검으면 스냅샷 경로가
-                      잃는 것입니다. 원인을 못 박으면 지웁니다. */}
-                  {simBufferMean >= 0 && (
-                    <View style={styles.simBufBadge} pointerEvents="none">
-                      <Text style={styles.simBufBadgeText}>GL {simBufferMean.toFixed(0)}</Text>
-                    </View>
-                  )}
+                    ) : null}
+                  </View>
+                )}
+              />
+              {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL 버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가 검은 것이고,
+                  0 이 아닌데 그림이 검으면 스냅샷 경로가 잃는 것입니다. 원인을 못 박으면 지웁니다. */}
+              {simBufferMean >= 0 && (
+                <View style={styles.simBufBadge} pointerEvents="none">
+                  <Text style={styles.simBufBadgeText}>GL {simBufferMean.toFixed(0)}</Text>
                 </View>
+              )}
               </View>
 
               {/* 날씨 정보 QR 리포트 카드 */}
