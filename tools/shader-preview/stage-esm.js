@@ -126,6 +126,8 @@ const ENTRIES = [
   'src/utils/loadProgress.ts',
   // 비행 모드 눈 높이와 "여기로 가기" 부드러운 이동 — verify-fly-glide.js
   'src/utils/flightAssist.ts',
+  // 촬영 모드 고르기(권하는 모드 · 줄 · 글) — verify-capture-mode.js
+  'src/utils/captureMode.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
