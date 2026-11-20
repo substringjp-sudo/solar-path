@@ -85,6 +85,8 @@ const ENTRIES = [
   'src/utils/alignSearch.ts',
   // 고른 대상을 위경도로 기억했다가 새 눈 기준으로 다시 만들기(저장한 장면 열기) — verify-picked-target.js
   'src/utils/pickedTarget.ts',
+  // 저장한 장면(이름 · 요약 글 · 목록 · 저장소에서 읽기 · 고른 대상 오가기) — verify-saved-scenes.js
+  'src/utils/savedScenes.ts',
   'src/utils/geoMove.ts',
   'src/utils/sunsetPhysics.ts',
   // 먼 건물 가시성(지평선 프로필 · 타일 · 건물 고르기) — verify-far-buildings.js 가 합성 산으로 판정합니다.
