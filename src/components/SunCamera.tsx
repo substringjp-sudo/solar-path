@@ -50,6 +50,7 @@ import {
   getAstroCapabilitiesAsync,
   isAstroCameraAvailable,
   renderAstroStackPreviewAsync,
+  stopAstroSessionAsync,
   type AstroCameraCapabilities,
 } from '../../modules/astro-camera';
 import { analyzeAstroWindow, type AstroWindowAnalysis } from '../utils/astroForecast';
@@ -1715,7 +1716,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         settingsSnap.mode === 'tracked'
           ? (settingsSnap.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
           : 'trails';
-      const horizonSnap = horizonRef.current ?? await loadHorizon(latitude, longitude).catch(() => null);
+      const horizonSnap = horizonRef.current ?? await Promise.race([
+        loadHorizon(latitude, longitude).catch(() => null),
+        new Promise<null>(r => setTimeout(() => r(null), 1500)),
+      ]);
+      if (astroAbortRef.current) throw new Error('ASTRO_ABORTED');
       if (horizonSnap && !horizonRef.current) horizonRef.current = horizonSnap;
 
       const runRes = await runAstroCaptureStack({
@@ -2093,7 +2098,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               astroStopEarlyRef.current = true;
               setAstroStopEarlyReq(true);
             }}
-            onCancelAbort={() => { astroAbortRef.current = true; }}
+            onCancelAbort={() => {
+              astroAbortRef.current = true;
+              stopAstroSessionAsync().catch(() => {});
+              setAstroNightPhase(null);
+              setIsCapturing(false);
+            }}
             stopEarlyRequested={astroStopEarlyReq}
             language={language}
           />

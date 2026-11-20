@@ -118,6 +118,32 @@ function attitudeDeltaDeg(a: Attitude, b: Attitude): number {
   return Math.hypot(dyaw, dpitch);
 }
 
+function withAbortAndTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  timeoutMsg: string,
+  shouldAbort?: () => boolean,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(abortPoller);
+      fn();
+    };
+    const timer = setTimeout(() => done(() => reject(new Error(timeoutMsg))), timeoutMs);
+    const abortPoller = setInterval(() => {
+      if (shouldAbort?.()) done(() => reject(new Error('ASTRO_ABORTED')));
+    }, 200);
+    work.then(
+      res => done(() => resolve(res)),
+      err => done(() => reject(err)),
+    );
+  });
+}
+
 export async function runAstroCaptureStack(
   input: AstroCapturePlanInput,
 ): Promise<AstroCaptureRunResult> {
@@ -161,10 +187,15 @@ export async function runAstroCaptureStack(
   let stackStarted = false;
 
   try {
-    const session = await startAstroSessionAsync({
-      facing: 'back',
-      preferRaw: input.preferRaw ?? true,
-    });
+    let session = await withAbortAndTimeout(
+      startAstroSessionAsync({
+        facing: 'back',
+        preferRaw: input.preferRaw ?? true,
+      }),
+      10000,
+      '카메라 세션 시작 시간 초과 (10초)',
+      input.shouldAbort,
+    );
     sessionStarted = true;
 
     let refTime = new Date();
@@ -198,34 +229,49 @@ export async function runAstroCaptureStack(
       const attBefore = input.getAttitudeNow();
       input.consumeGyroPeakDegPerSec?.(); // 직전 대기 구간 회전값 비우기
       const subTimeoutMs = Math.max(15000, subExposureSecUsed * 1000 + 12000);
-      const sub = await new Promise<Awaited<ReturnType<typeof captureAstroSubFrameAsync>>>((resolve, reject) => {
-        let settled = false;
-        const done = (fn: () => void) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          clearInterval(abortPoller);
-          fn();
-        };
-        const timer = setTimeout(() => {
-          done(() => reject(new Error(`서브프레임 촬영 응답 시간 초과 (${Math.round(subTimeoutMs / 1000)}초)`)));
-        }, subTimeoutMs);
-        const abortPoller = setInterval(() => {
-          if (input.shouldAbort?.()) {
-            done(() => reject(new Error('ASTRO_ABORTED')));
-          }
-        }, 250);
-        captureAstroSubFrameAsync({
-          exposureMs: subExposureSecUsed * 1000,
-          iso,
-          lockFocusInfinity: input.lockFocusInfinity ?? true,
-          focusDistance: 0,
-          deviceRotationDeg: input.deviceRotationDeg ?? 0,
-        }).then(
-          res => done(() => resolve(res)),
-          err => done(() => reject(err)),
+      const captureOpts = {
+        exposureMs: subExposureSecUsed * 1000,
+        iso,
+        lockFocusInfinity: input.lockFocusInfinity ?? true,
+        focusDistance: 0,
+        deviceRotationDeg: input.deviceRotationDeg ?? 0,
+      };
+      let sub: Awaited<ReturnType<typeof captureAstroSubFrameAsync>>;
+      try {
+        sub = await withAbortAndTimeout(
+          captureAstroSubFrameAsync(captureOpts),
+          subTimeoutMs,
+          `서브프레임 촬영 응답 시간 초과 (${Math.round(subTimeoutMs / 1000)}초)`,
+          input.shouldAbort,
         );
-      });
+      } catch (capErr: any) {
+        if (
+          idx === 0 &&
+          session.format === 'raw16' &&
+          capErr?.message !== 'ASTRO_ABORTED' &&
+          !input.shouldAbort?.()
+        ) {
+          // 일부 기기에서 RAW_SENSOR 단독 스트림이 타임아웃/실패할 경우 YUV로 1회 자동 폴백
+          await stopAstroSessionAsync().catch(() => {});
+          sessionStarted = false;
+          session = await withAbortAndTimeout(
+            startAstroSessionAsync({ facing: 'back', preferRaw: false }),
+            10000,
+            'YUV 폴백 카메라 세션 시작 시간 초과 (10초)',
+            input.shouldAbort,
+          );
+          sessionStarted = true;
+          thumbIntrinsics = intrinsicsFromHfov(240, 180, session.hfovDeg);
+          sub = await withAbortAndTimeout(
+            captureAstroSubFrameAsync(captureOpts),
+            subTimeoutMs,
+            `YUV 폴백 서브프레임 촬영 응답 시간 초과 (${Math.round(subTimeoutMs / 1000)}초)`,
+            input.shouldAbort,
+          );
+        } else {
+          throw capErr;
+        }
+      }
       if (input.shouldAbort?.()) {
         throw new Error('ASTRO_ABORTED');
       }

@@ -1157,7 +1157,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => {
     isActiveRef.current = isActive;
     if (isActive) {
-      requestRender(5);
+      sceneDirtyRef.current = true;
+      requestRender(12);
     } else {
       isLoopRunningRef.current = false;
       if (animFrameRef.current) {

@@ -20,6 +20,7 @@ import android.media.ImageReader
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.util.Range
 import android.util.Size
 import androidx.core.content.ContextCompat
@@ -66,6 +67,9 @@ class AstroCameraModule : Module() {
   private var activeChars: CameraCharacteristics? = null
   private val captureBusy = AtomicBoolean(false)
   private val frameCounter = AtomicInteger(0)
+  private val activeImgLatch = AtomicReference<CountDownLatch?>(null)
+  private val activeResLatch = AtomicReference<CountDownLatch?>(null)
+  private val activeFailRef = AtomicReference<AtomicReference<String?>?>(null)
 
   @Volatile
   private var stackSession: AstroStackAccumulator.StackSession? = null
@@ -167,6 +171,10 @@ class AstroCameraModule : Module() {
   }
 
   private fun closeCameraLocked() {
+    activeFailRef.get()?.compareAndSet(null, "Session closed")
+    activeImgLatch.getAndSet(null)?.countDown()
+    activeResLatch.getAndSet(null)?.countDown()
+    try { captureSession?.abortCaptures() } catch (_: Throwable) {}
     try { captureSession?.close() } catch (_: Throwable) {}
     captureSession = null
     try { cameraDevice?.close() } catch (_: Throwable) {}
@@ -265,10 +273,12 @@ class AstroCameraModule : Module() {
             return@launch
           }
 
+          Log.i("AstroCamera", "startSession camId=$camId fmt=$chosenFormat size=${chosenSize.width}x${chosenSize.height}")
           val handler = ensureThread()
           val openedDevice = openCameraBlocking(manager, camId, handler)
           val reader = ImageReader.newInstance(chosenSize.width, chosenSize.height, chosenFormat, 2)
           val session = createSessionBlocking(openedDevice, listOf(reader.surface), handler)
+          Log.i("AstroCamera", "startSession ready camId=$camId")
 
           cameraDevice = openedDevice
           imageReader = reader
@@ -360,8 +370,12 @@ class AstroCameraModule : Module() {
           val failRef = AtomicReference<String?>()
           val imgLatch = CountDownLatch(1)
           val resLatch = CountDownLatch(1)
+          activeFailRef.set(failRef)
+          activeImgLatch.set(imgLatch)
+          activeResLatch.set(resLatch)
           var startWallMs = System.currentTimeMillis()
           var endWallMs = startWallMs
+          Log.i("AstroCamera", "captureSubFrame start fmt=$activeFormat expMs=${exposureNs / 1_000_000L} iso=$isoVal")
 
           reader.setOnImageAvailableListener({ r ->
             try {
@@ -403,6 +417,7 @@ class AstroCameraModule : Module() {
                 request: CaptureRequest,
                 failure: CaptureFailure,
               ) {
+                Log.w("AstroCamera", "onCaptureFailed reason=${failure.reason}")
                 failRef.compareAndSet(null, "Capture failed reason=${failure.reason}")
                 imgLatch.countDown()
                 resLatch.countDown()
@@ -462,8 +477,12 @@ class AstroCameraModule : Module() {
             ),
           )
         } catch (t: Throwable) {
+          Log.w("AstroCamera", "captureSubFrame error: ${t.message}")
           promise.reject("ERR_CAPTURE", t.message ?: "Capture sub-frame failed", t)
         } finally {
+          activeImgLatch.set(null)
+          activeResLatch.set(null)
+          activeFailRef.set(null)
           captureBusy.set(false)
         }
       }
