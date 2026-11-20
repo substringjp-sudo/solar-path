@@ -26,7 +26,7 @@
  * 잘라 정점을 수평선 위에 모읍니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, setDemObserver, type DemPatch } from '../../utils/demTiles';
 import {
   GROUND_PROJECT_GLSL, createConcentricGeometry, seaHorizonDistM,
 } from './groundProjection';
@@ -553,6 +553,8 @@ export interface SeaPlaneHandle {
    * 안 주면 예전 값을 그대로 둡니다.
    */
   setPatch: (patch: DemPatch | null, maskPatch?: DemPatch | null) => void;
+  /** 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다(`TerrainFieldHandle.setObserver` 와 같음). */
+  setObserver: (lat: number, lon: number) => void;
   setWaterMask: (tex: THREE.Texture | null, halfM?: number) => void;
   dispose: () => void;
 }
@@ -654,7 +656,15 @@ export function createSeaPlane(opts: {
     distMesh,
     litMesh,
     material,
+    setObserver: (lat, lon) => {
+      const dp = material.userData.demPatches as Record<string, DemPatch | null | undefined> | undefined;
+      if (!dp) return;
+      for (const k of ['dem', 'seaMask']) setDemObserver(material.uniforms, k, dp[k], lat, lon);
+    },
     setPatch: (patch, maskPatch) => {
+      const dp = (material.userData.demPatches ??= {}) as Record<string, DemPatch | null | undefined>;
+      dp.dem = patch;
+      if (maskPatch !== undefined) dp.seaMask = maskPatch;
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;

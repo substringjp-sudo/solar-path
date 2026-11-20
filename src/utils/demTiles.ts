@@ -50,46 +50,15 @@
 import * as THREE from 'three';
 import { getDemTileUri } from './demTileCache';
 
-/** 적도 둘레 (m). Web Mercator 의 기준입니다. */
-const EARTH_CIRCUMFERENCE_M = 40075016.686;
+// 경위도 ↔ 타일 좌표와 타일의 지상 거리는 순수 기하라 `demGeometry.ts` 에 있습니다(Node 판정이 불러올 수 있게). 여기서는 같은 이름으로 다시 내보냅니다.
+import { lonLatToTileFloat, moveObserver, tileSpanMetres } from './demGeometry';
+export { lonLatToTileFloat, tileSpanMetres };
 
 export const DEM_TILE_SIZE_PX = 256;
 
 /** 타일 한 장의 URL. */
 export const demTileUrl = (z: number, x: number, y: number): string =>
   `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
-
-/**
- * 경위도 → **소수** 타일 좌표 (표준 slippy map 식).
- *
- * 정수부가 타일 번호, 소수부가 그 타일 안에서의 위치입니다.
- */
-export function lonLatToTileFloat(
-  lon: number,
-  lat: number,
-  z: number,
-): { x: number; y: number } {
-  const n = Math.pow(2, z);
-  const latRad = (lat * Math.PI) / 180;
-  return {
-    x: ((lon + 180) / 360) * n,
-    y:
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-      n,
-  };
-}
-
-/**
- * 그 위도에서 타일 한 장이 덮는 **지상** 거리 (m).
- *
- * Web Mercator 는 등각사상이라 위도가 높을수록 같은 타일이 좁은 땅을 덮습니다
- * (cos φ 배). 이걸 빼먹으면 지형이 남북으로 늘어납니다.
- */
-export function tileSpanMetres(z: number, lat: number): number {
-  return (
-    (EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, z)
-  );
-}
 
 /**
  * 블록 한 변의 타일 수. **홀수여야** 관측자 타일이 정중앙에 옵니다.
@@ -826,6 +795,25 @@ function buildConnectedSeaTexture(
   tex.flipY = false;
   tex.needsUpdate = true;
   return tex;
+}
+
+/**
+ * 눈이 (lat, lon) 으로 옮겨 갔을 때, 재질이 쓰는 패치의 눈 좌표(`u{Prefix}Obs`)를 그 자리로 옮깁니다(연속 이동 조이스틱 2단계).
+ * 패치의 `observerU/V` 도 같이 고쳐서(`moveObserver`), 고르기 · 땅 프로필 같은 CPU 쪽 읽기가 같은 눈을 봅니다.
+ * 패치마다 줌이 달라(촘촘한 것 13, 성긴 것 9 …) 접두사별로 따로 부릅니다.
+ */
+export function setDemObserver(
+  uniforms: Record<string, { value: unknown }>,
+  prefix: string,
+  patch: DemPatch | null | undefined,
+  lat: number,
+  lon: number,
+): void {
+  if (!patch) return;
+  const o = moveObserver(patch, lat, lon);
+  const U = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+  const v = uniforms[`u${U}Obs`]?.value as THREE.Vector2 | undefined;
+  if (v && typeof v.set === 'function') v.set(o.u, o.v);
 }
 
 /** `demGlsl(prefix)` 가 기대하는 유니폼을 만듭니다 (기본 접두사 `dem`). */

@@ -6,7 +6,7 @@
  * 볼륨 하늘의 `LAYER_TERRAIN_DIST`(구름 차단) · `LAYER_TERRAIN_LIT`(하늘/태양/연무 조도)에도 함께 들어갑니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, setDemObserver, type DemPatch } from '../../utils/demTiles';
 import { ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
 import {
   GROUND_PROJECT_GLSL,
@@ -369,6 +369,8 @@ export interface BuildingFieldHandle {
   material: THREE.ShaderMaterial;
   setBuildings: (data: BuildingMeshData | null) => void;
   setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null, farPatch?: DemPatch | null) => void;
+  /** 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다(`TerrainFieldHandle.setObserver` 와 같음). 건물 자리는 옮기지 않습니다 — 움직이는 동안은 숨깁니다. */
+  setObserver: (lat: number, lon: number) => void;
   setVisible: (v: boolean) => void;
   setWindowLighting: (rate: number, glow: number) => void;
   hasGeometry: () => boolean;
@@ -536,7 +538,16 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       hasData = !!data && data.vertexCount > 0;
       syncVisibility();
     },
+    setObserver: (lat, lon) => {
+      const dp = material.userData.demPatches as Record<string, DemPatch | null | undefined> | undefined;
+      if (!dp) return;
+      for (const k of ['dem', 'demEye', 'demFar']) setDemObserver(material.uniforms, k, dp[k], lat, lon);
+    },
     setPatch: (patch, eyePatch, farPatch) => {
+      const dp = (material.userData.demPatches ??= {}) as Record<string, DemPatch | null | undefined>;
+      dp.dem = patch;
+      if (eyePatch !== undefined) dp.demEye = eyePatch;
+      if (farPatch !== undefined) dp.demFar = farPatch;
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;

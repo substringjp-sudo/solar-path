@@ -33,6 +33,7 @@ import { pickTargetAt } from '../../utils/pickTarget';
 import { makeDemSampler } from '../../utils/demSampler';
 import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
 import { offsetLatLon, localOffsetM } from '../../utils/geoMove';
+import { blockCovers, denseRadiusM, moveObserver } from '../../utils/demGeometry';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
@@ -450,6 +451,14 @@ export interface LongExposureSimResult {
   state: SkyRenderState | null;
 }
 
+/** `SkyScene3DHandle.getEyeState` 의 값. */
+export interface EyeState {
+  eye: { latitude: number; longitude: number } | null;
+  moving: boolean;
+  obs: Record<string, [number, number] | null>;
+  block: { zoom: number; originTileX: number; originTileY: number; blockTiles: number; tileSpanM: number } | null;
+}
+
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
   /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
@@ -514,6 +523,16 @@ export interface SkyScene3DHandle {
    * 다시 잡는 데 씁니다(저장한 장면 열기). 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다).
    */
   targetFromLatLon?: (latitude: number, longitude: number, elevM: number) => (TargetPoint & { eyeElevM: number }) | null;
+  /**
+   * 눈을 (latitude, longitude) 으로 옮깁니다(연속 이동 조이스틱, docs/SANDBOX_MODE_PLAN.md 12.2). `location` 은 건드리지 않고 지형 · 바다가 눈을 따라오게만 하므로
+   * 프레임마다 불러도 됩니다. 받아 둔 블록의 가운데 타일을 벗어나면 그 자리의 블록을 받고, 건물은 눈이 떨어져 있는 동안 숨깁니다.
+   * 멈춘 뒤에는 호스트가 `setLocation` 으로 위치를 커밋하고 `clearEyeLocation` 을 부릅니다(눈의 자리는 그대로라 화면이 튀지 않습니다).
+   */
+  setEyeLocation?: (latitude: number, longitude: number) => void;
+  /** 눈의 자리를 `location` 으로 되돌려 따르게 합니다(커밋 뒤, 또는 이동을 취소할 때). */
+  clearEyeLocation?: () => void;
+  /** 하네스 · 판정용: 눈 이동의 지금 상태(눈 자리, 건물 숨김 여부, 지형 · 바다 유니폼의 눈 좌표, 받아 둔 블록). */
+  getEyeState?: () => EyeState;
   /**
    * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
    * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
@@ -710,6 +729,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * 돌리지 않으므로, 타이머가 이 값을 올려 재요청을 깨웁니다.
    */
   const [demRetryTick, setDemRetryTick] = useState(0);
+  /**
+   * 눈 이동(연속 이동 조이스틱 2단계, docs/SANDBOX_MODE_PLAN.md 12.2): 조이스틱이 프레임마다 눈의 경위도를 알립니다(`setEyeLocation`).
+   * null 이면 `location`(커밋된 위치)을 따릅니다. 움직이는 동안 `location` 은 그대로 두어 날씨 · 건물 · 물 마스크 같은 위치별 자료를 다시 받지 않고,
+   * 눈이 떨어져 있는 동안은 지형 · 바다의 `uDemObs` 만 프레임마다 옮깁니다.
+   */
+  const eyeRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  /** 눈이 커밋된 위치에서 떨어져 있는 동안 true — 건물은 커밋된 위치 기준이라 이 동안 숨깁니다. */
+  const eyeMovingRef = useRef(false);
+  /** 마지막으로 본 커밋된 위치 좌표 — 같은 좌표로 객체만 새로 온 것을 가립니다. */
+  const prevLocCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  /** 새 블록 받기에 실패한 뒤 이 시각까지는 다시 요청하지 않습니다(프레임마다 두드리지 않게). */
+  const demRecenterAfterRef = useRef(0);
   const [buildingSyncTick, setBuildingSyncTick] = useState(0);
   const [buildingRetryTick, setBuildingRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
@@ -1179,9 +1210,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastBufferMeanRef = useRef<number>(-1);
   /** 지금 눈 위치의 지형 틀(지반 표본). 이 자리의 지형이 아직 안 왔으면 null. */
   const groundFrame = () => {
-    const renderer = rendererRef.current, patch = demPatchRef.current, here = locationRef.current?.coords;
+    const renderer = rendererRef.current, patch = demPatchRef.current, here = eyeCoords();
     if (!renderer || !patch || !here) return null;
-    if (demLoadedKeyRef.current !== `${here.latitude.toFixed(3)},${here.longitude.toFixed(3)}`) return null;
+    // 받아 둔 블록이 눈 둘레를 덮는 동안만(옛 "받은 키 = 위치 키" 검사를 눈 이동에 맞게 바꿈).
+    if (!blockCovers(patch, here.latitude, here.longitude, denseRadiusM(patch), 0)) return null;
     const ground = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
     if (!ground) return null;
     return { ground };
@@ -1280,12 +1312,44 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     getHorizonProfile: () => horizonCache()?.prof ?? null,
     targetFromLatLon: (latitude, longitude, elevM) => {
       const f = groundFrame();
-      const here = locationRef.current?.coords;
+      const here = eyeCoords();
       if (!f || !here) return null;
       const ground = f.ground(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
       const eye = ground + (eyeHeightRef.current ?? 1.6);
       const o = localOffsetM(here, latitude, longitude);
       return { ...targetPointAt(f.ground, eye, o.eastM, -o.northM, elevM, (e, z) => offsetLatLon(here.latitude, here.longitude, e, -z)), eyeElevM: eye };
+    },
+    setEyeLocation: (latitude, longitude) => {
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+      eyeRef.current = { latitude, longitude };
+      const here = locationRef.current?.coords;
+      const off = here ? localOffsetM(here, latitude, longitude) : null;
+      eyeMovingRef.current = !off || Math.hypot(off.eastM, off.northM) > 0.5;
+      applyEye();
+      // 눈이 받아 둔 블록의 가운데 타일(촘촘한 패치가 둘레 반경을 보장하는 자리)을 벗어나면 그 자리의 블록으로 바꿉니다.
+      const patch = demPatchRef.current;
+      if (patch && Date.now() >= demRecenterAfterRef.current && !blockCovers(patch, latitude, longitude, denseRadiusM(patch), 0)) {
+        void loadDemForRef.current(latitude, longitude, `${latitude.toFixed(3)},${longitude.toFixed(3)}`, () => false);
+      }
+    },
+    clearEyeLocation: () => {
+      eyeRef.current = null;
+      eyeMovingRef.current = false;
+      applyEye();
+    },
+    getEyeState: (): EyeState => {
+      const pick = (u: Record<string, { value: unknown }> | undefined, k: string): [number, number] | null => {
+        const v = u?.[k]?.value as { x?: number; y?: number } | undefined;
+        return v && typeof v.x === 'number' && typeof v.y === 'number' ? [v.x, v.y] : null;
+      };
+      const tu = terrainFieldRef.current?.material.uniforms, su = seaPlaneRef.current?.material.uniforms;
+      const d = demPatchRef.current;
+      return {
+        eye: eyeRef.current,
+        moving: eyeMovingRef.current,
+        obs: { terrain: pick(tu, 'uDemObs'), terrainEye: pick(tu, 'uDemEyeObs'), terrainFar: pick(tu, 'uDemFarObs'), sea: pick(su, 'uDemObs'), seaMask: pick(su, 'uSeaMaskObs') },
+        block: d ? { zoom: d.zoom, originTileX: d.originTileX, originTileY: d.originTileY, blockTiles: d.blockTiles, tileSpanM: d.tileSpanM } : null,
+      };
     },
     clearCameraLensOverride: () => {
       cameraRollRef.current = 0;
@@ -1705,6 +1769,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => { weatherRef.current = interpolatedWeather; sceneDirtyRef.current = true; requestRender(3); }, [interpolatedWeather, requestRender]);
   useEffect(() => {
     locationRef.current = location;
+    // 위치 **좌표**가 새로 정해지면(조이스틱이 멈춰 커밋했거나, 다른 곳을 골랐거나) 눈은 다시 위치를 따릅니다. 커밋이면 눈의 자리와 같아 화면이 안 튑니다.
+    // 같은 좌표로 객체만 새로 온 것(위치 갱신의 시각 도장, 웹 하네스의 매 렌더 새 객체)은 움직이는 눈을 되돌리지 않습니다.
+    const c = location?.coords, p = prevLocCoordsRef.current;
+    const same = !!c && !!p && Math.abs(c.latitude - p.latitude) < 1e-9 && Math.abs(c.longitude - p.longitude) < 1e-9;
+    prevLocCoordsRef.current = c ? { latitude: c.latitude, longitude: c.longitude } : null;
+    if (!same) {
+      eyeRef.current = null;
+      eyeMovingRef.current = false;
+    }
+    applyEye();
     lastAppliedTuningRef.current = null;
     sceneDirtyRef.current = true;
     requestRender(4);
@@ -1820,7 +1894,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const ground = sample(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
     const eye = ground + (eyeHeightRef.current ?? 1.6);
     // 처음 닿는 지형이나 건물(utils/pickTarget.ts). 건물 층이 꺼져 있으면 건물은 고르지 않습니다. 먼 대상은 손끝 12 px 여유.
-    const here = locationRef.current?.coords;
+    const here = eyeCoords();
     const target = pickTargetAt({
       sample,
       eyeM: eye,
@@ -2820,7 +2894,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           terrainFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
         }
         if (buildingFieldRef.current) {
-          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings));
+          // 건물 자리는 커밋된 위치 기준이라, 눈이 떨어져 있는 동안과 새 위치의 건물이 오기 전에는 숨깁니다(옛 건물이 엉뚱한 자리에 서 있지 않게).
+          const bc = bldCenterRef.current;
+          const bldFresh = buildingLoadedKeyRef.current === `${bc.lat.toFixed(3)},${bc.lng.toFixed(3)}`;
+          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings) && !eyeMovingRef.current && bldFresh);
           buildingFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
           updateBuildingFieldEye(buildingFieldRef.current, camera);
         }
@@ -4117,97 +4194,131 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * 걸러내되, 도보로 이동하는 정도는 못 잡습니다 — `loadDemPatch` 자체가
    * 같은 블록이면 캐시를 쓰므로 크게 문제되지 않습니다.
    */
+  /** 눈의 현재 경위도: 조이스틱이 정한 것이 있으면 그것, 없으면 `location`. */
+  const eyeCoords = (): { latitude: number; longitude: number } | null => eyeRef.current ?? locationRef.current?.coords ?? null;
+  /**
+   * 지형 · 바다 · 건물의 `uDemObs`(와 받아 둔 패치의 `observerU/V`)를 눈의 현재 자리로 맞춥니다. 받아 둔 블록 안에서는 가벼운 일이라 프레임마다 불러도 됩니다.
+   * 땅 프로필(40 km, 샘플 십수만 번)은 눈 자리마다 달라지므로 비우고, 부르는 쪽(`getHorizonProfile`)이 필요할 때 다시 만듭니다.
+   */
+  const applyEye = () => {
+    const e = eyeCoords();
+    if (!e) return;
+    terrainFieldRef.current?.setObserver(e.latitude, e.longitude);
+    seaPlaneRef.current?.setObserver(e.latitude, e.longitude);
+    buildingFieldRef.current?.setObserver(e.latitude, e.longitude);
+    skylineCacheRef.current = null;
+    sceneDirtyRef.current = true;
+    requestRender(2);
+  };
+
+  /**
+   * 높이장 블록을 받아 지형 · 바다 · 건물에 꽂습니다. `location` 이 바뀔 때(아래 효과)와, 눈이 받아 둔 블록의 가운데 타일을 벗어났을 때(`setEyeLocation`)
+   * 둘이 같은 길을 씁니다. 같은 자리를 이미 받았거나 받는 중이면 아무것도 안 합니다.
+   */
+  const loadDemForRef = useRef<(lat: number, lng: number, key: string, isCancelled: () => boolean) => Promise<void>>(async () => {});
+  loadDemForRef.current = async (lat, lng, key, isCancelled) => {
+    demWantKeyRef.current = key;
+    if (demLoadedKeyRef.current === key || demLoadingKeyRef.current === key) return;
+    // 받아 둔 블록이 이 자리 둘레를 이미 덮으면(가운데 타일 안) 다시 받지 않고 눈 좌표만 맞춥니다 —
+    // 위치가 100 m 칸을 넘어갈 때마다 같은 블록을 다시 꽂던 것(= 지형이 한꺼번에 건너뛰던 순간)이 없어집니다.
+    const cur = demPatchRef.current;
+    if (cur && blockCovers(cur, lat, lng, denseRadiusM(cur), 0)) {
+      demLoadedKeyRef.current = key;
+      demLoadingKeyRef.current = null;
+      applyEye();
+      return;
+    }
+    demLoadingKeyRef.current = key;
+    const renderer = rendererRef.current;
+    if (!renderer) { demLoadingKeyRef.current = null; return; }
+    try {
+      const load = (radiusM: number) => loadDemPatch(lat, lng, radiusM, {
+        renderer,
+        loadTexture: (url: string) => loadTextureAsync({ asset: url }),
+      });
+      const patch = await load(FIELD_FAR_M);
+      // 물 마스크는 따로 받습니다 — 같은 3×3 블록을 훨씬 낮은 줌으로
+      // 받아 60km 를 덮습니다. 이게 없으면 3km 밖이 "모르는 곳"이 되고,
+      // 예전에는 그걸 물로 두어 **내륙에서도 사방에 물이 고였습니다**.
+      // 실패해도 치명적이지 않습니다 — 촘촘한 패치의 가장자리 값으로
+      // 물러납니다(SeaPlane.ts 의 vWater 참고).
+      const maskPatch = await load(SEA_MASK_RADIUS_M).catch(() => null);
+      // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
+      // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
+      // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
+      // *같은 객체*를 돌려주므로, 여기서 "이전" 패치를 지운다며
+      // `demPatchRef.current`를 dispose 하면 방금 받은 새 패치를
+      // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
+      // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
+      // 받는 사이에 GL 컨텍스트가 바뀌었으면 이 패치는 옛 컨텍스트의 것입니다 — 버립니다.
+      // (onContextCreate 가 다시 요청합니다.)
+      // 같은 좌표로 이펙트만 다시 돈 것(취소)이면 이 결과를 그대로 씁니다 — 버리면 다시 요청할 실행이 없습니다.
+      if (demWantKeyRef.current !== key || rendererRef.current !== renderer) return;
+      // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
+      // 구멍이 있는 채로 패치를 돌려줍니다.
+      if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
+      demPatchRef.current = patch;
+      demMaskPatchRef.current = maskPatch;
+      if (bldCoverRef.current?.key === key) flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
+      // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
+      // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
+      //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
+      terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
+      buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
+      seaPlaneRef.current?.setPatch(patch, maskPatch);
+      demSerialRef.current += 1;
+      volSettleRef.current = Math.max(volSettleRef.current, 18);
+      // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
+      // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
+      if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
+      if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
+      demLoadedKeyRef.current = key;
+      applyEye();   // 받는 사이 눈이 더 갔을 수 있어, 새 블록에서 눈의 현재 자리로 맞춥니다
+      requestRender(10);
+      demRetryCountRef.current = 0;
+    } catch (e) {
+      if (__DEV__) console.warn('[DEM] 높이장을 못 받았습니다 — 기존 화면으로 물러납니다.', e);
+      demRecenterAfterRef.current = Date.now() + 2000;   // 눈 이동 중 새 블록 요청이 실패하면 2초 쉽니다
+      // ── 다시 걸어 봅니다 ────────────────────────────────────────────────
+      //
+      // 이 이펙트는 location 에만 걸려 있고 **성공했을 때만**
+      // demLoadedKeyRef 를 찍습니다. 재시도가 없으면 한 번 실패한 뒤로는
+      // 위치가 110m(소수점 3자리) 넘게 바뀌기 전까지 다시 안 받습니다 —
+      // 지하철에서 앱을 켜면 지상에 나와 네트워크가 돌아와도 옛 원반만
+      // 보입니다.
+      //
+      // 그동안 화면이 비지는 않습니다. 원반이 지면의 70% 를 이어받습니다
+      // (verify-disc-need.js). 다만 그건 대비책이지 보여 주려던 것이
+      // 아닙니다.
+      //
+      // 2·4·8·16·32초, 그다음은 60초로 묶습니다. 그래도 안 되면 네트워크나
+      // 서버 쪽 문제이므로 계속 두드리지 않고 60초 간격으로만 지켜봅니다 —
+      // 앱이 할 수 있는 일은 여기까지입니다.
+      if (!isCancelled() || demWantKeyRef.current === key) {
+        const n = demRetryCountRef.current + 1;
+        demRetryCountRef.current = n;
+        const waitMs = Math.min(60000, 1000 * 2 ** n);
+        if (demRetryTimerRef.current) clearTimeout(demRetryTimerRef.current);
+        demRetryTimerRef.current = setTimeout(() => {
+          demRetryTimerRef.current = null;
+          // 키를 지우면 위 가드가 풀려 이펙트가 다시 요청합니다.
+          demLoadingKeyRef.current = null;
+          setDemRetryTick(t => t + 1);
+        }, waitMs);
+      }
+    } finally {
+      if (demLoadingKeyRef.current === key) demLoadingKeyRef.current = null;
+    }
+  };
+
   useEffect(() => {
     const lat = location?.coords?.latitude;
     const lng = location?.coords?.longitude;
     if (typeof lat !== 'number' || typeof lng !== 'number') return;
 
     const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
-    demWantKeyRef.current = key;
-    if (demLoadedKeyRef.current === key || demLoadingKeyRef.current === key) return;
-    demLoadingKeyRef.current = key;
-
     let cancelled = false;
-    (async () => {
-      const renderer = rendererRef.current;
-      if (!renderer) { demLoadingKeyRef.current = null; return; }
-      try {
-        const load = (radiusM: number) => loadDemPatch(lat, lng, radiusM, {
-          renderer,
-          loadTexture: (url: string) => loadTextureAsync({ asset: url }),
-        });
-        const patch = await load(FIELD_FAR_M);
-        // 물 마스크는 따로 받습니다 — 같은 3×3 블록을 훨씬 낮은 줌으로
-        // 받아 60km 를 덮습니다. 이게 없으면 3km 밖이 "모르는 곳"이 되고,
-        // 예전에는 그걸 물로 두어 **내륙에서도 사방에 물이 고였습니다**.
-        // 실패해도 치명적이지 않습니다 — 촘촘한 패치의 가장자리 값으로
-        // 물러납니다(SeaPlane.ts 의 vWater 참고).
-        const maskPatch = await load(SEA_MASK_RADIUS_M).catch(() => null);
-        // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
-        // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
-        // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
-        // *같은 객체*를 돌려주므로, 여기서 "이전" 패치를 지운다며
-        // `demPatchRef.current`를 dispose 하면 방금 받은 새 패치를
-        // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
-        // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
-        // 받는 사이에 GL 컨텍스트가 바뀌었으면 이 패치는 옛 컨텍스트의 것입니다 — 버립니다.
-        // (onContextCreate 가 다시 요청합니다.)
-        // 같은 좌표로 이펙트만 다시 돈 것(취소)이면 이 결과를 그대로 씁니다 — 버리면 다시 요청할 실행이 없습니다.
-        if (demWantKeyRef.current !== key || rendererRef.current !== renderer) return;
-        // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
-        // 구멍이 있는 채로 패치를 돌려줍니다.
-        if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
-        demPatchRef.current = patch;
-        demMaskPatchRef.current = maskPatch;
-        if (bldCoverRef.current?.key === key) flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
-        // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
-        // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
-        //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
-        terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
-        buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
-        seaPlaneRef.current?.setPatch(patch, maskPatch);
-        demSerialRef.current += 1;
-        volSettleRef.current = Math.max(volSettleRef.current, 18);
-        // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
-        // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
-        if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
-        if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
-        demLoadedKeyRef.current = key;
-        requestRender(10);
-        demRetryCountRef.current = 0;
-      } catch (e) {
-        if (__DEV__) console.warn('[DEM] 높이장을 못 받았습니다 — 기존 화면으로 물러납니다.', e);
-        // ── 다시 걸어 봅니다 ────────────────────────────────────────────────
-        //
-        // 이 이펙트는 location 에만 걸려 있고 **성공했을 때만**
-        // demLoadedKeyRef 를 찍습니다. 재시도가 없으면 한 번 실패한 뒤로는
-        // 위치가 110m(소수점 3자리) 넘게 바뀌기 전까지 다시 안 받습니다 —
-        // 지하철에서 앱을 켜면 지상에 나와 네트워크가 돌아와도 옛 원반만
-        // 보입니다.
-        //
-        // 그동안 화면이 비지는 않습니다. 원반이 지면의 70% 를 이어받습니다
-        // (verify-disc-need.js). 다만 그건 대비책이지 보여 주려던 것이
-        // 아닙니다.
-        //
-        // 2·4·8·16·32초, 그다음은 60초로 묶습니다. 그래도 안 되면 네트워크나
-        // 서버 쪽 문제이므로 계속 두드리지 않고 60초 간격으로만 지켜봅니다 —
-        // 앱이 할 수 있는 일은 여기까지입니다.
-        if (!cancelled || demWantKeyRef.current === key) {
-          const n = demRetryCountRef.current + 1;
-          demRetryCountRef.current = n;
-          const waitMs = Math.min(60000, 1000 * 2 ** n);
-          if (demRetryTimerRef.current) clearTimeout(demRetryTimerRef.current);
-          demRetryTimerRef.current = setTimeout(() => {
-            demRetryTimerRef.current = null;
-            // 키를 지우면 위 가드가 풀려 이펙트가 다시 요청합니다.
-            demLoadingKeyRef.current = null;
-            setDemRetryTick(t => t + 1);
-          }, waitMs);
-        }
-      } finally {
-        if (demLoadingKeyRef.current === key) demLoadingKeyRef.current = null;
-      }
-    })();
+    void loadDemForRef.current(lat, lng, key, () => cancelled);
 
     return () => { cancelled = true; };
   }, [location, requestRender, demRetryTick]);
@@ -4244,12 +4355,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
           bldCoverRef.current = { key, cover };
           const patch = demPatchRef.current, renderer = rendererRef.current;
-          if (patch && renderer && demLoadedKeyRef.current === key && flattenDemForBuildings(renderer, patch, cover)) {
-            const maskPatch = demMaskPatchRef.current;
-            terrainFieldRef.current.setPatch(patch, patch, maskPatch);
-            buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
-            seaPlaneRef.current?.setPatch(patch, maskPatch);
-            demSerialRef.current += 1;
+          if (patch && renderer && demLoadedKeyRef.current === key) {
+            // 건물 발자국은 커밋된 위치 기준입니다 — 눈이 떨어져 있어도 그 기준으로 깎고, 끝나면 눈 자리로 되돌립니다.
+            moveObserver(patch, bldLat, bldLng);
+            if (flattenDemForBuildings(renderer, patch, cover)) {
+              const maskPatch = demMaskPatchRef.current;
+              terrainFieldRef.current.setPatch(patch, patch, maskPatch);
+              buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
+              seaPlaneRef.current?.setPatch(patch, maskPatch);
+              demSerialRef.current += 1;
+            }
+            applyEye();
           }
         }
         sceneDirtyRef.current = true;
