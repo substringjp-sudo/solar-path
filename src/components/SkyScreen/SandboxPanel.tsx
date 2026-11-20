@@ -2,8 +2,10 @@
  * SandboxPanel.tsx — 샌드박스(전문가 모드) 구도 도구: 눈 높이 · 위치 이동 · "내 위치 아님".
  * docs/SANDBOX_MODE_PLAN.md 2.2. 하늘 위의 떠 있는 것이라 화면 모드와 상관없이 어두운 재질(overlay)을 씁니다.
  *
+ * - 읽음 줄(맨 위): 지금 시선의 방위 · 앙각과 눈 높이(`SandboxDials.ViewReadout`). 시선은 장면이 `getView` 로 알려 줍니다.
  * - 눈 높이: 칩 5개. 눈이 그 높이에서 보는 지형·건물·구름으로 다시 그립니다.
  * - 이동: 조이스틱(`SandboxDials.MoveStick`) — 민 방향으로 누르고 있는 동안 `stepM` 미터씩 반복합니다(스크린리더는 북·동·남·서 동작 한 걸음씩). 위치가 바뀔 때마다 날씨·지형은 새 자리 것을 받습니다.
+ * - 이동 방향 기준: 걸음 크기 단추 아래의 단추로 "북 기준"(손잡이 위 = 북, 처음 값) 과 "시선 기준"(손잡이 위 = 지금 보는 방향)을 오갑니다. 시선을 못 읽으면 북 기준으로 움직입니다.
  * - 내 위치 아님: 기기 위치에서 멀면(`awayM`) 알리고, "내 위치로"로 돌아옵니다.
  */
 import React from 'react';
@@ -12,7 +14,8 @@ import { LocateFixed } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
-import { MoveStick } from './SandboxDials';
+import { MoveStick, ViewReadout } from './SandboxDials';
+import { rotateByView, type ViewAzEl } from '../../utils/sandboxDials';
 
 /** 먼 건물 받기 상태(계획 6). loading 중엔 진행, done 이면 결과, off 는 건물 레이어가 꺼져 있거나 지형이 아직 없음. */
 export interface FarStatus {
@@ -42,6 +45,8 @@ interface Props {
   /** 기기 위치에서 떨어진 거리(m). 기기 위치를 모르면 null. */
   awayM: number | null;
   onHome: () => void;
+  /** 장면이 알려 주는 지금 시선(방위 · 앙각). 주면 맨 위에 읽음 줄을 그리고, "시선 기준" 이동을 쓸 수 있습니다. 없으면 둘 다 없습니다. */
+  getView?: () => ViewAzEl | null;
   /** 먼 건물(보는 방향만 받음). 없으면 이 줄을 그리지 않습니다. */
   far?: { status: FarStatus | null; onLoad: () => void };
 }
@@ -50,14 +55,22 @@ const fmtM = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m % 1000 === 0 ? 
 
 const fmtMB = (b: number) => `${(b / 1048576).toFixed(b >= 10485760 ? 0 : 1)} MB`;
 
-export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, stepM, onStep, onMove, awayM, onHome, far }) => {
+export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, stepM, onStep, onMove, awayM, onHome, getView, far }) => {
   const away = awayM != null && awayM > AWAY_THRESHOLD_M;
+  // 이동 방향 기준: 꺼짐 = 북 기준(손잡이 위 = 북, 예전 동작), 켜짐 = 시선 기준(손잡이 위 = 지금 보는 방향)
+  const [rel, setRel] = React.useState(false);
+  const move = (eastM: number, northM: number) => {
+    const v = rel ? getView?.() : null;
+    const m = v ? rotateByView(eastM, northM, v.az) : { eastM, northM };
+    onMove(m.eastM, m.northM);
+  };
   const nextStep = () => {
     const i = MOVE_STEP_CHOICES_M.indexOf(stepM as (typeof MOVE_STEP_CHOICES_M)[number]);
     onStep(MOVE_STEP_CHOICES_M[(i + 1) % MOVE_STEP_CHOICES_M.length]);
   };
   return (
     <View style={styles.wrap} pointerEvents="box-none">
+      {getView && <ViewReadout language={language} getView={getView} eyeHeightM={eyeHeightM} />}
       {away && (
         <View style={styles.awayRow}>
           <View style={styles.awayBadge}>
@@ -90,11 +103,24 @@ export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeigh
 
       <Text style={styles.label}>{L3(language, '위치 이동', 'Move', '位置移動')}</Text>
       <View style={styles.moveRow}>
-        <MoveStick language={language} stepM={stepM} onMove={onMove} />
-        <OverlayButton onPress={nextStep} accessibilityLabel={`${L3(language, '이동 간격', 'Step', '移動幅')} ${fmtM(stepM)}`} style={styles.stepBtn}>
-          <Text style={styles.stepText}>{fmtM(stepM)}</Text>
-          <Text style={styles.stepSub}>{L3(language, '한 걸음', 'per step', '1歩')}</Text>
-        </OverlayButton>
+        <MoveStick language={language} stepM={stepM} onMove={move} relative={rel} />
+        <View style={styles.moveCol}>
+          <OverlayButton onPress={nextStep} accessibilityLabel={`${L3(language, '이동 간격', 'Step', '移動幅')} ${fmtM(stepM)}`} style={styles.stepBtn}>
+            <Text style={styles.stepText}>{fmtM(stepM)}</Text>
+            <Text style={styles.stepSub}>{L3(language, '한 걸음', 'per step', '1歩')}</Text>
+          </OverlayButton>
+          {getView && (
+            <OverlayButton
+              active={rel}
+              onPress={() => setRel(r => !r)}
+              accessibilityLabel={`${L3(language, '이동 방향 기준', 'Move direction reference', '移動方向の基準')}: ${rel ? L3(language, '시선 기준', 'where you look', '視線基準') : L3(language, '북 기준', 'north', '北基準')}`}
+              style={styles.stepBtn}
+            >
+              <Text style={[styles.modeText, rel && { color: DARK.accent }]}>{rel ? L3(language, '시선 기준', 'View-up', '視線基準') : L3(language, '북 기준', 'North-up', '北基準')}</Text>
+              <Text style={styles.stepSub}>{L3(language, '이동 방향', 'move axis', '移動方向')}</Text>
+            </OverlayButton>
+          )}
+        </View>
       </View>
 
       {far && (
@@ -130,7 +156,9 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   unit: { fontFamily: mono, fontSize: 11, color: DARK.textDim, marginLeft: 2 },
   moveRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  moveCol: { gap: 4 },
   stepBtn: { width: 64, height: 44, flexDirection: 'column' },
+  modeText: { fontSize: 11, fontWeight: '700', color: DARK.text },
   stepText: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: DARK.text },
   stepSub: { fontSize: 9, color: DARK.textDim },
   farRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

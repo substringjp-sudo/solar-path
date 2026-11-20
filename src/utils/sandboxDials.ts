@@ -94,3 +94,40 @@ export function clampKnob(dx: number, dy: number, travelPx: number): { x: number
 
 /** 한 걸음의 이동량(m): 걸음 크기(`stepM`)만큼, 민 방향으로. */
 export const stepMove = (s: StickState, stepM: number): { eastM: number; northM: number } => ({ eastM: s.east * stepM, northM: s.north * stepM });
+
+// ── 시선 읽음 줄 · 시선 기준 이동 ────────────────────────────────────────────
+
+/** 방위(도)를 0 이상 360 미만의 한 자리 글자로("128.4"). 반올림해 360.0 이 되는 값(359.96)은 0.0 으로 접습니다. */
+export function fmtAz(azDeg: number): string {
+  if (!Number.isFinite(azDeg)) return '—';
+  const r = Math.round((((azDeg % 360) + 360) % 360) * 10) / 10;
+  return (r >= 360 ? 0 : r).toFixed(1);
+}
+
+/** 앙각(도)을 한 자리 글자로. 음수만 부호를 달고("-3.2"), 반올림해 0 이면 "0.0"(-0.0 을 안 보임). */
+export function fmtEl(elDeg: number): string {
+  if (!Number.isFinite(elDeg)) return '—';
+  const r = Math.round(elDeg * 10) / 10;
+  return (r === 0 ? 0 : r).toFixed(1);
+}
+
+export interface ViewAzEl { az: number; el: number }
+
+/**
+ * 화면에 적은 시선과 새 시선이 읽을 만큼 다른가(`epsDeg` 도 넘게). 방위는 한 바퀴를 돌아 잰 차이라 359.99 와 0.01 은 0.02° 차입니다.
+ * 읽음 줄이 안 움직이는 동안 헛되이 다시 그리지 않게 합니다. 새 값이 null 이면 이전이 있을 때만 다름(없어짐을 알림).
+ */
+export function viewDiffers(prev: ViewAzEl | null, next: ViewAzEl | null, epsDeg = 0.05): boolean {
+  if (!prev || !next) return prev !== next;
+  const dAz = Math.abs((((next.az - prev.az) % 360) + 540) % 360 - 180);
+  return dAz > epsDeg || Math.abs(next.el - prev.el) > epsDeg;
+}
+
+/**
+ * 조이스틱 방향(동 +, 북 +: 손잡이를 위로 밀면 북 +)을 **시선 기준**으로 돌립니다 — 손잡이 위 = 지금 보는 방향, 오른쪽 = 시선의 오른쪽.
+ * `viewAzDeg` 는 나침반 방위(북 0, 동 90). 길이(걸음 크기)는 그대로입니다.
+ */
+export function rotateByView(eastM: number, northM: number, viewAzDeg: number): { eastM: number; northM: number } {
+  const t = (viewAzDeg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  return { eastM: eastM * c + northM * s, northM: -eastM * s + northM * c };
+}
