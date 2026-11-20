@@ -75,7 +75,10 @@ import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/As
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
-import { modeForScene, modeLabel, recommendMode, tabForMode } from '../utils/captureMode';
+import { TimelapsePanel } from './AstroCamera/TimelapsePanel';
+import { useTimelapseRun } from '../hooks/useTimelapseRun';
+import { previewTimeAt, type TimelapsePlan } from '../utils/timelapsePlan';
+import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -488,6 +491,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 샌드박스 "이 장면 찍기"로 넘어온 장면: 그 시각에 맞는 모드를 먼저 열고, 장면의 시선 방향으로 안내합니다(계획 12.3, 목업 4). 카메라를 닫으면 지웁니다.
   const cameraScene = useCelestialStore(s => s.cameraScene);
   const [modeSheetOpen, setModeSheetOpen] = useState(false);
+  const [timelapseOpen, setTimelapseOpen] = useState(false);
   useEffect(() => {
     if (!visible || !cameraScene) return;
     setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
@@ -495,6 +499,52 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     if (tab) setCameraTab(tab);
   }, [visible, cameraScene]);
   useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);
+
+  // ── 타임랩스(계획 8.3.1, 목업 9 · 12): 사진 묶음으로 앨범에 저장합니다(영상 만들기는 아직 없습니다) ──
+  const shootFrame = useCallback(async (): Promise<boolean> => {
+    if (!cameraRef.current) return false;
+    const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, shutterSound: false });
+    await MediaLibrary.saveToLibraryAsync(photo.uri);
+    return true;
+  }, []);
+  const timelapse = useTimelapseRun(shootFrame);
+  const startTimelapse = useCallback(async (plan: TimelapsePlan) => {
+    const granted = mediaPermission?.granted || (await requestMediaPermission()).granted;
+    if (!granted) {
+      Alert.alert(L3(language, '사진 저장 권한이 필요해요', 'Photo permission needed', '写真の保存権限が必要です'));
+      return;
+    }
+    setViewMode('camera');
+    timelapse.start(plan);
+  }, [mediaPermission, requestMediaPermission, timelapse, language]);
+  // 미리보기: 3D 시뮬레이션이 구간을 영상 길이만큼 재생합니다. 끝나면 원래 시각으로 돌아옵니다.
+  const [previewing, setPreviewing] = useState(false);
+  const previewTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previewOrigin = useRef<Date | null>(null);
+  const stopPreview = useCallback(() => {
+    if (previewTimer.current) { clearInterval(previewTimer.current); previewTimer.current = null; }
+    if (previewOrigin.current) { onTimeChange?.(previewOrigin.current); previewOrigin.current = null; }
+    setPreviewing(false);
+  }, [onTimeChange]);
+  const playPreview = useCallback((plan: TimelapsePlan, startMs: number, endMs: number) => {
+    if (!onTimeChange) return;
+    if (previewTimer.current) clearInterval(previewTimer.current);
+    if (!previewOrigin.current) previewOrigin.current = currentTime;
+    setViewMode('sim');
+    setPreviewing(true);
+    const t0 = Date.now();
+    previewTimer.current = setInterval(() => {
+      const elapsed = (Date.now() - t0) / 1000;
+      onTimeChange(new Date(previewTimeAt(startMs, endMs, plan.targetVideoSec, elapsed)));
+      if (elapsed >= plan.targetVideoSec) stopPreview();
+    }, 100);
+  }, [onTimeChange, currentTime, stopPreview]);
+  useEffect(() => () => { if (previewTimer.current) clearInterval(previewTimer.current); }, []);
+  const pickMode = (key: CaptureModeKey) => {
+    if (key === 'timelapse') { setTimelapseOpen(true); return; }
+    const tab = tabForMode(key);
+    if (tab) setCameraTab(tab);
+  };
   const [vibrationGuideOn, setVibrationGuideOn] = useState(true);
   const [guideState, setGuideState] = useState<DirectionGuideState | null>(null);
   const onTargetHystRef = useRef(false);
@@ -2449,6 +2499,35 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       </Pressable>
                     </View>
                   )}
+                  {previewing && (
+                    <View style={styles.banner}>
+                      <Text style={styles.bannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}</Text>
+                      <Pressable onPress={stopPreview} accessibilityRole="button" accessibilityLabel={L3(language, '미리보기 멈추기', 'Stop preview', 'プレビューを止める')} hitSlop={8}>
+                        <X size={14} color={color.text} />
+                      </Pressable>
+                    </View>
+                  )}
+                  {timelapse.run && timelapse.progress && (
+                    <View style={styles.banner}>
+                      <Text style={styles.bannerText} numberOfLines={2}>
+                        {timelapse.run.error
+                          ? L3(language, `타임랩스가 멈췄어요 · ${timelapse.run.taken}장 저장`, `Timelapse stopped · ${timelapse.run.taken} saved`, `タイムラプス停止 · ${timelapse.run.taken}枚保存`)
+                          : timelapse.run.running
+                            ? `${L3(language, '타임랩스', 'Timelapse', 'タイムラプス')} · ${timelapse.run.taken}/${timelapse.run.plan.frames} · ${L3(language, '남은', 'left', '残り')} ${Math.floor(timelapse.progress.remainingS / 60)}:${String(timelapse.progress.remainingS % 60).padStart(2, '0')} · ${L3(language, '화면을 켜 두세요', 'Keep the screen on', '画面をつけたままに')}`
+                            : L3(language, `타임랩스 끝 · ${timelapse.run.taken}장 앨범에 저장`, `Timelapse done · ${timelapse.run.taken} saved to album`, `タイムラプス終了 · ${timelapse.run.taken}枚をアルバムに保存`)}
+                      </Text>
+                      <Pressable
+                        onPress={timelapse.run.running ? timelapse.stop : timelapse.dismiss}
+                        accessibilityRole="button"
+                        accessibilityLabel={timelapse.run.running ? L3(language, '마치기', 'Finish', '終了') : L3(language, '닫기', 'Dismiss', '閉じる')}
+                        hitSlop={8}
+                      >
+                        {timelapse.run.running
+                          ? <Text style={styles.bannerText}>{L3(language, '마치기', 'Finish', '終了')}</Text>
+                          : <X size={14} color={color.text} />}
+                      </Pressable>
+                    </View>
+                  )}
                   {hasInterference && viewMode !== 'sim' && (
                     <View style={styles.banner}>
                       <Text style={[styles.bannerText, { color: color.warning }]}>
@@ -2811,8 +2890,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           language={language}
           currentTab={cameraTab}
           recommended={cameraScene ? modeForScene(cameraScene) : recommendMode(sunPos.altitude)}
-          onPick={setCameraTab}
+          onPick={pickMode}
           onClose={() => setModeSheetOpen(false)}
+        />
+        <TimelapsePanel
+          visible={timelapseOpen}
+          language={language}
+          events={{
+            sunrise: goldenTimeInfo.type === 'sunrise' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+            sunset: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+          }}
+          nowMs={currentTime.getTime()}
+          onPreview={playPreview}
+          onStart={startTimelapse}
+          onClose={() => setTimelapseOpen(false)}
         />
 
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}

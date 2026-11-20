@@ -8,7 +8,8 @@
  *  3. 장면 줄: `onShoot` 은 선택 항목이고, 있을 때만 "이 장면 찍기" 단추(영어 "Shoot", 일본어 "撮る")를 그린다.
  *  4. 카메라: 보이는 동안 넘어온 장면이 있으면 장면의 방위 · 앙각으로 방향 안내 목표(`lockedTarget`)를 잡고 `tabForMode(modeForScene(장면))` 으로 탭을 연다. 카메라가 사라질 때 장면을 지운다.
  *     위쪽 줄에 장면 이름과 요약이 보이고 "장면 지우기" 단추가 목표와 장면을 함께 지운다.
- *  5. 모드 시트: 탭 묶음 끝 "모드" 단추가 시트를 열고, 권하는 모드는 장면이 있으면 `modeForScene(장면)` 없으면 `recommendMode(해 고도)`. 고르면 `setCameraTab` 으로 탭이 바뀐다.
+ *  5. 모드 시트: 탭 묶음 끝 "모드" 단추가 시트를 열고, 권하는 모드는 장면이 있으면 `modeForScene(장면)` 없으면 `recommendMode(해 고도)`. 고르면 `pickMode` 가 탭(`setCameraTab`) 또는 타임랩스 패널을 연다.
+ *     (2026-11-20 정정: 타임랩스가 들어오며 시트는 탭이 아니라 모드 키를 돌려준다. 열 수 있는 모드만 고르게 하는 기준은 그대로.)
  *  6. 시트: `sheetRows` 로 줄을 만들고, 못 여는 모드(탭이 null)는 `disabled` 이며 누르면 아무 일도 없다(`tabForMode` 가 null 이면 반환). 글은 `captureMode` 의 `modeLabel` · `modeDesc` · `recommendReason` 만 쓴다.
  *
  *   node tools/shader-preview/verify-camera-scene.js
@@ -46,10 +47,10 @@ ok(/useEffect\(\(\) => \(\) => \{ useCelestialStore\.getState\(\)\.setCameraScen
 ok(/\{cameraScene && \(/.test(cam) && /cameraScene\.name/.test(cam) && /sceneSummary\(cameraScene,/.test(cam) && /setLockedTarget\(null\); useCelestialStore\.getState\(\)\.setCameraScene\(null\);/.test(cam) && /'장면 지우기', 'Clear scene'/.test(cam), '장면 줄(이름 · 요약)과 "장면 지우기"(목표와 장면을 함께)');
 
 console.log('\n[5] 모드 시트 연결');
-ok(/onPress=\{\(\) => setModeSheetOpen\(true\)\}/.test(cam) && /<CaptureModeSheet[\s\S]*?recommended=\{cameraScene \? modeForScene\(cameraScene\) : recommendMode\(sunPos\.altitude\)\}[\s\S]*?onPick=\{setCameraTab\}/.test(cam), '"모드" 단추가 시트를 열고, 권하는 모드와 고른 탭 연결');
+ok(/onPress=\{\(\) => setModeSheetOpen\(true\)\}/.test(cam) && /<CaptureModeSheet[\s\S]*?recommended=\{cameraScene \? modeForScene\(cameraScene\) : recommendMode\(sunPos\.altitude\)\}[\s\S]*?onPick=\{pickMode\}/.test(cam) && /const tab = tabForMode\(key\);\s+if \(tab\) setCameraTab\(tab\);/.test(cam), '"모드" 단추가 시트를 열고, 권하는 모드와 고른 탭 연결');
 
 console.log('\n[6] 시트');
-ok(/sheetRows\(recommended\)/.test(sheet) && /disabled=\{!r\.ready\}/.test(sheet) && /const tab = tabForMode\(k\);\s+if \(!tab\) return;/.test(sheet), 'sheetRows 로 줄, 못 여는 모드는 disabled 이고 눌러도 반환');
+ok(/sheetRows\(recommended\)/.test(sheet) && /disabled=\{!r\.ready\}/.test(sheet) && /if \(!CAPTURE_MODES\.find\(m => m\.key === k\)\?\.ready\) return;\s+onPick\(k\);/.test(sheet), 'sheetRows 로 줄, 못 여는 모드는 disabled 이고 눌러도 반환(ready 가 아니면)');
 ok(/modeLabel\(/.test(sheet) && /modeDesc\(/.test(sheet) && /recommendReason\(/.test(sheet) && /'준비 중', 'Coming soon', '準備中'/.test(sheet), '글은 captureMode 에서, 못 여는 줄에 "준비 중"');
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
