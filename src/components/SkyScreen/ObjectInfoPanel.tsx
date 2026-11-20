@@ -34,6 +34,8 @@ interface Props {
   moonDiskDeg?: number;
   /** "계산 과정" 단추. 없으면 단추를 그리지 않습니다. */
   onCalc?: () => void;
+  /** "여기로 가기" 단추: 이 점까지 눈을 부드럽게 옮깁니다. 없으면 그리지 않습니다. */
+  onGo?: () => void;
   /** 제목 줄 아래에 끼우는 줄: "장면 저장 · 저장한 장면"(`SceneBar`, 목업 2번). 없으면 그리지 않습니다. */
   sceneRow?: React.ReactNode;
   onClear: () => void;
@@ -43,7 +45,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, sceneRow, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onGo, sceneRow, onClear }) => {
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const b = target.kind === 'building' ? target.building : undefined;
@@ -129,11 +131,18 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           getSkyline={getSkyline}
         />
       )}
-      {onCalc && (
+      {(onCalc || onGo) && (
         <View style={styles.actions}>
-          <OverlayButton onPress={onCalc} accessibilityLabel={L3(language, '계산 과정 보기', 'How this is computed', '計算の過程を見る')} style={styles.actionBtn}>
-            <Text style={styles.actionText}>{L3(language, '계산 과정', 'How computed', '計算の過程')}</Text>
-          </OverlayButton>
+          {onGo && (
+            <OverlayButton onPress={onGo} accessibilityLabel={L3(language, '여기로 가기: 이 점까지 눈을 부드럽게 옮기기', 'Go here: glide the eye to this point', 'ここへ行く: この点まで目をなめらかに移動')} style={styles.actionBtn}>
+              <Text style={styles.actionText}>{L3(language, '여기로 가기', 'Go here', 'ここへ行く')}</Text>
+            </OverlayButton>
+          )}
+          {onCalc && (
+            <OverlayButton onPress={onCalc} accessibilityLabel={L3(language, '계산 과정 보기', 'How this is computed', '計算の過程を見る')} style={styles.actionBtn}>
+              <Text style={styles.actionText}>{L3(language, '계산 과정', 'How computed', '計算の過程')}</Text>
+            </OverlayButton>
+          )}
         </View>
       )}
     </View>

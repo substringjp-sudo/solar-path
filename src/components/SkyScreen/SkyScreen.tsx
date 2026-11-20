@@ -78,7 +78,9 @@ import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { SceneBar } from './SceneBar';
 import { SceneSheet, type SaveResult } from './SceneSheet';
 import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
-import { rebuildPicked } from '../../utils/pickedTarget';
+import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
+import { eyeForMode } from '../../utils/flightAssist';
+import { useGlide } from '../../hooks/useGlide';
 import { DialPair } from './SandboxDials';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
@@ -677,6 +679,24 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       timestamp: Date.now(),
     });
   };
+  // ── 여기로 가기(12.5 6번) · 비행 모드 눈 높이 ───────────────────────────────
+  // 고른 점까지 눈을 부드럽게 옮기고(저장된 위치는 그대로) 도착하면 한 번 저장합니다. 조이스틱을 쥐거나 위치가 바깥에서 바뀌면 접습니다.
+  const glide = useGlide({
+    getOrigin: () => {
+      const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
+      return { latitude: c.latitude, longitude: c.longitude };
+    },
+    setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
+    clearEye: () => sceneRef.current?.clearEyeLocation?.(),
+    commit: setSpot,
+  });
+  const flyStashRef = useRef<number | null>(null);
+  const changeMoveMode = (m: MoveMode) => {
+    const r = eyeForMode(moveMode, m, eyeH, flyStashRef.current);
+    flyStashRef.current = r.stash;
+    if (r.eyeH !== eyeH) setEyeH(r.eyeH);
+    setMoveMode(m);
+  };
   // ── 장면 저장(docs/SANDBOX_MODE_PLAN.md 12.3) ───────────────────────────────
   // 자리 · 눈 높이 · 보는 방향 · 줌 · 시각 · 고른 대상을 이 기기에만 저장하고(날씨는 저장하지 않고 열 때 새로 받습니다) 저장한 장면 시트에서 엽니다.
   const savedScenes = useCelestialStore(s => s.savedScenes);
@@ -985,7 +1005,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               eyeHeightM={eyeH}
               onEyeHeight={setEyeH}
               mode={moveMode}
-              onMode={setMoveMode}
+              onMode={changeMoveMode}
               drive={{
                 // 움직이는 동안 저장된 위치는 그대로 두고 장면의 눈만 옮깁니다. 손을 놓고 속도가 가라앉으면 그 자리를 새 위치로 한 번 저장하고(날씨 · 지형 · 건물은 그때 받습니다),
                 // 확정 없이 접으면 눈을 저장된 위치로 되돌립니다. 저장소에서 바로 읽어야 방금 확정한 위치가 옵니다.
@@ -996,12 +1016,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
                 clearEye: () => sceneRef.current?.clearEyeLocation?.(),
                 commit: setSpot,
+                onGrab: glide.finish,
               }}
               awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
               home={homeCoords}
               onHome={() => {
                 if (!homeCoords) return;
                 // 움직이던 눈이 옛 자리로 번쩍 되돌아가지 않게, 눈을 먼저 그 자리로 옮기고 위치를 바꿉니다.
+                glide.cancel();
                 sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
                 setSpot(homeCoords);
               }}
@@ -1029,6 +1051,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
               onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
+              onGo={() => {
+                const pt = targetPointOf(picked);
+                if (pt) glide.start({ latitude: pt.latitude, longitude: pt.longitude });
+              }}
               sceneRow={<SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />}
               onClear={() => { pendingSceneTargetRef.current = null; setPicked(null); }}
             />
