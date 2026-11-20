@@ -28,6 +28,8 @@ import { shareToSns, SnsPlatform } from '../utils/snsShare';
 import { L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
+import { CompareChips } from './CompareChips';
+import { mergeCompare } from '../utils/recordCompare';
 import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
 
 const { width: W } = Dimensions.get('window');
@@ -48,6 +50,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
   const hidePhoto = useCelestialStore((s) => s.hidePhoto);
   const blockUser = useCelestialStore((s) => s.blockUser);
   const setPhotoFeedback = useCelestialStore((s) => s.setPhotoFeedback);
+  const setPhotoCompare = useCelestialStore((s) => s.setPhotoCompare);
+  const [currentCompare, setCurrentCompare] = useState(photo?.compare);
 
   const togglePhotoVisibility = useCelestialStore((s) => s.togglePhotoVisibility);
   const language = useCelestialStore((s) => s.language);
@@ -102,6 +106,11 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
         L3(language, '공유하면서 게시물을 [전체 공개]로 바꿨습니다.', 'Sharing made this post public.', '共有に合わせて投稿を[全体公開]にしました。'),
       );
     }
+  };
+
+  const handleCompare = async (next: NonNullable<typeof currentCompare>) => {
+    setCurrentCompare(prev => mergeCompare(prev, next));
+    if (photo?.id) await setPhotoCompare(photo.id, next);
   };
 
   const handleFeedback = async (feedback: 'good' | 'bad') => {
@@ -258,6 +267,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                       </Text>
                     </PressScale>
                   </View>
+                  <CompareChips language={language} value={currentCompare} onChange={handleCompare} />
                 </View>
               )}
 

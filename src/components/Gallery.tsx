@@ -9,6 +9,7 @@ import { PostDetailModal } from './PostDetailModal';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
+import { biasLine, compareBias, compareSummary, filterByKind, type KindFilter } from '../utils/recordCompare';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -39,6 +40,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   const { language, currentUser, removeMyPhoto } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [selectedPhotoForDetail, setSelectedPhotoForDetail] = useState<MyPhoto | null>(null);
 
   const displayedPhotos = useMemo(() => {
@@ -56,12 +58,18 @@ export const Gallery: React.FC<GalleryProps> = ({
       localPhotos.forEach(p => mergedMap.set(p.id, p));
       myGlobalPhotos.forEach(p => mergedMap.set(p.id, p));
       
-      return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+      return filterByKind(Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp), kindFilter);
     }
 
     // '전체 사진' 탭에서는 서버에서 전역 동기화된 유저들의 업로드 사진을 표시
-    return globalPhotos;
-  }, [globalPhotos, myPhotos, galleryFilter, currentUser]);
+    return filterByKind(globalPhotos, kindFilter);
+  }, [globalPhotos, myPhotos, galleryFilter, currentUser, kindFilter]);
+
+  // 03 기록 위의 "예측이 얼마나 맞았나" 요약(내 사진 중 피드백이 있는 최근 10 장, 종류 거르기와 상관없이 전체에서)
+  const summary = useMemo(() => {
+    const mine = [...(myPhotos || [])].sort((a, b) => b.timestamp - a.timestamp);
+    return { text: compareSummary(mine, language), bias: biasLine(compareBias(mine), language) };
+  }, [myPhotos, language]);
 
   return (
     <View style={styles.container}>
@@ -85,6 +93,28 @@ export const Gallery: React.FC<GalleryProps> = ({
         </View>
       </View>
 
+      <View style={styles.kindRow}>
+        {(['all', 'sunset', 'astro', 'timelapse'] as const).map(k => (
+          <PressScale
+            key={k}
+            style={[styles.filterChip, kindFilter === k && styles.activeFilterChip]}
+            onPress={() => setKindFilter(k)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: kindFilter === k }}
+          >
+            <Text style={[styles.filterChipText, { color: kindFilter === k ? color.accent : theme.subText }]}>
+              {k === 'all' ? t('all', language) : k === 'sunset' ? L3(language, '노을', 'Sunset', '夕焼け') : k === 'astro' ? L3(language, '별', 'Stars', '星') : L3(language, '타임랩스', 'Timelapse', 'タイムラプス')}
+            </Text>
+          </PressScale>
+        ))}
+      </View>
+      {galleryFilter === 'mine' && summary.text ? (
+        <View style={styles.summaryCard} accessibilityRole="summary">
+          <Text style={styles.summaryTitle}>{L3(language, '예측이 얼마나 맞았나', 'How accurate was the forecast', '予測はどれだけ当たったか')}</Text>
+          <Text style={[styles.summaryText, { color: theme.text }]}>{summary.text}</Text>
+          {summary.bias ? <Text style={[styles.summaryBias, { color: theme.subText }]}>{summary.bias}</Text> : null}
+        </View>
+      ) : null}
       {displayedPhotos.length === 0 ? (
         <View style={[styles.emptyState, { borderColor: theme.border }]}>
           <ImageIcon size={32} color={theme.subText} style={{ marginBottom: 10 }} />
@@ -99,6 +129,7 @@ export const Gallery: React.FC<GalleryProps> = ({
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
               const itemWidth = (width - 44) / 2;
+              const simUri = typeof item.simulationImageUrl === 'string' && item.simulationImageUrl ? item.simulationImageUrl : typeof item.simulationLocalUri === 'string' && item.simulationLocalUri ? item.simulationLocalUri : '';
               const photoUri = typeof item.imageUrl === 'string' ? item.imageUrl : typeof item.localUri === 'string' ? item.localUri : typeof item.uri === 'string' ? item.uri : '';
               return (
                 <PressScale
@@ -110,10 +141,18 @@ export const Gallery: React.FC<GalleryProps> = ({
                   onPress={() => setSelectedPhotoForDetail(item)}
                 >
                   {photoUri ? (
-                    <Image
-                      source={{ uri: photoUri }}
-                      style={styles.galleryImage}
-                    />
+                    simUri ? (
+                      // 칸마다 왼쪽 반은 사진, 오른쪽 반은 그때의 예측(계획 10.3, 목업 17)
+                      <View style={[styles.galleryImage, styles.splitRow]}>
+                        <Image source={{ uri: photoUri }} style={styles.splitHalf} resizeMode="cover" />
+                        <Image source={{ uri: simUri }} style={styles.splitHalf} resizeMode="cover" />
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: photoUri }}
+                        style={styles.galleryImage}
+                      />
+                    )
                   ) : (
                     <View style={[styles.galleryImage, { justifyContent: 'center', alignItems: 'center' }]}>
                       <ImageIcon size={24} color={theme.subText} />
@@ -261,6 +300,13 @@ const useStyles = makeStyles((color) => ({
     position: 'relative',
     margin: 4,
   },
+  kindRow: { flexDirection: 'row', gap: 6, paddingBottom: 6 },
+  summaryCard: { gap: 2, padding: 10, marginBottom: 6, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
+  summaryTitle: { fontFamily: mono, fontSize: 9, letterSpacing: 0.8, color: color.textMute },
+  summaryText: { fontSize: 13, fontWeight: '700' },
+  summaryBias: { fontSize: 11 },
+  splitRow: { flexDirection: 'row' },
+  splitHalf: { flex: 1, height: '100%' },
   galleryImage: {
     width: '100%',
     height: 120,

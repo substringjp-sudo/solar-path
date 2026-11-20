@@ -130,6 +130,8 @@ const ENTRIES = [
   'src/utils/captureMode.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
+  // 03 기록의 종류 거르기 · 피드백 요약 — verify-record-compare.js
+  'src/utils/recordCompare.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',

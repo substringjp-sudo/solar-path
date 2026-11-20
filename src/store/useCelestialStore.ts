@@ -26,6 +26,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
+import { mergeCompare, type PhotoCompare, type PhotoKind } from '../utils/recordCompare';
 import { addScene, removeScene, renameScene, sanitizeScenes, type AddResult, type SavedScene } from '../utils/savedScenes';
 import type { SkyTimeline } from '../utils/skyTimeline';
 import { createClockSlice, type ClockState } from '../utils/liveClock';
@@ -99,6 +100,10 @@ export interface MyPhoto {
   isPublic?: boolean;
   likesCount?: number;
   userFeedback?: 'good' | 'bad' | null;
+  /** 찍은 종류(없으면 찍은 때의 해 고도로 정함, `recordCompare.photoKind`) */
+  kind?: PhotoKind;
+  /** 한 번 누르는 피드백: 구름 양 · 색이 예측과 비교해 어땠나(계획 8.7) */
+  compare?: PhotoCompare;
 }
 
 export interface GlobalPhoto {
@@ -231,6 +236,8 @@ interface CelestialState extends ClockState {
   removeMyPhoto: (id: string) => Promise<void>;
   togglePhotoVisibility: (id: string, isPublic: boolean) => Promise<void>;
   setPhotoFeedback: (photoId: string, feedback: 'good' | 'bad' | null) => Promise<void>;
+  /** 구름 양 · 색 피드백을 합쳐 저장합니다(같은 칩을 다시 누르면 꺼짐). */
+  setPhotoCompare: (photoId: string, next: PhotoCompare) => Promise<void>;
   syncMyPhotos: () => () => void;
   
   uploadAndPostPhoto: (
@@ -856,6 +863,22 @@ export const useCelestialStore = create<CelestialState>()(
             await updateDoc(userPhotoRef, { userFeedback: feedback });
           } catch (err) {
             console.warn('[setPhotoFeedback] Firestore update failed:', err);
+          }
+        }
+      },
+      setPhotoCompare: async (photoId: string, next: PhotoCompare) => {
+        const user = get().currentUser || auth.currentUser;
+        const prev = get().myPhotos.find(p => p.id === photoId)?.compare;
+        const merged = mergeCompare(prev, next);
+        set((state) => ({
+          myPhotos: state.myPhotos.map(p => p.id === photoId ? { ...p, compare: merged } : p),
+        }));
+        if (user) {
+          try {
+            const userPhotoRef = doc(db, `users/${user.uid}/photos`, photoId);
+            await updateDoc(userPhotoRef, { compare: merged });
+          } catch (err) {
+            console.warn('[setPhotoCompare] Firestore update failed:', err);
           }
         }
       },
