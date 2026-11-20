@@ -249,20 +249,27 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
 
     const read = (...pp) => fs.readFileSync(path.join(REPO_ROOT, 'src', ...pp), 'utf8');
     const hook = read('hooks', 'useForecastDays.ts');
-    const scr = read('components', 'ForecastScreen', 'ForecastScreen.tsx');
-    const calc = read('components', 'CalcSteps', 'CalcStepsModal.tsx');
+    // 2026-11-20: 02 예보 화면과 계산 과정 창이 학습 페이지로 합쳐졌습니다. "칸의 점수와 점수 과정의 자료가 같은 곳에서 나온다" 는 불변식을 새 연결에서 읽습니다.
+    const learn = read('components', 'LearnScreen', 'LearnScreen.tsx');
+    const today = read('components', 'LearnScreen', 'TodaySection.tsx');
+    const why = read('components', 'LearnScreen', 'WhySection.tsx');
+    const sections = read('utils', 'learnSections.ts');
     const inputFor = (hook.match(/const inputFor = useCallback\([\s\S]*?\}, \[[^\]]*\]\);/) || [''])[0];
     ok(/if \(lat == null \|\| lon == null \|\| !ev\.source\) return null;/.test(inputFor) && /scoreInputFor\(ev\.source === 'ring' \? ringFor\(ev\.at\) : forecast, ev\.at, ev\.side, lat, lon, elev\)/.test(inputFor) &&
-       /return \{ days, forecast, load, get, now, inputFor \};/.test(hook),
+       /return \{ days, forecast, fetchedAt, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM: elev \};/.test(hook),
        'P9e 훅: inputFor 가 칸의 source 로 자료(링 또는 16일 예보)를 고르고 source 가 없으면 null, 반환에 포함');
-    const modal = (scr.match(/<CalcStepsModal[\s\S]*?\/>/) || [''])[0];
-    const btns = (scr.match(/<View style=\{styles\.focusBtns\}>[\s\S]*?<\/View>\s*<\/View>/) || [''])[0];
-    ok((btns.match(/<PressScale/g) || []).length === 2 && /onPress=\{\(\) => open\(focusEvent\)\}/.test(btns) && /onPress=\{\(\) => setWhy\(focusEvent\)\}/.test(btns) &&
-       /initialTopic="score"/.test(modal) && /topics=\{\['score', 'sunrise', 'sunset'\]\}/.test(modal) && !/stars/.test(modal) && /getScoreInput=\{\(\) => \(why \? inputFor\(why\) : null\)\}/.test(modal) &&
-       /visible=\{why != null\}/.test(modal) && /isGoodOrBetter\(q\)\s*\?\s*L3\(language, '왜 좋은가요'/.test(scr),
-       'P9e 02 예보: 머리 카드 단추 둘(하늘 보기 · 왜 좋은가요→setWhy), 모달 score 주제 · 별 보기 없음 · getScoreInput=inputFor(why), 좋음 이상만 "왜 좋은가요"');
-    ok(/const shows = \(t: CalcTopic\) => !topics \|\| topics\.includes\(t\);/.test(calc) && ['score', 'sunrise', 'sunset', 'stars'].every(t => new RegExp(`\\{shows\\('${t}'\\) && <Chip`).test(calc)),
-       'P9e 계산 과정 틀: topics 를 안 주면 주제 칩 넷 모두, 주면 그 주제만');
+    const pathFor = (hook.match(/const pathFor = useCallback\([\s\S]*?\}, \[[^\]]*\]\);/) || [''])[0];
+    const stampFor = (hook.match(/const stampFor = useCallback\([\s\S]*?\}, \[[^\]]*\]\);/) || [''])[0];
+    ok(/if \(ev\.source === 'ring'\) return ringFor\(ev\.at\);/.test(pathFor) && /return ev\.source === 'forecast' \? forecast : null;/.test(pathFor) &&
+       /if \(ev\.source === 'ring'\) return ringEntryFor\(ev\.at\)\?\.timestamp \?\? null;/.test(stampFor) && /return ev\.source === 'forecast' \? fetchedAt : null;/.test(stampFor),
+       'P9e 훅: pathFor · stampFor 가 inputFor 와 같은 기준(칸의 source)으로 자료와 받은 시각을 고르고 source 가 없으면 null');
+    ok(/const eventInput = useMemo\(\(\) => \(event \? inputFor\(event\) : null\), \[event, inputFor\]\);/.test(learn) && /scoreInput: eventInput/.test(learn) &&
+       /const path = event \? pathFor\(event\) : null;/.test(learn) && /downloadedAtMs=\{event \? stampFor\(event\) : null\}/.test(learn) && /path=\{path\}/.test(learn) &&
+       /showsScore\(event\.tier\)/.test(learn),
+       'P9e 학습 페이지: 점수 과정의 입력은 inputFor(고른 칸), 근거 데이터의 자료 · 받은 시각은 pathFor · stampFor(같은 칸), 점수는 점수를 보이는 확실도(3일 안)에서만');
+    ok(/onPress=\{\(\) => onOpenSky\(\)\}/.test(today) && /onPress=\{\(\) => onOpenTopic\(topicForEventId\(it\.id\)\)\}/.test(today) &&
+       /export const LEARN_TOPICS: readonly LearnTopic\[\] = \['score', 'sunrise', 'sunset', 'stars', 'cloud'\];/.test(sections) && /LEARN_TOPICS\.map\(topic =>/.test(why),
+       'P9e 학습 페이지: 오늘 구역의 하늘 보기 단추와 하늘 일정 줄(주제 열기), 과정 구역은 주제 다섯 모두를 그린다');
     ok(['Overcast', 'Muted', 'Fair'].every(q => !F.isGoodOrBetter(q)) && ['Great', 'Epic'].every(q => F.isGoodOrBetter(q)) && !F.isGoodOrBetter(null) && !F.isGoodOrBetter(undefined),
        'P9e 단추 글의 기준 isGoodOrBetter: 좋음 · 훌륭함만 true, 보통 이하와 null 은 false');
   }

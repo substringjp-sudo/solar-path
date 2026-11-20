@@ -1,7 +1,7 @@
 /**
  * UpcomingCards.tsx — 01 하늘 시트의 **"다가오는 좋은 순간" 카드**(docs/SANDBOX_MODE_PLAN.md 2.4, 목업 1번).
  *
- * 내일·모레 가운데 하루마다 더 좋은 출몰을 작은 카드로 보여 주고(`utils/upcomingMoments.ts`), 누르면 02 예보의 그 칸으로 갑니다.
+ * 내일·모레 가운데 하루마다 더 좋은 출몰을 작은 카드로 보여 주고(`utils/upcomingMoments.ts`), 누르면 02 학습의 그 날로 갑니다.
  * 카드 하나는 세 줄입니다: 날(내일 · 모레) / 일출 · 일몰 + 판정 / 가장 붉을 때. 맨 앞에 "오늘 밤 별 보기" 카드가 올 수 있습니다(`starMoment`): 오늘 밤 / 별 보기 / 시작 시각~.
  */
 import React from 'react';
@@ -23,7 +23,7 @@ interface Props {
   /** 관측지 UTC 오프셋(시간) */
   tzHours: number;
   onPress: (m: UpcomingMoment) => void;
-  /** 별 보기 카드를 누르면 — 별 보기 계산 과정을 엽니다. */
+  /** 별 보기 카드를 누르면 — 02 학습의 별 보기 과정을 엽니다. */
   onStarPress?: () => void;
 }
 
@@ -61,7 +61,7 @@ export const UpcomingCards: React.FC<Props> = ({ moments, star, language, tzHour
             style={cardStyle}
             onPress={() => onPress(m)}
             accessibilityRole="button"
-            accessibilityLabel={`${day} ${side} ${word}, ${time} — ${L3(language, '02 예보에서 보기', 'See it in 02 Forecast', '02 予報で見る')}`}
+            accessibilityLabel={`${day} ${side} ${word}, ${time} — ${L3(language, '02 학습에서 보기', 'See it in 02 Learn', '02 学習で見る')}`}
           >
             <Text style={styles.day}>{day}</Text>
             <Text style={styles.main} numberOfLines={2}>

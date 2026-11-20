@@ -21,9 +21,14 @@
  *  9. `matchesFocus`: 같은 쪽이고 정오 차가 12시간 미만이면 true, 다른 쪽 · 12시간 이상 · focus 없음이면 false.
  * 11. 앱 연결(소스 정규식, 2026-11-20): 별 카드는 규칙 없이 화면에서 켜지면 안 되므로 (a) `SkyScreen.tsx` 가 `starMoment(` 를 부르고 그 시각 계산을 **지금**(`new Date()`)으로 한다
  *     (보고 있는 날짜 `calcDate` 가 아니다: "오늘 밤" 카드) (b) 시트가 닫혔거나 전문가 모드(`cardsOn` 거짓)면 계산 없이 null (c) 카드 줄은 `moments` 나 `star` 가 있으면 그린다
- *     (d) `UpcomingCards` 에 `star` 와 `onStarPress` 를 넘기고, 누르면 `setCalcTopic('stars')` 로 별 보기 계산 과정을 `star.timeMs` 시각으로 연다
- *     (e) "은하수" 줄 `f_milkyway` 는 `star` 가 있을 때만 뺀다(없으면 그대로) (f) `UpcomingCards.tsx` 는 별 카드를 날 카드(`moments.map`)보다 앞에 그리고 접근성 글에
+ *     (d) `UpcomingCards` 에 `star` 와 `onStarPress` 를 넘기고, 누르면 02 학습의 별 보기 과정을 `star.timeMs` 시각으로 연다(`learnAt(..., 'why', 'stars', star.timeMs)`)
+ *     (e) 시트에는 하늘 일정 줄이 없다(`simpleEventRows` · `combinedEventList` · `eventItems` 가 없다) — 일정은 02 학습이 보인다. 그래서 별 카드와 같은 때의 "은하수" 줄이 겹칠 일이 없다
+ *     (f) `UpcomingCards.tsx` 는 별 카드를 날 카드(`moments.map`)보다 앞에 그리고 접근성 글에
  *     "계산 과정 보기" 를 넣으며, 카드가 셋 이상이면 안쪽 여백을 줄이고(`dense`) 가운데 줄을 두 줄까지 접는다(360 폭 폰에서 "Sunset Good" 이 "Sunset G…" 로 잘려 판정 낱말이 안 보이던 것을 막음).
+ *
+ *     (2026-11-20 학습 페이지로 합쳐지며 (d) · (e) 를 새 연결에서 읽도록 옮겼습니다. (d) 의 누름은 옛 계산 창(`setCalcDate` · `setCalcTopic('stars')` · `setCalcOpen`)이 없어져 `learnAt` 으로 같은 일을
+ *      합니다(별 보기 주제를 `star.timeMs` 시각으로 연다). (e) 는 시트의 이벤트 줄(`simpleEventRows`)이 학습 페이지로 옮겨 가 "별 카드와 은하수 줄이 겹친다" 는 상황 자체가 없어졌으므로, 줄이 시트에
+ *      남아 있지 않은지를 확인합니다. 지키려는 것 — 별 카드와 같은 때의 줄이 겹치지 않는다 — 은 그대로입니다.)
  *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-upcoming-moments.js
@@ -171,9 +176,9 @@ const hhmm = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(11, 16);
     ok(/if \(!cardsOn\) return null;/.test(starBlock) && /const cardsOn = sheetOpen && !expertMode;/.test(sky), '(b) 시트가 닫혔거나 전문가 모드면 계산 없이 null');
     ok(/\{!expertMode && \(moments\.length > 0 \|\| star\) && \(\s*<UpcomingCards/.test(sky), '(c) 카드 줄은 moments 나 star 가 있으면 그린다');
     const press = (sky.match(/onStarPress=\{\(\) => \{[\s\S]*?\}\}/) || [''])[0];
-    ok(/<UpcomingCards[\s\S]*?star=\{star\}/.test(sky) && /setCalcDate\(new Date\(star\.timeMs\)\)/.test(press) && /setCalcTopic\('stars'\)/.test(press) && /setCalcOpen\(true\)/.test(press),
-      '(d) star 와 onStarPress 를 넘기고 누르면 star.timeMs 시각으로 stars 계산 과정을 연다');
-    ok(/!\(star && e\.id === 'f_milkyway'\)/.test(sky) && /\[moments\.length, star, combinedEventList\]/.test(sky), "(e) '은하수' 줄은 star 가 있을 때만 뺀다");
+    ok(/<UpcomingCards[\s\S]*?star=\{star\}/.test(sky) && /learnAt\(new Date\(star\.timeMs\), 'sunset', 'why', 'stars', star\.timeMs\)/.test(press),
+      '(d) star 와 onStarPress 를 넘기고 누르면 star.timeMs 시각으로 02 학습의 별 보기 과정을 연다');
+    ok(!/simpleEventRows|combinedEventList|const eventItems|featuredList|generalList/.test(sky), "(e) 시트에 하늘 일정 줄이 없다(02 학습으로 옮김) — 별 카드와 같은 때의 '은하수' 줄이 겹치지 않는다");
     const iStar = cards.indexOf('{star && ('), iMap = cards.indexOf('moments.map(');
     ok(iStar > 0 && iMap > iStar && /계산 과정 보기/.test(cards), '(f1) 별 카드가 날 카드보다 앞이고 접근성 글에 "계산 과정 보기"');
     ok(/const dense = moments\.length \+ \(star \? 1 : 0\) >= 3;/.test(cards) && /cardDense: \{ paddingHorizontal: space\.sm \}/.test(cards) && (cards.match(/numberOfLines=\{2\}/g) || []).length === 2 && !/numberOfLines=\{1\}/.test(cards),
