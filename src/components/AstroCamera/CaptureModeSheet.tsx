@@ -1,7 +1,7 @@
 /**
  * CaptureModeSheet.tsx — **촬영 모드 고르기**(docs/SANDBOX_MODE_PLAN.md 10.3, 목업 16). 카메라 위로 올라오는 어두운 시트입니다.
  *
- * 맨 위 "지금 권하는 것" 카드 하나(권하는 이유 포함), 아래로 일반 · 천체 장노출 · 별 일주 · 타임랩스 · 이벤트. 줄마다 결과물 종류를 적습니다.
+ * 맨 위 "지금 권하는 것" 카드 하나(권하는 이유 포함), 아래로 일반 · 천체 장노출 · 타임랩스 · 이벤트. 줄마다 결과물 종류를 적습니다.
  * 지금 앱에 있는 모드(일반 · 천체 장노출)만 누를 수 있고, 나머지는 흐린 "준비 중" 줄입니다. 계산은 `utils/captureMode.ts`.
  */
 import React from 'react';
@@ -10,7 +10,7 @@ import { Check, X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
-import { modeDesc, modeLabel, recommendReason, sheetRows, tabForMode, type CameraTab, type CaptureModeKey } from '../../utils/captureMode';
+import { CAPTURE_MODES, modeDesc, modeLabel, recommendReason, sheetRows, tabForMode, type CameraTab, type CaptureModeKey } from '../../utils/captureMode';
 
 interface Props {
   visible: boolean;
@@ -19,7 +19,8 @@ interface Props {
   currentTab: CameraTab;
   /** 지금 권하는 모드(해 고도 · 샌드박스에서 넘어온 장면의 시각으로 정합니다) */
   recommended: CaptureModeKey;
-  onPick: (tab: CameraTab) => void;
+  /** 열 수 있는 모드를 골랐을 때(일반 · 천체 장노출은 카메라 탭, 타임랩스는 자체 패널) */
+  onPick: (key: CaptureModeKey) => void;
   onClose: () => void;
 }
 
@@ -27,9 +28,8 @@ export const CaptureModeSheet: React.FC<Props> = ({ visible, language, currentTa
   const { rows } = sheetRows(recommended);
   const reason = recommendReason(recommended, language);
   const pick = (k: CaptureModeKey) => {
-    const tab = tabForMode(k);
-    if (!tab) return;
-    onPick(tab);
+    if (!CAPTURE_MODES.find(m => m.key === k)?.ready) return;
+    onPick(k);
     onClose();
   };
   const soon = L3(language, '준비 중', 'Coming soon', '準備中');
