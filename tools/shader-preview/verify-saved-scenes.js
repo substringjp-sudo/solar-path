@@ -23,6 +23,9 @@
  *     (2026-11-20 정정: 해 쪽을 나침반이 아니라 보는 사람 기준으로 말한다. 해와 시선의 각 d = 해 방위 − 시선 방위, 한 바퀴를 돌아 −180~180, 오른쪽이 +. |d| ≤ 15° 정면, d > 15° 오른쪽, d < −15° 왼쪽(경계 포함은 정면).
  *      영어 "Ahead" · "Right side" · "Left side", 일본어 "正面の空" · "右の空" · "左の空". 북쪽 지방에서 해가 북서로 져도 나침반 말과 어긋나지 않게 하려는 것.)
  *     방위 말은 8 방위: 북 337.5~22.5, 북동 22.5~67.5, … 경계는 위쪽 방위로(22.5 → 북동쪽, 337.5 → 북쪽). 해를 모르면(null) 방위 말만.
+ *  4b. 걸어 둔 천체(2026-11-20, 구현보다 먼저 박음): 장면은 `aligned`('sun' · 'moon' · null)를 기억한다. 해 · 달 걸기로 시선을 고른 대상에 맞춰 두었던 장면을 열 때 같은 맞춤을 다시 하려는 것.
+ *     'sun' · 'moon' 만 받고 그 밖의 값(문자 'star' · 숫자 · 없음)은 null, 고른 대상이 없으면 항상 null(걸 대상이 없다). 저장소에서 읽을 때도 같고(옛 장면은 칸이 없어 null 이 된다), 정리해 둔 목록은 그대로(멱등).
+ *     메모 글은 대상 설명 뒤에 " · 달 맞춤" / " · 해 맞춤"(영어 "Moon aligned" · "Sun aligned", 일본어 "月に合わせ" · "太陽に合わせ")을 붙인다. 대상이 없으면 하늘 글 그대로.
  *  5. 목록: 새로 저장하면 맨 앞(최신순). 50 개가 차면 51 번째는 거절(`reason` 'full')하고 목록은 그대로. 같은 id 는 거절('duplicate'). 이름 바꾸기는 정리한 이름으로, 비면 바꾸지 않고(목록 그대로),
  *     없는 id 도 그대로. 지우기는 그 id 만 뺀다. 원본 목록을 바꾸지 않는다(불변).
  *  6. 읽어 들이기(`sanitizeScenes`): 배열이 아니면 빈 목록. 숫자가 빠졌거나 NaN 이거나 문자열인 장면과 id 가 없는 장면은 버리고, 범위를 벗어난 값은 1 번처럼 자르고, 중복 id 는 앞의 것만, 50 개를 넘으면
@@ -131,6 +134,22 @@ const BASE = { latitude: 37.5665, longitude: 126.978, eyeHeightM: 31, azDeg: 128
     ok(J(words) === J(['북쪽 하늘', '북쪽 하늘', '북동쪽 하늘', '북동쪽 하늘', '동쪽 하늘', '동쪽 하늘', '남동쪽 하늘', '남쪽 하늘', '남서쪽 하늘', '서쪽 하늘', '북서쪽 하늘', '북서쪽 하늘', '북쪽 하늘', '북쪽 하늘']),
        `8 방위 말과 경계(22.5 → 북동, 337.5 → 북): ${words.join(' / ')}`);
     ok(note(null, setting(0), 'en', 245) === 'Sunset · Ahead' && note(null, setting(0, 280), 'en', 245) === 'Sunset · Right side' && note(null, setting(0, 210), 'en', 245) === 'Sunset · Left side' && note(null, setting(0), 'ja', 245) === '日没 · 正面の空' && note(null, setting(0, 280), 'ja', 245) === '日没 · 右の空' && note(null, setting(0, 210), 'ja', 245) === '日没 · 左の空' && note(null, null, 'en', 245) === 'Southwest sky', '영어 · 일본어 하늘 글');
+  }
+
+  // ── 4b 걸어 둔 천체
+  console.log('\n[4b] 걸어 둔 천체');
+  {
+    const bld = { kind: 'building', latitude: 37.5126, longitude: 127.1026, elevM: 593, distM: 5400, building: { heightM: 555.4, baseElevM: 38, topElevM: 593, longM: 80, shortM: 60 } };
+    const al = (aligned, target = bld) => mk({ aligned, target });
+    ok(al('moon').aligned === 'moon' && al('sun').aligned === 'sun', "'moon' · 'sun' 은 기억한다");
+    ok(al('star').aligned === null && al(3).aligned === null && al(undefined).aligned === null && al(null).aligned === null && mk({}).aligned === null, "그 밖의 값 · 없음은 null");
+    ok(al('moon', null).aligned === null, '고른 대상이 없으면 null');
+    ok(S.sceneNote(al('moon'), null, 'ko') === '건물 · 555 m · 달 맞춤' && S.sceneNote(al('sun'), null, 'ko') === '건물 · 555 m · 해 맞춤', '메모 글: 건물 · 555 m · 달 맞춤 / 해 맞춤');
+    ok(S.sceneNote(al('moon'), null, 'en') === 'Building · 555 m · Moon aligned' && S.sceneNote(al('sun'), null, 'ja') === '建物 · 555 m · 太陽に合わせ', '영어 · 일본어');
+    ok(S.sceneNote(al(null), null, 'ko') === '건물 · 555 m', '안 걸었으면 그대로');
+    const out = S.sanitizeScenes([al('moon'), { ...al('sun'), id: 'b', aligned: 'x' }, (() => { const o = { ...al('sun'), id: 'c' }; delete o.aligned; return o; })(), { ...mk({}, { id: 'd' }), aligned: 'moon' }]);
+    ok(J(out.map(x => x.aligned)) === J(['moon', null, null, null]), `읽어 들일 때: moon / 이상한 값 null / 칸 없음 null / 대상 없음 null: ${J(out.map(x => x.aligned))}`);
+    ok(J(S.sanitizeScenes(out)) === J(out) && J(S.sanitizeScenes(JSON.parse(J(out)))) === J(out), '멱등, JSON 왕복');
   }
 
   // ── 5 목록

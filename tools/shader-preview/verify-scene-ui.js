@@ -51,7 +51,7 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   {
     const sc = S.makeScene({ latitude: 37.5, longitude: 127, eyeHeightM: 1.6, azDeg: 10, elDeg: 5, zoomX: 1, timeMs: 1e12, target: null }, { name: 'a', nowMs: 1e12, id: 'x', tzHours: 9, lang: 'ko' });
     const keys = Object.keys(sc).sort().join(',');
-    ok(keys === ['azDeg', 'elDeg', 'eyeHeightM', 'id', 'latitude', 'longitude', 'name', 'savedAtMs', 'target', 'timeMs', 'zoomX'].sort().join(','), `키: ${keys}`);
+    ok(keys === ['aligned', 'azDeg', 'elDeg', 'eyeHeightM', 'id', 'latitude', 'longitude', 'name', 'savedAtMs', 'target', 'timeMs', 'zoomX'].sort().join(','), `키: ${keys}`);
     ok(!/weather|forecast|cloud/i.test(keys), '날씨 · 예보 · 구름은 저장하지 않는다');
   }
 
@@ -69,7 +69,9 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   const idx = order.map(o => openFn.indexOf(o));
   ok(idx.every(i => i >= 0) && idx.every((v, i) => i === 0 || v > idx[i - 1]), `순서: ${order.map(o => o.split('(')[0]).join(' → ')}`);
   ok(!/setCameraView\?\.\(sc\.azDeg, sc\.elDeg,/.test(openFn), '화각은 넘기지 않는다(줌이 정한다)');
-  ok(/setInterval\(\(\) => \{/.test(openFn) && /\}, 500\);/.test(openFn) && /\+\+tries > 120/.test(openFn) && /targetFromLatLon\?\.\(w\.latitude, w\.longitude, w\.elevM\)/.test(openFn) && /setPicked\(rebuildPicked\(w\.kind, w\.building, tp\)\)/.test(openFn), '대상: 0.5 초마다 최대 120 번 targetFromLatLon → rebuildPicked');
+  ok(/const aligned = sc\.aligned;/.test(openFn) && /if \(aligned && np\) \{\s+alignedBodyRef\.current = aligned;\s+alignedViewRef\.current = true;\s+sceneRef\.current\?\.setCameraView\?\.\(np\.azDeg, np\.elDeg, 14, \{ centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y \}\);/.test(openFn), '해 · 달에 맞춰 저장한 장면은 대상을 다시 잡은 뒤 같은 맞춤(화각 14°, 시야 중심 올림)을 다시 한다');
+  ok(/aligned: alignedBodyRef\.current/.test(sky) && /alignedBodyRef\.current = hit\.body;/.test(sky) && /if \(!picked\) alignedBodyRef\.current = null;/.test(sky), '저장할 때 걸어 둔 천체를 읽고, 걸 때 기억하고, 대상이 지워지면 지운다');
+  ok(/setInterval\(\(\) => \{/.test(openFn) && /\}, 500\);/.test(openFn) && /\+\+tries > 120/.test(openFn) && /targetFromLatLon\?\.\(w\.latitude, w\.longitude, w\.elevM\)/.test(openFn) && /const np = rebuildPicked\(w\.kind, w\.building, tp\);\s+setPicked\(np\);/.test(openFn), '대상: 0.5 초마다 최대 120 번 targetFromLatLon → rebuildPicked');
   ok(/onPickTarget=\{\(t\) => \{ pendingSceneTargetRef\.current = null; setPicked\(t\); \}\}/.test(sky) && /onClear=\{\(\) => \{ pendingSceneTargetRef\.current = null; setPicked\(null\); \}\}/.test(sky), '대상을 새로 고르거나 지우면 되살리던 대상은 접는다');
 
   console.log('\n[5] 자리');
