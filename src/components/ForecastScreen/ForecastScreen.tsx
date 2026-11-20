@@ -8,10 +8,12 @@
  *  - 확실도는 색이 아니라 **무늬**입니다(개정 A3): 3일 안은 꽉 찬 칸 + 점수, 7일 안은 빗금, 16일 안은 점선
  *    (참고). 앞날일수록 점수를 숨기는 것은 숫자가 실제보다 정확해 보이지 않게 하려는 것입니다.
  *  - 칸을 누르면 그 출몰의 "가장 붉을 때" 로 01 하늘을 엽니다.
+ *  - 01 하늘의 카드에서 건너온 머리 카드의 "왜 좋은가요" 는 그 칸의 점수가 나온 단계를 보여 줍니다(`CalcStepsModal`). 칸을 센 바로 그 함수 · 같은 자료로
+ *    다시 세므로(`sunForecast.scoreInputFor`) 맨 끝의 점수가 칸의 점수와 같습니다.
  *  - 예보가 없는 출몰(모델이 끝난 날 · 받지 못함)은 "예보 없음" 입니다. 맑다고 지어내지 않습니다.
  *  - 이 탭을 처음 열 때만 받습니다(요청 1건, 한 시간 캐시). 앱을 켤 때 받지 않습니다.
  */
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
 import Svg, { Line, Rect } from 'react-native-svg';
 import { Bell, BellOff, RotateCw, Sunrise, Sunset } from 'lucide-react-native';
@@ -23,8 +25,9 @@ import { PressScale, PrimaryButton } from '../ui';
 import { placeLabel } from '../AppHeader';
 import { useAdministrativeArea } from '../../utils/reverseGeocode';
 import { VERDICT_ORDER, verdictColor, verdictLevel, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
-import { bestUpcoming, type ForecastDay, type ForecastEvent } from '../../utils/sunForecast';
+import { bestUpcoming, isGoodOrBetter, type ForecastDay, type ForecastEvent } from '../../utils/sunForecast';
 import { useForecastDays } from '../../hooks/useForecastDays';
+import { CalcStepsModal } from '../CalcSteps/CalcStepsModal';
 import { matchesFocus, type ForecastFocus } from '../../utils/upcomingMoments';
 import type { AccuracyTier } from '../../utils/timeBar';
 
@@ -52,6 +55,11 @@ const dayLabel = (noonMs: number, tz: number, language: Language) => {
   const wd = WEEKDAYS[language === 'ko' ? 'ko' : language === 'ja' ? 'ja' : 'en'][l.getUTCDay()];
   return `${l.getUTCMonth() + 1}/${l.getUTCDate()} (${wd})`;
 };
+
+/** "왜 좋은가요" 단추의 글: 판정이 좋음 이상일 때만 "좋은가요" 라 묻고, 보통 이하는 "이런가요" 로 묻습니다(목업은 좋음 예시). */
+const whyLabel = (q: ForecastEvent['quality'], language: Language) => (isGoodOrBetter(q)
+  ? L3(language, '왜 좋은가요', 'Why is it good', 'なぜ良いのか')
+  : L3(language, '왜 이런가요', 'Why this rating', 'なぜこの判定か'));
 
 /** 줄의 무리 — 그날 일몰(없으면 일출)의 등급. 지난 것은 3일 안에 넣습니다. */
 const rowTier = (d: ForecastDay): AccuracyTier => {
@@ -99,7 +107,9 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
   const adminName = useAdministrativeArea(lat, lon);
   const place = placeLabel(lat, lon, savedLocations, adminName);
 
-  const { days, forecast, load, get, now } = useForecastDays({ fetch: isActive, compute: isActive });
+  const { days, forecast, load, get, now, inputFor } = useForecastDays({ fetch: isActive, compute: isActive });
+  // "왜 좋은가요" 로 계산 과정을 열어 둔 칸(없으면 닫힘)
+  const [why, setWhy] = useState<ForecastEvent | null>(null);
   const best = useMemo(() => bestUpcoming(days, now), [days, now]);
 
   // 이 탭이 보이다가 안 보이게 되는 순간 강조를 지웁니다. (켜지기 전에 지우면 카드에서 막 건너온 강조가 사라집니다.)
@@ -212,14 +222,24 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
               <Text style={styles.sub}>
                 {`${L3(language, '가장 붉을 때', 'Peak glow', '一番赤い時')} ${peak}`}{reason ? ` · ${reason}` : ''}
               </Text>
-              <PressScale
-                style={styles.focusBtn}
-                onPress={() => open(focusEvent)}
-                accessibilityRole="button"
-                accessibilityLabel={L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}
-              >
-                <Text style={styles.retryText}>{L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}</Text>
-              </PressScale>
+              <View style={styles.focusBtns}>
+                <PressScale
+                  style={styles.focusBtn}
+                  onPress={() => open(focusEvent)}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}
+                >
+                  <Text style={styles.retryText}>{L3(language, '그 시각 하늘 보기', 'See the sky at that time', 'その時刻の空を見る')}</Text>
+                </PressScale>
+                <PressScale
+                  style={styles.focusBtn}
+                  onPress={() => setWhy(focusEvent)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${whyLabel(focusEvent.quality, language)} — ${L3(language, '점수가 나온 단계 보기', 'See how the score is computed', 'スコアが出た段階を見る')}`}
+                >
+                  <Text style={styles.retryText}>{whyLabel(focusEvent.quality, language)}</Text>
+                </PressScale>
+              </View>
             </View>
           );
         })()}
@@ -316,6 +336,22 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
             '日没2時間前・日の出前夜22時、「良い」以上の日だけ通知します。')}
         </Text>
       </View>
+
+      {lat != null && lon != null && (
+        <CalcStepsModal
+          visible={why != null}
+          onClose={() => setWhy(null)}
+          initialTopic="score"
+          topics={['score', 'sunrise', 'sunset']}
+          language={language}
+          date={why?.at ?? now}
+          latitude={lat}
+          longitude={lon}
+          placeName={place || undefined}
+          getScoreInput={() => (why ? inputFor(why) : null)}
+          qualityWord={(q) => verdictWord(q as any, language)}
+        />
+      )}
     </View>
   );
 };
@@ -337,8 +373,9 @@ const useStyles = makeStyles((color) => ({
     borderRadius: radius.md, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.panel,
   },
   focusTitle: { ...type.bodyStrong, color: color.text, fontSize: 16 },
+  focusBtns: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
   focusBtn: {
-    alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', marginTop: space.xs, paddingHorizontal: space.md,
+    minHeight: 40, justifyContent: 'center', paddingHorizontal: space.md,
     borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong,
   },
   bestText: { ...type.bodyStrong, color: color.text },

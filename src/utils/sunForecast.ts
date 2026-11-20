@@ -40,7 +40,8 @@ import { findGlowPeak, type GlowPeak } from './glowPeak';
 import { tierAt, MS_DAY, MS_HOUR, FORECAST_DAYS, type AccuracyTier } from './timeBar';
 import { gridBucket } from './weatherCacheKey';
 import { localDateString } from './localDate';
-import type { SunsetPrediction } from './sunsetPhysics';
+import { alignRingToSun, type SunsetPrediction } from './sunsetPhysics';
+import type { BuildSunsetScoreArgs } from './calcSteps';
 
 export type EventSide = 'sunrise' | 'sunset';
 export type Quality = SunsetPrediction['quality'];
@@ -197,6 +198,33 @@ export function eventVerdict(
       observerElevM,
     });
   });
+}
+
+/** "왜 좋은가요" 가 여는 계산 과정(`calcSteps.buildSunsetScoreCards`)의 입력 — 점수를 센 예측 · 그 시각 해 쪽 링 · 가장 붉을 때 · 출몰 시각. */
+export type ForecastScoreInput = Pick<BuildSunsetScoreArgs, 'prediction' | 'ring' | 'time' | 'eventMs' | 'sunAzDeg' | 'kind'>;
+
+/**
+ * 02 예보의 한 칸이 **어떻게 그 점수가 나왔는지** 보여 줄 입력. 칸의 점수를 센 바로 그 함수(`eventVerdict`)로 같은 자료(`path`)에서 다시 세므로
+ * 계산 과정 맨 끝의 점수가 칸의 점수와 같습니다. 링은 01 하늘의 계산 과정과 같은 식(`alignRingToSun(getInterpolatedWeather(...), 해 방위)`)으로 돌립니다.
+ *
+ * `path` 는 칸을 센 자료여야 합니다 — 그날 링이 있어 링으로 셌으면(`ForecastEvent.source === 'ring'`) 그 링, 아니면 16일 예보. 예보가 없는 시각이거나 점수를
+ * 나눈 값(breakdown)이 없으면 null 입니다(없는 값을 지어내지 않음).
+ */
+export function scoreInputFor(
+  path: readonly CloudPathData[] | null | undefined,
+  at: Date,
+  side: EventSide,
+  latitude: number,
+  longitude: number,
+  observerElevM?: number,
+): ForecastScoreInput | null {
+  if (!path?.length) return null;
+  const v = eventVerdict(path, at, side, latitude, longitude, observerElevM);
+  if (!v || !v.prediction.breakdown) return null;
+  const sunAzDeg = sunPosition(v.time, latitude, longitude).azimuth * DEG + 180;
+  const ring = alignRingToSun(getInterpolatedWeather(path as CloudPathData[], v.time), sunAzDeg)
+    .map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.low, mid: p.mid, high: p.high }));
+  return { prediction: v.prediction, ring, time: v.time, eventMs: at.getTime(), sunAzDeg, kind: side };
 }
 
 export function buildForecastDays(p: {

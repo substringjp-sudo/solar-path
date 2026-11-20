@@ -12,7 +12,10 @@ import {
   cachedSunForecast,
   fetchSunForecast,
   observerElevationFrom,
+  scoreInputFor,
   type ForecastDay,
+  type ForecastEvent,
+  type ForecastScoreInput,
 } from '../utils/sunForecast';
 import { localDateString } from '../utils/localDate';
 import { hapticError } from '../utils/haptics';
@@ -79,5 +82,11 @@ export function useForecastDays({ fetch, compute, days: dayCount, haptic = true 
     return buildForecastDays({ latitude: lat, longitude: lon, now, tzHours: tz, observerElevM: elev, forecast, ringFor, days: dayCount });
   }, [compute, lat, lon, now, tz, elev, forecast, ringFor, dayCount]);
 
-  return { days, forecast, load, get, now };
+  // "왜 좋은가요": 그 칸을 센 자료로 계산 과정의 입력을 만듭니다(그날 링이 있어 링으로 셌으면 링, 아니면 16일 예보). 숫자가 칸과 같습니다.
+  const inputFor = useCallback((ev: ForecastEvent): ForecastScoreInput | null => {
+    if (lat == null || lon == null || !ev.source) return null;
+    return scoreInputFor(ev.source === 'ring' ? ringFor(ev.at) : forecast, ev.at, ev.side, lat, lon, elev);
+  }, [lat, lon, ringFor, forecast, elev]);
+
+  return { days, forecast, load, get, now, inputFor };
 }
