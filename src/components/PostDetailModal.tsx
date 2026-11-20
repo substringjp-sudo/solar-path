@@ -29,6 +29,7 @@ import { L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { CompareChips } from './CompareChips';
+import { ResultCompare } from './ResultCompare';
 import { mergeCompare } from '../utils/recordCompare';
 import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
 
@@ -149,8 +150,16 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
             {/* Visual Comparison: Photo & 3D Simulation */}
             <View style={styles.visualContainer}>
               {(() => {
+                // 사진과 예측이 둘 다 있으면 크게 비교하기 + 차이 짚기(계획 8.7, 목업 5). 없으면 아래 낱장 그림.
+                const pu = typeof photo.imageUrl === 'string' ? photo.imageUrl : typeof photo.localUri === 'string' ? photo.localUri : '';
+                const su = typeof photo.simulationImageUrl === 'string' ? photo.simulationImageUrl : typeof photo.simulationLocalUri === 'string' ? photo.simulationLocalUri : '';
+                return pu && su ? <ResultCompare language={language} photoUri={pu} simUri={su} /> : null;
+              })()}
+
+              {(() => {
                 const photoUri = typeof photo.imageUrl === 'string' ? photo.imageUrl : typeof photo.localUri === 'string' ? photo.localUri : '';
-                return photoUri ? (
+                const hasSim = !!(photo.simulationImageUrl || photo.simulationLocalUri);
+                return photoUri && !hasSim ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: photoUri }} style={styles.mainPhoto} resizeMode="cover" />
                     <Text style={styles.photoLabel}>{L3(language, '촬영 사진', 'Photo', '撮影写真')}</Text>
@@ -159,8 +168,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               })()}
 
               {(() => {
+                // 사진이 없고 예측만 있는 드문 경우
                 const simUri = typeof photo.simulationImageUrl === 'string' ? photo.simulationImageUrl : typeof photo.simulationLocalUri === 'string' ? photo.simulationLocalUri : '';
-                return simUri ? (
+                const hasPhoto = !!(photo.imageUrl || photo.localUri);
+                return simUri && !hasPhoto ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: simUri }} style={styles.mainPhoto} resizeMode="cover" />
                     <Text style={styles.photoLabel}>{L3(language, '3D 노을 시뮬레이션', '3D glow simulation', '3D夕焼けシミュレーション')}</Text>

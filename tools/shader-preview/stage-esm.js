@@ -132,6 +132,8 @@ const ENTRIES = [
   'src/utils/timelapsePlan.ts',
   // 03 기록의 종류 거르기 · 피드백 요약 — verify-record-compare.js
   'src/utils/recordCompare.ts',
+  // 촬영 결과 비교(영역별 밝기 · 색 차이 줄, 나누는 위치, 그때 예보 한 줄) — verify-result-compare.js
+  'src/utils/resultCompare.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
