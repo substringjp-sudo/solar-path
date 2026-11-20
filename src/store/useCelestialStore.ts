@@ -191,8 +191,8 @@ interface CelestialState extends ClockState {
    * 먼저 텔레포트하면 프리로드의 GPS 가 그 위치를 덮어씁니다. 저장하지 않습니다.
    */
   startupLocationSettled: boolean;
-  /** 프리로드 후 처음 열 탭: 'sky'(01 하늘) | 'forecast'(02 예보) | 'log'(03 기록). 옛 'map' 은 앱이 'sky' 로 읽습니다. */
-  initialTab: 'sky' | 'forecast' | 'map' | 'log';
+  /** 프리로드 후 처음 열 탭: 'sky'(01 하늘) | 'learn'(02 학습) | 'log'(03 기록). 옛 'map' · 'forecast' 는 앱이 'sky' 로 읽습니다. */
+  initialTab: 'sky' | 'learn' | 'forecast' | 'map' | 'log';
   selectedCategory: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
   
   // Actions

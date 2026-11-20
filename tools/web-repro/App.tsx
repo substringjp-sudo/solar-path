@@ -29,20 +29,22 @@ import { SceneSheet, type SaveResult } from '../../src/components/SkyScreen/Scen
 import { addScene, makeScene, nextSceneId, removeScene, renameScene, type SavedScene } from '../../src/utils/savedScenes';
 import { DialPair, MoveStick } from '../../src/components/SkyScreen/SandboxDials';
 import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel';
-import { ForecastScreen } from '../../src/components/ForecastScreen/ForecastScreen';
+import { LearnScreen } from '../../src/components/LearnScreen/LearnScreen';
+import { WhySection } from '../../src/components/LearnScreen/WhySection';
 import { UpcomingCards } from '../../src/components/SkyScreen/UpcomingCards';
 import { useForecastDays } from '../../src/hooks/useForecastDays';
-import { upcomingMoments } from '../../src/utils/upcomingMoments';
+import { upcomingMoments, starMoment } from '../../src/utils/upcomingMoments';
 import { localNoons } from '../../src/utils/sunForecast';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { fetchDayWeatherRing, getInterpolatedWeather } from '../../src/utils/weather';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments, getSunPosition } from '../../src/utils/celestial';
-import { CalcStepsView, type CalcTopic } from '../../src/components/CalcSteps/CalcStepsModal';
+import { buildTopicResult, type TopicResult } from '../../src/utils/calcTopic';
+import { LEARN_TOPICS, type LearnTopic } from '../../src/utils/learnSections';
 import { starArgsFor } from '../../src/utils/starTonight';
 import { buildHorizonProfile } from '../../src/utils/horizon';
 import { predictSunset } from '../../src/utils/sunsetPhysics';
-import { verdictWord } from '../../src/components/SunsetSimulation/PredictionCard';
+import { verdictWord, localHHMM } from '../../src/components/SunsetSimulation/PredictionCard';
 import { snapBuildingTarget } from '../../src/utils/demPick';
 import { createPickIndexBuilder } from '../../src/utils/buildingPick';
 import { pickTargetAt } from '../../src/utils/pickTarget';
@@ -273,14 +275,19 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
 }
 
 /**
- * calc:1 — 계산 과정 보기(해 뜨는·지는 시각). 합성 능선으로 땅 프로필을 만듭니다: 해 뜨는 쪽(방위 120° ± 15°) 4.2 km 에 높이 ridgeH m 의 띠.
- *   예: {"calc":1,"t":"2026-12-21T03:00:00Z","lat":37.5665,"lon":126.978,"ridgeH":175,"topic":"sunrise","lang":"ko","light":0,"noTerrain":0}
+ * why:1 (옛 이름 calc:1) — 학습 페이지의 "결과가 나온 과정" 구역(2026-11-20, 옛 계산 과정 창을 옮김). 다섯 주제가 접는 줄로 나옵니다.
+ *   open:"score"|"sunrise"|"sunset"|"stars"|"cloud" 를 주면 그 주제가 펼친 채 시작합니다(없으면 모두 접힘). topic 도 같은 뜻의 옛 이름입니다.
+ * 합성 능선으로 땅 프로필을 만듭니다: 해 뜨는 쪽(방위 120° ± 15°) 4.2 km 에 높이 ridgeH m 의 띠.
+ *   예: {"why":1,"open":"sunrise","t":"2026-12-21T03:00:00Z","lat":37.5665,"lon":126.978,"ridgeH":175,"topic":"sunrise","lang":"ko","light":0,"noTerrain":0}
  * noTerrain:1 이면 땅 자료 없이(평평한 수평선), light:1 이면 밝은 모드.
- * topic:"score" — 노을 점수: 합성 예보 링(낮은 low · 중간 mid · 높은 high %, 해 쪽 60 km 의 낮은 구름 sunLow %, 해 고도 sunAlt°)으로 predictSunset 을 돌립니다.
- *   예: {"calc":1,"topic":"score","low":4,"mid":18,"high":63,"sunLow":0,"sunAlt":0.5}
- * topic:"stars" — 별 보기 조건: 앱과 같은 `starArgsFor`(해·달·달 지는 시각은 t·lat·lon 에서 계산)에 합성 날씨를 넣습니다.
+ * 노을 점수: 합성 예보 링(낮은 low · 중간 mid · 높은 high %, 해 쪽 60 km 의 낮은 구름 sunLow %, 해 고도 sunAlt°)으로 predictSunset 을 돌립니다.
+ *   예: {"why":1,"open":"score","low":4,"mid":18,"high":63,"sunLow":0,"sunAlt":0.5}
+ * 별 보기 조건: 앱과 같은 `starArgsFor`(해·달·달 지는 시각은 t·lat·lon 에서 계산)에 합성 날씨를 넣습니다.
  *   cloud(운량 %) · aod · vis(시정 m) · rh(습도 %) · pm(PM2.5) · lp(빛 지도 한계등급). noCloud:1 이면 구름 예보 없음, noLp:1 이면 빛 지도 없음.
- *   예: {"calc":1,"topic":"stars","t":"2026-12-21T03:00:00Z","cloud":25,"aod":0.12,"rh":55,"lp":6.2}
+ *   예: {"why":1,"open":"stars","t":"2026-12-21T03:00:00Z","cloud":25,"aod":0.12,"rh":55,"lp":6.2}
+ * 구름 모양: 합성 장면 값(층별 운량 cLow · cMid · cHigh · cTotal, 그려진 종류 genus "sc/as/-", 광학두께 tau, 높이 alt [낮은·중간·높은 km], 바람 wind [[속도, 불어오는 방위]×3])을
+ *   카드로 옮깁니다(`buildCloudShapeCards`). noScene:1 이면 장면 그림 없음, noWind:1 이면 바람 없음.
+ *   예: {"why":1,"open":"cloud","cLow":15,"cMid":10,"cHigh":70,"cTotal":80,"genus":"sc/as/-","tau":1.8,"alt":[1.2,4.5,9],"wind":[[12,315],[30,270],[72,225]]}
  */
 /**
  * graph:1 — 시간대별 점수 그래프만(2026-11-19, 계획 2.4). 실제 노을 예측(`predictSunset`)과 해 위치로 9시간 창을 10분 간격으로 훑어 그립니다.
@@ -376,9 +383,9 @@ function OnboardRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
-function CalcRepro({ W, H }: { W: number; H: number }) {
-  const [topic, setTopic] = React.useState<CalcTopic>(Q.topic ?? 'sunrise');
-  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark' } as any); }, []);
+function WhyRepro({ W, H }: { W: number; H: number }) {
+  const lang = Q.lang ?? 'ko';
+  React.useEffect(() => { useCelestialStore.setState({ themeMode: Q.light ? 'light' : 'dark', language: lang } as any); }, []);
   const profile = React.useMemo(() => {
     if (Q.noTerrain) return null;
     const ridgeH = Q.ridgeH ?? 175, base = 40;
@@ -404,32 +411,46 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
     weatherAt: () => (Q.noCloud ? null : { cloudPct: Q.cloud ?? 25, aod550: Q.aod ?? 0.12, humidityPct: Q.rh ?? 55, visibilityM: Q.vis ?? null, pm25: Q.pm ?? null }),
     lightPollutionMag: Q.noLp ? null : (Q.lp ?? 6.2),
   }), []);
+  const cloudArgs = Q.noScene ? null : {
+    scene: { low: Q.cLow ?? 15, mid: Q.cMid ?? 10, high: Q.cHigh ?? 70, total: Q.cTotal, genus: Q.genus ?? 'sc/as/-', tau: Q.tau },
+    altKm: { low: Q.alt?.[0] ?? null, mid: Q.alt?.[1] ?? null, high: Q.alt?.[2] ?? null },
+    winds: Q.noWind ? null : (Q.wind ? { low: { speedKmh: Q.wind[0][0], bearingDeg: Q.wind[0][1] }, mid: { speedKmh: Q.wind[1][0], bearingDeg: Q.wind[1][1] }, high: { speedKmh: Q.wind[2][0], bearingDeg: Q.wind[2][1] } } : null),
+  };
+  const results = React.useMemo(() => {
+    const out = {} as Record<LearnTopic, TopicResult | null>;
+    for (const t of LEARN_TOPICS) {
+      out[t] = buildTopicResult(t, {
+        language: lang, date: new Date(Q.t ?? '2026-12-21T03:00:00Z'), latitude: Q.lat ?? 37.5665, longitude: Q.lon ?? 126.978,
+        fmtTime: (ms) => localHHMM(new Date(ms), Q.tz ?? 9),
+        horizon: profile, scoreInput, starArgs, cloudArgs: cloudArgs as any, qualityWord: (q) => verdictWord(q as any, lang),
+      });
+    }
+    return out;
+  }, []);
+  const open: LearnTopic | null = Q.open ?? Q.topic ?? null;
   return (
-    <View style={{ width: W, height: H }}>
-      <CalcStepsView
-        getScoreInput={() => scoreInput}
-        getStarArgs={() => starArgs}
-        qualityWord={(q) => verdictWord(q as any, Q.lang ?? 'ko')}
-        language={Q.lang ?? 'ko'}
-        date={new Date(Q.t ?? '2026-12-21T03:00:00Z')}
-        latitude={Q.lat ?? 37.5665}
-        longitude={Q.lon ?? 126.978}
-        placeName={Q.place ?? '서울 중구'}
-        topic={topic}
-        onTopic={setTopic}
-        getHorizon={profile ? () => profile : undefined}
-        onBack={() => { (globalThis as any).__calcBack = true; }}
-        onOpenSandbox={() => { (globalThis as any).__calcSandbox = true; }}
+    <View style={{ width: W, minHeight: H, padding: 16, backgroundColor: Q.light ? '#F8FAFC' : '#0D1320' }}>
+      <WhySection
+        language={lang}
+        results={results}
+        openTopic={open}
+        entryNonce={1}
+        notes={cloudArgs ? { cloud: lang === 'ko' ? '01 하늘이 지금 그린 17:00 의 구름이에요.' : 'The clouds the 01 Sky drew for 17:00.' } : undefined}
+        onOpenData={() => { (globalThis as any).__openData = true; }}
       />
     </View>
   );
 }
 
 /**
- * forecast:1 · cards:1 — 02 예보 화면과 01 하늘의 "다가오는 좋은 순간" 카드(2026-11-19). 16일 예보를 실제 경로(훅 → `fetchSunForecast` → 판정)로 받으므로
+ * learn:1 (옛 이름 forecast:1) · cards:1 — 02 학습 페이지 전체와 01 하늘의 "다가오는 좋은 순간" 카드(2026-11-19 · 20). 16일 예보를 실제 경로(훅 → `fetchSunForecast` → 판정)로 받으므로
  * 하네스 페이지가 Open-Meteo 응답을 가짜로 줘야 합니다(`scratchpad/forecast-shot.js` 처럼 Playwright 로 가로챕니다). 위치는 서울, 시간대 +9.
- *   forecast:1 — 02 예보 화면. focusDay(0~15) · focusSide("sunrise"|"sunset") 를 주면 카드에서 건너온 모습(머리 카드 + 강조 칸).
+ *   learn:1 — 02 학습 페이지 전체. focusDay(0~15) · focusSide("sunrise"|"sunset") 를 주면 01 하늘의 카드에서 건너온 모습(그 날 · 쪽이 고른 날),
+ *     section("today"|"forecast"|"data"|"why"|"globe") · topic("score"|…) 을 주면 그 구역으로 맞추고 그 주제를 펼칩니다. at(ISO) 는 한밤에 별 카드로 들어온 길의 시각(별 보기 주제가 씀).
+ *     누르면 window.__openSky 에 true.
  *   cards:1 — 카드 줄만. 누르면 window.__cardTap 에 {noonMs, side}.   공통: lang · light.
+ *   cards:1 star:{cloud, lp} — "오늘 밤 별 보기" 카드도 함께. 서울 · 지금 시각으로 실제 경로(`starArgsFor` → `starMoment`)를 돌립니다(운량 cloud % · 빛 지도 lp 등급).
+ *     누르면 window.__starTap = true.   window.__cards.star 에 카드 값(없으면 null).
  */
 function seedForecastStore() {
   useCelestialStore.setState({
@@ -439,12 +460,16 @@ function seedForecastStore() {
     location: { coords: { latitude: 37.5665, longitude: 126.978, altitude: 38, accuracy: 10, heading: null, speed: null, altitudeAccuracy: null }, timestamp: Date.now() },
   } as any);
 }
-function ForecastRepro({ W, H }: { W: number; H: number }) {
+function LearnRepro({ W, H }: { W: number; H: number }) {
   React.useState(() => { seedForecastStore(); return 0; });
-  const [focus, setFocus] = React.useState<any>(() => (Q.focusDay != null ? { noonMs: localNoons(new Date(), 9, 16)[Q.focusDay], side: Q.focusSide ?? 'sunset' } : null));
+  const entry = React.useMemo(() => (
+    Q.focusDay != null || Q.section || Q.topic
+      ? { section: Q.section, topic: Q.topic, at: Q.at ? new Date(Q.at).getTime() : undefined, focus: Q.focusDay != null ? { noonMs: localNoons(new Date(), 9, 16)[Q.focusDay], side: Q.focusSide ?? 'sunset' } : null, nonce: 1 }
+      : null
+  ), []);
   return (
     <View style={{ width: W, height: H }}>
-      <ForecastScreen isActive setCurrentTime={() => {}} onOpenSky={() => { (globalThis as any).__openSky = true; }} focus={focus} onClearFocus={() => setFocus(null)} />
+      <LearnScreen isActive setCurrentTime={(d) => { (globalThis as any).__setTime = d.toISOString(); }} onOpenSky={() => { (globalThis as any).__openSky = true; }} entry={entry as any} />
     </View>
   );
 }
@@ -452,11 +477,28 @@ function CardsRepro({ W }: { W: number }) {
   React.useState(() => { seedForecastStore(); return 0; });
   const { days, now, load } = useForecastDays({ fetch: true, compute: true, days: 3, haptic: false });
   const moments = React.useMemo(() => upcomingMoments(days, now.getTime()), [days, now]);
-  (globalThis as any).__cards = { load: load.kind, moments: moments.map(m => ({ day: m.dayOffset, side: m.side, q: m.quality, t: new Date(m.timeMs).toISOString() })) };
+  const star = React.useMemo(() => {
+    if (!Q.star) return null;
+    const o: any = Q.star === true ? {} : Q.star;
+    const a = starArgsFor({ date: now, lat: 37.5665, lon: 126.978, elevM: 38, weatherAt: () => ({ cloudPct: o.cloud ?? 15 }), lightPollutionMag: o.lp ?? 4.6 });
+    return starMoment({ timeMs: a.timeMs, nowMs: now.getTime(), input: a.input, cloudKnown: a.cloudKnown });
+  }, [now]);
+  (globalThis as any).__cards = {
+    load: load.kind,
+    moments: moments.map(m => ({ day: m.dayOffset, side: m.side, q: m.quality, t: new Date(m.timeMs).toISOString() })),
+    star: star ? { t: new Date(star.timeMs).toISOString(), limit: Math.round(star.limitMag * 100) / 100, cloud: star.cloudPct, fromNow: star.fromNow } : null,
+  };
   return (
     <View style={{ width: W, padding: 16, backgroundColor: Q.light ? '#F8FAFC' : '#0D1320' }}>
-      {moments.length > 0 && (
-        <UpcomingCards moments={moments} language={Q.lang ?? 'ko'} tzHours={9} onPress={(m) => { (globalThis as any).__cardTap = { noonMs: m.noonMs, side: m.side }; }} />
+      {(moments.length > 0 || star) && (
+        <UpcomingCards
+          moments={moments}
+          star={star}
+          language={Q.lang ?? 'ko'}
+          tzHours={9}
+          onPress={(m) => { (globalThis as any).__cardTap = { noonMs: m.noonMs, side: m.side }; }}
+          onStarPress={() => { (globalThis as any).__starTap = true; }}
+        />
       )}
     </View>
   );
@@ -495,9 +537,9 @@ export default function App() {
   if (Q.words) return <WordsRepro W={W} />;
   if (Q.scenes) return <ScenesRepro W={W} H={H} />;
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
-  if (Q.forecast) return <ForecastRepro W={W} H={H} />;
+  if (Q.learn || Q.forecast) return <LearnRepro W={W} H={H} />;
   if (Q.cards) return <CardsRepro W={W} />;
-  if (Q.calc) return <CalcRepro W={W} H={H} />;
+  if (Q.why || Q.calc) return <WhyRepro W={W} H={H} />;
   if (Q.onboard) return <OnboardRepro W={W} H={H} />;
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
