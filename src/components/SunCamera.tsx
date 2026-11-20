@@ -79,7 +79,8 @@ import { TimelapsePanel } from './AstroCamera/TimelapsePanel';
 import { ResultCompare } from './ResultCompare';
 import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
-import { previewTimeAt, type TimelapsePlan } from '../utils/timelapsePlan';
+import { previewTimeAt, shotPlan, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
+import { FrameAccumulator } from '../utils/frameComposite';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 
@@ -503,13 +504,39 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);
 
   // ── 타임랩스(계획 8.3.1, 목업 9 · 12): 사진 묶음으로 앨범에 저장합니다(영상 만들기는 아직 없습니다) ──
-  const shootFrame = useCallback(async (): Promise<boolean> => {
+  // 종류에 따라 장마다 `shotPlan` 이 정하는 대로: 일반은 그대로 저장, 밝게 합성은 묶음에 쌓았다가 묶음마다 저장, 궤적 누적은 겹치고 매번 누적 그림을 저장.
+  const tlKindRef = useRef<{ kind: TimelapseKind; stackSize: number }>({ kind: 'plain', stackSize: 1 });
+  const tlAccRef = useRef<FrameAccumulator | null>(null);
+  const saveComposite = useCallback(async (): Promise<boolean> => {
+    const acc = tlAccRef.current;
+    const file = acc ? await acc.saveToFile() : null;
+    if (!file) return false;
+    try { await MediaLibrary.saveToLibraryAsync(file); return true; }
+    finally { FileSystem.deleteAsync(file, { idempotent: true }).catch(() => {}); }
+  }, []);
+  const shootFrame = useCallback(async (index: number, isLast: boolean): Promise<boolean> => {
     if (!cameraRef.current) return false;
     const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, shutterSound: false });
-    await MediaLibrary.saveToLibraryAsync(photo.uri);
-    return true;
-  }, []);
-  const timelapse = useTimelapseRun(shootFrame);
+    const { kind, stackSize } = tlKindRef.current;
+    const p = shotPlan(kind, stackSize, index, isLast);
+    let ok = true;
+    if (p.saveRaw) await MediaLibrary.saveToLibraryAsync(photo.uri);
+    if (p.accumulate) {
+      if (!tlAccRef.current) tlAccRef.current = new FrameAccumulator(kind === 'trail' ? 'lighten' : 'average');
+      ok = await tlAccRef.current.add(photo.uri);
+      if (ok && p.flush) ok = await saveComposite();
+      if (p.reset) tlAccRef.current.reset();
+    }
+    FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch(() => {});
+    return ok;
+  }, [saveComposite]);
+  // 마지막 장 없이 끝나면(마치기 · 연속 실패) 합치다 만 묶음을 마저 저장합니다(밝게 합성만, 누적은 매번 저장해 둠).
+  const endTimelapse = useCallback(async () => {
+    const acc = tlAccRef.current;
+    if (acc && acc.count > 0 && tlKindRef.current.kind === 'stacked') await saveComposite().catch(() => false);
+    tlAccRef.current = null;
+  }, [saveComposite]);
+  const timelapse = useTimelapseRun(shootFrame, endTimelapse);
   const startTimelapse = useCallback(async (plan: TimelapsePlan) => {
     const granted = mediaPermission?.granted || (await requestMediaPermission()).granted;
     if (!granted) {
@@ -517,6 +544,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       return;
     }
     setViewMode('camera');
+    tlKindRef.current = { kind: plan.kind, stackSize: plan.stackSize };
+    tlAccRef.current = null;
     timelapse.start(plan);
   }, [mediaPermission, requestMediaPermission, timelapse, language]);
   // 미리보기: 3D 시뮬레이션이 구간을 영상 길이만큼 재생합니다. 끝나면 원래 시각으로 돌아옵니다.

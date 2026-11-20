@@ -21,9 +21,17 @@ export interface RunState {
   error: boolean;
 }
 
-export function useTimelapseRun(shoot: () => Promise<boolean>) {
+export type RunEnd = 'done' | 'stopped' | 'error';
+
+/**
+ * `shoot(index, isLast)`: index 번째 장(0부터)을 찍어 저장(또는 합치기)했으면 true. `isLast` 는 계획의 마지막 장입니다.
+ * `onEnd`: 끝났을 때 한 번('done' = 마지막 장까지, 'stopped' = 마치기, 'error' = 연속 실패) — 합치다 만 묶음을 마저 저장하고 쌓은 그림을 치우는 데 씁니다.
+ */
+export function useTimelapseRun(shoot: (index: number, isLast: boolean) => Promise<boolean>, onEnd?: (why: RunEnd) => void | Promise<void>) {
   const shootRef = useRef(shoot);
   shootRef.current = shoot;
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef<RunState | null>(null);
   const streak = useRef(0);
@@ -43,13 +51,13 @@ export function useTimelapseRun(shoot: () => Promise<boolean>) {
       const cur = live.current;
       if (!cur || !cur.running) return;
       let ok = false;
-      try { ok = await shootRef.current(); } catch { ok = false; }
+      try { ok = await shootRef.current(index, index + 1 >= cur.plan.frames); } catch { ok = false; }
       const after = live.current;
       if (!after || !after.running) return;
       streak.current = ok ? 0 : streak.current + 1;
       const next: RunState = { ...after, taken: after.taken + (ok ? 1 : 0), failed: after.failed + (ok ? 0 : 1) };
-      if (streak.current >= MAX_CONSECUTIVE_FAILS) { publish({ ...next, running: false, error: true }); return; }
-      if (index + 1 >= after.plan.frames) { publish({ ...next, running: false }); return; }
+      if (streak.current >= MAX_CONSECUTIVE_FAILS) { publish({ ...next, running: false, error: true }); void onEndRef.current?.('error'); return; }
+      if (index + 1 >= after.plan.frames) { publish({ ...next, running: false }); void onEndRef.current?.('done'); return; }
       publish(next);
       setNow(Date.now());
       step.current(index + 1);
@@ -67,7 +75,7 @@ export function useTimelapseRun(shoot: () => Promise<boolean>) {
   const stop = useCallback(() => {
     clear();
     const s = live.current;
-    if (s) publish({ ...s, running: false });
+    if (s) { publish({ ...s, running: false }); if (s.running) void onEndRef.current?.('stopped'); }
   }, []);
 
   const dismiss = useCallback(() => { clear(); publish(null); }, []);

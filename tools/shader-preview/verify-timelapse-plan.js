@@ -28,6 +28,14 @@
  *     stackSize 는 2~16 으로 자르고(정수로 내림) 기본 4. 총 150 분 · 영상 10 초 · 30 fps · stackSize 4 → 간격 9000/1200 = 7.5 s, frames 1201, outFrames 300, 영상 10 초, 배속 900×, 저장 1201 × 3 = 3603 MB.
  *     저장 공간은 찍는 장수 기준. plain · trail 은 `stackSize` 1.
  *     한 줄(`planSummary`): stacked 한국어 "7.5초마다 1201장 · 4장씩 합성 · 영상 10초 · 900배속", trail "12초마다 301장 · 누적 · 영상 10초 · 360배속"(영어 "stacked 4 per frame" · "cumulative", 일본어 "4枚ずつ合成" · "累積").
+ * 10. 합성(2026-11-20, 실제로 합치기를 넣으며, 구현보다 먼저 박음): 찍은 사진을 장마다 어떻게 다룰지(`shotPlan(종류, 합성 장수, 장 번호(0부터), 마지막 장인가)` = { accumulate, flush, reset, saveRaw }).
+ *     - 일반: 합치지 않고 그 장을 그대로 앨범에 저장: { accumulate: false, flush: false, reset: false, saveRaw: true }(모든 번호).
+ *     - 궤적 누적: 장마다 누적 그림에 겹치고(밝은 쪽을 남김) 그때까지의 누적을 저장, 되돌리지 않는다: { accumulate: true, flush: true, reset: false, saveRaw: false }(모든 번호).
+ *     - 밝게 합성(stackSize k): 장마다 묶음에 쌓고, (번호 + 1)이 k 의 배수인 장에서 묶음을 저장하고 비운다(flush · reset 참). 마지막 장이 k 의 배수에서 끝나지 않으면 마지막 장에서 남은 묶음을 저장하고 비운다(조금 덜 쌓인 한 장). 그 밖에는 { accumulate: true, flush: false, reset: false, saveRaw: false }.
+ *       k = 4: 번호 0 · 1 · 2 는 쌓기만, 3 은 저장 · 비움, 4 · 5 · 6 쌓기만, 7 은 저장 · 비움. 번호 5 가 마지막이면 5 에서 저장 · 비움(6 장 = 4 + 2).
+ *     - 앨범에 저장되는 그림 수(`savedFrames`): 일반 = frames, 궤적 누적 = frames, 밝게 합성 = ceil(frames ÷ stackSize)(마지막 덜 쌓인 묶음 포함). 150 분 · 10 초 · 30 fps · 4 장씩 = frames 1201 → ceil(1201/4) = 301.
+ *     - 저장 공간 어림(`estimateMB`)은 **앨범에 저장되는 그림 기준**으로 바뀐다: 합성은 찍은 사진을 합친 뒤 버리므로 savedFrames × 3 = 301 × 3 = 903 MB(이전 기준은 찍은 장수 1201 × 3 = 3603 이었고, 합치는 일이 들어와 저장되는 것이 줄어 기준을 고쳤다). 일반 · 누적은 그대로 frames × 3.
+ *       (같은 이유로 위 9 번의 밝게 합성 시험 자료 저장 공간 3603 은 903 으로 고친다. 이 값만 바뀐 것이고 간격 · 장수 · 영상 프레임 수 기준은 그대로.)
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-timelapse-plan.js
  */
@@ -93,7 +101,7 @@ const J = JSON.stringify;
 
   console.log('\n[9] 종류');
   const st = T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
-  ok(st.kind === 'stacked' && st.intervalS === 7.5 && st.frames === 1201 && st.outFrames === 300 && near(st.videoSec, 10, 1e-9) && near(st.speedup, 900, 0.5) && st.estimateMB === 3603 && st.stackSize === 4 && st.cumulative === false, `밝게 합성 150분 · 10초 · 4장씩: ${J(st)}`);
+  ok(st.kind === 'stacked' && st.intervalS === 7.5 && st.frames === 1201 && st.outFrames === 300 && near(st.videoSec, 10, 1e-9) && near(st.speedup, 900, 0.5) && st.estimateMB === 903 && st.savedFrames === 301 && st.stackSize === 4 && st.cumulative === false, `밝게 합성 150분 · 10초 · 4장씩: ${J(st)}`);
   const tr = T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' });
   const pl = T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 });
   ok(tr.kind === 'trail' && tr.cumulative === true && tr.intervalS === pl.intervalS && tr.frames === pl.frames && tr.outFrames === tr.frames && tr.stackSize === 1, `궤적 누적은 일반과 같은 계산 + cumulative: ${J(tr)}`);
@@ -103,6 +111,18 @@ const J = JSON.stringify;
   ok(short.intervalS === 2 && short.clamped === 'interval' && short.frames === 301 && short.outFrames === 75, `간격 2 초 미만이면 올림: ${J(short)}`);
   ok(T.planSummary(st, 'ko') === '7.5초마다 1201장 · 4장씩 합성 · 영상 10초 · 900배속' && T.planSummary(tr, 'ko') === '12초마다 301장 · 누적 · 영상 10초 · 360배속', `한국어 한 줄: ${T.planSummary(st, 'ko')} / ${T.planSummary(tr, 'ko')}`);
   ok(T.planSummary(st, 'en').includes('stacked 4 per frame') && T.planSummary(tr, 'en').includes('cumulative') && T.planSummary(st, 'ja').includes('4枚ずつ合成') && T.planSummary(tr, 'ja').includes('累積'), '영어 · 일본어');
+
+  console.log('\n[10] 합성: shotPlan · savedFrames');
+  const sp = (k, kk, i, last = false) => T.shotPlan(k, kk, i, last);
+  ok(J(sp('plain', 1, 0)) === J({ accumulate: false, flush: false, reset: false, saveRaw: true }) && J(sp('plain', 1, 7, true)) === J({ accumulate: false, flush: false, reset: false, saveRaw: true }), '일반: 합치지 않고 그대로 저장');
+  ok(J(sp('trail', 1, 0)) === J({ accumulate: true, flush: true, reset: false, saveRaw: false }) && J(sp('trail', 1, 99, true)) === J({ accumulate: true, flush: true, reset: false, saveRaw: false }), '궤적 누적: 장마다 겹치고 저장, 되돌리지 않음');
+  const stk = [0, 1, 2, 3, 4, 5, 6, 7].map(i => sp('stacked', 4, i));
+  ok(J(stk.map(x => x.flush)) === J([false, false, false, true, false, false, false, true]) && J(stk.map(x => x.reset)) === J([false, false, false, true, false, false, false, true]) && stk.every(x => x.accumulate === true && x.saveRaw === false), `밝게 합성 k=4: 3 · 7 에서 저장 · 비움: ${J(stk.map(x => x.flush))}`);
+  ok(sp('stacked', 4, 5, true).flush === true && sp('stacked', 4, 5, true).reset === true && sp('stacked', 4, 5, false).flush === false, '덜 쌓인 마지막 묶음은 마지막 장에서 저장');
+  ok(sp('stacked', 4, 7, true).flush === true && sp('stacked', 2, 1).flush === true && sp('stacked', 2, 0).flush === false, '정확히 끝나는 마지막 · k=2');
+  ok(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 }).savedFrames === 301 && T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' }).savedFrames === 301 && st.savedFrames === 301, 'savedFrames: 일반 301, 누적 301, 합성 301(ceil(1201/4))');
+  const odd = T.planTimelapse({ totalMin: 10, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
+  ok(odd.frames === 301 && odd.savedFrames === 76 && odd.estimateMB === 228, `301 장 · 4 장씩 → ceil(301/4) = 76 장, 228 MB: ${odd.savedFrames} / ${odd.estimateMB}`);
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
