@@ -6,7 +6,7 @@
  *
  * 카드는 여섯 모양 중 하나입니다: 숫자 줄(`rows`), 막대(`bar`), 작은 지도(`map`, 해 쪽 구름), 하늘 그림(`sky`, 스카이라인 윤곽과 해 자리),
  * 결과 줄(`result`), 값 줄(`metric`, 제목 · 한 문장 · 오른쪽 값). 그래프는 다음 주제와 함께 옵니다. 주제는 셋: 해 뜨는·지는 시각과 방향
- * (`buildSunHorizonCards`), 노을 점수(`buildSunsetScoreCards`), 별 보기 조건(`buildStarCards`).
+ * (`buildSunHorizonCards`), 노을 점수(`buildSunsetScoreCards`), 별 보기 조건(`buildStarCards`), 구름 모양(`buildCloudShapeCards`).
  *
  * 순수 함수입니다 — 화면(`components/CalcSteps`)이 그립니다. 시각 표기는 `fmtTime` 으로 받습니다(화면은 기기 시간대, 판정은 UTC).
  */
@@ -16,6 +16,7 @@ import { sunPosition } from './solarPosition';
 import { refractionDeg } from './moonPosition';
 import type { SunsetScoreBreakdown } from './sunsetPhysics';
 import { starLimit, limitWithoutMoon, seeLevel, type StarInput, type StarResult } from './starVisibility';
+import { cloudSummary } from './skyWords';
 
 type Lang = 'ko' | 'en' | 'ja';
 const L3 = (lang: Lang, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
@@ -513,5 +514,138 @@ export function buildStarCards(a: BuildStarArgs): StarCards {
     footnote,
     limitMag: limit,
     keyId: r.keyStep,
+  };
+}
+
+// ── 구름 모양 ────────────────────────────────────────────────────────────────
+
+/** 구름 한 층의 바람: 불어오는 쪽 방위(°, 북 0 · 동 90)와 속도(km/h). */
+export interface CloudShapeWind { speedKmh: number; bearingDeg: number }
+
+export interface BuildCloudShapeArgs {
+  language: Lang;
+  /**
+   * 장면이 그린 구름(`SkyScene3D.getRenderState().scene`): 층별 운량(%) · 그려진 종류 "낮은/중간/높은"(예: "sc/as/-", 없는 층은 "-") ·
+   * DNI 광학두께(해가 낮거나 직사광 자료가 없으면 없음).
+   */
+  scene: { low: number; mid: number; high: number; total?: number; genus: string; tau?: number };
+  /** 층별 실제 높이(km, 해발). 모르면 null. */
+  altKm: { low: number | null; mid: number | null; high: number | null };
+  /** 층별 바람. 세 층의 실측이 모두 있을 때만, 아니면 null. */
+  winds: { low: CloudShapeWind; mid: CloudShapeWind; high: CloudShapeWind } | null;
+}
+
+export interface CloudShapeCards {
+  title: string;
+  cards: StepCard[];
+  footnote: string;
+}
+
+/** 장면 상태의 시각이 보는 시각과 이만큼(ms) 넘게 다르면 그 그림의 값이 아니므로 쓰지 않습니다(다른 날짜를 연 경우). */
+export const CLOUD_SCENE_MAX_GAP_MS = 30 * 60_000;
+
+/** 장면 상태(`scene.t`, ISO)가 `atMs` 의 하늘 그림인가: 시각이 읽히고 차이가 30 분 이내(경계 포함). */
+export function cloudSceneUsable(sceneIso: string, atMs: number): boolean {
+  const t = Date.parse(sceneIso);
+  return Number.isFinite(t) && Number.isFinite(atMs) && Math.abs(t - atMs) <= CLOUD_SCENE_MAX_GAP_MS;
+}
+
+/** 예보 종류 기호(`cloudGenusForecast.ForecastGenus`) → 이름. 이름 없는 기호는 부르는 쪽이 그 기호를 그대로 적습니다. */
+const GENUS_NAME: Record<Lang, Record<string, string>> = {
+  ko: { cu: '적운', cg: '웅대적운', cb: '적란운', sc: '층적운', st: '층운', ns: '난층운', ac: '고적운', as: '고층운', ci: '권운', cs: '권층운' },
+  en: { cu: 'cumulus', cg: 'cumulus congestus', cb: 'cumulonimbus', sc: 'stratocumulus', st: 'stratus', ns: 'nimbostratus', ac: 'altocumulus', as: 'altostratus', ci: 'cirrus', cs: 'cirrostratus' },
+  ja: { cu: '積雲', cg: '雄大積雲', cb: '積乱雲', sc: '層積雲', st: '層雲', ns: '乱層雲', ac: '高積雲', as: '高層雲', ci: '巻雲', cs: '巻層雲' },
+};
+
+/** 바람이 불어오는 여덟 방위(북 0 시계 방향). 경계(22.5° …)는 시계 방향 쪽. */
+const WIND_FROM: Record<Lang, readonly string[]> = {
+  ko: ['북쪽', '북동쪽', '동쪽', '남동쪽', '남쪽', '남서쪽', '서쪽', '북서쪽'],
+  en: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+  ja: ['北', '北東', '東', '南東', '南', '南西', '西', '北西'],
+};
+const windFromWord = (bearingDeg: number, L: Lang) => WIND_FROM[L][Math.round((((bearingDeg % 360) + 360) % 360) / 45) % 8];
+
+/**
+ * 구름 모양 주제(계획 9.4.1): 층별 비율 · 두께 · 바람 · 정해진 종류. 값은 하늘 그림이 쓴 값(층별 운량 · 종류 · 광학두께)과 같은 시각 예보의 높이 · 바람입니다.
+ * 종류는 예보로 정확히 맞히는 것이 아니라 "그럴듯한 기본값" 이라고(규칙의 자 결과, `cloudGenusForecast.ts` 머리말) 카드 글에서 밝힙니다.
+ */
+export function buildCloudShapeCards(a: BuildCloudShapeArgs): CloudShapeCards {
+  const L = a.language;
+  const sc = a.scene;
+  const layerName = {
+    low: L3(L, '낮은 층', 'Low', '低層'),
+    mid: L3(L, '중간 층', 'Mid', '中層'),
+    high: L3(L, '높은 층', 'High', '高層'),
+  };
+  const LAYERS = ['low', 'mid', 'high'] as const;
+  const unknown = L3(L, '모름', 'Unknown', '不明');
+  const sep = L === 'ja' ? '' : ' ';
+  const cards: StepCard[] = [];
+
+  // 1. 층별 비율
+  const rows1: StepRow[] = LAYERS.map(k => ({ label: layerName[k], value: `${Math.round(sc[k])} %` }));
+  if (sc.total != null && Number.isFinite(sc.total)) rows1.push({ label: L3(L, '전체', 'Total', '全体'), value: `${Math.round(sc.total)} %` });
+  const summary = cloudSummary({ low: sc.low, mid: sc.mid, high: sc.high }, L) ?? '';
+  cards.push({
+    id: 'layers', title: L3(L, '층별 비율', 'Cover by layer', '層ごとの雲量'), shape: 'rows', rows: rows1,
+    note: `${summary}${summary ? (L === 'ja' ? '。' : '.') + sep : ''}${L3(L, '하늘 그림은 이 비율대로 층마다 구름을 깔아요.', 'The sky picture lays clouds in each layer by these amounts.', '空の絵はこの割合で層ごとに雲を敷きます。')}`,
+  });
+
+  // 2. 높이와 두께
+  const km = (v: number | null) => (v != null && Number.isFinite(v) ? `${v.toFixed(1)} km` : unknown);
+  const rows2: StepRow[] = LAYERS.map(k => ({ label: `${layerName[k]}${L3(L, ' 높이', ' height', 'の高さ')}`, value: km(a.altKm[k]) }));
+  const tauKnown = sc.tau != null && Number.isFinite(sc.tau);
+  rows2.push({ label: L3(L, '광학 두께', 'Optical depth', '光学的厚さ'), value: tauKnown ? (sc.tau as number).toFixed(1) : unknown });
+  const anyAlt = LAYERS.some(k => a.altKm[k] != null && Number.isFinite(a.altKm[k] as number));
+  const tauNote = tauKnown
+    ? L3(L, '값이 클수록 구름이 두꺼워서 해가 더 흐려져요.', 'The larger it is, the thicker the cloud and the dimmer the sun.', '値が大きいほど雲が厚く、太陽がより霞みます。')
+    : L3(L, '해가 낮거나 직사광 자료가 없어 두께를 못 쟀어요.', 'The sun is low or there is no direct-sunlight data, so thickness could not be measured.', '太陽が低いか直達日射のデータがなく、厚さを測れませんでした。');
+  const altNote = anyAlt ? L3(L, '높은 구름일수록 해가 진 뒤에도 빛을 받아요.', 'The higher a cloud, the longer it catches light after sunset.', '高い雲ほど日没後も光を受けます。') : '';
+  cards.push({ id: 'thick', title: L3(L, '높이와 두께', 'Height and thickness', '高さと厚さ'), shape: 'rows', rows: rows2, note: `${tauNote}${altNote ? sep + altNote : ''}` });
+
+  // 3. 바람
+  if (a.winds) {
+    const w = a.winds;
+    const rows3: StepRow[] = LAYERS.map(k => ({
+      label: layerName[k],
+      value: L3(L,
+        `${windFromWord(w[k].bearingDeg, L)}에서 시속 ${Math.round(w[k].speedKmh)} km`,
+        `from ${windFromWord(w[k].bearingDeg, L)} at ${Math.round(w[k].speedKmh)} km/h`,
+        `${windFromWord(w[k].bearingDeg, L)}から時速${Math.round(w[k].speedKmh)} km`),
+    }));
+    const lowKm = Math.round(w.low.speedKmh);
+    cards.push({
+      id: 'wind', title: L3(L, '바람', 'Wind', '風'), shape: 'rows', rows: rows3,
+      note: L3(L,
+        `구름은 이 바람을 따라 흘러요. 한 시간에 낮은 층 구름은 약 ${lowKm} km 움직여요.`,
+        `Clouds drift with this wind. In an hour, low clouds move about ${lowKm} km.`,
+        `雲はこの風に流されます。1時間に低層の雲は約${lowKm} km動きます。`),
+    });
+  } else {
+    cards.push({
+      id: 'wind', title: L3(L, '바람', 'Wind', '風'), shape: 'rows',
+      rows: [{ label: L3(L, '바람', 'Wind', '風'), value: unknown }],
+      note: L3(L, '이 시각의 층별 바람 자료가 없어요.', 'There is no wind data per layer for this time.', 'この時刻の層ごとの風のデータがありません。'),
+    });
+  }
+
+  // 4. 정해진 종류 — "낮은/중간/높은" 순서의 기호
+  const codes = sc.genus.split('/');
+  const rows4: StepRow[] = LAYERS.map((k, i) => {
+    const code = codes[i] ?? '-';
+    return { label: layerName[k], value: code === '-' || code === '' ? L3(L, '없음', 'none', 'なし') : (GENUS_NAME[L][code] ?? code) };
+  });
+  cards.push({
+    id: 'genus', title: L3(L, '정해진 종류', 'Cloud types', '雲の種類'), shape: 'rows', rows: rows4,
+    note: L3(L,
+      '예보로 구름 종류를 정확히 맞히기는 어려워요. 층별 운량 · 습도 · 높이별 단면으로 그럴듯한 종류를 고른 값이에요.',
+      'Telling the cloud type from a forecast is hard. This is a plausible pick from cover per layer, humidity and the vertical profile.',
+      '予報から雲の種類を正確に当てるのは困難です。層ごとの雲量・湿度・高度別の断面から、もっともらしい種類を選んだ値です。'),
+  });
+
+  return {
+    title: L3(L, '구름 모양이 정해지기까지', 'How the cloud shapes are decided', '雲の形が決まるまで'),
+    cards,
+    footnote: L3(L, '실제 구름은 더 복잡해요. 하늘 그림은 이 값들로 그려요.', 'Real clouds are more complex. The sky picture is drawn from these values.', '実際の雲はもっと複雑です。空の絵はこれらの値で描いています。'),
   };
 }

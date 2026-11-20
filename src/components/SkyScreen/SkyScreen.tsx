@@ -12,10 +12,9 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform, Switch } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, Cloud, ListChecks } from 'lucide-react-native';
+import { SlidersHorizontal, Sun, Sunset, Moon, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
-import { WeatherInfoView } from './WeatherInfoView';
 import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import {
@@ -34,7 +33,6 @@ import {
 import { findPresetTerrain } from '../../utils/presetTerrains';
 import { isCurrentTerrainModel } from '../../utils/terrainPick';
 import { scenePrediction } from '../../utils/scenePrediction';
-import { alignRingToSun } from '../../utils/sunsetPhysics';
 import {
   weatherCacheKey,
   sameBucket,
@@ -65,8 +63,9 @@ import { sunPosition } from '../../utils/solarPosition';
 import { starArgsFor, hourlyCovers, starWeatherOf, type StarWeather } from '../../utils/starTonight';
 import { estimateLightPollution, type NightLights } from '../../utils/cityLightMap';
 import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
-import { buildSkyEvents } from '../../utils/skyEvents';
-import { upcomingMoments, type ForecastFocus } from '../../utils/upcomingMoments';
+import { upcomingMoments, starMoment } from '../../utils/upcomingMoments';
+import { localNoons, type EventSide } from '../../utils/sunForecast';
+import type { LearnEntry, LearnSection, LearnTopic } from '../../utils/learnSections';
 import { useForecastDays } from '../../hooks/useForecastDays';
 import { UpcomingCards } from './UpcomingCards';
 import { t, L3 } from '../../utils/i18n';
@@ -76,12 +75,8 @@ import { PressScale, OverlayButton, Reveal } from '../ui';
 import { offsetLatLon, distanceM } from '../../utils/geoMove';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { DialPair } from './SandboxDials';
-import { CalcStepsModal, type CalcTopic, type CalcScoreInput } from '../CalcSteps/CalcStepsModal';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
-import { StandSuggestModal } from './StandSuggest';
-import { fetchCloudOutlook, cachedOutlook } from '../../utils/cloudOutlook';
-import { suggestTargetPoint, rebuildPicked, refineAlignTime, type CloudOutlook, type StandCandidate } from '../../utils/standSuggest';
 import { timeTo } from '../../theme/motion';
 
 /** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
@@ -106,8 +101,8 @@ interface SkyScreenProps {
   /** 하단 막대의 날짜 글자를 누르면 — 달력 창(App 이 엽니다). */
   onOpenDatePicker?: () => void;
   isCameraOverlayActive?: boolean;
-  /** "다가오는 좋은 순간" 카드를 누르면 — 02 예보로 가서 그 칸을 강조합니다(App 이 탭을 바꿉니다). */
-  onOpenForecast?: (focus: ForecastFocus) => void;
+  /** 점수 숫자 · 왜 그런가요 · 별 보기 카드 · 다가오는 좋은 순간 카드 · 구름 한 줄을 누르면 — 02 학습으로 가서 그 구역 · 주제 · 날로 맞춥니다(App 이 탭을 바꿉니다). */
+  onOpenLearn?: (entry: Omit<LearnEntry, 'nonce'>) => void;
 }
 
 export interface EventItem {
@@ -132,7 +127,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   onCameraPress,
   onOpenDatePicker,
   isCameraOverlayActive = false,
-  onOpenForecast,
+  onOpenLearn,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
@@ -152,12 +147,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
     setNotifPref('goodOnly', next);
-    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(02 예보와 같은 동작).
+    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(02 학습의 "좋음 이상 알림"과 같은 동작).
     if (next) { setNotifPref('sunsetForecast', true); setNotifPref('sunriseForecast', true); }
   };
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language, timezoneOffsetHours, isCacheHydrated } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
-  const [activeSheetTab, setActiveSheetTab] = useState<'events' | 'weather'>('events');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
   // 레이어·하늘 설정은 스토어에 둡니다 — 촬영하기(카메라)의 3D 가 같은 값으로 그리게.
   const layers = useCelestialStore(s => s.skyLayers);
@@ -671,83 +665,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const alignedViewRef = useRef(false);
   // 먼 건물(샌드박스): 보는 방향만 받습니다 — 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받으면 수십 MB 입니다.
   const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
-  // 계산 과정 보기("해 뜨는·지는 시각과 방향"): 시트의 일출·일몰 줄 끝 단추로 엽니다. 날짜는 그 줄의 날짜입니다.
-  const [calcOpen, setCalcOpen] = useState(false);
-  const [calcTopic, setCalcTopic] = useState<CalcTopic>('sunrise');
-  const [calcDate, setCalcDate] = useState<Date>(new Date());
-  // 추천(서 있을 자리 찾기): 열면 대상 위치의 구름 예보를 받습니다. 후보를 고르면 그 자리로 옮기고 시각과 시선을 맞춘 뒤,
-  // 새 자리의 지형이 오면 같은 대상을 그 자리 기준으로 다시 잡습니다(자리를 옮기면 고른 대상은 지워지므로 위경도를 기억해 둡니다).
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestFromMs, setSuggestFromMs] = useState(0);
-  const [outlook, setOutlook] = useState<CloudOutlook | null>(null);
-  const [outlookState, setOutlookState] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const pendingTargetRef = useRef<{
-    kind: PickedTarget['kind']; latitude: number; longitude: number; elevM: number; building?: PickedTarget['building'];
-    /** 후보를 찾을 때의 천체·시각·서 있는 자리 — 도착해서 실제 앙각을 알게 되면 시각을 다시 맞추는 데 씁니다. */
-    body: StandCandidate['hit']['body']; timeMs: number; stand: { latitude: number; longitude: number };
-  } | null>(null);
-  const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopPendingPoll = () => { if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; } };
-  useEffect(() => stopPendingPoll, []);
-  const suggestPoint = picked ? suggestTargetPoint(picked) : null;
-  const sugLat = suggestPoint?.latitude, sugLon = suggestPoint?.longitude;
-  useEffect(() => {
-    if (!suggestOpen || sugLat == null || sugLon == null) return;
-    const cached = cachedOutlook(sugLat, sugLon);
-    if (cached) { setOutlook(cached); setOutlookState('ready'); return; }
-    let live = true;
-    setOutlook(null);   // 옛 대상의 예보로 순위를 매기지 않게 비웁니다
-    setOutlookState('loading');
-    fetchCloudOutlook(sugLat, sugLon)
-      .then(o => { if (live) { setOutlook(o); setOutlookState('ready'); } })
-      .catch(() => { if (live) { setOutlook(null); setOutlookState('failed'); } });
-    return () => { live = false; };
-  }, [suggestOpen, sugLat, sugLon]);
-  /** 새 자리의 지형이 오면 기억해 둔 대상을 이 자리 기준으로 다시 만들어 정보 패널과 고리를 잇고, 대상 쪽 먼 건물을 받습니다. */
-  const startPendingPoll = () => {
-    stopPendingPoll();
-    let tries = 0;
-    const tick = () => {
-      const p = pendingTargetRef.current;
-      if (!p) { stopPendingPoll(); return; }
-      const tp = sceneRef.current?.targetFromLatLon?.(p.latitude, p.longitude, p.elevM);
-      if (!tp) {
-        if (++tries > 120) {   // 1 분이 지나도 지형이 안 오면 포기합니다(대상은 지워진 채, 시선만 맞춰 둔 상태를 되돌립니다).
-          pendingTargetRef.current = null;
-          stopPendingPoll();
-          alignedViewRef.current = false;
-          sceneRef.current?.clearCameraLensOverride?.();
-        }
-        return;
-      }
-      pendingTargetRef.current = null;
-      stopPendingPoll();
-      setPicked(rebuildPicked(p.kind, p.building, tp));
-      // 먼 자리의 땅 높이는 성긴 패치에서 읽어 찾았으므로(5 km 에서 10 m 차 = 0.1°), 도착해서 촘촘한 땅으로 잰 앙각에 해·달이 가장 가까운 시각으로 맞춥니다.
-      const fit = refineAlignTime(p.body, p.timeMs, p.stand.latitude, p.stand.longitude, tp.eyeElevM, tp.azDeg, tp.elDeg);
-      setCurrentTime(new Date(fit.timeMs));
-      alignedViewRef.current = true;
-      sceneRef.current?.setCameraView?.(tp.azDeg, tp.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
-      loadFarBuildings();
-    };
-    pendingTimerRef.current = setInterval(tick, 500);
-  };
-  const onStand = (c: StandCandidate) => {
-    const t = picked;
-    const pt = t ? suggestTargetPoint(t) : null;
-    if (!t || !pt) return;
-    pendingTargetRef.current = { kind: t.kind, latitude: pt.latitude, longitude: pt.longitude, elevM: pt.elevM, building: t.building, body: c.hit.body, timeMs: c.hit.timeMs, stand: { latitude: c.hit.latitude, longitude: c.hit.longitude } };
-    setSuggestOpen(false);
-    setCurrentTime(new Date(c.hit.timeMs));
-    useCelestialStore.getState().setLocation({
-      coords: { latitude: c.hit.latitude, longitude: c.hit.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
-      timestamp: Date.now(),
-    });
-    // 시선을 대상에 맞춥니다(화각은 원반이 보일 만큼 좁히고, 시야 중심을 위로 올려 패널 위에 보이게). 지형이 오기 전에도 방위·고도는 정해져 있습니다.
-    alignedViewRef.current = true;
-    sceneRef.current?.setCameraView?.(c.hit.azDeg, c.hit.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
-    startPendingPoll();
-  };
   const loadFarBuildings = async () => {
     // 먼 건물을 보려는 것이니 건물 레이어가 꺼져 있으면 켭니다(기본은 꺼짐).
     setSkyLayers(prev => (prev.buildings ? prev : { ...prev, buildings: true }));
@@ -763,7 +680,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   };
   useEffect(() => { setFarStatus(null); }, [latitude, longitude]);   // 자리가 바뀌면 먼 건물은 비워지므로 표시도 지웁니다
   useEffect(() => {
-    if (!picked && alignedViewRef.current && !pendingTargetRef.current) {
+    if (!picked && alignedViewRef.current) {
       alignedViewRef.current = false;
       sceneRef.current?.clearCameraLensOverride?.();
     }
@@ -804,8 +721,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return next;
   }, [isSliding, pathData, interpolatedWeather, currentTime, sunAltitude, sunAzimuth, latitude, terrainData.observerElevation]);
 
-  // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
-  // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
+  // 그 시각의 노을 예측(점수 · 판정). 시간대별 점수 그래프가 씁니다. 하늘 일정 목록은 02 학습으로 옮겨 갔습니다(`LearnScreen`).
   const predictionAt = (tm?: Date | null) => {
     if (!tm || !pathData.length) return null;
     const sp = sunPosition(tm, latitude, longitude);
@@ -820,17 +736,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     });
     return p ? { score: p.score, quality: p.quality } : null;
   };
-  const eventItems = useMemo(() => buildSkyEvents({
-    date: currentTime,
-    latitude,
-    longitude,
-    events,
-    sunsetPrediction: predictionAt(events?.sunset),
-    sunrisePrediction: predictionAt(events?.sunrise),
-    language,
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [currentTime.toDateString(), events, pathData, latitude, longitude, language, terrainData.observerElevation]);
-
   // 판정 한 줄(디자인 개정 A2): 다가오는 출몰(밤이고 일출 전이면 일출, 아니면 일몰)의 노을 판정과
   // "가장 붉을 때". 지금 시각의 점수가 아니라 그 출몰 앞뒤에서 점수가 가장 높은 순간입니다(`utils/glowPeak.ts`).
   const isSunriseSide = sunAltitude < 0 && (events?.sunrise ? currentTime < events.sunrise : false);
@@ -876,37 +781,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphEvent?.getTime(), isSunriseSide, pathData, latitude, longitude, tz, terrainData.observerElevation]);
 
-  const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
-  const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
-  // 추천 이벤트를 상단에 배치하고 일반 이벤트를 이어서 단일 목록으로 합침
-  const combinedEventList = useMemo(() => [...featuredList, ...generalList], [featuredList, generalList]);
-
   // "다가오는 좋은 순간" 카드(목업 1): 시트를 **펼칠 때** 16일 예보를 한 번 받아(한 시간 캐시) 내일·모레의 더 좋은 출몰을 고릅니다.
-  // 앱을 켤 때는 받지 않습니다. 예보를 못 받았거나 보통 이상이 없으면 카드가 없고 아래 오늘 이벤트 줄이 그대로 나옵니다.
+  // 앱을 켤 때는 받지 않습니다. 예보를 못 받았거나 보통 이상이 없으면 카드가 없습니다.
   const [sheetOpen, setSheetOpen] = useState(false);
   const cardsOn = sheetOpen && !expertMode;
   const { days: forecastDays, now: forecastNow } = useForecastDays({ fetch: cardsOn, compute: cardsOn, days: 3, haptic: false });
   const moments = useMemo(() => upcomingMoments(forecastDays, forecastNow.getTime()), [forecastDays, forecastNow]);
-  // 카드가 있으면 해 뜨고 지는 줄은 판정 카드와 카드가 말하므로, 아래 줄에는 그 밖의 오늘 이벤트(초승달 · 은하수 · 행성 …)만 남깁니다.
-  const simpleEventRows = useMemo(
-    () => (moments.length > 0 ? combinedEventList.filter(e => !/sun(rise|set)$/.test(e.id)).slice(0, 2) : combinedEventList.slice(0, 3)),
-    [moments.length, combinedEventList],
-  );
 
-  // 계산 과정 보기("노을 점수가 나오기까지")의 입력: 시트가 보여 주는 판정(가장 붉을 때의 예측)과 그 시각의 예보 링을 해 쪽으로 돌린 것.
-  const getScoreInput = (): CalcScoreInput | null => {
-    const pred = glow?.prediction ?? prediction;
-    const time = glow?.time ?? currentTime;
-    if (!pred?.breakdown || !pathData.length) return null;
-    const sp = sunPosition(time, latitude, longitude);
-    const sunAz = sp.azimuth * (180 / Math.PI) + 180;
-    const ring = alignRingToSun(getInterpolatedWeather(pathData, time), sunAz)
-      .map(p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, low: p.low, mid: p.mid, high: p.high }));
-    const ev = isSunriseSide ? events?.sunrise : events?.sunset;
-    return { prediction: pred, ring, time, eventMs: ev ? ev.getTime() : undefined, sunAzDeg: sunAz, kind: isSunriseSide ? 'sunrise' : 'sunset' };
-  };
-
-  // 계산 과정 보기("별 보기 조건")의 입력(`utils/starTonight.ts`): 별을 볼 시각(이미 밤이면 그 시각, 아니면 그날 천문 박명 30분 뒤)의
+  // "오늘 밤 별 보기" 카드의 입력(`utils/starTonight.ts`): 별을 볼 시각(이미 밤이면 그 시각, 아니면 그날 천문 박명 30분 뒤)의
   // 구름·연무 예보와 해·달, 밤 불빛 지도의 한계등급. 그 시각의 예보가 받아 둔 시간 범위 밖이면 "모름"으로 둡니다(가장자리 값을 지어 쓰지 않음).
   const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());
   useEffect(() => {
@@ -915,14 +797,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     loadNightLights().then(m => { if (alive && m) setNightLights(m); });
     return () => { alive = false; };
   }, [nightLights]);
-  const getStarArgs = () => {
+  const starArgsAt = (date: Date) => {
     const weatherAt = (when: Date): StarWeather | null => {
       const h = pathData[0]?.hourly;
       const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
       return hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(pathData, when)[0]) : null;
     };
     return starArgsFor({
-      date: calcDate,
+      date,
       lat: latitude,
       lon: longitude,
       elevM: terrainData.observerElevation ?? 0,
@@ -931,12 +813,15 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     });
   };
 
-  const formatTimeStr = (d: Date) => {
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-  };
-
+  // "오늘 밤 별 보기" 카드(목업 1의 첫 카드, `utils/upcomingMoments.ts` `starMoment`): 오늘 밤 별을 보는 시각의 구름·해·달·빛 지도로 한계등급을 세어
+  // 구름이 보통 이하이고 3등급 이상일 때만. 보고 있는 날이 오늘이 아니면 받아 둔 날씨가 그 밤을 덮지 않아 운량을 몰라 카드가 없습니다(지어내지 않음).
+  const star = useMemo(() => {
+    if (!cardsOn) return null;
+    const now = new Date();
+    const a = starArgsAt(now);
+    return starMoment({ timeMs: a.timeMs, nowMs: now.getTime(), input: a.input, cloudKnown: a.cloudKnown });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardsOn, pathData, nightLights, latitude, longitude, terrainData.observerElevation]);
   const sunsetText = events?.sunset
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';
@@ -949,6 +834,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dirEvent?.getTime(), latitude, longitude, language],
   );
+  // 02 학습으로 들어가는 길(점수 숫자 · 왜 그런가요 · 별 보기 카드 · 구름 한 줄 …). 그 시각의 날 · 쪽을 학습 페이지의 고른 날로 싣습니다.
+  const learnAt = (date: Date, side: EventSide, section: LearnSection, topic?: LearnTopic, at?: number) =>
+    onOpenLearn?.({ section, topic, at, focus: { noonMs: localNoons(date, tz, 1)[0], side } });
   const weatherCoversNow = (() => {
     const h = pathData[0]?.hourly;
     const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
@@ -981,7 +869,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           showLensInfo={expertMode}
           eyeHeightM={expertMode ? eyeH : undefined}
           pickEnabled={expertMode && !isCameraOverlayActive}
-          onPickTarget={(t) => { pendingTargetRef.current = null; setPicked(t); }}
+          onPickTarget={(t) => setPicked(t)}
           pickedTarget={picked}
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
@@ -996,7 +884,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         />
 
         {/* 하늘 위 구름 한 줄(쉬운 말) — 초보자 화면만 */}
-        {cloudCaption && !isCameraOverlayActive && <CloudCaption text={cloudCaption} />}
+        {cloudCaption && !isCameraOverlayActive && (
+          <CloudCaption
+            text={cloudCaption}
+            onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'cloud')}
+            accessibilityLabel={`${cloudCaption} — ${L3(language, '구름 모양 계산 과정 보기', 'See how the cloud shapes are decided', '雲の形の計算過程を見る')}`}
+          />
+        )}
 
         {trackingTarget && (
           <PressScale
@@ -1018,6 +912,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             <SandboxPanel
               language={language}
               far={{ status: farStatus, onLoad: loadFarBuildings }}
+              getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
               eyeHeightM={eyeH}
               onEyeHeight={setEyeH}
               stepM={moveStepM}
@@ -1051,7 +946,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
               moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
               moonDiskDeg={2 * moonSemidiameterDeg(moonPos.distance)}
-              onCalc={() => { setCalcDate(currentTime); setCalcTopic('score'); setCalcOpen(true); }}
+              onCalc={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'score')}
               observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
               getSkyline={() => sceneRef.current?.getSkyline?.() ?? null}
               onAlign={(hit) => {
@@ -1062,8 +957,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
               onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
-              onSuggest={() => { setSuggestFromMs(currentTime.getTime()); setSuggestOpen(true); }}
-              onClear={() => { pendingTargetRef.current = null; setPicked(null); }}
+              onClear={() => setPicked(null)}
             />
           </View>
         )}
@@ -1242,7 +1136,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               isSunrise={isSunriseSide}
               peakTime={glow?.time}
               directionText={glowDirection}
-              onWhy={() => { setCalcDate(glow?.time ?? currentTime); setCalcTopic('score'); setCalcOpen(true); }}
+              onWhy={() => learnAt(glow?.time ?? currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'score')}
             />
           )}
 
@@ -1258,7 +1152,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 좋은 하늘 알림 — 02 예보의 "좋음 이상 알림"과 같은 설정 */}
+          {/* 좋은 하늘 알림 — 02 학습의 "좋음 이상 알림"과 같은 설정 */}
           <View style={[styles.alertRow, { borderColor: theme.border }]}>
             <Text style={[styles.alertLabel, { color: theme.text }]} numberOfLines={1}>
               {L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
@@ -1272,109 +1166,41 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           </View>
 
-          {/* 이벤트 & 기상정보 탭 토글 (기상정보 탭은 전문가 모드만) */}
+          {/* 다가오는 좋은 순간 — 초보자 화면. 이벤트 목록과 기상 정보는 02 학습으로 모였습니다(docs/SANDBOX_MODE_PLAN.md 13 장). */}
           <View style={styles.eventSection}>
             {!expertMode && (
               <Text style={[styles.upcomingLabel, { color: theme.subText }]}>
                 {L3(language, '다가오는 좋은 순간', 'Coming up', 'これからの見どころ')}
               </Text>
             )}
-            {!expertMode && moments.length > 0 && (
+            {!expertMode && (moments.length > 0 || star) && (
               <UpcomingCards
                 moments={moments}
+                star={star}
                 language={language}
                 tzHours={tz}
                 onPress={(m) => {
-                  if (onOpenForecast) onOpenForecast({ noonMs: m.noonMs, side: m.side });
+                  if (onOpenLearn) onOpenLearn({ section: 'today', focus: { noonMs: m.noonMs, side: m.side } });
                   else setCurrentTime(new Date(m.timeMs));
+                }}
+                onStarPress={() => {
+                  if (!star) return;
+                  learnAt(new Date(star.timeMs), 'sunset', 'why', 'stars', star.timeMs);
                 }}
               />
             )}
-            {expertMode && (
-            <View style={styles.tabToggleGroup}>
+            {onOpenLearn && (
               <PressScale
-                style={[styles.tabButton, activeSheetTab === 'events' && styles.tabButtonActive]}
-                onPress={() => setActiveSheetTab('events')}
-                activeOpacity={0.8}
+                style={[styles.learnLink, { borderColor: theme.border }]}
+                onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'today')}
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, '02 학습에서 하늘 일정, 근거, 과정 보기', 'See the schedule, data and steps in 02 Learn', '02 学習で予定・根拠・過程を見る')}
               >
-                <Sparkles size={12} color={activeSheetTab === 'events' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeSheetTab === 'events' && styles.tabTextActive]}>{t('tabEvents', language)}</Text>
+                <ListChecks size={14} color={theme.subText} />
+                <Text style={[styles.learnLinkText, { color: theme.text }]}>
+                  {L3(language, '학습에서 일정 · 근거 · 과정 보기', 'Schedule, data and steps in Learn', '学習で予定・根拠・過程を見る')}
+                </Text>
               </PressScale>
-
-              <PressScale
-                style={[styles.tabButton, activeSheetTab === 'weather' && styles.tabButtonActive]}
-                onPress={() => setActiveSheetTab('weather')}
-                activeOpacity={0.8}
-              >
-                <Cloud size={12} color={activeSheetTab === 'weather' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeSheetTab === 'weather' && styles.tabTextActive]}>{t('tabWeather', language)}</Text>
-              </PressScale>
-            </View>
-            )}
-
-            {!expertMode || activeSheetTab === 'events' ? (
-              (expertMode ? combinedEventList : simpleEventRows).map(item => (
-                <PressScale
-                  key={item.id}
-                  style={[
-                    styles.eventRow,
-                    { borderColor: theme.border },
-                    item.category === 'featured' && styles.eventRowFeatured,
-                  ]}
-                  onPress={() => setCurrentTime(item.time)}
-                  activeOpacity={0.75}
-                >
-                  {(() => {
-                    if (item.id.includes('sunset')) return <Sunset size={14} color={color.glow} />;
-                    if (item.id.includes('sunrise')) return <Sun size={14} color={color.sun} />;
-                    if (item.id.includes('crescent')) return <Moon size={14} color={color.moon} />;
-                    if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
-                    if (item.id.includes('planets')) return <Star size={14} color="#F43F5E" />;
-                    if (item.id.includes('moon')) return <Moon size={14} color={color.moon} />;
-                    return <Sun size={14} color={color.sun} />;
-                  })()}
-                  <View style={styles.eventRowText}>
-                    <Text style={[styles.eventTitle, { color: theme.text }]}>{item.title}</Text>
-                    <Text style={[styles.eventDesc, { color: theme.subText }]} numberOfLines={1}>
-                      {item.description}
-                    </Text>
-                  </View>
-                  {item.badge && (
-                    <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
-                  )}
-                  <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
-                  {(item.id.endsWith('sunrise') || item.id.endsWith('sunset') || item.id === 'f_milkyway') && (
-                    <PressScale
-                      onPress={() => {
-                        setCalcDate(item.time);
-                        setCalcTopic(item.id === 'f_milkyway' ? 'stars' : item.id.endsWith('sunrise') ? 'sunrise' : 'sunset');
-                        setCalcOpen(true);
-                      }}
-                      accessibilityLabel={L3(language, '계산 과정 보기', 'How this is computed', '計算の過程を見る')}
-                      style={[styles.calcBtn, { borderColor: theme.border }]}
-                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    >
-                      <ListChecks size={14} color={theme.subText} />
-                    </PressScale>
-                  )}
-                </PressScale>
-              ))
-            ) : (
-              <WeatherInfoView
-                currentTime={currentTime}
-                targetDateStr={currentDateStr}
-                interpolatedWeather={interpolatedWeather}
-                pathData={pathData}
-                prediction={prediction}
-                latitude={latitude}
-                longitude={longitude}
-                cachedTimestampMs={matchedWeatherCache?.timestamp ?? null}
-                isRefreshing={isWeatherLoading || isForceRefreshing}
-                refreshError={weatherRefreshError}
-                onForceRefresh={() => loadWeather(true)}
-                theme={theme}
-                language={language}
-              />
             )}
           </View>
 
@@ -1438,35 +1264,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
       <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
 
-      <CalcStepsModal
-        visible={calcOpen}
-        onClose={() => setCalcOpen(false)}
-        initialTopic={calcTopic}
-        language={language}
-        date={calcDate}
-        latitude={latitude}
-        longitude={longitude}
-        getHorizon={() => sceneRef.current?.getHorizonProfile?.() ?? null}
-        getScoreInput={getScoreInput}
-        getStarArgs={getStarArgs}
-        qualityWord={(q) => verdictWord(q as any, language)}
-        onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
-      />
-      {picked && (
-        <StandSuggestModal
-          visible={suggestOpen}
-          language={language}
-          target={picked}
-          fromMs={suggestFromMs}
-          eyeAboveGroundM={eyeH}
-          getSamplers={() => sceneRef.current?.getStandSamplers?.() ?? null}
-          outlook={outlook}
-          outlookState={outlookState}
-          onPick={onStand}
-          onBack={() => setSuggestOpen(false)}
-          onReloadMap={() => sceneRef.current?.reloadUrbanMask?.()}
-        />
-      )}
       <LayerControlModal
         visible={isLayerModalVisible}
         onClose={() => setLayerModalVisible(false)}
@@ -1714,88 +1511,17 @@ const useStyles = makeStyles((color) => ({
     marginBottom: 4,
   },
   alertLabel: { ...type.body, flex: 1, minWidth: 0 },
-  tabToggleGroup: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 2,
-  },
-  tabButton: {
+  // 02 학습으로 가는 줄(시트의 이벤트 목록 · 기상 정보 탭은 학습 페이지로 모였습니다).
+  learnLink: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: 'rgba(148, 163, 184, 0.1)',
-  },
-  tabButtonActive: {
-    backgroundColor: color.accentSoft,
-    borderColor: color.accentLine,
-  },
-  tabText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: color.textDim,
-    fontFamily: mono,
-    letterSpacing: 0.3,
-  },
-  tabTextActive: {
-    color: color.accent,
-    fontWeight: '800',
-  },
-  // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
-  // 시트 안에서는 세로 스크롤이 이미 있어서 가로 스크롤과 충돌합니다.
-  eventRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 9,
+    gap: 8,
     paddingHorizontal: 11,
     borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: color.border,
   },
-  eventRowFeatured: {
-    borderColor: 'rgba(245, 158, 11, 0.45)',
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-  },
-  eventRowText: {
-    flex: 1,
-  },
-  eventTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  eventDesc: {
-    fontSize: 11,
-    marginTop: 1,
-    fontFamily: mono,
-  },
-  eventBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    marginRight: 8,
-  },
-  eventTime: {
-    fontSize: 13,
-    fontWeight: '800',
-    fontFamily: mono,
-    letterSpacing: 0.4,
-  },
-  calcBtn: {
-    width: 28,
-    height: 28,
-    marginLeft: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: radius.xs,
-  },
+  learnLinkText: { ...type.body, flex: 1, minWidth: 0 },
 
   bottomPanel: {
     paddingTop: 3,

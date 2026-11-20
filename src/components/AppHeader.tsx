@@ -1,12 +1,17 @@
 /**
  * AppHeader.tsx
  *
- * 앱 맨 위 한 줄 — **탭 셋(01 하늘 · 02 예보 · 03 기록)** + 위치(장소 이름) · 설정.
+ * 앱 맨 위 한 줄 — **탭 셋(01 하늘 · 02 학습 · 03 기록)** + 위치(장소 이름) · 설정.
+ *
+ * ## 달라진 것 (2026-11-20)
+ *
+ * - **02 예보가 02 학습이 됐습니다**(`LearnScreen`). 16일 예보 표는 그대로 있고, 시트의 이벤트 목록 · 기상 정보, 왜 그런가요 창이
+ *   한 페이지로 모였습니다(docs/SANDBOX_MODE_PLAN.md 13 장).
  *
  * ## 달라진 것 (2026-10-25, 디자인 2단)
  *
  * - 탭 이름을 디자인 시스템 이름으로 바꿨습니다("시뮬레이션 · 갤러리" → "하늘 · 기록").
- * - 그 사이에 **02 예보**(16일 × 일출 · 일몰 판정, `ForecastScreen`)를 끼웠습니다. 기록은 03 입니다.
+ * - 그 사이에 02 예보(16일 × 일출 · 일몰 판정)를 끼웠습니다. 기록은 03 입니다.
  * - 위치 버튼이 지금 장소를 이름으로 보여 줍니다(`placeLabel`). 예전에는 핀 아이콘만 있어 어느 하늘인지 알 수 없었습니다.
  *
  * ## 달라진 것 (§143)
@@ -31,11 +36,11 @@ import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
-export type AppTab = 'sky' | 'forecast' | 'log';
+export type AppTab = 'sky' | 'learn' | 'log';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
   { id: 'sky', code: '01', label: '01 SKY' },
-  { id: 'forecast', code: '02', label: '02 AHEAD' },
+  { id: 'learn', code: '02', label: '02 LEARN' },
   { id: 'log', code: '03', label: '03 LOG' },
 ];
 
@@ -140,7 +145,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 >
                   {/* 번호는 실제 순서라 붙이고 이름은 언어를 따릅니다(디자인 시스템 · 말투). */}
                   {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
-                    : tab.id === 'forecast' ? L3(language, '예보', 'AHEAD', '予報')
+                    : tab.id === 'learn' ? L3(language, '학습', 'LEARN', '学習')
                     : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
               </PressScale>

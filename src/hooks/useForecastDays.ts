@@ -12,7 +12,10 @@ import {
   cachedSunForecast,
   fetchSunForecast,
   observerElevationFrom,
+  scoreInputFor,
   type ForecastDay,
+  type ForecastEvent,
+  type ForecastScoreInput,
 } from '../utils/sunForecast';
 import { localDateString } from '../utils/localDate';
 import { hapticError } from '../utils/haptics';
@@ -42,6 +45,9 @@ export function useForecastDays({ fetch, compute, days: dayCount, haptic = true 
 
   const [forecast, setForecast] = useState<CloudPathData[] | null>(() =>
     lat != null && lon != null ? cachedSunForecast(lat, lon)?.path ?? null : null);
+  // 16일 자료를 받은 시각(ms). 학습 페이지의 "다운로드 시점" 이 씁니다.
+  const [fetchedAt, setFetchedAt] = useState<number | null>(() =>
+    lat != null && lon != null ? cachedSunForecast(lat, lon)?.fetchedAt ?? null : null);
   const [load, setLoad] = useState<ForecastLoadState>({ kind: 'idle' });
   // "지금" 은 받기를 시작할 때마다 새로 — 렌더마다 바꾸면 판정을 매번 다시 셉니다.
   const [now, setNow] = useState(() => new Date());
@@ -51,7 +57,7 @@ export function useForecastDays({ fetch, compute, days: dayCount, haptic = true 
     const ctrl = new AbortController();
     setLoad({ kind: 'loading' });
     fetchSunForecast(lat, lon, new Date(), { force, signal: ctrl.signal, tzHours: tz })
-      .then(d => { setForecast(d.path); setLoad({ kind: 'ready' }); })
+      .then(d => { setForecast(d.path); setFetchedAt(d.fetchedAt); setLoad({ kind: 'ready' }); })
       .catch(err => {
         if (ctrl.signal.aborted || err?.name === 'AbortError') return;
         if (haptic) hapticError();
@@ -67,17 +73,33 @@ export function useForecastDays({ fetch, compute, days: dayCount, haptic = true 
   }, [fetch, get]);
 
   const elev = lat != null && lon != null ? observerElevationFrom(terrainCacheList, lat, lon, location?.coords?.altitude) : undefined;
-  const ringFor = useCallback((at: Date) => {
+  const ringEntryFor = useCallback((at: Date) => {
     if (lat == null || lon == null) return null;
     const dateStr = localDateString(at);
-    const hit = weatherCacheList.find(c => c.key.includes(dateStr) && sameBucket(c.latitude, c.longitude, lat, lon));
-    return (hit?.data as CloudPathData[] | undefined) ?? null;
+    return weatherCacheList.find(c => c.key.includes(dateStr) && sameBucket(c.latitude, c.longitude, lat, lon)) ?? null;
   }, [weatherCacheList, lat, lon]);
+  const ringFor = useCallback((at: Date) => (ringEntryFor(at)?.data as CloudPathData[] | undefined) ?? null, [ringEntryFor]);
 
   const days: ForecastDay[] = useMemo(() => {
     if (!compute || lat == null || lon == null) return [];
     return buildForecastDays({ latitude: lat, longitude: lon, now, tzHours: tz, observerElevM: elev, forecast, ringFor, days: dayCount });
   }, [compute, lat, lon, now, tz, elev, forecast, ringFor, dayCount]);
 
-  return { days, forecast, load, get, now };
+  // "왜 좋은가요": 그 칸을 센 자료로 계산 과정의 입력을 만듭니다(그날 링이 있어 링으로 셌으면 링, 아니면 16일 예보). 숫자가 칸과 같습니다.
+  const inputFor = useCallback((ev: ForecastEvent): ForecastScoreInput | null => {
+    if (lat == null || lon == null || !ev.source) return null;
+    return scoreInputFor(ev.source === 'ring' ? ringFor(ev.at) : forecast, ev.at, ev.side, lat, lon, elev);
+  }, [lat, lon, ringFor, forecast, elev]);
+
+  // 학습 페이지의 "근거 데이터": 그 칸을 센 예보 자료와 그 자료를 받은 시각(링이면 캐시에 넣은 시각, 16일 자료면 받은 시각).
+  const pathFor = useCallback((ev: ForecastEvent): CloudPathData[] | null => {
+    if (ev.source === 'ring') return ringFor(ev.at);
+    return ev.source === 'forecast' ? forecast : null;
+  }, [ringFor, forecast]);
+  const stampFor = useCallback((ev: ForecastEvent): number | null => {
+    if (ev.source === 'ring') return ringEntryFor(ev.at)?.timestamp ?? null;
+    return ev.source === 'forecast' ? fetchedAt : null;
+  }, [ringEntryFor, fetchedAt]);
+
+  return { days, forecast, fetchedAt, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM: elev };
 }
