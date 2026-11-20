@@ -14,6 +14,7 @@
  *  5. 글(`modeLabel` · `modeDesc` · `recommendReason`): 한국어 · 영어 · 일본어가 모든 모드에서 비어 있지 않고 언어마다 다르다. 이름 한국어는 일반 · 천체 장노출 · 별 일주 · 타임랩스 · 이벤트.
  *     권하는 이유는 일반과 천체 장노출에만 있다(둘 외 모드는 권하지 않으므로 빈 글이 아니라 null).
  *  6. 모드 시트에 보일 줄(`sheetRows(권하는 모드)`): 맨 위 "권하는 것" 하나(권하는 모드), 아래로 네 모드 전부(권하는 것도 아래에 다시 있다), 각 줄에 모드 키 · ready · 권하는 것 여부.
+ *  7. 모드 줄 오른쪽 결과물 글(`modeResultTag(키, 언어)`, 목업 16, 2026-11-20): 일반 "사진" · 천체 장노출 "쌓은 사진" · 타임랩스 "사진 묶음"(목업은 MP4 로 적었지만 이 앱은 아직 영상을 만들지 않아 사실대로 적는다) · 이벤트 "준비 중". 영어 "Photo" · "Stacked photo" · "Photo set" · "Coming soon", 일본어 "写真" · "積み重ね写真" · "写真の束" · "準備中".
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-capture-mode.js
  */
@@ -62,6 +63,10 @@ const SEOUL = { latitude: 37.5665, longitude: 126.978 };
   const rows = C.sheetRows('astro');
   ok(rows.recommended === 'astro' && J(rows.rows.map(r => r.key)) === J(keys) && rows.rows.filter(r => r.recommended).length === 1 && rows.rows.find(r => r.recommended).key === 'astro' && J(rows.rows.map(r => r.ready)) === J([true, true, true, false]), '맨 위 권하는 것 하나 + 네 줄 + 권하는 줄 표시');
   ok(C.sheetRows('normal').rows.find(r => r.recommended).key === 'normal', '일반을 권하면 일반 줄이 표시');
+
+  console.log('\n[7] 결과물 글');
+  const tag = (k, l) => C.modeResultTag(k, l);
+  ok(J(['normal', 'astro', 'timelapse', 'event'].map(k => tag(k, 'ko'))) === J(['사진', '쌓은 사진', '사진 묶음', '준비 중']) && J(['normal', 'astro', 'timelapse', 'event'].map(k => tag(k, 'en'))) === J(['Photo', 'Stacked photo', 'Photo set', 'Coming soon']) && J(['normal', 'astro', 'timelapse', 'event'].map(k => tag(k, 'ja'))) === J(['写真', '積み重ね写真', '写真の束', '準備中']), '결과물 글 세 언어');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

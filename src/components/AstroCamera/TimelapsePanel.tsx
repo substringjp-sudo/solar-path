@@ -11,7 +11,7 @@ import { X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
-import { planSummary, planTimelapse, presetWindow, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
+import { clockLabel, planTimelapse, presetWindow, windowLabel, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
 
 export const VIDEO_SEC_CHOICES = [5, 10, 20, 30] as const;
 const PRESETS: readonly PresetKind[] = ['sunset', 'sunrise', 'day-to-night'];
@@ -25,12 +25,14 @@ interface Props {
   events: { sunrise: number | null; sunset: number | null };
   /** 지금 시각(ms). */
   nowMs: number;
+  /** 시각 글을 읽을 시간대(시간) */
+  tzHours: number;
   onPreview: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
   onStart: (plan: TimelapsePlan) => void;
   onClose: () => void;
 }
 
-const kindLabel = (k: TimelapseKind, l: Language): string => {
+export const kindLabel = (k: TimelapseKind, l: Language): string => {
   if (k === 'plain') return L3(l, '일반', 'Plain', '通常');
   if (k === 'stacked') return L3(l, '밝게 합성', 'Bright stack', '明るく合成');
   return L3(l, '궤적 누적', 'Trails', '軌跡の累積');
@@ -47,7 +49,7 @@ const presetLabel = (k: PresetKind, l: Language): string => {
   return L3(l, '낮에서 밤으로 150분', 'Day to night 150 min', '昼から夜へ 150分');
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, onPreview, onStart, onClose }) => {
+export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, onPreview, onStart, onClose }) => {
   const [preset, setPreset] = useState<PresetKind>('sunset');
   const [videoSec, setVideoSec] = useState<number>(10);
   const [kind, setKind] = useState<TimelapseKind>('plain');
@@ -63,13 +65,25 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
     onClose();
   };
   const start = () => { onStart(plan); onClose(); };
+  // 목업 9: 부제는 구간("16:40 ~ 18:10"), 값 칸 넷, 그 아래 한 줄("시작 16:40 · 촬영 90분 · 종류")
+  const subtitle = win ? windowLabel(win.startMs, win.endMs, tzHours) : `${L3(language, '지금부터', 'From now', '今から')} ${totalMin}${L3(language, '분', ' min', '分')}`;
+  const startShown = win ? win.startMs : nowMs;
+  const cells = [
+    { label: L3(language, '간격', 'Interval', '間隔'), value: `${plan.intervalS % 1 === 0 ? plan.intervalS : plan.intervalS.toFixed(1)} s` },
+    { label: L3(language, '찍는 장', 'Shots', '撮影枚数'), value: String(plan.frames) },
+    { label: L3(language, '영상', 'Video', '動画'), value: `${Math.round(plan.videoSec)} s` },
+    { label: L3(language, '저장', 'Saved', '保存'), value: String(plan.savedFrames) },
+  ];
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.fill}>
         <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} />
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>{L3(language, '타임랩스', 'Timelapse', 'タイムラプス')}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.title}>{L3(language, '타임랩스', 'Timelapse', 'タイムラプス')}</Text>
+              <Text style={styles.subtitle}>{`${kindLabel(kind, language)} · ${subtitle}`}</Text>
+            </View>
             <OverlayButton onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} style={styles.closeBtn}>
               <X size={16} color={DARK.text} />
             </OverlayButton>
@@ -110,10 +124,15 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
               ))}
             </View>
             <View style={styles.card}>
-              <Text style={styles.summary}>{planSummary(plan, language)}</Text>
-              <Text style={styles.note}>
-                {`${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}
-              </Text>
+              <View style={styles.cellRow}>
+                {cells.map(c => (
+                  <View key={c.label} style={styles.cell}>
+                    <Text style={styles.cellLabel}>{c.label}</Text>
+                    <Text style={styles.cellValue}>{c.value}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.summary}>{`${L3(language, '시작', 'Start', '開始')} ${clockLabel(startShown, tzHours)} · ${L3(language, '촬영', 'Shoot', '撮影')} ${totalMin}${L3(language, '분', ' min', '分')} · ${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}</Text>
               {plan.clamped === 'interval' ? (
                 <Text style={styles.note}>{L3(language, '간격이 너무 짧아 2초로 맞췄어요. 영상이 조금 짧아져요.', 'Interval raised to 2 s, so the video comes out shorter.', '間隔が短すぎるため2秒にしました。動画は少し短くなります。')}</Text>
               ) : null}
@@ -148,6 +167,11 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 },
   title: { fontSize: 16, fontWeight: '800', color: DARK.text },
+  subtitle: { fontFamily: mono, fontSize: 11, color: DARK.textDim },
+  cellRow: { flexDirection: 'row', gap: 4 },
+  cell: { flex: 1, minWidth: 0, backgroundColor: DARK.fill, padding: 6, borderRadius: radius.xs },
+  cellLabel: { fontFamily: mono, fontSize: 9, color: DARK.textMute },
+  cellValue: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: DARK.text },
   closeBtn: { width: 32, height: 32 },
   scroll: { flexGrow: 0 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 24, gap: 6 },

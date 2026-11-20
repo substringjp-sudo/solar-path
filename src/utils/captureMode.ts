@@ -62,6 +62,16 @@ export function modeDesc(k: CaptureModeKey, l: Lang): string {
   }
 }
 
+/** 모드 줄 오른쪽의 결과물 종류 글(목업 16). 타임랩스는 이 앱이 아직 영상을 만들지 않아 "사진 묶음"이라고 사실대로 적습니다. */
+export function modeResultTag(k: CaptureModeKey, l: Lang): string {
+  switch (k) {
+    case 'normal': return pick(l, '사진', 'Photo', '写真');
+    case 'astro': return pick(l, '쌓은 사진', 'Stacked photo', '積み重ね写真');
+    case 'timelapse': return pick(l, '사진 묶음', 'Photo set', '写真の束');
+    default: return pick(l, '준비 중', 'Coming soon', '準備中');
+  }
+}
+
 /** 권하는 이유. 일반과 천체 장노출에만 있고 나머지는 권하지 않으므로 null. */
 export function recommendReason(k: CaptureModeKey, l: Lang): string | null {
   if (k === 'normal') return pick(l, '해가 아직 지평선 가까이예요', 'The sun is still near the horizon', '太陽はまだ地平線の近くです');
