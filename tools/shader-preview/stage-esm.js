@@ -114,6 +114,8 @@ const ENTRIES = [
   'src/utils/cloudDeck.ts',
   // 샌드박스 세로 막대(높이·줌)와 이동 조이스틱 계산 — verify-sandbox-dials.js
   'src/utils/sandboxDials.ts',
+  // 연속 이동 조이스틱의 이동 엔진(속도 곡선 · 부드러운 가감속 · 시선 기준 회전) — verify-joystick-motion.js
+  'src/utils/joystickMotion.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
