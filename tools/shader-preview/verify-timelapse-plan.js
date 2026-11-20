@@ -36,6 +36,10 @@
  *     - 앨범에 저장되는 그림 수(`savedFrames`): 일반 = frames, 궤적 누적 = frames, 밝게 합성 = ceil(frames ÷ stackSize)(마지막 덜 쌓인 묶음 포함). 150 분 · 10 초 · 30 fps · 4 장씩 = frames 1201 → ceil(1201/4) = 301.
  *     - 저장 공간 어림(`estimateMB`)은 **앨범에 저장되는 그림 기준**으로 바뀐다: 합성은 찍은 사진을 합친 뒤 버리므로 savedFrames × 3 = 301 × 3 = 903 MB(이전 기준은 찍은 장수 1201 × 3 = 3603 이었고, 합치는 일이 들어와 저장되는 것이 줄어 기준을 고쳤다). 일반 · 누적은 그대로 frames × 3.
  *       (같은 이유로 위 9 번의 밝게 합성 시험 자료 저장 공간 3603 은 903 으로 고친다. 이 값만 바뀐 것이고 간격 · 장수 · 영상 프레임 수 기준은 그대로.)
+ * 11. 시각 글(목업 9 · 12 의 "16:40 ~ 18:10" · "16:40 시작 · 지금 17:12", 2026-11-20, 구현보다 먼저 박음): `clockLabel(ms, 시간대(시간))` = 그 시간대의 "HH:mm"(두 자리, 24 시간). 2026-12-21 07:40Z → 시간대 9 에서 "16:40", −5 에서 "02:40", 5.5 에서 "13:10", 자정을 넘기면 다음 날(07:40Z + 시간대 17 → "00:40"). 숫자가 아니면 "--:--".
+ *     `windowLabel(시작 ms, 끝 ms, 시간대)` = "16:40 ~ 18:10"(시작 · 끝의 clockLabel 을 " ~ "로). 둘 중 하나가 숫자가 아니면 "--:-- ~ --:--".
+ * 12. 지금까지 앨범에 저장된 수(`savedSoFar(계획, 찍은 장수)`, 촬영 중 줄의 "앨범" 칸, 2026-11-20): 일반 · 궤적 누적은 찍은 장수 그대로. 밝게 합성은 묶음이 찰 때마다 한 장이라 내림(찍은 장수 ÷ stackSize),
+ *     다만 마지막 장까지 다 찍었으면(찍은 장수 ≥ 계획의 장수) 덜 찬 마지막 묶음까지 올려 `savedFrames`. 4 장씩 · 301 장 계획: 10 장 → 2, 12 장 → 3, 300 장 → 75, 301 장 → 76(= savedFrames). 음수 · 숫자가 아니면 0.
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-timelapse-plan.js
  */
@@ -123,6 +127,17 @@ const J = JSON.stringify;
   ok(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 }).savedFrames === 301 && T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' }).savedFrames === 301 && st.savedFrames === 301, 'savedFrames: 일반 301, 누적 301, 합성 301(ceil(1201/4))');
   const odd = T.planTimelapse({ totalMin: 10, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
   ok(odd.frames === 301 && odd.savedFrames === 76 && odd.estimateMB === 228, `301 장 · 4 장씩 → ceil(301/4) = 76 장, 228 MB: ${odd.savedFrames} / ${odd.estimateMB}`);
+
+  console.log('\n[11] 시각 글');
+  const t0 = Date.UTC(2026, 11, 21, 7, 40);
+  ok(T.clockLabel(t0, 9) === '16:40' && T.clockLabel(t0, -5) === '02:40' && T.clockLabel(t0, 5.5) === '13:10' && T.clockLabel(t0, 17) === '00:40', `clockLabel: ${T.clockLabel(t0, 9)} ${T.clockLabel(t0, -5)} ${T.clockLabel(t0, 5.5)} ${T.clockLabel(t0, 17)}`);
+  ok(T.clockLabel(NaN, 9) === '--:--' && T.clockLabel(t0, NaN) === '--:--', '숫자가 아니면 --:--');
+  ok(T.windowLabel(t0, t0 + 90 * 60000, 9) === '16:40 ~ 18:10' && T.windowLabel(NaN, t0, 9) === '--:-- ~ --:--', 'windowLabel');
+
+  console.log('\n[12] savedSoFar');
+  const p4 = T.planTimelapse({ totalMin: 10, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
+  ok(T.savedSoFar(p4, 10) === 2 && T.savedSoFar(p4, 12) === 3 && T.savedSoFar(p4, 300) === 75 && T.savedSoFar(p4, 301) === 76 && T.savedSoFar(p4, 0) === 0, `합성: ${[10, 12, 300, 301, 0].map(n => T.savedSoFar(p4, n))}`);
+  ok(T.savedSoFar(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 }), 10) === 10 && T.savedSoFar(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' }), 10) === 10 && T.savedSoFar(p4, -3) === 0 && T.savedSoFar(p4, NaN) === 0, '일반 · 누적은 그대로, 음수 · NaN 은 0');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

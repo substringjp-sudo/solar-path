@@ -162,3 +162,25 @@ export function shotPlan(kind: TimelapseKind, stackSize: number, index: number, 
   const flush = full || isLast;
   return { accumulate: true, flush, reset: flush, saveRaw: false };
 }
+
+const p2 = (n: number): string => String(n).padStart(2, '0');
+
+/** 그 시간대(시간)의 "HH:mm". 숫자가 아니면 "--:--". */
+export function clockLabel(ms: number, tzHours: number): string {
+  if (!Number.isFinite(ms) || !Number.isFinite(tzHours)) return '--:--';
+  const d = new Date(ms + tzHours * 3_600_000);
+  return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+/** "16:40 ~ 18:10" */
+export function windowLabel(startMs: number, endMs: number, tzHours: number): string {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return '--:-- ~ --:--';
+  return `${clockLabel(startMs, tzHours)} ~ ${clockLabel(endMs, tzHours)}`;
+}
+
+/** 지금까지 앨범에 저장된 그림 수. 합성은 묶음이 찰 때마다 한 장(마지막 장까지 다 찍으면 덜 찬 묶음까지). */
+export function savedSoFar(plan: TimelapsePlan, taken: number): number {
+  if (!Number.isFinite(taken) || taken <= 0) return 0;
+  if (plan.kind !== 'stacked') return Math.floor(taken);
+  return taken >= plan.frames ? plan.savedFrames : Math.floor(taken / plan.stackSize);
+}

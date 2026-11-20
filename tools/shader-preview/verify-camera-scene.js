@@ -11,6 +11,9 @@
  *  5. 모드 시트: 탭 묶음 끝 "모드" 단추가 시트를 열고, 권하는 모드는 장면이 있으면 `modeForScene(장면)` 없으면 `recommendMode(해 고도)`. 고르면 `pickMode` 가 탭(`setCameraTab`) 또는 타임랩스 패널을 연다.
  *     (2026-11-20 정정: 타임랩스가 들어오며 시트는 탭이 아니라 모드 키를 돌려준다. 열 수 있는 모드만 고르게 하는 기준은 그대로.)
  *  6. 시트: `sheetRows` 로 줄을 만들고, 못 여는 모드(탭이 null)는 `disabled` 이며 누르면 아무 일도 없다(`tabForMode` 가 null 이면 반환). 글은 `captureMode` 의 `modeLabel` · `modeDesc` · `recommendReason` 만 쓴다.
+ *  7. 목업 16 모양(2026-11-20, 목업을 읽고 맞춤, 구현보다 먼저 박음): 시트 맨 위에 손잡이 막대(너비 40 · 높이 4), 머리줄은 "촬영 모드"와 오른쪽 "지금 HH:mm"(`nowLabel`),
+ *     "지금 권하는 것" 카드는 `accentSoft` 바탕에 `accentLine` 테두리로 이름 · 결과물 설명 · 이유 한 줄, 모드 줄은 아이콘 칸(28)과 이름 · 설명, 오른쪽 `modeResultTag` 글, 맨 아래에 "샌드박스에서 이 장면 찍기로 오면 그 장면에 맞는 모드가 먼저 열려요." 한 줄.
+ *     카메라는 `nowLabel` 로 `clockLabel(currentTime, 시간대)` 를 넘긴다.
  *
  *   node tools/shader-preview/verify-camera-scene.js
  */
@@ -52,6 +55,12 @@ ok(/onPress=\{\(\) => setModeSheetOpen\(true\)\}/.test(cam) && /<CaptureModeShee
 console.log('\n[6] 시트');
 ok(/sheetRows\(recommended\)/.test(sheet) && /disabled=\{!r\.ready\}/.test(sheet) && /if \(!CAPTURE_MODES\.find\(m => m\.key === k\)\?\.ready\) return;\s+onPick\(k\);/.test(sheet), 'sheetRows 로 줄, 못 여는 모드는 disabled 이고 눌러도 반환(ready 가 아니면)');
 ok(/modeLabel\(/.test(sheet) && /modeDesc\(/.test(sheet) && /recommendReason\(/.test(sheet) && /'준비 중', 'Coming soon', '準備中'/.test(sheet), '글은 captureMode 에서, 못 여는 줄에 "준비 중"');
+
+console.log('\n[7] 목업 16 모양');
+ok(/width: 40, height: 4/.test(sheet) && /styles\.handle/.test(sheet) && /nowLabel/.test(sheet) && /L3\(language, '지금', 'Now', '今'\)/.test(sheet), '손잡이 막대와 머리줄의 "지금 HH:mm"');
+ok(/recCard: \{[^}]*backgroundColor: DARK\.accentSoft[^}]*borderColor: DARK\.accentLine/.test(sheet) && /recommendReason\(recommended, language\)/.test(sheet), '권하는 카드: accentSoft 바탕 · accentLine 테두리 · 이유 한 줄');
+ok(/modeResultTag\(r\.key, language\)/.test(sheet) && /ICONS: Record<CaptureModeKey,/.test(sheet) && /샌드박스에서 이 장면 찍기로 오면 그 장면에 맞는 모드가 먼저 열려요\./.test(sheet), '줄: 아이콘 · 결과물 글, 맨 아래 안내');
+ok(/nowLabel=\{clockLabel\(currentTime\.getTime\(\), tzHours\)\}/.test(cam), '카메라가 nowLabel 을 넘긴다');
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
