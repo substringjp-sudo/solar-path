@@ -160,7 +160,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 const sunXY = typeof photo.deviceAzimuth === 'number' && typeof photo.devicePitch === 'number' && smp
                   ? sunFractionInPhoto(smp.sunAzimuth, smp.sunAltitude, { yawDeg: photo.deviceAzimuth, pitchDeg: photo.devicePitch, rollDeg: 0 }, DEFAULT_SENSOR_SHORT_FOV_DEG, 1)
                   : null;
-                return pu && su ? <ResultCompare language={language} photoUri={pu} simUri={su} sunXY={sunXY} /> : null;
+                const openCalcAt = () => {
+                  const ts = typeof photo.timestamp === 'number' ? photo.timestamp : typeof smp?.timestamp === 'number' ? smp.timestamp : Date.now();
+                  useCelestialStore.getState().requestOpenLearn({ section: 'why', topic: 'score', at: ts });
+                  onClose();
+                };
+                return pu && su ? <ResultCompare language={language} photoUri={pu} simUri={su} sunXY={sunXY} onOpenCalc={openCalcAt} /> : null;
               })()}
 
               {(() => {

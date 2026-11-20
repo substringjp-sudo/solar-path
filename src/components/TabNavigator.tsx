@@ -11,7 +11,7 @@
  * `selectedCategory`는 그대로였고, `sim3dView`는 배열에 없어 스와이프로
  * 오갈 수조차 없었습니다. 카테고리 개념을 없애 이 어긋남을 구조적으로 제거합니다.
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
@@ -75,6 +75,13 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
     setLearnEntry({ ...e, nonce: entryCount.current });
     setActiveTab('learn');
   };
+  const pendingLearnEntry = useCelestialStore(s => s.pendingLearnEntry);
+  const requestOpenLearn = useCelestialStore(s => s.requestOpenLearn);
+  useEffect(() => {
+    if (!pendingLearnEntry) return;
+    openLearn(pendingLearnEntry);
+    requestOpenLearn(null);
+  }, [pendingLearnEntry]);
   const startX = useRef(0);
   const activeTabRef = useRef(activeTab);
   const activeIndexRef = useRef(activeIndex);

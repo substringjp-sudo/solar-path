@@ -49,7 +49,7 @@ ok(/<ResultCompare\s+language=\{language\}\s+photoUri=\{previewUri\}\s+simUri=\{
 ok(/simNotReady/.test(cam.slice(cam.indexOf('<ResultCompare'), cam.indexOf('<ResultCompare') + 1800)) && /simPreviewError/.test(cam.slice(cam.indexOf('<ResultCompare'), cam.indexOf('<ResultCompare') + 1800)) && /GL \{simBufferMean\.toFixed\(0\)\}/.test(cam), '예측이 없을 때 안내와 GL 표식이 남아 있다');
 
 console.log('\n[6] 사진 상세');
-ok(/return pu && su \? <ResultCompare language=\{language\} photoUri=\{pu\} simUri=\{su\} sunXY=\{sunXY\} \/> : null;/.test(modal) && /return photoUri && !hasSim \? \(/.test(modal) && /return simUri && !hasPhoto \? \(/.test(modal), '둘 다 있으면 ResultCompare, 사진만 · 예측만이면 낱장 그림');
+ok(/return pu && su \? <ResultCompare language=\{language\} photoUri=\{pu\} simUri=\{su\} sunXY=\{sunXY\}(?:\s+onOpenCalc=\{openCalcAt\})? \/> : null;/.test(modal) && /return photoUri && !hasSim \? \(/.test(modal) && /return simUri && !hasPhoto \? \(/.test(modal), '둘 다 있으면 ResultCompare, 사진만 · 예측만이면 낱장 그림');
 
 console.log('\n[7] 해 근처 연결');
 ok(/setCapturedSunXY\(visionSensor\s+\? sunFractionInPhoto\(currentSunPos\.azimuth, currentSunPos\.altitude, visionSensor, measuredHfov \?\? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification\)\s+: null\);/.test(cam) && /sunXY=\{capturedSunXY\}/.test(cam) && /cameraSimState, measuredHfov, currentMagnification\]\);/.test(cam), '촬영 직후: 자세가 있으면 해 자리를 구해 ResultCompare 에 넘기고, 의존 목록에 화각 · 배율');

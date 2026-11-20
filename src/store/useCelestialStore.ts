@@ -23,6 +23,7 @@ import { sunPosition, sunTimes } from '../utils/solarPosition';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
+import type { LearnEntry } from '../utils/learnSections';
 import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
@@ -192,6 +193,9 @@ interface CelestialState extends ClockState {
    */
   cameraScene: SavedScene | null;
   setCameraScene: (scene: SavedScene | null) => void;
+  /** 외부 모달(촬영 결과 비교 · 03 기록 등)에서 02 학습 계산 과정으로 바로 이동할 때 씁니다. */
+  pendingLearnEntry: Omit<LearnEntry, 'nonce'> | null;
+  requestOpenLearn: (entry: Omit<LearnEntry, 'nonce'> | null) => void;
   /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
   notifPrefs: NotifPrefs;
   isAppReady: boolean;
@@ -353,6 +357,8 @@ export const useCelestialStore = create<CelestialState>()(
       savedScenes: [],
       cameraScene: null,
       setCameraScene: (scene) => set({ cameraScene: scene }),
+      pendingLearnEntry: null,
+      requestOpenLearn: (entry) => set({ pendingLearnEntry: entry }),
       isAppReady: false,
       startupLocationSettled: false,
       preloadStatus: 'initializingApp',

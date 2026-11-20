@@ -7,12 +7,13 @@
  * 계산은 `utils/resultCompare.ts`(순수), 그림 읽기는 `utils/imageZones.ts`.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Alert, Image, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import * as MediaLibrary from 'expo-media-library';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { L3, type Language } from '../utils/i18n';
 import { clampSplit, diffLines, zoneStats } from '../utils/resultCompare';
-import { readSmallRgba, ZONE_GRID } from '../utils/imageZones';
+import { exportCompareImage, readSmallRgba, ZONE_GRID } from '../utils/imageZones';
 
 export type CompareMode = 'split' | 'overlay' | 'stack';
 export const COMPARE_MODES: readonly CompareMode[] = ['split', 'overlay', 'stack'];
@@ -28,18 +29,50 @@ interface Props {
   sunXY?: { x: number; y: number } | null;
   /** 그때 예보 한 줄 */
   forecast?: string | null;
+  /** "이때 계산 과정 보기" 길. 주면 비교 아래에 단추가 뜹니다. */
+  onOpenCalc?: () => void;
 }
 
 const modeLabel = (m: CompareMode, l: Language): string =>
   m === 'split' ? L3(l, '반씩', 'Split', '半分ずつ') : m === 'overlay' ? L3(l, '겹침', 'Overlay', '重ねる') : L3(l, '위아래', 'Stacked', '上下');
 
-export const ResultCompare: React.FC<Props> = ({ language, photoUri, simUri, missing, sunXY, forecast }) => {
+export const ResultCompare: React.FC<Props> = ({ language, photoUri, simUri, missing, sunXY, forecast, onOpenCalc }) => {
   const [mode, setMode] = useState<CompareMode>('split');
   const [width, setWidth] = useState(0);
   const [split, setSplit] = useState(0.5);
   const [lines, setLines] = useState<string[] | null>(null);
+  const [savingCompare, setSavingCompare] = useState(false);
   const widthRef = useRef(0);
   widthRef.current = width;
+
+  const handleSaveCompare = async () => {
+    if (!simUri || savingCompare) return;
+    setSavingCompare(true);
+    try {
+      const { granted } = await MediaLibrary.requestPermissionsAsync(true);
+      if (!granted) {
+        Alert.alert(
+          L3(language, '저장 권한 필요', 'Permission required', '保存権限が必要'),
+          L3(language, '비교 이미지를 저장하려면 사진 라이브러리 권한이 필요합니다.', 'Photo library permission is needed to save the comparison image.', '比較画像を保存するには写真ライブラリの権限が必要です。'),
+        );
+        return;
+      }
+      const outUri = await exportCompareImage(photoUri, simUri, mode, split);
+      if (!outUri) throw new Error('export failed');
+      await MediaLibrary.saveToLibraryAsync(outUri);
+      Alert.alert(
+        L3(language, '저장 완료', 'Saved', '保存完了'),
+        L3(language, '비교 이미지를 앨범에 저장했습니다.', 'Saved comparison image to your library.', '比較画像をアルバムに保存しました。'),
+      );
+    } catch {
+      Alert.alert(
+        L3(language, '저장 실패', 'Save failed', '保存失敗'),
+        L3(language, '비교 이미지를 만들지 못했습니다.', 'Could not export comparison image.', '比較画像を作成できませんでした。'),
+      );
+    } finally {
+      setSavingCompare(false);
+    }
+  };
 
   const pan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -109,6 +142,26 @@ export const ResultCompare: React.FC<Props> = ({ language, photoUri, simUri, mis
         </View>
       ) : null}
       {forecast ? <Text style={styles.forecast}>{forecast}</Text> : null}
+      {(simUri || onOpenCalc) && (
+        <View style={styles.actionsRow}>
+          {simUri && (
+            <PressScale style={styles.actionBtn} onPress={handleSaveCompare} disabled={savingCompare}>
+              <Text style={styles.actionText}>
+                {savingCompare
+                  ? L3(language, '저장 중…', 'Saving…', '保存中…')
+                  : L3(language, '비교 그림 저장', 'Save Comparison', '比較画像を保存')}
+              </Text>
+            </PressScale>
+          )}
+          {onOpenCalc && (
+            <PressScale style={styles.actionBtn} onPress={onOpenCalc}>
+              <Text style={styles.actionText}>
+                {L3(language, '이때 계산 과정 보기', 'View Calculation', 'この時の計算過程')}
+              </Text>
+            </PressScale>
+          )}
+        </View>
+      )}
     </View>
   );
 };
@@ -128,4 +181,7 @@ const styles = StyleSheet.create({
   diffTitle: { fontFamily: mono, fontSize: 9, letterSpacing: 0.8, color: color.textMute },
   diffLine: { fontSize: 13, fontWeight: '700', color: color.text },
   forecast: { fontSize: 12, color: color.textDim },
+  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  actionBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.fill },
+  actionText: { fontSize: 12, fontWeight: '700', color: color.text },
 });

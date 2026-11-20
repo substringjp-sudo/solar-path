@@ -2230,6 +2230,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   capturedSimSample ? capturedSimSample.sunAzimuth : NaN,
                   language,
                 )}
+                onOpenCalc={() => {
+                  useCelestialStore.getState().requestOpenLearn({
+                    section: 'why',
+                    topic: 'score',
+                    at: currentTime.getTime(),
+                  });
+                  onClose();
+                }}
                 missing={(
                   <View style={styles.compareImageMissing}>
                     <Text style={styles.compareImageMissingText}>
