@@ -29,7 +29,7 @@ import { ObjectInfoPanel } from '../../src/components/SkyScreen/ObjectInfoPanel'
 import { ForecastScreen } from '../../src/components/ForecastScreen/ForecastScreen';
 import { UpcomingCards } from '../../src/components/SkyScreen/UpcomingCards';
 import { useForecastDays } from '../../src/hooks/useForecastDays';
-import { upcomingMoments } from '../../src/utils/upcomingMoments';
+import { upcomingMoments, starMoment } from '../../src/utils/upcomingMoments';
 import { localNoons } from '../../src/utils/sunForecast';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
@@ -341,6 +341,8 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
  * 하네스 페이지가 Open-Meteo 응답을 가짜로 줘야 합니다(`scratchpad/forecast-shot.js` 처럼 Playwright 로 가로챕니다). 위치는 서울, 시간대 +9.
  *   forecast:1 — 02 예보 화면. focusDay(0~15) · focusSide("sunrise"|"sunset") 를 주면 카드에서 건너온 모습(머리 카드 + 강조 칸).
  *   cards:1 — 카드 줄만. 누르면 window.__cardTap 에 {noonMs, side}.   공통: lang · light.
+ *   cards:1 star:{cloud, lp} — "오늘 밤 별 보기" 카드도 함께. 서울 · 지금 시각으로 실제 경로(`starArgsFor` → `starMoment`)를 돌립니다(운량 cloud % · 빛 지도 lp 등급).
+ *     누르면 window.__starTap = true.   window.__cards.star 에 카드 값(없으면 null).
  */
 function seedForecastStore() {
   useCelestialStore.setState({
@@ -363,11 +365,28 @@ function CardsRepro({ W }: { W: number }) {
   React.useState(() => { seedForecastStore(); return 0; });
   const { days, now, load } = useForecastDays({ fetch: true, compute: true, days: 3, haptic: false });
   const moments = React.useMemo(() => upcomingMoments(days, now.getTime()), [days, now]);
-  (globalThis as any).__cards = { load: load.kind, moments: moments.map(m => ({ day: m.dayOffset, side: m.side, q: m.quality, t: new Date(m.timeMs).toISOString() })) };
+  const star = React.useMemo(() => {
+    if (!Q.star) return null;
+    const o: any = Q.star === true ? {} : Q.star;
+    const a = starArgsFor({ date: now, lat: 37.5665, lon: 126.978, elevM: 38, weatherAt: () => ({ cloudPct: o.cloud ?? 15 }), lightPollutionMag: o.lp ?? 4.6 });
+    return starMoment({ timeMs: a.timeMs, nowMs: now.getTime(), input: a.input, cloudKnown: a.cloudKnown });
+  }, [now]);
+  (globalThis as any).__cards = {
+    load: load.kind,
+    moments: moments.map(m => ({ day: m.dayOffset, side: m.side, q: m.quality, t: new Date(m.timeMs).toISOString() })),
+    star: star ? { t: new Date(star.timeMs).toISOString(), limit: Math.round(star.limitMag * 100) / 100, cloud: star.cloudPct, fromNow: star.fromNow } : null,
+  };
   return (
     <View style={{ width: W, padding: 16, backgroundColor: Q.light ? '#F8FAFC' : '#0D1320' }}>
-      {moments.length > 0 && (
-        <UpcomingCards moments={moments} language={Q.lang ?? 'ko'} tzHours={9} onPress={(m) => { (globalThis as any).__cardTap = { noonMs: m.noonMs, side: m.side }; }} />
+      {(moments.length > 0 || star) && (
+        <UpcomingCards
+          moments={moments}
+          star={star}
+          language={Q.lang ?? 'ko'}
+          tzHours={9}
+          onPress={(m) => { (globalThis as any).__cardTap = { noonMs: m.noonMs, side: m.side }; }}
+          onStarPress={() => { (globalThis as any).__starTap = true; }}
+        />
       )}
     </View>
   );
