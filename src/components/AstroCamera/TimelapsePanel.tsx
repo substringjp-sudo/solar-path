@@ -11,10 +11,12 @@ import { X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
-import { planSummary, planTimelapse, presetWindow, type PresetKind, type TimelapsePlan } from '../../utils/timelapsePlan';
+import { planSummary, planTimelapse, presetWindow, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
 
 export const VIDEO_SEC_CHOICES = [5, 10, 20, 30] as const;
 const PRESETS: readonly PresetKind[] = ['sunset', 'sunrise', 'day-to-night'];
+const KINDS: readonly TimelapseKind[] = ['plain', 'stacked', 'trail'];
+export const STACK_CHOICES = [2, 4, 8] as const;
 
 interface Props {
   visible: boolean;
@@ -28,6 +30,17 @@ interface Props {
   onClose: () => void;
 }
 
+const kindLabel = (k: TimelapseKind, l: Language): string => {
+  if (k === 'plain') return L3(l, '일반', 'Plain', '通常');
+  if (k === 'stacked') return L3(l, '밝게 합성', 'Bright stack', '明るく合成');
+  return L3(l, '궤적 누적', 'Trails', '軌跡の累積');
+};
+const kindDesc = (k: TimelapseKind, l: Language): string => {
+  if (k === 'plain') return L3(l, '한 장이 영상 한 프레임이에요.', 'Each photo is one video frame.', '1枚が動画の1フレームです。');
+  if (k === 'stacked') return L3(l, '여러 장을 한 프레임으로 합쳐 밤을 밝고 깨끗하게 만들어요.', 'Several photos merge into one bright, clean frame for night scenes.', '複数枚を1フレームに合成し、夜を明るくきれいにします。');
+  return L3(l, '처음 장부터 계속 쌓아 별 궤적이 점점 그려져요. 마지막 프레임이 별 일주 사진이에요.', 'Photos keep stacking so star trails draw in; the last frame is the star-trail photo.', '最初から積み重ねて星の軌跡が少しずつ描かれます。最後のフレームが星の軌跡写真です。');
+};
+
 const presetLabel = (k: PresetKind, l: Language): string => {
   if (k === 'sunset') return L3(l, '일몰 60분', 'Sunset 60 min', '日没 60分');
   if (k === 'sunrise') return L3(l, '일출 60분', 'Sunrise 60 min', '日の出 60分');
@@ -37,10 +50,12 @@ const presetLabel = (k: PresetKind, l: Language): string => {
 export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, onPreview, onStart, onClose }) => {
   const [preset, setPreset] = useState<PresetKind>('sunset');
   const [videoSec, setVideoSec] = useState<number>(10);
+  const [kind, setKind] = useState<TimelapseKind>('plain');
+  const [stackSize, setStackSize] = useState<number>(4);
   const eventMs = preset === 'sunrise' ? events.sunrise : events.sunset;
   const win = useMemo(() => (eventMs !== null ? presetWindow(preset, eventMs) : null), [preset, eventMs]);
   const totalMin = win?.totalMin ?? presetWindow(preset, 0)!.totalMin;
-  const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30 }), [totalMin, videoSec]);
+  const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30, kind, stackSize }), [totalMin, videoSec, kind, stackSize]);
   const preview = () => {
     const startMs = win ? win.startMs : nowMs;
     const endMs = win ? win.endMs : nowMs + totalMin * 60000;
@@ -60,7 +75,25 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
             </OverlayButton>
           </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.label}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
+            <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
+            <View style={styles.chips}>
+              {KINDS.map(k => (
+                <OverlayButton key={k} active={kind === k} onPress={() => setKind(k)} accessibilityLabel={kindLabel(k, language)} style={styles.chip}>
+                  <Text style={[styles.chipText, kind === k && { color: DARK.accent }]}>{kindLabel(k, language)}</Text>
+                </OverlayButton>
+              ))}
+            </View>
+            <Text style={styles.note}>{kindDesc(kind, language)}</Text>
+            {kind === 'stacked' ? (
+              <View style={styles.chips}>
+                {STACK_CHOICES.map(n => (
+                  <OverlayButton key={n} active={stackSize === n} onPress={() => setStackSize(n)} accessibilityLabel={`${n}${L3(language, '장씩 합성', ' per frame', '枚ずつ')}`} style={styles.chip}>
+                    <Text style={[styles.chipText, stackSize === n && { color: DARK.accent }]}>{`${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`}</Text>
+                  </OverlayButton>
+                ))}
+              </View>
+            ) : null}
+            <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
             <View style={styles.chips}>
               {PRESETS.map(k => (
                 <OverlayButton key={k} active={preset === k} onPress={() => setPreset(k)} accessibilityLabel={presetLabel(k, language)} style={styles.chip}>
@@ -83,6 +116,9 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
               </Text>
               {plan.clamped === 'interval' ? (
                 <Text style={styles.note}>{L3(language, '간격이 너무 짧아 2초로 맞췄어요. 영상이 조금 짧아져요.', 'Interval raised to 2 s, so the video comes out shorter.', '間隔が短すぎるため2秒にしました。動画は少し短くなります。')}</Text>
+              ) : null}
+              {kind !== 'plain' ? (
+                <Text style={styles.note}>{L3(language, '합성은 준비 중이에요. 지금은 찍은 사진을 그대로 앨범에 저장해요.', 'Compositing is coming soon. For now the shots are saved as they are.', '合成は準備中です。今は撮った写真をそのまま保存します。')}</Text>
               ) : null}
               <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
             </View>

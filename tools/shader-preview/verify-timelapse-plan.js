@@ -22,6 +22,12 @@
  *  7. 진행(`runProgress(시작, 간격, 장수, 찍은 장수, 지금)`) = { taken, frames, remainingS, done }: 마지막 장을 찍을 시각 = 시작 + (장수 − 1) × 간격 × 1000. 남은 초 = max(0, 올림((그 시각 − 지금) / 1000)). done = 찍은 장수 ≥ 장수.
  *     시작 0, 간격 12, 301 장: 지금 0 → 남은 3600 초, 지금 100000 → 3500 초, 지금 3600000 이상 → 0. 찍은 장수 301 이면 done 참, 300 이면 거짓.
  *  8. 미리보기 시각(`previewTimeAt(시작, 끝, 영상 초, 지난 초)`) = 시작 + (끝 − 시작) × (지난 초 ÷ 영상 초를 0~1 로 자른 값). 지난 초 0 → 시작, 영상 초의 절반 → 한가운데, 그 이상 → 끝. 영상 초가 0 이하거나 숫자가 아니면 끝.
+ *  9. 종류(2026-11-20, 사용자 정리, 구현보다 먼저 박음): `kind` = 'plain'(기본, 한 장이 영상 한 프레임) · 'stacked'(밝게 합성: `stackSize` 장을 한 프레임으로 합쳐 그 프레임들로 영상) · 'trail'(궤적 누적: 처음 장부터 계속 쌓아 매 프레임이 "지금까지의 합").
+ *     `frames` 는 **찍는 장수**, `outFrames` 는 **영상 프레임 수**, 영상 길이 = outFrames ÷ fps. plain: outFrames = frames. trail: outFrames = frames(한 장 찍을 때마다 누적 프레임 하나), 계산은 plain 과 같고 `cumulative` 참.
+ *     stacked: 영상 프레임 수를 목표(영상 길이 × fps)로 잡고 찍는 장수 = 목표 × stackSize. 간격 = 총 시간 ÷ (영상 길이 × fps × stackSize)를 0.5 초로 맞추고 2 초 아래로는 내리지 않는다. frames = floor(총 시간 ÷ 간격) + 1, outFrames = floor(frames ÷ stackSize).
+ *     stackSize 는 2~16 으로 자르고(정수로 내림) 기본 4. 총 150 분 · 영상 10 초 · 30 fps · stackSize 4 → 간격 9000/1200 = 7.5 s, frames 1201, outFrames 300, 영상 10 초, 배속 900×, 저장 1201 × 3 = 3603 MB.
+ *     저장 공간은 찍는 장수 기준. plain · trail 은 `stackSize` 1.
+ *     한 줄(`planSummary`): stacked 한국어 "7.5초마다 1201장 · 4장씩 합성 · 영상 10초 · 900배속", trail "12초마다 301장 · 누적 · 영상 10초 · 360배속"(영어 "stacked 4 per frame" · "cumulative", 일본어 "4枚ずつ合成" · "累積").
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-timelapse-plan.js
  */
@@ -84,6 +90,19 @@ const J = JSON.stringify;
   ok(rp(301, 0).done === true && rp(300, 0).done === false && rp(0, 0).frames === 301, 'done: 301 장이면 참, 300 장이면 거짓');
   ok(T.previewTimeAt(1000, 61000, 10, 0) === 1000 && T.previewTimeAt(1000, 61000, 10, 5) === 31000 && T.previewTimeAt(1000, 61000, 10, 99) === 61000 && T.previewTimeAt(1000, 61000, 10, -3) === 1000, '미리보기 시각: 시작 · 한가운데 · 끝, 음수는 시작');
   ok(T.previewTimeAt(1000, 61000, 0, 5) === 61000 && T.previewTimeAt(1000, 61000, NaN, 5) === 61000, '영상 초가 0 · NaN 이면 끝');
+
+  console.log('\n[9] 종류');
+  const st = T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
+  ok(st.kind === 'stacked' && st.intervalS === 7.5 && st.frames === 1201 && st.outFrames === 300 && near(st.videoSec, 10, 1e-9) && near(st.speedup, 900, 0.5) && st.estimateMB === 3603 && st.stackSize === 4 && st.cumulative === false, `밝게 합성 150분 · 10초 · 4장씩: ${J(st)}`);
+  const tr = T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' });
+  const pl = T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 });
+  ok(tr.kind === 'trail' && tr.cumulative === true && tr.intervalS === pl.intervalS && tr.frames === pl.frames && tr.outFrames === tr.frames && tr.stackSize === 1, `궤적 누적은 일반과 같은 계산 + cumulative: ${J(tr)}`);
+  ok(pl.kind === 'plain' && pl.cumulative === false && pl.outFrames === pl.frames && pl.stackSize === 1, '일반: outFrames = frames, 누적 아님');
+  ok(T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 99 }).stackSize === 16 && T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 1 }).stackSize === 2 && T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked' }).stackSize === 4 && T.planTimelapse({ totalMin: 150, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 3.9 }).stackSize === 3, 'stackSize 2~16, 기본 4, 정수로 내림');
+  const short = T.planTimelapse({ totalMin: 10, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
+  ok(short.intervalS === 2 && short.clamped === 'interval' && short.frames === 301 && short.outFrames === 75, `간격 2 초 미만이면 올림: ${J(short)}`);
+  ok(T.planSummary(st, 'ko') === '7.5초마다 1201장 · 4장씩 합성 · 영상 10초 · 900배속' && T.planSummary(tr, 'ko') === '12초마다 301장 · 누적 · 영상 10초 · 360배속', `한국어 한 줄: ${T.planSummary(st, 'ko')} / ${T.planSummary(tr, 'ko')}`);
+  ok(T.planSummary(st, 'en').includes('stacked 4 per frame') && T.planSummary(tr, 'en').includes('cumulative') && T.planSummary(st, 'ja').includes('4枚ずつ合成') && T.planSummary(tr, 'ja').includes('累積'), '영어 · 일본어');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

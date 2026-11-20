@@ -4,8 +4,8 @@
  *
  * ## ⚠ 재기 전에 정한 기준 (2026-11-20)
  *  1. 모드 시트에서 타임랩스를 고르면 타임랩스 시트(`TimelapsePanel`)가 열린다(`pickMode('timelapse')` → `setTimelapseOpen(true)`). 별 일주 · 이벤트는 못 연다(captureMode 가 정한다).
- *  2. 타임랩스 시트: 구간 칩 셋(일몰 · 일출 · 낮에서 밤으로)과 영상 길이 칩 넷(5 · 10 · 20 · 30 초), `planTimelapse` 로 요약 · 저장 공간 · 간격이 짧아 올렸다는 글을 보이고, "미리보기"와 "지금 시작"을 부른다.
- *     영상 만들기가 아직 없다는 글("준비 중")이 시트에 있다(사진 묶음으로 저장한다고 숨기지 않는다).
+ *  2. 타임랩스 시트: 종류 칩 셋(일반 · 밝게 합성 · 궤적 누적, 합성이면 2 · 4 · 8장씩 칩)과 종류 설명, 구간 칩 셋(일몰 · 일출 · 낮에서 밤으로)과 영상 길이 칩 넷(5 · 10 · 20 · 30 초), `planTimelapse` 로 요약 · 저장 공간 · 간격이 짧아 올렸다는 글을 보이고, "미리보기"와 "지금 시작"을 부른다.
+ *     영상 만들기가 아직 없다는 글("준비 중")이 시트에 있다(사진 묶음으로 저장한다고 숨기지 않는다). 합성 · 누적은 아직 합치지 않고 찍은 사진을 그대로 저장한다는 글("합성은 준비 중")도 있다.
  *  3. 연속 촬영 훅: 시작 시각 기준으로 다음 장을 잡고(`nextDelayMs`), 한 장마다 `shoot()` 를 부르며, 연속 3 번 실패하면 멈추고 `error`, 마지막 장을 찍으면 끝난다. 마치기(`stop`)는 타이머를 지우고 찍은 사진은 남긴다. 사라질 때 타이머를 지운다.
  *  4. 카메라: 한 장은 `takePictureAsync` 로 찍어 `MediaLibrary.saveToLibraryAsync` 로 저장한다. 시작 전에 사진 저장 권한을 확인하고 없으면 시작하지 않는다. 시작하면 실제 카메라 화면(`setViewMode('camera')`)으로 둔다.
  *  5. 촬영 중 줄: 찍은 장수 / 전체 · 남은 시간(분:초) · "화면을 켜 두세요"(화면이 꺼지지 않게 하는 부품이 없으므로 알린다)와 "마치기". 연속 실패로 멈추면 그렇게 알리고, 끝나면 몇 장이 저장됐는지 알린다.
@@ -30,7 +30,7 @@ ok(/if \(key === 'timelapse'\) \{ setTimelapseOpen\(true\); return; \}/.test(cam
 
 console.log('\n[2] 타임랩스 시트');
 ok(/const PRESETS: readonly PresetKind\[\] = \['sunset', 'sunrise', 'day-to-night'\];/.test(panel) && /VIDEO_SEC_CHOICES = \[5, 10, 20, 30\] as const;/.test(panel), '구간 칩 셋 · 영상 길이 칩 넷');
-ok(/planTimelapse\(\{ totalMin, videoSec, fps: 30 \}\)/.test(panel) && /planSummary\(plan, language\)/.test(panel) && /plan\.estimateMB/.test(panel) && /plan\.clamped === 'interval'/.test(panel), 'planTimelapse 로 요약 · 저장 공간 · 간격 올림 안내');
+ok(/planTimelapse\(\{ totalMin, videoSec, fps: 30, kind, stackSize \}\)/.test(panel) && /const KINDS: readonly TimelapseKind\[\] = \['plain', 'stacked', 'trail'\];/.test(panel) && /STACK_CHOICES = \[2, 4, 8\] as const;/.test(panel) && /합성은 준비 중이에요\./.test(panel) && /planSummary\(plan, language\)/.test(panel) && /plan\.estimateMB/.test(panel) && /plan\.clamped === 'interval'/.test(panel), 'planTimelapse 로 요약 · 저장 공간 · 간격 올림 안내');
 ok(/onPreview\(plan, startMs, endMs\)/.test(panel) && /onStart\(plan\)/.test(panel) && /영상 만들기는 준비 중이에요\./.test(panel), '미리보기 · 지금 시작을 부르고, 영상 만들기는 준비 중이라고 적는다');
 
 console.log('\n[3] 연속 촬영 훅');

@@ -17,7 +17,13 @@ export const FRAME_MB = 3;
 
 export type TimelapseFps = 24 | 30;
 
-export interface PlanInput { totalMin?: number | null; videoSec?: number | null; fps?: number | null }
+/**
+ * 타임랩스의 세 종류(2026-11-20): 일반(한 장이 영상 한 프레임) · 밝게 합성(`stackSize` 장을 한 프레임으로 합쳐 밤을 밝게) · 궤적 누적(처음 장부터 쌓아 궤적이 점점 그려짐, 마지막 프레임이 별 일주 사진).
+ */
+export type TimelapseKind = 'plain' | 'stacked' | 'trail';
+export const STACK_RANGE = { min: 2, max: 16, def: 4 } as const;
+
+export interface PlanInput { totalMin?: number | null; videoSec?: number | null; fps?: number | null; kind?: TimelapseKind | null; stackSize?: number | null }
 
 export interface TimelapsePlan {
   /** 자른 뒤의 총 시간(분) */
@@ -27,9 +33,16 @@ export interface TimelapsePlan {
   fps: TimelapseFps;
   /** 찍는 간격(초), 0.5 초 단위 */
   intervalS: number;
+  kind: TimelapseKind;
+  /** 한 프레임으로 합치는 장수(밝게 합성만 2~16, 나머지 1) */
+  stackSize: number;
+  /** 궤적 누적이면 참: 영상의 매 프레임이 "지금까지의 합" */
+  cumulative: boolean;
   /** 찍을 장수(처음 한 장 포함) */
   frames: number;
-  /** 실제 영상 길이(초) = 장수 ÷ fps */
+  /** 영상 프레임 수(일반 · 누적은 찍는 장수, 합성은 찍는 장수 ÷ stackSize 내림) */
+  outFrames: number;
+  /** 실제 영상 길이(초) = 영상 프레임 수 ÷ fps */
   videoSec: number;
   /** 빨라지는 배수 = 총 시간 ÷ 요청한 영상 길이 */
   speedup: number;
@@ -47,14 +60,19 @@ export function planTimelapse(input: PlanInput): TimelapsePlan {
   const targetVideoSec = clamp(num(input.videoSec, DEFAULTS.videoSec), VIDEO_SEC_RANGE.min, VIDEO_SEC_RANGE.max);
   const fps: TimelapseFps = input.fps === 24 ? 24 : 30;
   const totalS = totalMin * 60;
-  const raw = totalS / (targetVideoSec * fps);
+  const kind: TimelapseKind = input.kind === 'stacked' || input.kind === 'trail' ? input.kind : 'plain';
+  const stackSize = kind === 'stacked'
+    ? clamp(Math.floor(num(input.stackSize, STACK_RANGE.def)), STACK_RANGE.min, STACK_RANGE.max)
+    : 1;
+  const raw = totalS / (targetVideoSec * fps * stackSize);
   const rounded = Math.round(raw * 2) / 2;
   const clamped: TimelapsePlan['clamped'] = rounded < MIN_INTERVAL_S ? 'interval' : null;
   const intervalS = Math.max(MIN_INTERVAL_S, rounded);
   const frames = Math.floor(totalS / intervalS) + 1;
+  const outFrames = kind === 'stacked' ? Math.floor(frames / stackSize) : frames;
   return {
-    totalMin, targetVideoSec, fps, intervalS, frames,
-    videoSec: frames / fps,
+    totalMin, targetVideoSec, fps, intervalS, kind, stackSize, cumulative: kind === 'trail', frames, outFrames,
+    videoSec: outFrames / fps,
     speedup: totalS / targetVideoSec,
     estimateMB: Math.round(frames * FRAME_MB),
     clamped,
@@ -90,9 +108,14 @@ export function planSummary(p: TimelapsePlan, lang: Lang): string {
   const iv = fmtNum(p.intervalS);
   const v = fmtNum(Math.round(p.videoSec * 10) / 10 === Math.round(p.videoSec) ? Math.round(p.videoSec) : Math.round(p.videoSec * 10) / 10);
   const sp = String(Math.round(p.speedup));
-  if (lang === 'en') return `Every ${iv} s, ${p.frames} frames · ${v} s video · ${sp}×`;
-  if (lang === 'ja') return `${iv}秒ごと ${p.frames}枚 · 動画${v}秒 · ${sp}倍速`;
-  return `${iv}초마다 ${p.frames}장 · 영상 ${v}초 · ${sp}배속`;
+  const mid = p.kind === 'stacked'
+    ? (lang === 'en' ? ` · stacked ${p.stackSize} per frame` : lang === 'ja' ? ` · ${p.stackSize}枚ずつ合成` : ` · ${p.stackSize}장씩 합성`)
+    : p.kind === 'trail'
+      ? (lang === 'en' ? ' · cumulative' : lang === 'ja' ? ' · 累積' : ' · 누적')
+      : '';
+  if (lang === 'en') return `Every ${iv} s, ${p.frames} frames${mid} · ${v} s video · ${sp}×`;
+  if (lang === 'ja') return `${iv}秒ごと ${p.frames}枚${mid} · 動画${v}秒 · ${sp}倍速`;
+  return `${iv}초마다 ${p.frames}장${mid} · 영상 ${v}초 · ${sp}배속`;
 }
 
 /** 다음 장까지 기다릴 ms. 시작 시각 기준이라 간격마다 어긋남이 쌓이지 않습니다. 늦었거나 숫자가 아니면 0. */
