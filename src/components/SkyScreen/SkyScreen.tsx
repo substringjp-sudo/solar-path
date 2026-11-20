@@ -1065,9 +1065,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && !picked && (
-          <View style={overlayStyles.objectPanel} pointerEvents="box-none">
+        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (전문가 모드, 지상에서만). 아래 시트 손잡이(PEEK_HEIGHT) 바로 위에 두고, 시트가 열려 있으면 숨깁니다. */}
+        {!isCameraOverlayActive && expertMode && !ascended && !picked && !sheetOpen && (
+          <View style={overlayStyles.sceneBar} pointerEvents="box-none">
             <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />
           </View>
         )}
@@ -1500,6 +1500,8 @@ const overlayStyles = StyleSheet.create({
   },
   sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
+  // 고른 대상이 없을 때의 장면 저장 줄: 객체 정보 패널 자리(bottom 12)는 아래 시트 손잡이를 덮으므로, 손잡이 바로 위에 둡니다.
+  sceneBar: { position: 'absolute', left: 12, right: 12, bottom: PEEK_HEIGHT + 8, zIndex: 22 },
   expertBtn: { width: 'auto', minWidth: 32, paddingHorizontal: 10 },
   expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {

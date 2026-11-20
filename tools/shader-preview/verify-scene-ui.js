@@ -13,7 +13,10 @@
  *     시각은 `currentTime`, 고른 대상은 `targetFromPicked(picked)`. 시선을 못 읽으면(장면이 안 올라옴) 저장하지 않는다(`'unavailable'`). 저장 결과는 저장함 · 가득 참(`'full'`) · 읽지 못함 셋이다.
  *  4. 열기(`openScene`)는 이 순서로 한 번에 맞춘다: 시트 닫기 · 대기 중이던 대상 접기 · 고른 대상 지우기 → 눈 높이 · 줌 · 시각 · 자리(`setSpot`) → 시선(`setCameraView(방위, 앙각)` — 화각은 줌이 정하므로 넘기지 않는다) →
  *     고른 대상이 있었으면 새 자리의 지형이 오는 대로(0.5 초마다, 최대 120 번 = 1 분) `targetFromLatLon` 으로 점을 구해 `rebuildPicked` 로 다시 만든다. 대상을 새로 고르거나 지우면 되살리던 대상은 접는다.
- *  5. 자리: 고른 대상이 있으면 객체 정보 패널 안(`sceneRow`)에, 없으면 아래에 따로 한 줄(`boxed`). 둘 다 전문가 모드 · 지상 · 카메라 화면이 아닐 때만. 시트는 전문가 모드일 때만 열려 있다(`visible={sceneSheetOpen && expertMode}`).
+ *  5. 자리: 고른 대상이 있으면 객체 정보 패널 안(`sceneRow`)에, 없으면 아래에 따로 한 줄(`boxed`). 둘 다 전문가 모드 · 지상 · 카메라 화면이 아닐 때만. 따로 뜨는 줄은 **아래 시트 손잡이(`PEEK_HEIGHT` 40 px) 바로 위**
+ *     (`bottom: PEEK_HEIGHT + 8`)에 두고 시트가 열려 있으면 숨긴다. 시트는 전문가 모드일 때만 열려 있다(`visible={sceneSheetOpen && expertMode}`).
+ *     (처음에는 줄을 객체 정보 패널과 같은 자리(`objectPanel`, `bottom: 12`)에 두었습니다. 레이아웃을 다시 읽어 보니 시트 손잡이는 무대 맨 아래 40 px 이고 그 자리가 손잡이를 덮어 고른 대상이 없을 때 시트를 끌어올릴 수 없게 되므로
+ *      기준을 위처럼 고쳤습니다. 고른 대상이 있을 때 패널이 손잡이를 덮는 것은 원래 그랬던 동작입니다.)
  *     줄의 "장면 저장" · "모두 N" 은 시트를, 칩은 그 장면을 바로 연다. 시트의 열기는 `openScene`, 이름 바꾸기 · 지우기는 저장소 동작으로 이어진다.
  *  6. 시트: 요약 · 대상 글은 `sceneSummary` · `sceneNote`(해 위치는 `sunNoteAt`)로 만들고, 지우기는 경고창(`Alert`) 대신 줄 안에서 한 번 더 묻는다(어느 화면에서나 같게 동작하고 확인할 수 있다).
  *  7. 하네스에 `scenes:1` 이 있다.
@@ -71,7 +74,8 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
 
   console.log('\n[5] 자리');
   ok(/\{!isCameraOverlayActive && expertMode && !ascended && picked && \([\s\S]*?sceneRow=\{<SceneBar language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} \/>\}/.test(sky), '고른 대상이 있으면 객체 정보 패널 안(sceneRow)');
-  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !picked && \(\s*<View style=\{overlayStyles\.objectPanel\} pointerEvents="box-none">\s*<SceneBar boxed language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} \/>/.test(sky), '없으면 아래에 따로 한 줄(boxed)');
+  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !picked && !sheetOpen && \(\s*<View style=\{overlayStyles\.sceneBar\} pointerEvents="box-none">\s*<SceneBar boxed language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} \/>/.test(sky), '없으면 아래에 따로 한 줄(boxed), 시트 손잡이 위에 두고 시트가 열리면 숨긴다');
+  ok(/sceneBar: \{ position: 'absolute', left: 12, right: 12, bottom: PEEK_HEIGHT \+ 8, zIndex: 22 \},/.test(sky), '그 자리는 bottom: PEEK_HEIGHT + 8');
   ok(/<SceneSheet\s+visible=\{sceneSheetOpen && expertMode\}/.test(sky) && /onOpen=\{openScene\}/.test(sky) && /renameSavedScene\(id, n\)/.test(sky) && /removeSavedScene\(id\)/.test(sky), '시트는 전문가 모드에서만, 열기 · 이름 바꾸기 · 지우기가 이어진다');
 
   console.log('\n[6] 시트');
