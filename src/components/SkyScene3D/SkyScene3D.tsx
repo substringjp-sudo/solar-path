@@ -83,6 +83,7 @@ import {
   type BuildingFieldHandle,
 } from './BuildingField';
 import { fetchNearbyBuildings, buildMergedBuildingGeometry, BUILDING_RADIUS_M, type BuildingMeshData } from '../../utils/buildingTiles';
+import type { LoadProgress } from '../../utils/loadProgress';
 import { loadFarBuildings, picksToElements, concatBuildingMeshData, type FarTileData } from '../../utils/farBuildingsLoad';
 import { FAR_OUTER_M } from '../../utils/farBuildings';
 import { fetchUrbanMask } from '../../utils/mvtTiles';
@@ -534,6 +535,11 @@ export interface SkyScene3DHandle {
   /** 하네스 · 판정용: 눈 이동의 지금 상태(눈 자리, 건물 숨김 여부, 지형 · 바다 유니폼의 눈 좌표, 받아 둔 블록). */
   getEyeState?: () => EyeState;
   /**
+   * 지금 위치(저장된 위치)의 주변 건물을 받는 진행: 받는 중(끝난 타일 수 / 받을 타일 수), 못 받아 다시 시도하는 중, 아니면 쉼.
+   * 눈이 움직이는 동안에는 받지 않으므로 쉼이고, 멈춰 위치가 확정되면 받기 시작합니다(`SandboxPanel` 의 막대).
+   */
+  getBuildingProgress?: () => LoadProgress;
+  /**
    * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
    * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
    * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있어도
@@ -704,6 +710,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const horizonCacheRef = useRef<() => { prof: HorizonProfile; fn: (azDeg: number) => number | null } | null>(() => null);
   const horizonCache = () => horizonCacheRef.current();
   const buildingLoadedKeyRef = useRef<string | null>(null);
+  /** 지금 위치의 주변 건물을 받는 진행(샌드박스의 "주변 불러오는 중 · 건물 %" 막대). 핸들 `getBuildingProgress` 가 읽습니다. */
+  const buildingProgressRef = useRef<LoadProgress>({ phase: 'idle', done: 0, total: 0 });
   const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildingRetryCountRef = useRef(0);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
@@ -1351,6 +1359,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         block: d ? { zoom: d.zoom, originTileX: d.originTileX, originTileY: d.originTileY, blockTiles: d.blockTiles, tileSpanM: d.tileSpanM } : null,
       };
     },
+    getBuildingProgress: (): LoadProgress => ({ ...buildingProgressRef.current }),
     clearCameraLensOverride: () => {
       cameraRollRef.current = 0;
       viewCenterOffsetYFracRef.current = 0;
@@ -4384,6 +4393,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         buildingRetryTimerRef.current = null;
       }
       buildingRetryCountRef.current = 0;
+      buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
       if (buildingFieldRef.current) {
         buildingFieldRef.current.setVisible(false);
         sceneDirtyRef.current = true;
@@ -4395,6 +4405,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
     if (buildingLoadedKeyRef.current === key && buildingFieldRef.current.hasGeometry()) {
+      buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
       if (demPatchRef.current) {
         buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
         demSerialRef.current += 1;
@@ -4407,9 +4418,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     const controller = new AbortController();
-    fetchNearbyBuildings(bldLat, bldLng, { radiusM: BUILDING_RADIUS_M, signal: controller.signal })
+    buildingProgressRef.current = { phase: 'loading', done: 0, total: 0 };
+    fetchNearbyBuildings(bldLat, bldLng, {
+      radiusM: BUILDING_RADIUS_M,
+      signal: controller.signal,
+      onProgress: (p) => { if (!controller.signal.aborted) buildingProgressRef.current = { phase: 'loading', done: p.done, total: p.total }; },
+    })
       .then((meshData) => {
         if (controller.signal.aborted || !buildingFieldRef.current) return;
+        buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
         buildingLoadedKeyRef.current = key;
         buildingRetryCountRef.current = 0;
         if (demPatchRef.current) {
@@ -4433,6 +4450,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       .catch((e) => {
         if (controller.signal.aborted) return;
         if (__DEV__) console.warn('[Buildings] 주변 건물 데이터를 못 받았습니다.', e);
+        buildingProgressRef.current = { phase: 'retry', done: 0, total: 0 };
         const n = buildingRetryCountRef.current;
         buildingRetryCountRef.current = n + 1;
         const waitMs = Math.min(30_000, 3000 * 2 ** n);

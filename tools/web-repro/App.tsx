@@ -46,6 +46,7 @@ import { snapBuildingTarget } from '../../src/utils/demPick';
 import { createPickIndexBuilder } from '../../src/utils/buildingPick';
 import { pickTargetAt } from '../../src/utils/pickTarget';
 import { Onboarding } from '../../src/components/Onboarding/Onboarding';
+import { distanceM } from '../../src/utils/geoMove';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -67,17 +68,22 @@ if (Q.atmos === 'load') {
 }
 
 /**
- * sbxctl:1 — 샌드박스 세로 막대(높이 · 줌)와 이동 조이스틱만(2026-11-19). 값은 window.__sbx 에 남깁니다: {eye, zoom, moves:[[동 m, 북 m] …]}.
- *   eye · zoom 처음 값, step 걸음 크기(m, 기본 100), lang. 하늘색 배경 위에 그려 읽힘을 봅니다.
+ * sbxctl:1 — 샌드박스 세로 막대(높이 · 줌)와 이동 조이스틱만(2026-11-19). 값은 window.__sbx 에 남깁니다: {eye, zoom, stick: 마지막 손잡이 상태, sticks: 손잡이 상태 수, nudges: [[동, 북] …]}.
+ *   eye · zoom 처음 값, lang, rel:1 이면 시선 기준 글. 하늘색 배경 위에 그려 읽힘을 봅니다.
  */
 function SandboxCtlRepro({ W }: { W: number }) {
   const [eye, setEye] = React.useState<number>(Q.eye ?? 1.6);
   const [zoom, setZoom] = React.useState<number>(Q.zoom ?? 1);
-  const moves = React.useRef<number[][]>([]);
-  (globalThis as any).__sbx = { eye, zoom, moves: moves.current };
+  const log = React.useRef<{ stick: any; sticks: number; nudges: number[][] }>({ stick: null, sticks: 0, nudges: [] });
+  (globalThis as any).__sbx = { eye, zoom, ...log.current };
   return (
     <View style={{ width: W, padding: 16, backgroundColor: '#35557F', flexDirection: 'row', gap: 28, alignItems: 'flex-start' }}>
-      <MoveStick language={Q.lang ?? 'ko'} stepM={Q.step ?? 100} onMove={(e, n) => { moves.current.push([Math.round(e * 10) / 10, Math.round(n * 10) / 10]); }} />
+      <MoveStick
+        language={Q.lang ?? 'ko'}
+        relative={!!Q.rel}
+        onStick={(st) => { log.current.stick = st; log.current.sticks += 1; (globalThis as any).__sbx = { ...(globalThis as any).__sbx, ...log.current }; }}
+        onNudge={(d) => { log.current.nudges.push([d.east, d.north]); (globalThis as any).__sbx = { ...(globalThis as any).__sbx, ...log.current }; }}
+      />
       <DialPair language={Q.lang ?? 'ko'} eyeHeightM={eye} onEyeHeight={setEye} zoomX={zoom} onZoom={setZoom} />
     </View>
   );
@@ -162,29 +168,45 @@ function BarRepro({ W }: { W: number }) {
   );
 }
 
-/** sbx:1 — 샌드박스 구도 도구 패널만(눈 높이·이동·내 위치 아님). awayM 으로 "내 위치 아님" 거리를 줍니다. */
+/**
+ * sbx:1 — 샌드박스 구도 도구 패널만(눈 높이·이동·내 위치 아님). 장면 대신 가짜 호스트를 물려 구동기가 하는 일을 window.__drive 에 남깁니다:
+ *   {eyes: 눈을 옮긴 횟수, lastEye: [위도, 경도], firstEye, commits: [[위도, 경도] …], clears: 눈을 거둔 횟수, homes: "내 위치로" 누른 횟수, origin: 지금 저장된 위치}.
+ *   lat · lon 저장된 위치의 처음 값(서울), mode 이동 모드(walk · bike · car · fly), awayM 저장된 위치의 "내 위치 아님" 거리, home:{latitude,longitude} 기기 위치(주면 눈의 자리 기준 실시간 거리),
+ *   load:{phase,done,total} 건물 받기 진행(window.__load 로 바꿀 수 있음), window.__view = {az, el} 로 시선을 바꿉니다(없으면 Q.az · Q.el). noView:1 이면 시선을 못 읽는 상태(null), noGetView:1 이면 getView 를 안 줌.
+ *   farStates:1 이면 먼 건물 줄의 네 상태(안내 · 받는 중 · 끝남 · 지형 없음)를 한 화면에 쌓아 봅니다.
+ */
 function PanelRepro({ W, H }: { W: number; H: number }) {
   const [eyeH, setEyeH] = React.useState(Q.eyeH ?? 1.6);
-  const [step, setStep] = React.useState(100);
+  const [mode, setMode] = React.useState<any>(Q.mode ?? 'walk');
+  const origin = React.useRef({ latitude: Q.lat ?? 37.5665, longitude: Q.lon ?? 126.978 });
+  const [, bump] = React.useState(0);   // 확정하면 다시 그립니다(앱에서는 저장소가 바뀌어 하늘 화면이 다시 그려지는 것과 같습니다)
+  const log = React.useRef({ eyes: 0, lastEye: null as number[] | null, firstEye: null as number[] | null, commits: [] as number[][], clears: 0, homes: 0 });
+  const publish = () => { (globalThis as any).__drive = { ...log.current, origin: [origin.current.latitude, origin.current.longitude] }; };
+  publish();
+  const drive = {
+    getOrigin: () => origin.current,
+    setEye: (p: { latitude: number; longitude: number }) => { const a = [p.latitude, p.longitude]; log.current.eyes += 1; log.current.lastEye = a; log.current.firstEye ??= a; publish(); },
+    clearEye: () => { log.current.clears += 1; publish(); },
+    commit: (p: { latitude: number; longitude: number }) => { origin.current = { latitude: p.latitude, longitude: p.longitude }; log.current.commits.push([p.latitude, p.longitude]); log.current.firstEye = null; publish(); bump(n => n + 1); },
+  };
   // farStates:1 — 먼 건물 줄의 네 상태(안내 · 받는 중 · 끝남 · 지형 없음)를 한 화면에 쌓아 봅니다(2026-11-19).
   const farStates: any[] = [null, { state: 'loading', tilesDone: 12, tilesTotal: 28, bytes: 3_400_000 }, { state: 'done', tilesDone: 28, tilesTotal: 28, bytes: 7_083_440, buildings: 3000, truncated: false, failed: 0 }, { state: 'off', tilesDone: 0, tilesTotal: 0, bytes: 0 }];
+  // 저장된 위치에서 기기 위치(home)까지의 거리 — 앱의 하늘 화면이 하는 계산과 같습니다. home 이 없으면 awayM 을 그대로 씁니다.
+  const common = {
+    language: (Q.lang ?? 'ko') as any, eyeHeightM: eyeH, onEyeHeight: setEyeH, mode, onMode: setMode, drive,
+    awayM: Q.home ? distanceM(Q.home, origin.current) : (Q.awayM ?? null),
+    home: Q.home ?? null,
+    onHome: () => { if (Q.home) { origin.current = { latitude: Q.home.latitude, longitude: Q.home.longitude }; log.current.homes += 1; publish(); bump(n => n + 1); } },
+  };
   return (
     <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12, gap: 10 }}>
       {Q.farStates
-        ? farStates.map((st, i) => <SandboxPanel key={i} language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={null} onHome={() => {}} far={{ status: st, onLoad: () => {} }} />)
+        ? farStates.map((st, i) => <SandboxPanel key={i} {...common} far={{ status: st, onLoad: () => {} }} />)
         : (
-          // 시선 읽음 줄과 "시선 기준" 이동(2026-11-20): window.__view = {az, el} 로 시선을 바꿉니다(없으면 Q.az · Q.el). noView:1 이면 시선을 못 읽는 상태(null), noGetView:1 이면 getView 를 안 줌.
-          // 조이스틱이 내보낸 걸음(동 m, 북 m)은 window.__moves 에 쌓입니다.
           <SandboxPanel
-            language={Q.lang ?? 'ko'}
-            eyeHeightM={eyeH}
-            onEyeHeight={setEyeH}
-            stepM={step}
-            onStep={setStep}
-            onMove={(e, n) => { ((globalThis as any).__moves ??= []).push([Math.round(e * 100) / 100, Math.round(n * 100) / 100]); }}
-            awayM={Q.awayM ?? null}
-            onHome={() => {}}
+            {...common}
             getView={Q.noGetView ? undefined : () => (Q.noView ? null : ((globalThis as any).__view ?? { az: Q.az ?? 128.4, el: Q.el ?? 6.9 }))}
+            getLoad={() => (globalThis as any).__load ?? Q.load ?? null}
           />
         )}
     </View>
@@ -446,6 +468,11 @@ export default function App() {
   if (Q.bar) return <BarRepro W={W} />;
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);
+  // drive:1 — 실제 장면 아래에 샌드박스 패널을 붙여 조이스틱 → 구동기 → 장면의 눈 → 위치 확정을 끝까지 잇습니다(2026-11-20). 확정은 window.__commits 에 남고 장면의 위치(lat · lon)가 바뀝니다.
+  //   mode 로 처음 이동 모드(기본 비행). 눈 상태는 window.__skyHandle.getEyeState() 로 읽습니다.
+  const [driveMode, setDriveMode] = React.useState<any>(Q.mode ?? 'fly');
+  const locRef = React.useRef({ latitude: 0, longitude: 0 });
+  locRef.current = { latitude: lat ?? 37.5, longitude: lon ?? 127 };
   if (Q.words) return <WordsRepro W={W} />;
   if (Q.sbx) return <PanelRepro W={W} H={H} />;
   if (Q.learn || Q.forecast) return <LearnRepro W={W} H={H} />;
@@ -455,7 +482,7 @@ export default function App() {
   if (Q.objpanel) return <ObjPanelRepro W={W} H={H} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   if (Q.sbxctl) return <SandboxCtlRepro W={W} />;
-  return (
+  const scene = (
     <View style={{ width: W, height: H }}>
       <SkyScene3D
         sim={{ terrain: { observerElevation: elevM ?? 0 }, ...(ring ? { pathData: ring } : {}) } as any}
@@ -512,6 +539,32 @@ export default function App() {
         </View>
       ) : null}
       {Q.panel ? <DevTuningPanel visible onClose={() => { (globalThis as any).__panelClosed = true; }} /> : null}
+    </View>
+  );
+  if (!Q.drive) return scene;
+  const H0 = () => (globalThis as any).__skyHandle;
+  return (
+    <View style={{ width: Math.max(W, 340) }}>
+      {scene}
+      <View style={{ backgroundColor: '#3a4a6a', padding: 12 }}>
+        <SandboxPanel
+          language="ko"
+          eyeHeightM={Q.eyeH ?? 1.6}
+          onEyeHeight={() => {}}
+          mode={driveMode}
+          onMode={setDriveMode}
+          drive={{
+            getOrigin: () => locRef.current,
+            setEye: (p) => { ((globalThis as any).__driveLog ??= { eyes: 0 }).eyes += 1; H0()?.setEyeLocation?.(p.latitude, p.longitude); },
+            clearEye: () => { ((globalThis as any).__driveLog ??= { eyes: 0 }).clears = (((globalThis as any).__driveLog.clears) ?? 0) + 1; H0()?.clearEyeLocation?.(); },
+            commit: (p) => { ((globalThis as any).__commits ??= []).push([p.latitude, p.longitude]); setDyn((d: any) => ({ ...d, lat: p.latitude, lon: p.longitude })); },
+          }}
+          awayM={null}
+          onHome={() => {}}
+          getView={() => H0()?.getRenderState?.()?.view ?? null}
+          getLoad={() => H0()?.getBuildingProgress?.() ?? null}
+        />
+      </View>
     </View>
   );
 }

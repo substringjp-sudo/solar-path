@@ -391,13 +391,22 @@ function ringCenterTile(ring: { x: number; y: number }[]): { cx: number; cy: num
   return { cx: sx / ring.length, cy: sy / ring.length };
 }
 
+/** 건물 받기 진행: 끝난 타일 수와 받을 타일 수. `total` 이 0 이면 전체를 모르는 것입니다(예비 경로로 한 번에 받는 중). */
+export interface BuildingFetchProgress {
+  done: number;
+  total: number;
+}
+
 async function fetchBuildingsFromMvt(
   lat: number,
   lon: number,
   radiusM: number,
   signal: AbortSignal,
+  onProgress?: (p: BuildingFetchProgress) => void,
 ): Promise<OsmBuildingElement[]> {
   const tiles = tileListForRadius(lat, lon, radiusM, 14);
+  let done = 0;
+  onProgress?.({ done, total: tiles.length });
   const results = await Promise.all(
     tiles.map(async (tc) => {
       try {
@@ -406,6 +415,9 @@ async function fetchBuildingsFromMvt(
         return { tc, bld: layers.building ?? null };
       } catch {
         return null;
+      } finally {
+        done += 1;
+        onProgress?.({ done, total: tiles.length });
       }
     }),
   );
@@ -472,11 +484,12 @@ async function fetchBuildingsFromOverpass(
 /**
  * 관측 위치 주변 반경 1 km 건물을 OpenFreeMap MVT(1차) / Overpass(예비)에서 조회해 병합 기하를 반환합니다.
  * 네트워크 실패 시에는 `null`을 캐시하지 않고 예외를 던져 호출부에서 재시도할 수 있게 합니다.
+ * `onProgress` 는 타일이 하나 끝날 때마다 불립니다(샌드박스의 "주변 불러오는 중 · 건물 62 %" 막대). 캐시에 있으면 한 번도 안 불립니다.
  */
 export async function fetchNearbyBuildings(
   lat: number,
   lon: number,
-  opts: { radiusM?: number; signal?: AbortSignal } = {},
+  opts: { radiusM?: number; signal?: AbortSignal; onProgress?: (p: BuildingFetchProgress) => void } = {},
 ): Promise<BuildingMeshData | null> {
   const radiusM = opts.radiusM ?? BUILDING_RADIUS_M;
   const key = cacheKey(lat, lon, radiusM);
@@ -495,9 +508,10 @@ export async function fetchNearbyBuildings(
   try {
     let elements: OsmBuildingElement[];
     try {
-      elements = await fetchBuildingsFromMvt(lat, lon, radiusM, ctl.signal);
+      elements = await fetchBuildingsFromMvt(lat, lon, radiusM, ctl.signal, opts.onProgress);
     } catch (mvtErr) {
       if (ctl.signal.aborted) throw mvtErr;
+      opts.onProgress?.({ done: 0, total: 0 });   // 예비 경로는 한 번에 받으므로 전체를 모릅니다
       elements = await fetchBuildingsFromOverpass(lat, lon, radiusM, ctl.signal);
     }
     const data = buildMergedBuildingGeometry(elements, lat, lon, radiusM);
