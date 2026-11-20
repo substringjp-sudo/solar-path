@@ -14,7 +14,16 @@
  *  6. max 로 개수를 자른다(1 이면 첫 카드만). 빈 목록은 [].
  *  7. 날짜 정오 간격이 23·25시간(서머타임 날)이어도 날짜 번호가 맞다(내일 = 1, 모레 = 2).
  *  8. 판정 순서가 앱 소스의 `VERDICT_ORDER` 와 같고(Overcast < Muted < Fair < Great < Epic), qualityLevel 은 1~5, null 은 0.
+ * 10. `starMoment`("오늘 밤 별 보기" 카드): 맑은 밤(운량 10 %, 빛 지도 6.0, 달 없음)이면 카드이고 한계등급이 `starLimit` 과 같다. 운량 50 % 는 카드, 50.01 % 와 80 % 는 없다
+ *     (구름 문턱은 `cloudRating`: 20 좋음 · 50 보통). 운량을 모르면 없다(NaN 도 없다). 한계등급 3 은 경계라 부동소수 오차 1e-6 은 봐준다:
+ *     도시 하늘 빛 지도 3.0(앱이 내는 가장 낮은 값)에 달 90 % 55° 는 2.86 이라 없고, 같은 도시에 달이 없으면 3.0 이라 있고, 빛 지도 2.9 면 없다.
+ *     별 보는 시각이 지금보다 5분 안(이미 지났어도)이면 fromNow, 6분 뒤면 아니다. timeMs 가 NaN 이면 없다. 문턱 상수는 3 과 5분.
  *  9. `matchesFocus`: 같은 쪽이고 정오 차가 12시간 미만이면 true, 다른 쪽 · 12시간 이상 · focus 없음이면 false.
+ * 11. 앱 연결(소스 정규식, 2026-11-20): 별 카드는 규칙 없이 화면에서 켜지면 안 되므로 (a) `SkyScreen.tsx` 가 `starMoment(` 를 부르고 그 시각 계산을 **지금**(`new Date()`)으로 한다
+ *     (보고 있는 날짜 `calcDate` 가 아니다: "오늘 밤" 카드) (b) 시트가 닫혔거나 전문가 모드(`cardsOn` 거짓)면 계산 없이 null (c) 카드 줄은 `moments` 나 `star` 가 있으면 그린다
+ *     (d) `UpcomingCards` 에 `star` 와 `onStarPress` 를 넘기고, 누르면 `setCalcTopic('stars')` 로 별 보기 계산 과정을 `star.timeMs` 시각으로 연다
+ *     (e) "은하수" 줄 `f_milkyway` 는 `star` 가 있을 때만 뺀다(없으면 그대로) (f) `UpcomingCards.tsx` 는 별 카드를 날 카드(`moments.map`)보다 앞에 그리고 접근성 글에
+ *     "계산 과정 보기" 를 넣으며, 카드가 셋 이상이면 안쪽 여백을 줄이고(`dense`) 가운데 줄을 두 줄까지 접는다(360 폭 폰에서 "Sunset Good" 이 "Sunset G…" 로 잘려 판정 낱말이 안 보이던 것을 막음).
  *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-upcoming-moments.js
@@ -129,6 +138,46 @@ const hhmm = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(11, 16);
     ok(U.matchesFocus({ noonMs: noon0 + DAY }, 'sunset', f) && U.matchesFocus({ noonMs: noon0 + DAY + 11 * 3600e3 }, 'sunset', f), '같은 쪽 · 정오 차 11시간 이내는 true');
     ok(!U.matchesFocus({ noonMs: noon0 + DAY }, 'sunrise', f) && !U.matchesFocus({ noonMs: noon0 + DAY + 12 * 3600e3 }, 'sunset', f) && !U.matchesFocus({ noonMs: noon0 + 2 * DAY }, 'sunset', f), '다른 쪽 · 정오 차 12시간 · 다른 날은 false');
     ok(!U.matchesFocus({ noonMs: noon0 }, 'sunset', null) && !U.matchesFocus({ noonMs: noon0 }, 'sunset', undefined), 'focus 가 없으면 false');
+  }
+
+  console.log('\n[10] 오늘 밤 별 보기');
+  {
+    const SV = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'starVisibility.js'));
+    const base = { cloudPct: 10, sunAltDeg: -30, moonAltDeg: -20, moonIllum: 0, lightPollutionMag: 6.0, aod550: 0.05 };
+    const T0 = Date.parse('2026-11-19T19:21:00+09:00');
+    const mk = (over, extra = {}) => U.starMoment({ timeMs: T0, nowMs: T0 - 3 * 3600e3, cloudKnown: true, input: { ...base, ...over }, ...extra });
+    const clear = mk({});
+    ok(!!clear && clear.timeMs === T0 && Math.abs(clear.limitMag - SV.starLimit({ ...base }).limitMag) < 1e-12 && clear.cloudPct === 10 && clear.fromNow === false, `맑은 밤: 카드, 한계 ${clear && clear.limitMag.toFixed(2)} = starLimit`);
+    ok(!!mk({ cloudPct: 50 }) && mk({ cloudPct: 50.01 }) === null && mk({ cloudPct: 80 }) === null && !!mk({ cloudPct: 20 }) && !!mk({ cloudPct: 0 }), `운량 50 % 는 카드, 50.01 · 80 % 는 없다 (20 % · 0 % 는 카드)`);
+    ok(mk({}, { cloudKnown: false }) === null && mk({ cloudPct: NaN }) === null && U.starMoment({ timeMs: NaN, nowMs: T0, cloudKnown: true, input: { ...base } }) === null, '운량을 모르면(예보 없음 · NaN) 없다, timeMs 가 NaN 이어도 없다');
+    const cityMoon = { lightPollutionMag: 3.0, moonAltDeg: 55, moonIllum: 0.9 };
+    const cityNoMoon = { lightPollutionMag: 3.0 };
+    const lowL = SV.starLimit({ ...base, ...cityMoon }).limitMag, highL = SV.starLimit({ ...base, ...cityNoMoon }).limitMag;
+    const tooDark = SV.starLimit({ ...base, lightPollutionMag: 2.9 }).limitMag;
+    ok(lowL < 3 && mk(cityMoon) === null && Math.abs(highL - 3) < 1e-6 && !!mk(cityNoMoon) && tooDark < 3 - 1e-6 && mk({ lightPollutionMag: 2.9 }) === null,
+      `한계등급 3 문턱: 도시 + 보름달 ${lowL.toFixed(2)} 는 없고, 도시 달 없음 ${highL.toFixed(6)} 는 있고(경계), 빛 지도 2.9 의 ${tooDark.toFixed(2)} 는 없다`);
+    ok(mk({}, { nowMs: T0 - 5 * 60e3 }).fromNow === true && mk({}, { nowMs: T0 - 6 * 60e3 }).fromNow === false && mk({}, { nowMs: T0 + 3600e3 }).fromNow === true, '지금부터: 5분 안 · 이미 지남은 true, 6분 뒤는 false');
+    ok(U.MIN_STAR_LIMIT === 3 && U.STAR_NOW_MS === 5 * 60e3 && U.STAR_LIMIT_EPS === 1e-6, '문턱 상수 3 · 5분 · 여유 1e-6');
+  }
+
+  console.log('\n[11] 앱 연결 (소스)');
+  {
+    const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, 'src', ...p), 'utf8');
+    const sky = read('components', 'SkyScreen', 'SkyScreen.tsx');
+    const cards = read('components', 'SkyScreen', 'UpcomingCards.tsx');
+    const starBlock = (sky.match(/const star = useMemo\(\(\) => \{[\s\S]*?\}, \[[^\]]*\]\);/) || [''])[0];
+    ok(starBlock !== '' && /const now = new Date\(\);/.test(starBlock) && /starArgsAt\(now\)/.test(starBlock) && /starMoment\(\{[^}]*nowMs: now\.getTime\(\)/.test(starBlock) && !/calcDate/.test(starBlock),
+      '(a) 별 카드는 지금(new Date())으로 계산하고 보고 있는 날짜 calcDate 는 쓰지 않는다');
+    ok(/if \(!cardsOn\) return null;/.test(starBlock) && /const cardsOn = sheetOpen && !expertMode;/.test(sky), '(b) 시트가 닫혔거나 전문가 모드면 계산 없이 null');
+    ok(/\{!expertMode && \(moments\.length > 0 \|\| star\) && \(\s*<UpcomingCards/.test(sky), '(c) 카드 줄은 moments 나 star 가 있으면 그린다');
+    const press = (sky.match(/onStarPress=\{\(\) => \{[\s\S]*?\}\}/) || [''])[0];
+    ok(/<UpcomingCards[\s\S]*?star=\{star\}/.test(sky) && /setCalcDate\(new Date\(star\.timeMs\)\)/.test(press) && /setCalcTopic\('stars'\)/.test(press) && /setCalcOpen\(true\)/.test(press),
+      '(d) star 와 onStarPress 를 넘기고 누르면 star.timeMs 시각으로 stars 계산 과정을 연다');
+    ok(/!\(star && e\.id === 'f_milkyway'\)/.test(sky) && /\[moments\.length, star, combinedEventList\]/.test(sky), "(e) '은하수' 줄은 star 가 있을 때만 뺀다");
+    const iStar = cards.indexOf('{star && ('), iMap = cards.indexOf('moments.map(');
+    ok(iStar > 0 && iMap > iStar && /계산 과정 보기/.test(cards), '(f1) 별 카드가 날 카드보다 앞이고 접근성 글에 "계산 과정 보기"');
+    ok(/const dense = moments\.length \+ \(star \? 1 : 0\) >= 3;/.test(cards) && /cardDense: \{ paddingHorizontal: space\.sm \}/.test(cards) && (cards.match(/numberOfLines=\{2\}/g) || []).length === 2 && !/numberOfLines=\{1\}/.test(cards),
+      '(f2) 카드 셋 이상이면 안쪽 여백을 줄이고(dense) 가운데 줄은 두 줄까지 접는다(한 줄 말줄임 없음)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);

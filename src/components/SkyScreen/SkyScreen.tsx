@@ -66,7 +66,7 @@ import { starArgsFor, hourlyCovers, starWeatherOf, type StarWeather } from '../.
 import { estimateLightPollution, type NightLights } from '../../utils/cityLightMap';
 import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import { buildSkyEvents } from '../../utils/skyEvents';
-import { upcomingMoments, type ForecastFocus } from '../../utils/upcomingMoments';
+import { upcomingMoments, starMoment, type ForecastFocus } from '../../utils/upcomingMoments';
 import { useForecastDays } from '../../hooks/useForecastDays';
 import { UpcomingCards } from './UpcomingCards';
 import { t, L3 } from '../../utils/i18n';
@@ -887,11 +887,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const cardsOn = sheetOpen && !expertMode;
   const { days: forecastDays, now: forecastNow } = useForecastDays({ fetch: cardsOn, compute: cardsOn, days: 3, haptic: false });
   const moments = useMemo(() => upcomingMoments(forecastDays, forecastNow.getTime()), [forecastDays, forecastNow]);
-  // 카드가 있으면 해 뜨고 지는 줄은 판정 카드와 카드가 말하므로, 아래 줄에는 그 밖의 오늘 이벤트(초승달 · 은하수 · 행성 …)만 남깁니다.
-  const simpleEventRows = useMemo(
-    () => (moments.length > 0 ? combinedEventList.filter(e => !/sun(rise|set)$/.test(e.id)).slice(0, 2) : combinedEventList.slice(0, 3)),
-    [moments.length, combinedEventList],
-  );
 
   // 계산 과정 보기("노을 점수가 나오기까지")의 입력: 시트가 보여 주는 판정(가장 붉을 때의 예측)과 그 시각의 예보 링을 해 쪽으로 돌린 것.
   const getScoreInput = (): CalcScoreInput | null => {
@@ -915,14 +910,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     loadNightLights().then(m => { if (alive && m) setNightLights(m); });
     return () => { alive = false; };
   }, [nightLights]);
-  const getStarArgs = () => {
+  const starArgsAt = (date: Date) => {
     const weatherAt = (when: Date): StarWeather | null => {
       const h = pathData[0]?.hourly;
       const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
       return hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(pathData, when)[0]) : null;
     };
     return starArgsFor({
-      date: calcDate,
+      date,
       lat: latitude,
       lon: longitude,
       elevM: terrainData.observerElevation ?? 0,
@@ -930,6 +925,24 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       lightPollutionMag: nightLights ? estimateLightPollution(nightLights, latitude, longitude).magLimit : null,
     });
   };
+  const getStarArgs = () => starArgsAt(calcDate);
+
+  // "오늘 밤 별 보기" 카드(목업 1의 첫 카드, `utils/upcomingMoments.ts` `starMoment`): 오늘 밤 별을 보는 시각의 구름·해·달·빛 지도로 한계등급을 세어
+  // 구름이 보통 이하이고 3등급 이상일 때만. 보고 있는 날이 오늘이 아니면 받아 둔 날씨가 그 밤을 덮지 않아 운량을 몰라 카드가 없습니다(지어내지 않음).
+  const star = useMemo(() => {
+    if (!cardsOn) return null;
+    const now = new Date();
+    const a = starArgsAt(now);
+    return starMoment({ timeMs: a.timeMs, nowMs: now.getTime(), input: a.input, cloudKnown: a.cloudKnown });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardsOn, pathData, nightLights, latitude, longitude, terrainData.observerElevation]);
+  // 카드가 있으면 해 뜨고 지는 줄은 판정 카드와 카드가 말하므로, 아래 줄에는 그 밖의 오늘 이벤트(초승달 · 은하수 · 행성 …)만 남깁니다.
+  const simpleEventRows = useMemo(() => {
+    const hideSun = moments.length > 0;
+    // 별 보기 카드가 있으면 같은 때의 "은하수" 줄은 겹치므로 뺍니다.
+    const rows = combinedEventList.filter(e => !(hideSun && /sun(rise|set)$/.test(e.id)) && !(star && e.id === 'f_milkyway'));
+    return rows.slice(0, hideSun ? 2 : 3);
+  }, [moments.length, star, combinedEventList]);
 
   const formatTimeStr = (d: Date) => {
     const hh = String(d.getHours()).padStart(2, '0');
@@ -1279,14 +1292,21 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 {L3(language, '다가오는 좋은 순간', 'Coming up', 'これからの見どころ')}
               </Text>
             )}
-            {!expertMode && moments.length > 0 && (
+            {!expertMode && (moments.length > 0 || star) && (
               <UpcomingCards
                 moments={moments}
+                star={star}
                 language={language}
                 tzHours={tz}
                 onPress={(m) => {
                   if (onOpenForecast) onOpenForecast({ noonMs: m.noonMs, side: m.side });
                   else setCurrentTime(new Date(m.timeMs));
+                }}
+                onStarPress={() => {
+                  if (!star) return;
+                  setCalcDate(new Date(star.timeMs));
+                  setCalcTopic('stars');
+                  setCalcOpen(true);
                 }}
               />
             )}
