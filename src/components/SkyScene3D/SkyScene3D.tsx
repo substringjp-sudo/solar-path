@@ -34,7 +34,6 @@ import { makeDemSampler } from '../../utils/demSampler';
 import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
 import { offsetLatLon, localOffsetM } from '../../utils/geoMove';
 import { blockCovers, denseRadiusM, moveObserver } from '../../utils/demGeometry';
-import { waterTest, type WaterGrid } from '../../utils/standSuggest';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
@@ -521,14 +520,8 @@ export interface SkyScene3DHandle {
    */
   getHorizonProfile?: () => HorizonProfile | null;
   /**
-   * 서 있을 자리 찾기(추천)용 표본: 눈 위치를 원점으로 하는 틀의 지반 높이(동 x, 남 z, m → 해발)와 물 판정, 그리고 그 원점의 위경도.
-   * 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다). 물은 지도의 물 격자(눈 둘레 약 3 km)와 해수면 근처 높이로 가리는데,
-   * 지도 자료는 지형보다 늦게 오고 타일 일부를 못 받을 수도 있으므로, `waterReady` 가 거짓이면 아직(또는 일부만) 받아 해수면 높이로만 가린 것입니다.
-   */
-  getStandSamplers?: () => { origin: { latitude: number; longitude: number }; ground: HeightSampler; isWater: (eastM: number, southM: number) => boolean; waterReady: boolean } | null;
-  /**
-   * 위경도·해발의 한 점을 지금 눈 기준 대상 점으로 만듭니다(방위·앙각·거리·땅이 가리는지). 서 있을 자리로 옮긴 뒤 같은 대상을 새 자리에서
-   * 다시 잡는 데 씁니다. 이 자리의 지형이 아직 안 왔으면 null.
+   * 위경도·해발의 한 점을 지금 눈 기준 대상 점으로 만듭니다(방위·앙각·거리·땅이 가리는지). 자리를 옮긴 뒤 같은 대상을 새 자리에서
+   * 다시 잡는 데 씁니다(저장한 장면 열기). 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다).
    */
   targetFromLatLon?: (latitude: number, longitude: number, elevM: number) => (TargetPoint & { eyeElevM: number }) | null;
   /**
@@ -546,11 +539,6 @@ export interface SkyScene3DHandle {
    * 눈이 움직이는 동안에는 받지 않으므로 쉼이고, 멈춰 위치가 확정되면 받기 시작합니다(`SandboxPanel` 의 막대).
    */
   getBuildingProgress?: () => LoadProgress;
-  /**
-   * 지도 자료(물·건물·도로 마스크)를 다시 받습니다. 타일 일부를 못 받아 일부 마스크로 굳은 자리를 고치는 길입니다
-   * (이미 받은 타일은 캐시에서 읽으므로 못 받은 것만 다시 요청합니다).
-   */
-  reloadUrbanMask?: () => void;
   /**
    * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
    * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
@@ -700,8 +688,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const urbanLoadedKeyRef = useRef<string | null>(null);
-  /** 지도 자료의 물 격자(눈 둘레, 촘촘한 것 먼저) — 서 있을 자리 후보가 물 위인지 가리는 데 씁니다. */
-  const urbanWaterRef = useRef<{ key: string; grids: WaterGrid[]; complete: boolean } | null>(null);
   // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
   const urbanSerialRef = useRef(0);
   // DEM 패치·건물 패치가 바뀔 때마다 올립니다. 건물/지형 빛 판 캐시 키에 넣어, 패치가 늦게 와도 건물 외벽이 누락되지 않게 합니다.
@@ -1230,18 +1216,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastSnapshotErrorRef = useRef<string | null>(null);
   /** 스냅샷 직전에 GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기. −1 = 못 쟀음. */
   const lastBufferMeanRef = useRef<number>(-1);
-  /** 지금 눈 위치의 지형 틀(원점·지반 표본·물 판정). 이 자리의 지형이 아직 안 왔으면 null. */
-  const standFrame = () => {
+  /** 지금 눈 위치의 지형 틀(지반 표본). 이 자리의 지형이 아직 안 왔으면 null. */
+  const groundFrame = () => {
     const renderer = rendererRef.current, patch = demPatchRef.current, here = eyeCoords();
     if (!renderer || !patch || !here) return null;
     // 받아 둔 블록이 눈 둘레를 덮는 동안만(옛 "받은 키 = 위치 키" 검사를 눈 이동에 맞게 바꿈).
     if (!blockCovers(patch, here.latitude, here.longitude, denseRadiusM(patch), 0)) return null;
     const ground = sceneHeightSampler(renderer, patch, demMaskPatchRef.current);
     if (!ground) return null;
-    const loc = locationRef.current?.coords;
-    const key = loc ? `${loc.latitude.toFixed(3)},${loc.longitude.toFixed(3)}` : '';
-    const uw = urbanWaterRef.current?.key === key ? urbanWaterRef.current : null;
-    return { origin: { latitude: here.latitude, longitude: here.longitude }, ground, isWater: waterTest(uw?.grids, ground), waterReady: !!uw && uw.complete };
+    return { ground };
   };
   // 땅 프로필: 지형 패치 번호와 눈 높이가 같은 동안은 다시 만들지 않습니다(40 km 프로필은 샘플 십수만 번).
   horizonCacheRef.current = () => {
@@ -1335,13 +1318,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     },
     getSkyline: () => horizonCache()?.fn ?? null,
     getHorizonProfile: () => horizonCache()?.prof ?? null,
-    getStandSamplers: () => standFrame(),
-    reloadUrbanMask: () => {
-      urbanLoadedKeyRef.current = null;
-      setBuildingSyncTick(t => t + 1);
-    },
     targetFromLatLon: (latitude, longitude, elevM) => {
-      const f = standFrame();
+      const f = groundFrame();
       const here = eyeCoords();
       if (!f || !here) return null;
       const ground = f.ground(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
@@ -4368,7 +4346,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       .then((mask) => {
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
-        urbanWaterRef.current = { key, grids: [...(mask.waterHi ? [mask.waterHi] : []), ...(mask.water ? [{ size: mask.size, halfM: mask.halfM, data: mask.water }] : [])], complete: (mask.failedTiles ?? 0) === 0 };
         terrainFieldRef.current.setUrbanMask(mask);
         buildingFieldRef.current?.setLamps(mask.lamps);
         seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);

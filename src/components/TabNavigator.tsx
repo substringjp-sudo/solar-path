@@ -1,7 +1,7 @@
 /**
  * TabNavigator.tsx
  *
- * 평면 3탭(01 하늘 · 02 예보 · 03 기록) 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
+ * 평면 3탭(01 하늘 · 02 학습 · 03 기록) 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
  * 헤더 탭 순서와 어긋날 수 없습니다.
  *
  * Why (docs/IA_REDESIGN.md §1-B): 이전 구현은
@@ -16,9 +16,9 @@ import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from '
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
 import { Gallery } from './Gallery';
-import { ForecastScreen } from './ForecastScreen/ForecastScreen';
+import { LearnScreen } from './LearnScreen/LearnScreen';
 import { TAB_ORDER, type AppTab } from './AppHeader';
-import type { ForecastFocus } from '../utils/upcomingMoments';
+import type { LearnEntry } from '../utils/learnSections';
 import { springTo } from '../theme/motion';
 
 interface TabNavigatorProps {
@@ -67,8 +67,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   const { width } = Dimensions.get('window');
 
   const activeIndex = TAB_ORDER.indexOf(activeTab);
-  // 01 하늘의 "다가오는 좋은 순간" 카드에서 02 예보로 올 때 강조할 칸. 02 예보를 떠나면 02 예보가 지웁니다.
-  const [forecastFocus, setForecastFocus] = useState<ForecastFocus | null>(null);
+  // 01 하늘의 카드 · 점수 · 왜 그런가요에서 02 학습으로 올 때 싣는 요청(구역 · 주제 · 날). 들어올 때마다 nonce 가 달라져 같은 곳으로 다시 와도 맞춰집니다.
+  const [learnEntry, setLearnEntry] = useState<LearnEntry | null>(null);
+  const entryCount = useRef(0);
+  const openLearn = (e: Omit<LearnEntry, 'nonce'>) => {
+    entryCount.current += 1;
+    setLearnEntry({ ...e, nonce: entryCount.current });
+    setActiveTab('learn');
+  };
   const startX = useRef(0);
   const activeTabRef = useRef(activeTab);
   const activeIndexRef = useRef(activeIndex);
@@ -148,16 +154,15 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           onOpenDatePicker={onOpenDatePicker}
           isActive={activeTab === 'sky' && !isSuspended}
           isCameraOverlayActive={isCameraOverlayActive}
-          onOpenForecast={(f) => { setForecastFocus(f); setActiveTab('forecast'); }}
+          onOpenLearn={openLearn}
         />
       </View>
-      <View style={[styles.page, { width }, activeTab !== 'forecast' && styles.hiddenPage]}>
-        <ForecastScreen
-          isActive={activeTab === 'forecast' && !isSuspended}
+      <View style={[styles.page, { width }, activeTab !== 'learn' && styles.hiddenPage]}>
+        <LearnScreen
+          isActive={activeTab === 'learn' && !isSuspended}
           setCurrentTime={setCurrentTime}
           onOpenSky={() => setActiveTab('sky')}
-          focus={forecastFocus}
-          onClearFocus={() => setForecastFocus(null)}
+          entry={learnEntry}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>
