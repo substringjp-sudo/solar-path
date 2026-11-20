@@ -55,7 +55,11 @@ export interface SavedScene {
   zoomX: number;
   timeMs: number;
   target: SceneTarget | null;
+  /** 해 · 달 걸기로 시선을 대상에 맞춰 둔 천체. 열 때 같은 맞춤을 다시 합니다. 대상이 없으면 항상 null. */
+  aligned: SceneBody | null;
 }
+
+export type SceneBody = 'sun' | 'moon';
 
 /** 지금 장면에서 읽은 값(정리 전). */
 export interface SceneInput {
@@ -67,7 +71,12 @@ export interface SceneInput {
   zoomX: number;
   timeMs: number;
   target: SceneTarget | null;
+  /** 걸어 둔 천체(없으면 생략 · null). */
+  aligned?: unknown;
 }
+
+/** 'sun' · 'moon' 만 받고, 고른 대상이 없으면 없는 것으로 봅니다. */
+const normalizeAligned = (a: unknown, target: SceneTarget | null): SceneBody | null => (target && (a === 'sun' || a === 'moon') ? a : null);
 
 // ── 정리 ─────────────────────────────────────────────────────────────────────
 
@@ -184,11 +193,11 @@ export interface MakeOptions {
 export function makeScene(input: SceneInput, o: MakeOptions): SavedScene | null {
   const f = normalizeFields(input);
   if (!f || !fin(o.nowMs) || !o.id) return null;
-  return buildScene(o.id, cleanName(o.name) || defaultSceneName(f.timeMs, o.tzHours, o.lang), o.nowMs, f, normalizeTarget(input.target));
+  return buildScene(o.id, cleanName(o.name) || defaultSceneName(f.timeMs, o.tzHours, o.lang), o.nowMs, f, normalizeTarget(input.target), input.aligned);
 }
 
 /** 키 순서를 한 곳에서 정해, 만들 때와 읽을 때 같은 순서로 나오게 합니다(JSON 으로 견주어도 같다). */
-function buildScene(id: string, name: string, savedAtMs: number, f: Fields, target: SceneTarget | null): SavedScene {
+function buildScene(id: string, name: string, savedAtMs: number, f: Fields, target: SceneTarget | null, aligned?: unknown): SavedScene {
   return {
     id,
     name,
@@ -201,6 +210,7 @@ function buildScene(id: string, name: string, savedAtMs: number, f: Fields, targ
     zoomX: f.zoomX,
     timeMs: f.timeMs,
     target,
+    aligned: normalizeAligned(aligned, target),
   };
 }
 
@@ -282,6 +292,7 @@ export function sceneNote(s: SavedScene, sun: SunNote | null, lang: SceneLang): 
     const head = t.kind === 'building' && t.building
       ? `${pick(lang, '건물', 'Building', '建物')} · ${Math.round(t.building.heightM)} m`
       : `${pick(lang, '지형 지점', 'Terrain point', '地形の点')} · ${fmtDistance(t.distM)}`;
+    if (s.aligned) return `${head} · ${s.aligned === 'moon' ? pick(lang, '달 맞춤', 'Moon aligned', '月に合わせ') : pick(lang, '해 맞춤', 'Sun aligned', '太陽に合わせ')}`;
     return head;
   }
   const words = skyWords(s.azDeg, lang);
@@ -328,7 +339,7 @@ function sanitizeScene(r: unknown): SavedScene | null {
   if (!f || !fin(o.savedAtMs)) return null;
   // 이름이 비었거나 글이 아니면 UTC 로 본 기본 이름을 씁니다(저장소에서 읽을 때는 시간대를 모릅니다).
   const name = (typeof o.name === 'string' ? cleanName(o.name) : '') || defaultSceneName(f.timeMs, 0, 'en');
-  return buildScene(o.id, name, o.savedAtMs, f, normalizeTarget(o.target));
+  return buildScene(o.id, name, o.savedAtMs, f, normalizeTarget(o.target), o.aligned);
 }
 
 /**

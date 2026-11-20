@@ -670,6 +670,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const sceneRef = useRef<SkyScene3DHandle>(null);
   // 해·달 걸기로 시선을 옮겼다면(시야 중심을 올려 둠) 고른 대상을 지울 때 되돌립니다.
   const alignedViewRef = useRef(false);
+  /** 해 · 달 걸기로 맞춰 둔 천체(장면 저장이 기억합니다). 고른 대상이 지워지면 함께 지웁니다. */
+  const alignedBodyRef = useRef<'sun' | 'moon' | null>(null);
   // 먼 건물(샌드박스): 보는 방향만 받습니다 — 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받으면 수십 MB 입니다.
   const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
   /** 저장된 위치를 (lat, lon) 으로 바꿉니다(샌드박스 이동의 확정 · 내 위치로 · 저장한 장면 열기). */
@@ -712,7 +714,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const spot = sceneRef.current?.getEyeState?.().eye ?? { latitude, longitude };
     const now = Date.now();
     return makeScene(
-      { latitude: spot.latitude, longitude: spot.longitude, eyeHeightM: eyeH, azDeg: view.az, elDeg: view.el, zoomX: teleX, timeMs: currentTime.getTime(), target: targetFromPicked(picked) },
+      { latitude: spot.latitude, longitude: spot.longitude, eyeHeightM: eyeH, azDeg: view.az, elDeg: view.el, zoomX: teleX, timeMs: currentTime.getTime(), target: targetFromPicked(picked), aligned: alignedBodyRef.current },
       { name, nowMs: now, id: nextSceneId(now), tzHours: tz, lang: language },
     );
   };
@@ -730,6 +732,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     setSceneSheetOpen(false);
     stopScenePoll();
     pendingSceneTargetRef.current = null;
+    alignedBodyRef.current = null;
     setPicked(null);
     setEyeH(sc.eyeHeightM);
     setTeleX(sc.zoomX);
@@ -738,6 +741,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     sceneRef.current?.setCameraView?.(sc.azDeg, sc.elDeg);
     const p = pendingTargetFromScene(sc);
     if (!p) return;
+    const aligned = sc.aligned;
     pendingSceneTargetRef.current = p;
     let tries = 0;
     scenePollRef.current = setInterval(() => {
@@ -750,7 +754,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       }
       pendingSceneTargetRef.current = null;
       stopScenePoll();
-      setPicked(rebuildPicked(w.kind, w.building, tp));
+      const np = rebuildPicked(w.kind, w.building, tp);
+      setPicked(np);
+      // 해 · 달에 맞춰 저장한 장면이면 같은 맞춤을 다시 합니다(화각을 좁히고 시야 중심을 올려 대상과 천체가 패널 위에 보이게).
+      if (aligned && np) {
+        alignedBodyRef.current = aligned;
+        alignedViewRef.current = true;
+        sceneRef.current?.setCameraView?.(np.azDeg, np.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
+      }
     }, 500);
   };
   const loadFarBuildings = async () => {
@@ -772,6 +783,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       alignedViewRef.current = false;
       sceneRef.current?.clearCameraLensOverride?.();
     }
+    if (!picked) alignedBodyRef.current = null;
   }, [picked]);
   /** 하늘을 떠나 지도·구 단계에 있는지 — 그때는 "지도로" 버튼 대신 지도 위 "착륙"이 돌아오는 길입니다. */
   const [ascended, setAscended] = useState(false);
@@ -1048,6 +1060,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 // (패널이 아래쪽을 덮으므로) 대상과 그 곁의 해·달이 패널 위에 보이게 합니다.
                 setCurrentTime(new Date(hit.timeMs));
                 alignedViewRef.current = true;
+                alignedBodyRef.current = hit.body;
                 sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
               }}
               onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
