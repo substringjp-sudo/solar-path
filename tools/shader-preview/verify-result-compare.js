@@ -16,6 +16,13 @@
  *     예: 해 근처 사진 lum 0.30, 예측 0.45 → dLum −0.15 → "해 근처 하늘이 예측보다 어두움".
  *  3. 나누는 위치(`clampSplit(x, 너비)`): 손잡이 위치 비율 x / 너비를 0.05 ~ 0.95 로 자른다(손잡이가 끝에 붙어 못 잡게 되는 것을 막는다). 너비가 0 이하거나 숫자가 아니면 0.5. x = 0 → 0.05, x = 너비 → 0.95, x = 너비/2 → 0.5, 음수 → 0.05.
  *  4. 그때 예보 한 줄(`forecastLine(상태 글, 해 고도, 해 방위, 언어)`): 한국어 "맑음 · 해 고도 8° · 방위 245°", 영어 "Clear · Sun alt 8° · az 245°", 일본어 "晴れ · 太陽高度 8° · 方位 245°". 고도 · 방위는 반올림한 정수, 방위는 0 이상 360 미만(−10 → 350, 360 → 0). 숫자가 아니면 그 칸은 뺀다(상태 글만 남기거나, 상태 글도 없으면 null).
+ *  5. 해가 사진의 어디인가(2026-11-20, "해 근처" 비교 연결, 구현보다 먼저 박음): `sunFractionInPhoto(해 방위, 해 고도, 자세 { yawDeg, pitchDeg, rollDeg }, 센서 짧은 변 화각, 배율)` = { x, y }(사진 가로 · 세로 비율 0~1, 왼쪽 위가 0, 0) 또는 null.
+ *     사진은 세로로 든 3:4(가로 3 · 세로 4)의 핀홀 그림이다. 짧은 변(가로) 화각 H, 배율 m 이면 tan(H'/2) = tan(H/2) / max(1, m) 로 좁아진다(촬영 화면의 `previewOptics` 와 같은 식).
+ *     손으로 푼 값: 카메라가 해 쪽을 정확히 보면(yaw = 해 방위, pitch = 해 고도, roll 0) (0.5, 0.5). H = 60°, pitch 0, 해가 고도 0 에서 오른쪽으로 15° → x = 0.5 + tan15° / (2·tan30°) = 0.5 + 0.267949/1.154701 = 0.732051, y = 0.5.
+ *     같은 H 에서 해가 방위는 같고 고도가 10° 위(pitch 0) → x = 0.5, y = 0.5 − (tan10°·fy)/4, fy = (3/2)/tan30° = 2.598076, tan10° = 0.176327 → 0.5 − 0.458106/4 = 0.385473(1e-4).
+ *     배율 2 이면 tan(H'/2) = 0.288675: 오른쪽 15° → x = 0.5 + 0.267949/(2·0.288675) = 0.964102(1e-4).
+ *     해가 카메라 뒤(방위 180° 차)거나 사진 밖(x 또는 y 가 0 미만 · 1 초과, 예: H 60° 에서 오른쪽 40° → x = 1.2267)이면 null. 숫자가 아닌 입력이 있어도 null. 경계(정확히 0 또는 1)는 안.
+ *     한계: 롤(roll)은 자세에 넣어 투영하지만 기기 센서의 부호 약속은 이 판정이 재지 않는다(롤 0 만 잰다). 시뮬레이션 그림도 같은 시선 · 화각이라고 보고 같은 자리를 쓴다.
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-result-compare.js
  */
@@ -78,6 +85,22 @@ const J = JSON.stringify;
   ok(R.forecastLine('맑음', 8.2, 245.4, 'ko') === '맑음 · 해 고도 8° · 방위 245°' && R.forecastLine('Clear', 8, 245, 'en') === 'Clear · Sun alt 8° · az 245°' && R.forecastLine('晴れ', 8, 245, 'ja') === '晴れ · 太陽高度 8° · 方位 245°', '세 언어');
   ok(R.forecastLine('맑음', 8, -10, 'ko') === '맑음 · 해 고도 8° · 방위 350°' && R.forecastLine('맑음', 8, 360, 'ko') === '맑음 · 해 고도 8° · 방위 0°', '방위 0 이상 360 미만');
   ok(R.forecastLine('맑음', NaN, NaN, 'ko') === '맑음' && R.forecastLine('', 8, 245, 'ko') === '해 고도 8° · 방위 245°' && R.forecastLine('', NaN, NaN, 'ko') === null, '숫자가 아닌 칸은 뺀다, 전부 없으면 null');
+
+  console.log('\n[5] sunFractionInPhoto');
+  const att = (yaw, pitch = 0) => ({ yawDeg: yaw, pitchDeg: pitch, rollDeg: 0 });
+  const c = R.sunFractionInPhoto(250, 8, att(250, 8), 60, 1);
+  ok(c && near(c.x, 0.5, 1e-9) && near(c.y, 0.5, 1e-9), '해 쪽을 정확히 보면 가운데');
+  const rt = R.sunFractionInPhoto(115, 0, att(100, 0), 60, 1);
+  ok(rt && near(rt.x, 0.732051, 1e-5) && near(rt.y, 0.5, 1e-9), `오른쪽 15°: x ${rt && rt.x.toFixed(6)}`);
+  const up = R.sunFractionInPhoto(100, 10, att(100, 0), 60, 1);
+  ok(up && near(up.x, 0.5, 1e-9) && near(up.y, 0.385473, 1e-4), `위 10°: y ${up && up.y.toFixed(6)}`);
+  const m2 = R.sunFractionInPhoto(115, 0, att(100, 0), 60, 2);
+  ok(m2 && near(m2.x, 0.964102, 1e-4), `배율 2: x ${m2 && m2.x.toFixed(6)}`);
+  ok(R.sunFractionInPhoto(280, 0, att(100, 0), 60, 1) === null, '카메라 뒤는 null');
+  ok(R.sunFractionInPhoto(140, 0, att(100, 0), 60, 1) === null, '사진 밖(오른쪽 40°)은 null');
+  ok(R.sunFractionInPhoto(NaN, 0, att(100, 0), 60, 1) === null && R.sunFractionInPhoto(100, 0, att(NaN, 0), 60, 1) === null && R.sunFractionInPhoto(100, 0, att(100, 0), NaN, 1) === null, '숫자가 아니면 null');
+  const lt = R.sunFractionInPhoto(85, 0, att(100, 0), 60, 1);
+  ok(lt && near(lt.x, 0.267949, 1e-5), `왼쪽 15°: x ${lt && lt.x.toFixed(6)}`);
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

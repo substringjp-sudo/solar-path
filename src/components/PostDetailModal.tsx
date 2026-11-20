@@ -30,6 +30,8 @@ import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { CompareChips } from './CompareChips';
 import { ResultCompare } from './ResultCompare';
+import { sunFractionInPhoto } from '../utils/resultCompare';
+import { DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 import { mergeCompare } from '../utils/recordCompare';
 import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
 
@@ -153,7 +155,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 // 사진과 예측이 둘 다 있으면 크게 비교하기 + 차이 짚기(계획 8.7, 목업 5). 없으면 아래 낱장 그림.
                 const pu = typeof photo.imageUrl === 'string' ? photo.imageUrl : typeof photo.localUri === 'string' ? photo.localUri : '';
                 const su = typeof photo.simulationImageUrl === 'string' ? photo.simulationImageUrl : typeof photo.simulationLocalUri === 'string' ? photo.simulationLocalUri : '';
-                return pu && su ? <ResultCompare language={language} photoUri={pu} simUri={su} /> : null;
+                // 해가 사진의 어디인지: 찍을 때의 방위 · 앙각(deviceAzimuth · devicePitch)과 그때 해 자리(simulationSample)로 구합니다. 배율 · 롤은 저장하지 않아 1 · 0 으로 봅니다.
+                const smp: any = photo.simulationSample;
+                const sunXY = typeof photo.deviceAzimuth === 'number' && typeof photo.devicePitch === 'number' && smp
+                  ? sunFractionInPhoto(smp.sunAzimuth, smp.sunAltitude, { yawDeg: photo.deviceAzimuth, pitchDeg: photo.devicePitch, rollDeg: 0 }, DEFAULT_SENSOR_SHORT_FOV_DEG, 1)
+                  : null;
+                return pu && su ? <ResultCompare language={language} photoUri={pu} simUri={su} sunXY={sunXY} /> : null;
               })()}
 
               {(() => {

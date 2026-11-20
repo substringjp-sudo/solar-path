@@ -77,7 +77,7 @@ import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
 import { TimelapsePanel } from './AstroCamera/TimelapsePanel';
 import { ResultCompare } from './ResultCompare';
-import { forecastLine } from '../utils/resultCompare';
+import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
 import { previewTimeAt, type TimelapsePlan } from '../utils/timelapsePlan';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
@@ -595,6 +595,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 당시 메타데이터 상태
   const [capturedWeatherInfo, setCapturedWeatherInfo] = useState<any>(null);
   const [capturedSimSample, setCapturedSimSample] = useState<any>(null);
+  /** 해가 찍은 사진의 어디인지(가로 · 세로 비율). 셔터 순간의 자세로 구하고, 모르면 null(해 근처 비교가 빠집니다). */
+  const [capturedSunXY, setCapturedSunXY] = useState<{ x: number; y: number } | null>(null);
   const [uploadedPhotoForModal, setUploadedPhotoForModal] = useState<MyPhoto | null>(null);
 
 
@@ -1676,6 +1678,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 4. 임시 상태에 저장하여 프리뷰 화면 전환
       setCapturedWeatherInfo(weatherInfo);
       setCapturedSimSample(simulationSample);
+      setCapturedSunXY(visionSensor
+        ? sunFractionInPhoto(currentSunPos.azimuth, currentSunPos.altitude, visionSensor, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification)
+        : null);
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri || null);
       setSimPreviewError(simUri ? null : simFailReason);
@@ -1695,7 +1700,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState, measuredHfov, currentMagnification]);
 
   const handleAstroToggleRed = useCallback(() => {
     const next = !astroMonochromeRedRef.current;
@@ -2189,6 +2194,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 language={language}
                 photoUri={previewUri}
                 simUri={simPreviewUri}
+                sunXY={capturedSunXY}
                 forecast={forecastLine(
                   capturedWeatherInfo ? translateSunsetDesc(capturedWeatherInfo.description, language) : '',
                   capturedSimSample ? capturedSimSample.sunAltitude : NaN,

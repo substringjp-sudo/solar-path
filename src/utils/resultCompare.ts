@@ -5,9 +5,12 @@
  *  - `diffLines`: 사진과 예측의 영역별 차이를 "해 근처 하늘이 예측보다 어두움" 같은 짧은 줄(최대 3)로 말합니다.
  *  - `clampSplit`: "반씩 보기" 손잡이 위치(0.05 ~ 0.95).
  *  - `forecastLine`: "맑음 · 해 고도 8° · 방위 245°" 한 줄.
+ *  - `sunFractionInPhoto`: 해가 사진의 어디인지(가로 · 세로 비율). 있으면 "해 근처" 비교가 들어갑니다.
  *
  * 판정: `tools/shader-preview/verify-result-compare.js`
  */
+import { dirFromAzEl, intrinsicsFromHfov, project, type Attitude } from './arVision';
+
 type Lang = 'ko' | 'en' | 'ja';
 const pick = (l: Lang, ko: string, en: string, ja: string): string => (l === 'en' ? en : l === 'ja' ? ja : ko);
 
@@ -82,4 +85,28 @@ export function forecastLine(desc: string, sunAltDeg: number, sunAzDeg: number, 
   if (Number.isFinite(sunAltDeg)) parts.push(`${pick(lang, '해 고도', 'Sun alt', '太陽高度')} ${Math.round(sunAltDeg)}°`);
   if (Number.isFinite(sunAzDeg)) parts.push(`${pick(lang, '방위', 'az', '方位')} ${((Math.round(sunAzDeg) % 360) + 360) % 360}°`);
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** 사진(세로로 든 3:4)의 가로 : 세로. */
+const PHOTO_W = 3;
+const PHOTO_H = 4;
+
+/**
+ * 해가 사진의 어디인지(왼쪽 위 0, 0 ~ 오른쪽 아래 1, 1). 촬영 때의 자세 · 센서 짧은 변 화각 · 배율로 핀홀 투영합니다.
+ * 해가 카메라 뒤거나 사진 밖이거나 입력이 숫자가 아니면 null(그러면 해 근처 비교가 빠집니다).
+ */
+export function sunFractionInPhoto(
+  sunAzDeg: number,
+  sunAltDeg: number,
+  att: Attitude,
+  sensorShortFovDeg: number,
+  magnification: number,
+): { x: number; y: number } | null {
+  if (![sunAzDeg, sunAltDeg, att.yawDeg, att.pitchDeg, att.rollDeg, sensorShortFovDeg, magnification].every(Number.isFinite)) return null;
+  const tanShort = Math.tan((sensorShortFovDeg * Math.PI) / 360) / Math.max(1, magnification);
+  const k = intrinsicsFromHfov(PHOTO_W, PHOTO_H, (2 * Math.atan(tanShort) * 180) / Math.PI);
+  const q = project(dirFromAzEl(sunAzDeg, sunAltDeg), att, k);
+  if (!q) return null;
+  const x = q.x / PHOTO_W, y = q.y / PHOTO_H;
+  return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
 }

@@ -9,6 +9,10 @@
  *  4. 그림 읽기(`imageZones`): `data:` 그림은 base64 로, 그 밖은 `fromURI` 로 읽고, 24 × 12 로 줄여 RGBA(`Unpremul`)를 돌려준다. 실패는 null.
  *  5. 촬영 직후 화면(`SunCamera`): 예전 두 장 나란히 대신 `ResultCompare` 를 쓰고, 예측이 없을 때의 안내(`simNotReady` · `simPreviewError`)와 GL 밝기 표식은 그대로 남긴다. 예보 한 줄은 `forecastLine` 으로 만든다.
  *  6. 03 기록의 사진 상세(`PostDetailModal`): 사진과 예측이 모두 있으면 `ResultCompare`, 아니면 예전 낱장 그림(사진만 · 예측만)을 그대로 보인다.
+ *  7. "해 근처" 비교 연결(2026-11-20, 구현보다 먼저 박음): 촬영 직후(`SunCamera`)는 셔터 순간의 자세(`visionSensor`)가 있으면 `sunFractionInPhoto(해 방위, 해 고도, 자세, 센서 화각(`measuredHfov` 또는 기본값), 배율)` 로 해 자리를 구해 `capturedSunXY` 에 두고(자세를 모르면 null),
+ *     `ResultCompare` 에 `sunXY` 로 넘긴다. 촬영 함수의 의존 목록에 화각과 배율이 들어 있다(낡은 값을 쓰지 않게).
+ *     03 기록의 사진 상세(`PostDetailModal`)는 `deviceAzimuth` · `devicePitch` 가 숫자이고 `simulationSample` 이 있을 때만 `sunFractionInPhoto` 로 구한다(배율 1 · 롤 0). 그렇지 않으면 null.
+ *     (6 번의 "둘 다 있으면 ResultCompare" 시험은 `sunXY` 를 함께 넘기도록 식만 넓혔고 기준은 그대로.)
  *
  *   node tools/shader-preview/verify-result-ui.js
  */
@@ -45,7 +49,11 @@ ok(/<ResultCompare\s+language=\{language\}\s+photoUri=\{previewUri\}\s+simUri=\{
 ok(/simNotReady/.test(cam.slice(cam.indexOf('<ResultCompare'), cam.indexOf('<ResultCompare') + 1800)) && /simPreviewError/.test(cam.slice(cam.indexOf('<ResultCompare'), cam.indexOf('<ResultCompare') + 1800)) && /GL \{simBufferMean\.toFixed\(0\)\}/.test(cam), '예측이 없을 때 안내와 GL 표식이 남아 있다');
 
 console.log('\n[6] 사진 상세');
-ok(/return pu && su \? <ResultCompare language=\{language\} photoUri=\{pu\} simUri=\{su\} \/> : null;/.test(modal) && /return photoUri && !hasSim \? \(/.test(modal) && /return simUri && !hasPhoto \? \(/.test(modal), '둘 다 있으면 ResultCompare, 사진만 · 예측만이면 낱장 그림');
+ok(/return pu && su \? <ResultCompare language=\{language\} photoUri=\{pu\} simUri=\{su\} sunXY=\{sunXY\} \/> : null;/.test(modal) && /return photoUri && !hasSim \? \(/.test(modal) && /return simUri && !hasPhoto \? \(/.test(modal), '둘 다 있으면 ResultCompare, 사진만 · 예측만이면 낱장 그림');
+
+console.log('\n[7] 해 근처 연결');
+ok(/setCapturedSunXY\(visionSensor\s+\? sunFractionInPhoto\(currentSunPos\.azimuth, currentSunPos\.altitude, visionSensor, measuredHfov \?\? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification\)\s+: null\);/.test(cam) && /sunXY=\{capturedSunXY\}/.test(cam) && /cameraSimState, measuredHfov, currentMagnification\]\);/.test(cam), '촬영 직후: 자세가 있으면 해 자리를 구해 ResultCompare 에 넘기고, 의존 목록에 화각 · 배율');
+ok(/typeof photo\.deviceAzimuth === 'number' && typeof photo\.devicePitch === 'number' && smp\s+\? sunFractionInPhoto\(smp\.sunAzimuth, smp\.sunAltitude, \{ yawDeg: photo\.deviceAzimuth, pitchDeg: photo\.devicePitch, rollDeg: 0 \}, DEFAULT_SENSOR_SHORT_FOV_DEG, 1\)\s+: null;/.test(modal) && /sunXY=\{sunXY\}/.test(modal), '사진 상세: 방위 · 앙각이 숫자이고 예측 표본이 있을 때만(배율 1 · 롤 0)');
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
