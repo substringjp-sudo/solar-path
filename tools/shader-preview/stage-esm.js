@@ -128,6 +128,8 @@ const ENTRIES = [
   'src/utils/flightAssist.ts',
   // 촬영 모드 고르기(권하는 모드 · 줄 · 글) — verify-capture-mode.js
   'src/utils/captureMode.ts',
+  // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
+  'src/utils/timelapsePlan.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',

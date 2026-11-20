@@ -5,6 +5,7 @@
  * 독립 기준: 태양 고도 −6° 는 시민 박명이 끝나는 때(하늘이 어두워져 별이 보이기 시작). 서울(37.5665°N, 126.978°E) 2026-12-21 의 일몰은 약 17:17 KST, 시민 박명 끝은 약 17:52 KST(손으로 어림, 판정은 여유를 둔 시각만 쓴다).
  *
  *  1. 모드 다섯 개가 이 순서: 일반(normal) · 천체 장노출(astro) · 별 일주(startrail) · 타임랩스(timelapse) · 이벤트(event). 지금 앱에 있는 것(`ready` 참)은 일반과 천체 장노출뿐이고, 나머지 셋은 거짓(흐린 "준비 중" 줄).
+ *     (2026-11-20 정정: 타임랩스가 들어와 타임랩스도 `ready` 참이 된다. 별 일주 · 이벤트는 그대로 거짓. 타임랩스는 카메라 탭이 아니라 자체 패널로 열리므로 `tabForMode` 는 여전히 null.)
  *  2. 카메라 탭으로 옮김(`tabForMode`): 일반 → 'sunset', 천체 장노출 → 'astro', 나머지 → null(아직 못 연다).
  *  3. 권하는 모드(`recommendMode(해 고도)`): 고도 > −6° 이면 일반, 고도 ≤ −6° 이면 천체 장노출(경계 −6 은 천체). 30 → 일반, −5.99 → 일반, −6 → 천체, −30 → 천체. 고도를 모르면(null · NaN · 무한대) 일반.
  *  4. 장면으로 권하기(`modeForScene({ timeMs, latitude, longitude })`): 서울 2026-12-21 한낮 12:00 KST → 일반, 17:30 KST(해 고도 약 −2°) → 일반, 18:30 KST(약 −10°) → 천체, 한밤 03:00 KST → 천체.
@@ -32,7 +33,7 @@ const SEOUL = { latitude: 37.5665, longitude: 126.978 };
 
   console.log('\n[1~2] 모드와 탭');
   ok(J(C.CAPTURE_MODES.map(m => m.key)) === J(['normal', 'astro', 'startrail', 'timelapse', 'event']), '다섯 모드의 순서');
-  ok(J(C.CAPTURE_MODES.map(m => m.ready)) === J([true, true, false, false, false]), '지금 있는 것은 일반 · 천체 장노출뿐');
+  ok(J(C.CAPTURE_MODES.map(m => m.ready)) === J([true, true, false, true, false]), '지금 있는 것은 일반 · 천체 장노출 · 타임랩스');
   ok(C.tabForMode('normal') === 'sunset' && C.tabForMode('astro') === 'astro' && C.tabForMode('startrail') === null && C.tabForMode('timelapse') === null && C.tabForMode('event') === null, '탭: 일반 → sunset, 천체 → astro, 나머지 null');
 
   console.log('\n[3] 권하는 모드');
@@ -55,7 +56,7 @@ const SEOUL = { latitude: 37.5665, longitude: 126.978 };
 
   console.log('\n[6] 시트 줄');
   const rows = C.sheetRows('astro');
-  ok(rows.recommended === 'astro' && J(rows.rows.map(r => r.key)) === J(keys) && rows.rows.filter(r => r.recommended).length === 1 && rows.rows.find(r => r.recommended).key === 'astro' && J(rows.rows.map(r => r.ready)) === J([true, true, false, false, false]), '맨 위 권하는 것 하나 + 다섯 줄 + 권하는 줄 표시');
+  ok(rows.recommended === 'astro' && J(rows.rows.map(r => r.key)) === J(keys) && rows.rows.filter(r => r.recommended).length === 1 && rows.rows.find(r => r.recommended).key === 'astro' && J(rows.rows.map(r => r.ready)) === J([true, true, false, true, false]), '맨 위 권하는 것 하나 + 다섯 줄 + 권하는 줄 표시');
   ok(C.sheetRows('normal').rows.find(r => r.recommended).key === 'normal', '일반을 권하면 일반 줄이 표시');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);

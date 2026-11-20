@@ -2,7 +2,7 @@
  * captureMode.ts — 촬영 모드 고르기(docs/SANDBOX_MODE_PLAN.md 10.3, 목업 16)의 순수 계산.
  *
  * 카메라 화면 위 모드 이름을 누르면 올라오는 시트가 쓰는 값입니다: 맨 위 "지금 권하는 것" 하나, 아래로 일반 · 천체 장노출 · 별 일주 · 타임랩스 · 이벤트.
- * 지금 앱에 있는 모드는 일반(카메라 탭 "노을")과 천체 장노출(탭 "천체")뿐이고, 나머지 셋은 흐린 "준비 중" 줄입니다.
+ * 지금 앱에 있는 모드는 일반(카메라 탭 "노을"), 천체 장노출(탭 "천체"), 타임랩스(탭이 아니라 자체 패널)이고, 별 일주 · 이벤트는 흐린 "준비 중" 줄입니다.
  * 권하는 모드는 그때 해 고도로 정합니다: 고도 > −6°(시민 박명 끝 전)이면 일반, 그 아래면 천체 장노출. 샌드박스에서 "이 장면 찍기"로 넘어오면 그 장면의 시각 기준입니다.
  *
  * 판정: `tools/shader-preview/verify-capture-mode.js`
@@ -19,7 +19,7 @@ export const CAPTURE_MODES: readonly CaptureModeInfo[] = [
   { key: 'normal', ready: true },
   { key: 'astro', ready: true },
   { key: 'startrail', ready: false },
-  { key: 'timelapse', ready: false },
+  { key: 'timelapse', ready: true },
   { key: 'event', ready: false },
 ];
 
