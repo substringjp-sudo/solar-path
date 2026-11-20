@@ -191,6 +191,9 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
  * topic:"stars" — 별 보기 조건: 앱과 같은 `starArgsFor`(해·달·달 지는 시각은 t·lat·lon 에서 계산)에 합성 날씨를 넣습니다.
  *   cloud(운량 %) · aod · vis(시정 m) · rh(습도 %) · pm(PM2.5) · lp(빛 지도 한계등급). noCloud:1 이면 구름 예보 없음, noLp:1 이면 빛 지도 없음.
  *   예: {"calc":1,"topic":"stars","t":"2026-12-21T03:00:00Z","cloud":25,"aod":0.12,"rh":55,"lp":6.2}
+ * topic:"cloud" — 구름 모양: 합성 장면 값(층별 운량 cLow · cMid · cHigh · cTotal, 그려진 종류 genus "sc/as/-", 광학두께 tau, 높이 alt [낮은·중간·높은 km], 바람 wind [[속도, 불어오는 방위]×3])을
+ *   카드로 옮깁니다(`buildCloudShapeCards`). noScene:1 이면 장면 그림 없음, noWind:1 이면 바람 없음.
+ *   예: {"calc":1,"topic":"cloud","cLow":15,"cMid":10,"cHigh":70,"cTotal":80,"genus":"sc/as/-","tau":1.8,"alt":[1.2,4.5,9],"wind":[[12,315],[30,270],[72,225]]}
  */
 /**
  * graph:1 — 시간대별 점수 그래프만(2026-11-19, 계획 2.4). 실제 노을 예측(`predictSunset`)과 해 위치로 9시간 창을 10분 간격으로 훑어 그립니다.
@@ -366,6 +369,11 @@ function CalcRepro({ W, H }: { W: number; H: number }) {
       <CalcStepsView
         getScoreInput={() => scoreInput}
         getStarArgs={() => starArgs}
+        getCloudArgs={() => (Q.noScene ? null : {
+          scene: { low: Q.cLow ?? 15, mid: Q.cMid ?? 10, high: Q.cHigh ?? 70, total: Q.cTotal, genus: Q.genus ?? 'sc/as/-', tau: Q.tau },
+          altKm: { low: Q.alt?.[0] ?? null, mid: Q.alt?.[1] ?? null, high: Q.alt?.[2] ?? null },
+          winds: Q.noWind ? null : (Q.wind ? { low: { speedKmh: Q.wind[0][0], bearingDeg: Q.wind[0][1] }, mid: { speedKmh: Q.wind[1][0], bearingDeg: Q.wind[1][1] }, high: { speedKmh: Q.wind[2][0], bearingDeg: Q.wind[2][1] } } : null),
+        })}
         qualityWord={(q) => verdictWord(q as any, Q.lang ?? 'ko')}
         language={Q.lang ?? 'ko'}
         date={new Date(Q.t ?? '2026-12-21T03:00:00Z')}

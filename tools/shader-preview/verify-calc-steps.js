@@ -36,6 +36,22 @@
  *        서울 실제 빛 지도 값(3.6)에서는 달이 져도 좋아짐이 0.3 등급 미만이면 글이 없고(규칙 f), 이상이면 있다(양쪽 모두 모델 값에서 따진다).
  *        (처음 적을 때는 도시 하늘에서도 글이 붙는다고 잘못 짚었다. 규칙 f 가 먼저이므로 기대를 고쳤다.)
  *
+ * 10. 구름 모양 카드(2026-11-20) — `buildCloudShapeCards` 가 장면이 그린 값과 예보의 높이 · 바람을 거짓 없이 그린다(장면의 그림 자체는 이 판정이 안 본다).
+ *     a. 모양: 카드 4 장, 계획 표(9.4.1)의 순서로 id 가 layers · thick · wind · genus, 모두 rows 모양. 제목은 세 언어 모두 있다.
+ *     b. 층별 비율: 낮은 · 중간 · 높은 줄이 입력의 정수 반올림과 같고(14.6 → 15) "전체" 줄은 total 이 있을 때만 붙는다. 글 첫머리가 `cloudSummary` 의 한 줄이다(쉬운 말 자체는 `verify-sky-words.js` 가 본다).
+ *     c. 종류: 열 가지 기호(cu cg cb sc st ns ac as ci cs)가 손으로 적은 이름과 같다(ko 적운 · 웅대적운 · 적란운 · 층적운 · 층운 · 난층운 · 고적운 · 고층운 · 권운 · 권층운,
+ *        en cumulus · cumulus congestus · cumulonimbus · stratocumulus · stratus · nimbostratus · altocumulus · altostratus · cirrus · cirrostratus, ja 積雲 · 雄大積雲 · 積乱雲 · 層積雲 · 層雲 · 乱層雲 · 高積雲 · 高層雲 · 巻雲 · 巻層雲).
+ *        "-" 는 없음 · none · なし, 모르는 기호는 그 기호 그대로(없는 이름을 지어내지 않음). "sc/as/-" 는 낮은 · 중간 · 높은 순서로 읽는다.
+ *     d. 바람: 불어오는 방위를 여덟 방위 말로(손으로: 0 북 · 22.4 북 · 22.5 북동 · 45 북동 · 90 동 · 135 남동 · 180 남 · 225 남서 · 270 서 · 315 북서 · 337.4 북서 · 337.5 북 · 359.9 북).
+ *        속도는 정수 반올림("시속 12 km", 11.6 → 12), 글의 "한 시간에 낮은 층 구름은 약 N km" 의 N 이 낮은 층 속도의 반올림과 같다. 바람이 null 이면 "바람 모름" 한 줄과 자료가 없다는 글만(수치를 지어내지 않음).
+ *     e. 두께: 높이 줄은 `N.N km`(소수 한 자리) 또는 "모름", 광학 두께 줄은 `N.N` 또는 "모름". 광학 두께가 없으면 글이 이유("해가 낮거나 직사광 자료가 없어")를 말하고,
+ *        높이를 하나라도 알면 "높은 구름일수록 해가 진 뒤에도 빛을 받아요" 가 붙고 모두 모르면 안 붙는다.
+ *     f. 정직: 종류 카드 글이 규칙이 "그럴듯한 기본값" 이라고 말한다("정확히 맞히기는 어려워요" 류). 유인 관측소 보고와 맞춰 본 자(RULER-genus-forecast)에서 자를 못 넘었기 때문이다.
+ *     g. 글: NaN · undefined · Infinity 가 없고, en · ja 에 한글이 없다(입력 격자 전체).
+ *     h. 장면 시각: `cloudSceneUsable(장면 시각, 보는 시각)` 은 30분 이내(경계 포함)면 true, 30분 1초면 false, 못 읽는 시각 글이면 false.
+ *     i. 앱 연결(소스): 계산 과정 틀에 topic 'cloud' 칩과 `getCloudArgs`(없으면 "구름 그림이 아직 없어서" 알림), `SkyScreen` 이 장면의 `getRenderState().scene` 과 `cloudSceneUsable` 로 입력을 만들고
+ *        구름 한 줄을 누르면 구름 모양 주제가 열린다. 주제 칩 줄은 줄바꿈이 된다(칩이 다섯이 되어 390 폭에서 마지막 칩 "구름 모양" 이 잘렸습니다 — 화면을 보고 추가한 기준).
+ *
  * 사용: node tools/shader-preview/stage-esm.js
  *       node tools/shader-preview/verify-calc-steps.js
  */
@@ -338,6 +354,86 @@ const RAD = Math.PI / 180;
     const cityOut = C.buildStarCards({ ...cityS, language: 'ko', fmtTime: fmt });
     const gain = SV.limitWithoutMoon({ ...cityS.input, sunAltDeg: cityS.sunAltAtMoonSetDeg }) - SV.starLimit(cityS.input).limitMag;
     ok(/달이 지는/.test(card({ out: cityOut }, 'limit').note) === (gain >= 0.3), `서울의 실제 빛 지도 값(3.6)은 달이 져도 ${gain.toFixed(2)} 등급 좋아져 ${gain >= 0.3 ? '꼬리가 붙는다' : '0.3 미만이라 꼬리가 없다'}`);
+  }
+
+  console.log('\n[10] 구름 모양 카드');
+  {
+    const fs = require('fs');
+    const { REPO_ROOT } = require('./paths');
+    const SW = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'skyWords.js'));
+    const sc0 = { low: 14.6, mid: 10, high: 70, total: 80, genus: 'sc/as/-', tau: 1.84 };
+    const W0 = { low: { speedKmh: 11.6, bearingDeg: 315 }, mid: { speedKmh: 30.2, bearingDeg: 270 }, high: { speedKmh: 71.5, bearingDeg: 225 } };
+    const build = (o = {}, L = 'ko') => C.buildCloudShapeCards({ language: L, scene: sc0, altKm: { low: 1.24, mid: 4.5, high: 8.96 }, winds: W0, ...o });
+    const cc = (r, id) => r.cards.find(c => c.id === id);
+    const ko = build();
+
+    ok(ko.cards.map(c => c.id).join() === 'layers,thick,wind,genus' && ko.cards.every(c => c.shape === 'rows') && ['ko', 'en', 'ja'].every(L => build({}, L).title && build({}, L).cards.every(c => c.title && c.note)),
+       '(a) 카드 4 장 layers · thick · wind · genus, 모두 rows, 세 언어 모두 제목과 글이 있다');
+
+    const lay = cc(ko, 'layers');
+    ok(lay.rows.map(r => `${r.label} ${r.value}`).join('|') === '낮은 층 15 %|중간 층 10 %|높은 층 70 %|전체 80 %' &&
+       cc(build({ scene: { ...sc0, total: undefined } }), 'layers').rows.length === 3 && lay.note.startsWith(SW.cloudSummary({ low: 14.6, mid: 10, high: 70 }, 'ko')),
+       `(b) 층별 줄 "${lay.rows.map(r => r.value).join(' · ')}", total 이 없으면 3 줄, 글 첫머리가 cloudSummary("${SW.cloudSummary({ low: 14.6, mid: 10, high: 70 }, 'ko')}")`);
+
+    const NAMES = {
+      ko: { cu: '적운', cg: '웅대적운', cb: '적란운', sc: '층적운', st: '층운', ns: '난층운', ac: '고적운', as: '고층운', ci: '권운', cs: '권층운' },
+      en: { cu: 'cumulus', cg: 'cumulus congestus', cb: 'cumulonimbus', sc: 'stratocumulus', st: 'stratus', ns: 'nimbostratus', ac: 'altocumulus', as: 'altostratus', ci: 'cirrus', cs: 'cirrostratus' },
+      ja: { cu: '積雲', cg: '雄大積雲', cb: '積乱雲', sc: '層積雲', st: '層雲', ns: '乱層雲', ac: '高積雲', as: '高層雲', ci: '巻雲', cs: '巻層雲' },
+    };
+    const wrongNames = [];
+    for (const L of ['ko', 'en', 'ja']) for (const [code, name] of Object.entries(NAMES[L])) {
+      const v = cc(build({ scene: { ...sc0, genus: `${code}/-/-` } }, L), 'genus').rows[0].value;
+      if (v !== name) wrongNames.push(`${L} ${code}: ${v}(기대 ${name})`);
+    }
+    const g = cc(build({ scene: { ...sc0, genus: 'sc/as/-' } }), 'genus').rows.map(r => r.value).join('|');
+    const gNone = cc(build({ scene: { ...sc0, genus: '-' } }, 'en'), 'genus').rows.map(r => r.value).join('|');
+    const gJa = cc(build({ scene: { ...sc0, genus: '-/-/-' } }, 'ja'), 'genus').rows.map(r => r.value).join('|');
+    const gUnknown = cc(build({ scene: { ...sc0, genus: 'zz/ci/-' } }), 'genus').rows.map(r => r.value).join('|');
+    ok(wrongNames.length === 0 && new Set(Object.values(NAMES.ko)).size === 10 && g === '층적운|고층운|없음' && gNone === 'none|none|none' && gJa === 'なし|なし|なし' && gUnknown === 'zz|권운|없음',
+       `(c) 열 가지 기호 × 세 언어 이름이 손으로 적은 표와 같고${wrongNames.length ? ' 어긋남: ' + wrongNames.join(', ') : ''}, "sc/as/-" → ${g}, "-" → ${gNone}, 모르는 기호 "zz" 는 그대로 → ${gUnknown}`);
+
+    const bear = [[0, '북쪽'], [22.4, '북쪽'], [22.5, '북동쪽'], [45, '북동쪽'], [90, '동쪽'], [135, '남동쪽'], [180, '남쪽'], [225, '남서쪽'], [270, '서쪽'], [315, '북서쪽'], [337.4, '북서쪽'], [337.5, '북쪽'], [359.9, '북쪽']];
+    const badBear = bear.filter(([b, w]) => cc(build({ winds: { low: { speedKmh: 10, bearingDeg: b }, mid: W0.mid, high: W0.high } }), 'wind').rows[0].value !== `${w}에서 시속 10 km`).map(([b, w]) => b);
+    const wind = cc(ko, 'wind');
+    const windNone = build({ winds: null });
+    ok(badBear.length === 0 && wind.rows[0].value === '북서쪽에서 시속 12 km' && wind.rows[1].value === '서쪽에서 시속 30 km' && wind.rows[2].value === '남서쪽에서 시속 72 km' && /약 12 km/.test(wind.note) &&
+       cc(windNone, 'wind').rows.length === 1 && cc(windNone, 'wind').rows[0].value === '모름' && /자료가 없어요/.test(cc(windNone, 'wind').note) && !/약 \d/.test(cc(windNone, 'wind').note),
+       `(d) 불어오는 방위 13 경우${badBear.length ? ' 어긋남 ' + badBear.join(',') : ''}, 속도 반올림(11.6→12 · 30.2→30 · 71.5→72), 글의 "약 12 km" = 낮은 층 반올림, 바람이 null 이면 "모름" 한 줄과 자료 없음 글(수치 없음)`);
+
+    const th = cc(ko, 'thick');
+    const thNone = cc(build({ scene: { ...sc0, tau: undefined }, altKm: { low: null, mid: null, high: null } }), 'thick');
+    ok(th.rows.map(r => r.value).join('|') === '1.2 km|4.5 km|9.0 km|1.8' && /높은 구름일수록/.test(th.note) && /값이 클수록/.test(th.note) &&
+       thNone.rows.map(r => r.value).join('|') === '모름|모름|모름|모름' && /해가 낮거나 직사광 자료가 없어/.test(thNone.note) && !/높은 구름일수록/.test(thNone.note),
+       `(e) 높이 "${th.rows.slice(0, 3).map(r => r.value).join(' · ')}" · 광학 두께 "${th.rows[3].value}", 모르면 모두 "모름" + 이유 글 + 높이 문장 없음`);
+
+    ok(/정확히 맞히기는 어려워요/.test(cc(ko, 'genus').note) && /그럴듯한/.test(cc(ko, 'genus').note) && /hard/.test(cc(build({}, 'en'), 'genus').note) && /plausible/.test(cc(build({}, 'en'), 'genus').note),
+       '(f) 종류 카드 글이 규칙은 그럴듯한 기본값이고 정확히 맞히기는 어렵다고 밝힌다(ko · en)');
+
+    let bad = [];
+    const grid = [];
+    for (const low of [0, 4.4, 50, 100]) for (const tau of [undefined, 0, 1.84, 30]) for (const genus of ['-', 'sc/as/ci', 'cb/-/cs', 'xx/yy/zz']) for (const winds of [null, W0]) for (const total of [undefined, 55]) grid.push({ scene: { low, mid: 20, high: 80, total, genus, tau }, winds });
+    for (const L of ['ko', 'en', 'ja']) for (const g of grid) {
+      const r = build(g, L);
+      const t = JSON.stringify(r);
+      if (/NaN|undefined|Infinity|null/.test(t)) bad.push(`${L} ${JSON.stringify(g.scene)} ${/NaN|undefined|Infinity|null/.exec(t)[0]}`);
+      if (L !== 'ko' && /[가-힣]/.test(t)) bad.push(`${L} 한글`);
+    }
+    ok(bad.length === 0, `(g) 입력 격자 ${grid.length * 3} 경우에서 NaN · undefined · Infinity · null 글이 없고 en · ja 에 한글이 없다${bad.length ? ': ' + bad.slice(0, 3).join(' / ') : ''}`);
+
+    const T0 = Date.parse('2026-11-19T10:00:00Z');
+    ok(C.CLOUD_SCENE_MAX_GAP_MS === 30 * 60e3 && C.cloudSceneUsable(new Date(T0).toISOString(), T0) === true && C.cloudSceneUsable(new Date(T0 - 1800e3).toISOString(), T0) === true && C.cloudSceneUsable(new Date(T0 + 1800e3).toISOString(), T0) === true &&
+       C.cloudSceneUsable(new Date(T0 - 1801e3).toISOString(), T0) === false && C.cloudSceneUsable(new Date(T0 + 1801e3).toISOString(), T0) === false && C.cloudSceneUsable('not a date', T0) === false && C.cloudSceneUsable(new Date(T0).toISOString(), NaN) === false,
+       '(h) cloudSceneUsable: 30분 이내(경계 포함) true, 30분 1초 false, 못 읽는 시각 글 · NaN false');
+
+    const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, 'src', ...p), 'utf8');
+    const modal = read('components', 'CalcSteps', 'CalcStepsModal.tsx');
+    const sky = read('components', 'SkyScreen', 'SkyScreen.tsx');
+    const getCloud = (sky.match(/const getCloudArgs = \(\) => \{[\s\S]*?\n  \};/) || [''])[0];
+    ok(/export type CalcTopic = [^;]*'cloud'/.test(modal) && /\{shows\('cloud'\) && <Chip/.test(modal) && /if \(topic === 'cloud'\) \{\s*const ca = getCloudArgs\?\.\(\) \?\? null;\s*return ca \? buildCloudShapeCards\(\{ \.\.\.ca, language \}\) : null;/.test(modal) && /구름 그림이 아직 없어서/.test(modal) &&
+       /getRenderState\?\.\(\)\?\.scene/.test(getCloud) && /cloudSceneUsable\(st\.t, calcDate\.getTime\(\)\)/.test(getCloud) && /layerWindsFrom\(obs\)/.test(getCloud) && /getCloudArgs=\{getCloudArgs\}/.test(sky) &&
+       /setCalcTopic\('cloud'\)/.test(sky) && /<CloudCaption[\s\S]*?onPress=\{\(\) => \{ setCalcDate\(currentTime\); setCalcTopic\('cloud'\); setCalcOpen\(true\); \}\}/.test(sky),
+       '(i) 앱 연결: 틀에 cloud 주제 · 칩 · getCloudArgs(없으면 알림), SkyScreen 이 장면 상태와 cloudSceneUsable 로 입력을 만들고 구름 한 줄 누르면 열린다');
+    ok(/topics: \{ flexDirection: 'row', flexWrap: 'wrap'/.test(modal), '(i) 주제 칩 줄이 줄바꿈된다(칩 다섯이 390 폭에서 잘리지 않게)');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
