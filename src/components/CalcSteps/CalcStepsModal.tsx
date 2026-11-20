@@ -37,6 +37,8 @@ interface ViewProps {
   placeName?: string;
   topic: CalcTopic;
   onTopic: (t: CalcTopic) => void;
+  /** 주제 칩으로 보일 주제(기본: 전부). 입력을 줄 수 없는 주제를 감출 때 씁니다 — 02 예보에서 여는 계산 과정은 별 보기를 뺍니다. */
+  topics?: readonly CalcTopic[];
   /** 눈에서 본 땅 프로필(장면 핸들). 없거나 null 이면 평평한 수평선으로 계산합니다. */
   getHorizon?: () => HorizonProfile | null;
   /** "노을 점수" 주제의 입력. 없거나 null 이면 이 주제는 예보가 없다고 알립니다. */
@@ -53,7 +55,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 /** 기기 시간대 시각(앱의 다른 목록과 같음) */
 const fmtLocalTime = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
-export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, longitude, placeName, topic, onTopic, getHorizon, getScoreInput, getStarArgs, qualityWord, onBack, onOpenSandbox }) => {
+export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, longitude, placeName, topic, onTopic, topics, getHorizon, getScoreInput, getStarArgs, qualityWord, onBack, onOpenSandbox }) => {
   const styles = useStyles();
   const result = useMemo<{ title: string; cards: StepCard[]; footnote: string; eventLabel?: string | null } | null>(() => {
     if (topic === 'score') {
@@ -69,6 +71,7 @@ export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, l
     return buildSunHorizonCards({ kind: topic === 'sunrise' ? 'rise' : 'set', date, lat: latitude, lon: longitude, language, skyline, profile, fmtTime: fmtLocalTime });
   }, [topic, date, latitude, longitude, language, getHorizon, getScoreInput, getStarArgs, qualityWord]);
 
+  const shows = (t: CalcTopic) => !topics || topics.includes(t);
   const dateText = `${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
   const sub = `${dateText}${result?.eventLabel ? ` ${result.eventLabel}` : ''} · ${placeName ?? `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`}`;
   return (
@@ -83,10 +86,10 @@ export const CalcStepsView: React.FC<ViewProps> = ({ language, date, latitude, l
         </View>
       </View>
       <View style={styles.topics}>
-        <Chip label={L3(language, '노을 점수', 'Sunset score', '夕焼けスコア')} on={topic === 'score'} onPress={() => onTopic('score')} />
-        <Chip label={L3(language, '해 뜨는 시각', 'Sunrise', '日の出')} on={topic === 'sunrise'} onPress={() => onTopic('sunrise')} />
-        <Chip label={L3(language, '해 지는 시각', 'Sunset', '日の入り')} on={topic === 'sunset'} onPress={() => onTopic('sunset')} />
-        <Chip label={L3(language, '별 보기', 'Stargazing', '星空')} on={topic === 'stars'} onPress={() => onTopic('stars')} />
+        {shows('score') && <Chip label={L3(language, '노을 점수', 'Sunset score', '夕焼けスコア')} on={topic === 'score'} onPress={() => onTopic('score')} />}
+        {shows('sunrise') && <Chip label={L3(language, '해 뜨는 시각', 'Sunrise', '日の出')} on={topic === 'sunrise'} onPress={() => onTopic('sunrise')} />}
+        {shows('sunset') && <Chip label={L3(language, '해 지는 시각', 'Sunset', '日の入り')} on={topic === 'sunset'} onPress={() => onTopic('sunset')} />}
+        {shows('stars') && <Chip label={L3(language, '별 보기', 'Stargazing', '星空')} on={topic === 'stars'} onPress={() => onTopic('stars')} />}
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         {result ? (
