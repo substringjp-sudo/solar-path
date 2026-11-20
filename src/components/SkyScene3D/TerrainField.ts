@@ -35,7 +35,7 @@
  * 까지 틀립니다. `updateTerrainFieldEye` 로 매 프레임 맞춥니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, setDemObserver, type DemPatch } from '../../utils/demTiles';
 import type { UrbanMaskResult } from '../../utils/mvtTiles';
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
@@ -1263,6 +1263,11 @@ export interface TerrainFieldHandle {
     eyePatch?: DemPatch | null,
     farPatch?: DemPatch | null,
   ) => void;
+  /**
+   * 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다 — 받아 둔 패치 안에서 지형이 눈을 따라오게 `uDemObs` 를 옮깁니다(패치를 다시 받지 않음).
+   * 패치가 아직 없으면 아무것도 안 합니다. 연속 이동 조이스틱이 프레임마다 부릅니다.
+   */
+  setObserver: (lat: number, lon: number) => void;
   /** 도시·거주지 토지이용(MVT) 마스크를 적용합니다. null 이면 끄고 uFarUrban 으로 물러납니다. */
   setUrbanMask: (mask: UrbanMaskResult | null) => void;
   /** 현재 업로드된 MVT 도시/물 텍스처(G 채널 = 물)를 반환합니다. */
@@ -1569,8 +1574,17 @@ export function createTerrainField(opts: {
       u.uAmbTex.value = ok ? ambientBake.texture() : null;
       u.uAmbValid.value = ok ? 1 : 0;
     },
+    setObserver: (lat, lon) => {
+      const dp = material.userData.demPatches as Record<string, DemPatch | null | undefined> | undefined;
+      if (!dp) return;
+      for (const k of ['dem', 'demEye', 'demFar']) setDemObserver(material.uniforms, k, dp[k], lat, lon);
+    },
     setPatch: (patch, eyePatch, farPatch) => {
       patchSerial++;
+      const dp = (material.userData.demPatches ??= {}) as Record<string, DemPatch | null | undefined>;
+      dp.dem = patch;
+      if (eyePatch !== undefined) dp.demEye = eyePatch;
+      if (farPatch !== undefined) dp.demFar = farPatch;
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
