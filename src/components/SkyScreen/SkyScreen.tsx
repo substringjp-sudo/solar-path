@@ -718,6 +718,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       { name, nowMs: now, id: nextSceneId(now), tzHours: tz, lang: language },
     );
   };
+  /** "이 장면 찍기": 지금 장면을 저장하지 않고 그대로 카메라로 넘깁니다. 장면을 못 읽으면 아무것도 하지 않습니다. */
+  const shootScene = () => {
+    const sc = readScene('');
+    if (!sc) return;
+    useCelestialStore.getState().setCameraScene(sc);
+    onCameraPress?.();
+  };
   const saveScene = (name: string): SaveResult => {
     const sc = readScene(name);
     if (!sc) return 'unavailable';
@@ -1068,7 +1075,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 const pt = targetPointOf(picked);
                 if (pt) glide.start({ latitude: pt.latitude, longitude: pt.longitude });
               }}
-              sceneRow={<SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />}
+              sceneRow={<SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />}
               onClear={() => { pendingSceneTargetRef.current = null; setPicked(null); }}
             />
           </View>
@@ -1077,7 +1084,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (전문가 모드, 지상에서만). 아래 시트 손잡이(PEEK_HEIGHT) 바로 위에 두고, 시트가 열려 있으면 숨깁니다. */}
         {!isCameraOverlayActive && expertMode && !ascended && !picked && !sheetOpen && (
           <View style={overlayStyles.sceneBar} pointerEvents="box-none">
-            <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} />
+            <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />
           </View>
         )}
         <SceneSheet

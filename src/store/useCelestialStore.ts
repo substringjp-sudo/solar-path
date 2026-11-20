@@ -181,6 +181,12 @@ interface CelestialState extends ClockState {
    * 날씨는 저장하지 않습니다. 최신순, 최대 50 개. 읽어 들일 때 `sanitizeScenes` 로 정리합니다.
    */
   savedScenes: SavedScene[];
+  /**
+   * "이 장면 찍기"로 샌드박스에서 카메라에 넘긴 장면(2026-11-20, 계획 12.3). 저장한 장면일 필요는 없습니다. 카메라가 이 방향으로 안내하고 시각에 맞는 모드를 권합니다.
+   * 카메라를 닫으면 지웁니다. 저장하지 않습니다(partialize 에 없음).
+   */
+  cameraScene: SavedScene | null;
+  setCameraScene: (scene: SavedScene | null) => void;
   /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
   notifPrefs: NotifPrefs;
   isAppReady: boolean;
@@ -338,6 +344,8 @@ export const useCelestialStore = create<CelestialState>()(
       onboardingSeen: false,
       homeCoords: null,
       savedScenes: [],
+      cameraScene: null,
+      setCameraScene: (scene) => set({ cameraScene: scene }),
       isAppReady: false,
       startupLocationSettled: false,
       preloadStatus: 'initializingApp',

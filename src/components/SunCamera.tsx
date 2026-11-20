@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
   StyleSheet, View, Text, BackHandler,
-  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView, Vibration, StatusBar
+  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView, Pressable, Vibration, StatusBar
 } from 'react-native';
 import Constants from 'expo-constants';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
@@ -18,7 +18,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass, Move } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass, Move, ChevronUp } from 'lucide-react-native';
 import { ScrubTrack } from './TimeBar/ScrubTrack';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
@@ -74,6 +74,9 @@ import { AstroControlsOverlay, AstroForecastBanner } from './AstroCamera/AstroCo
 import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/AstroCaptureNightOverlay';
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
+import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
+import { modeForScene, modeLabel, recommendMode, tabForMode } from '../utils/captureMode';
+import { sceneSummary } from '../utils/savedScenes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
@@ -482,6 +485,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const astroBusyRef = useRef(false);
   astroBusyRef.current = astroNightPhase !== null;
   const [lockedTarget, setLockedTarget] = useState<DirectionTarget | null>(null);
+  // 샌드박스 "이 장면 찍기"로 넘어온 장면: 그 시각에 맞는 모드를 먼저 열고, 장면의 시선 방향으로 안내합니다(계획 12.3, 목업 4). 카메라를 닫으면 지웁니다.
+  const cameraScene = useCelestialStore(s => s.cameraScene);
+  const [modeSheetOpen, setModeSheetOpen] = useState(false);
+  useEffect(() => {
+    if (!visible || !cameraScene) return;
+    setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
+    const tab = tabForMode(modeForScene(cameraScene));
+    if (tab) setCameraTab(tab);
+  }, [visible, cameraScene]);
+  useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);
   const [vibrationGuideOn, setVibrationGuideOn] = useState(true);
   const [guideState, setGuideState] = useState<DirectionGuideState | null>(null);
   const onTargetHystRef = useRef(false);
@@ -2421,6 +2434,21 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       language={language}
                     />
                   )}
+                  {cameraScene && (
+                    <View style={styles.banner} accessibilityRole="summary">
+                      <Text style={styles.bannerText} numberOfLines={2}>
+                        {`${L3(language, '장면', 'Scene', 'シーン')} · ${cameraScene.name} · ${sceneSummary(cameraScene, { nowMs: Date.now(), tzHours, lang: language })}`}
+                      </Text>
+                      <Pressable
+                        onPress={() => { Vibration.cancel(); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={L3(language, '장면 지우기', 'Clear scene', 'シーンを消す')}
+                        hitSlop={8}
+                      >
+                        <X size={14} color={color.text} />
+                      </Pressable>
+                    </View>
+                  )}
                   {hasInterference && viewMode !== 'sim' && (
                     <View style={styles.banner}>
                       <Text style={[styles.bannerText, { color: color.warning }]}>
@@ -2602,6 +2630,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       {L3(language, '천체', 'Astro', '天体')}
                     </Text>
                   </PressScale>
+                  <PressScale
+                    style={styles.tabPill}
+                    onPress={() => setModeSheetOpen(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${L3(language, '촬영 모드 고르기', 'Choose capture mode', '撮影モードを選ぶ')}: ${modeLabel(cameraTab === 'astro' ? 'astro' : 'normal', language)}`}
+                  >
+                    <ChevronUp size={12} color={color.textDim} />
+                    <Text style={styles.tabPillText}>{L3(language, '모드', 'Mode', 'モード')}</Text>
+                  </PressScale>
                 </View>
 
                 <View style={styles.modeSegment} accessibilityRole="tablist">
@@ -2768,6 +2805,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             </View>
           </View>
         )}
+
+        <CaptureModeSheet
+          visible={modeSheetOpen}
+          language={language}
+          currentTab={cameraTab}
+          recommended={cameraScene ? modeForScene(cameraScene) : recommendMode(sunPos.altitude)}
+          onPick={setCameraTab}
+          onClose={() => setModeSheetOpen(false)}
+        />
 
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
         <PostDetailModal
