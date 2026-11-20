@@ -101,6 +101,11 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, now, entryNonce]);
 
+  // 별 보기처럼 시각이 필요한 주제가 쓸 시각(한밤에 별 카드로 들어온 길). 앞으로 16일에서 날을 다시 고르면 지웁니다.
+  const [pinnedAt, setPinnedAt] = useState<number | null>(entry?.at ?? null);
+  useEffect(() => { setPinnedAt(entry?.at ?? null); }, [entry?.nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const onPickDay = (p: LearnPick) => { setPinnedAt(null); setPick(p); };
+
   const picked = useMemo(() => pickedEvent(days, pick), [days, pick]);
   const day = picked?.day ?? null;
   const event: ForecastEvent | null = picked?.event ?? null;
@@ -163,10 +168,10 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
       return p && hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(p, when)[0]) : null;
     };
     return starArgsFor({
-      date: new Date(day.noonMs), lat, lon, elevM: elevM ?? 0, weatherAt,
+      date: new Date(pinnedAt ?? day.noonMs), lat, lon, elevM: elevM ?? 0, weatherAt,
       lightPollutionMag: nightLights ? estimateLightPollution(nightLights, lat, lon).magLimit : null,
     });
-  }, [day, lat, lon, path, forecast, elevM, nightLights]);
+  }, [day, pinnedAt, lat, lon, path, forecast, elevM, nightLights]);
 
   const cloudArgs = useMemo(() => {
     const st = scene.st;
@@ -226,12 +231,18 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     setActiveSection(prev => (prev === cur ? prev : cur));
   };
   // 다른 화면에서 구역을 가리키고 들어오면 그 구역으로(구역의 위치는 그려진 뒤에야 알 수 있어 잠깐 기다립니다).
+  // 길마다 한 번만, 받은 날이 처음 들어와 높이가 바뀐 뒤 한 번 더 맞춥니다. 나중에 머리 탭으로 돌아올 때는 맞추지 않습니다.
+  const hasDays = days.length > 0;
+  const scrolledKey = useRef('');
   useEffect(() => {
     if (!entry?.section || !isActive) return;
+    const key = `${entry.nonce}:${hasDays}`;
+    if (scrolledKey.current === key) return;
+    scrolledKey.current = key;
     const id = setTimeout(() => scrollTo(entry.section as LearnSection), 200);
     return () => clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.nonce, isActive]);
+  }, [entry?.nonce, isActive, hasDays]);
 
   const openSky = (ms?: number) => {
     setCurrentTime(ms != null ? new Date(ms) : (event?.peakAt ?? event?.at ?? at));
@@ -279,7 +290,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
         <View onLayout={onLayoutOf('forecast')}>
           <ForecastSection
             days={days} load={load} hasForecast={!!forecast} onRetry={() => get(true)}
-            pick={pick} onPick={setPick} tz={tz} language={language}
+            pick={pick} onPick={onPickDay} tz={tz} language={language}
           />
         </View>
 

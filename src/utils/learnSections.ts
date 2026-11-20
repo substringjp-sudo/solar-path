@@ -43,6 +43,11 @@ export interface LearnEntry {
   topic?: LearnTopic;
   /** 고를 날 · 쪽(01 하늘의 카드에서 왔을 때). 없으면 앞으로 가장 좋은 때. */
   focus?: ForecastFocus | null;
+  /**
+   * 별 보기처럼 시각이 필요한 주제가 쓸 시각(ms). 한밤(자정 뒤)에 "오늘 밤 별 보기" 를 눌렀다면 그 한밤의 시각입니다
+   * (고른 날 정오로 세면 다음 저녁의 하늘이 됩니다). 없으면 고른 날 정오. 앞으로 16일에서 날을 다시 고르면 지워집니다.
+   */
+  at?: number;
   nonce: number;
 }
 

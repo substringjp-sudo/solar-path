@@ -363,7 +363,8 @@ function WhyRepro({ W, H }: { W: number; H: number }) {
  * learn:1 (옛 이름 forecast:1) · cards:1 — 02 학습 페이지 전체와 01 하늘의 "다가오는 좋은 순간" 카드(2026-11-19 · 20). 16일 예보를 실제 경로(훅 → `fetchSunForecast` → 판정)로 받으므로
  * 하네스 페이지가 Open-Meteo 응답을 가짜로 줘야 합니다(`scratchpad/forecast-shot.js` 처럼 Playwright 로 가로챕니다). 위치는 서울, 시간대 +9.
  *   learn:1 — 02 학습 페이지 전체. focusDay(0~15) · focusSide("sunrise"|"sunset") 를 주면 01 하늘의 카드에서 건너온 모습(그 날 · 쪽이 고른 날),
- *     section("today"|"forecast"|"data"|"why"|"globe") · topic("score"|…) 을 주면 그 구역으로 맞추고 그 주제를 펼칩니다. 누르면 window.__openSky 에 true.
+ *     section("today"|"forecast"|"data"|"why"|"globe") · topic("score"|…) 을 주면 그 구역으로 맞추고 그 주제를 펼칩니다. at(ISO) 는 한밤에 별 카드로 들어온 길의 시각(별 보기 주제가 씀).
+ *     누르면 window.__openSky 에 true.
  *   cards:1 — 카드 줄만. 누르면 window.__cardTap 에 {noonMs, side}.   공통: lang · light.
  *   cards:1 star:{cloud, lp} — "오늘 밤 별 보기" 카드도 함께. 서울 · 지금 시각으로 실제 경로(`starArgsFor` → `starMoment`)를 돌립니다(운량 cloud % · 빛 지도 lp 등급).
  *     누르면 window.__starTap = true.   window.__cards.star 에 카드 값(없으면 null).
@@ -380,7 +381,7 @@ function LearnRepro({ W, H }: { W: number; H: number }) {
   React.useState(() => { seedForecastStore(); return 0; });
   const entry = React.useMemo(() => (
     Q.focusDay != null || Q.section || Q.topic
-      ? { section: Q.section, topic: Q.topic, focus: Q.focusDay != null ? { noonMs: localNoons(new Date(), 9, 16)[Q.focusDay], side: Q.focusSide ?? 'sunset' } : null, nonce: 1 }
+      ? { section: Q.section, topic: Q.topic, at: Q.at ? new Date(Q.at).getTime() : undefined, focus: Q.focusDay != null ? { noonMs: localNoons(new Date(), 9, 16)[Q.focusDay], side: Q.focusSide ?? 'sunset' } : null, nonce: 1 }
       : null
   ), []);
   return (

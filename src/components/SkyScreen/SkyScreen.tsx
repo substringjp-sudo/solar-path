@@ -147,7 +147,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
     setNotifPref('goodOnly', next);
-    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(02 예보와 같은 동작).
+    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다(02 학습의 "좋음 이상 알림"과 같은 동작).
     if (next) { setNotifPref('sunsetForecast', true); setNotifPref('sunriseForecast', true); }
   };
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language, timezoneOffsetHours, isCacheHydrated } = useCelestialStore();
@@ -835,8 +835,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     [dirEvent?.getTime(), latitude, longitude, language],
   );
   // 02 학습으로 들어가는 길(점수 숫자 · 왜 그런가요 · 별 보기 카드 · 구름 한 줄 …). 그 시각의 날 · 쪽을 학습 페이지의 고른 날로 싣습니다.
-  const learnAt = (date: Date, side: EventSide, section: LearnSection, topic?: LearnTopic) =>
-    onOpenLearn?.({ section, topic, focus: { noonMs: localNoons(date, tz, 1)[0], side } });
+  const learnAt = (date: Date, side: EventSide, section: LearnSection, topic?: LearnTopic, at?: number) =>
+    onOpenLearn?.({ section, topic, at, focus: { noonMs: localNoons(date, tz, 1)[0], side } });
   const weatherCoversNow = (() => {
     const h = pathData[0]?.hourly;
     const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
@@ -1152,7 +1152,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 좋은 하늘 알림 — 02 예보의 "좋음 이상 알림"과 같은 설정 */}
+          {/* 좋은 하늘 알림 — 02 학습의 "좋음 이상 알림"과 같은 설정 */}
           <View style={[styles.alertRow, { borderColor: theme.border }]}>
             <Text style={[styles.alertLabel, { color: theme.text }]} numberOfLines={1}>
               {L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
@@ -1185,7 +1185,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 }}
                 onStarPress={() => {
                   if (!star) return;
-                  learnAt(new Date(star.timeMs), 'sunset', 'why', 'stars');
+                  learnAt(new Date(star.timeMs), 'sunset', 'why', 'stars', star.timeMs);
                 }}
               />
             )}
