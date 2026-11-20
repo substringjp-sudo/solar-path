@@ -177,7 +177,21 @@ function PanelRepro({ W, H }: { W: number; H: number }) {
     <View style={{ width: W, height: H, backgroundColor: '#3a4a6a', padding: 12, gap: 10 }}>
       {Q.farStates
         ? farStates.map((st, i) => <SandboxPanel key={i} language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={null} onHome={() => {}} far={{ status: st, onLoad: () => {} }} />)
-        : <SandboxPanel language="ko" eyeHeightM={eyeH} onEyeHeight={setEyeH} stepM={step} onStep={setStep} onMove={() => {}} awayM={Q.awayM ?? null} onHome={() => {}} />}
+        : (
+          // 시선 읽음 줄과 "시선 기준" 이동(2026-11-20): window.__view = {az, el} 로 시선을 바꿉니다(없으면 Q.az · Q.el). noView:1 이면 시선을 못 읽는 상태(null), noGetView:1 이면 getView 를 안 줌.
+          // 조이스틱이 내보낸 걸음(동 m, 북 m)은 window.__moves 에 쌓입니다.
+          <SandboxPanel
+            language={Q.lang ?? 'ko'}
+            eyeHeightM={eyeH}
+            onEyeHeight={setEyeH}
+            stepM={step}
+            onStep={setStep}
+            onMove={(e, n) => { ((globalThis as any).__moves ??= []).push([Math.round(e * 100) / 100, Math.round(n * 100) / 100]); }}
+            awayM={Q.awayM ?? null}
+            onHome={() => {}}
+            getView={Q.noGetView ? undefined : () => (Q.noView ? null : ((globalThis as any).__view ?? { az: Q.az ?? 128.4, el: Q.el ?? 6.9 }))}
+          />
+        )}
     </View>
   );
 }

@@ -4,7 +4,9 @@
  *
  *  - 세로 막대: 누르거나 끌면 그 높이의 값이 됩니다. 놓을 때 눈금 가까이면 그 눈금 값으로 붙습니다. 끄는 동안은 12 번/초 안쪽으로만 값을 내보냅니다
  *    (값이 바뀔 때마다 하늘 화면 전체가 다시 그려지므로).
- *  - 조이스틱: 민 방향으로 누르고 있는 동안 걸음 크기만큼씩 반복해서 움직입니다. 방향은 나침반 기준(위 = 북).
+ *  - 조이스틱: 민 방향으로 누르고 있는 동안 걸음 크기만큼씩 반복해서 움직입니다. 방향은 나침반 기준(위 = 북). `relative` 면 글만 "앞" 으로 바뀝니다 — 시선 기준으로
+ *    돌리는 일은 부르는 쪽(`SandboxPanel`)이 `onMove` 로 받은 걸음을 돌려서 합니다.
+ *  - 읽음 줄(`ViewReadout`): 지금 시선의 방위 · 앙각 · 눈 높이. 장면이 시선을 알려 주는 함수(`getView`)를 5 번/초 읽고, 읽을 만큼 바뀔 때만 다시 그립니다.
  *  - 손가락 자리는 **바깥 누름 영역**에서 읽고(그림은 `pointerEvents="none"`) 화면 좌표(`moveX`/`moveY`)로 잇습니다 — `ScrubTrack` 머리말의
  *    `locationX` 가 닿은 자식 기준으로 어긋나는 결함을 피합니다.
  *  - 스크린리더: 막대는 올리기·내리기가 한 눈금씩, 조이스틱은 북·동·남·서 동작이 한 걸음씩입니다.
@@ -16,8 +18,8 @@ import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 import {
   EYE_RANGE, EYE_TICKS, ZOOM_RANGE, ZOOM_TICKS,
-  clampKnob, fmtEye, fmtZoom, roundEye, roundZoom, snapValue, stepMove, stepToTick, stickIntervalMs, stickState, tFromY, tToValue, valueToT, yFromT,
-  type DialRange, type StickState,
+  clampKnob, fmtAz, fmtEl, fmtEye, fmtZoom, roundEye, roundZoom, snapValue, stepMove, stepToTick, stickIntervalMs, stickState, tFromY, tToValue, valueToT, viewDiffers, yFromT,
+  type DialRange, type StickState, type ViewAzEl,
 } from '../../utils/sandboxDials';
 
 type Lang = 'ko' | 'en' | 'ja';
@@ -153,6 +155,8 @@ interface StickProps {
   stepM: number;
   /** 동쪽(+) · 북쪽(+) 미터 */
   onMove: (eastM: number, northM: number) => void;
+  /** 시선 기준으로 쓰는 중 — 위쪽 글이 "N" 대신 "앞", 스크린리더 동작이 앞으로 · 오른쪽으로 · 뒤로 · 왼쪽으로. */
+  relative?: boolean;
 }
 
 const STICK = 96;
@@ -160,7 +164,7 @@ const STICK_KNOB = 38;
 const TRAVEL = (STICK - STICK_KNOB) / 2;
 const OFF: StickState = { active: false, east: 0, north: 0, mag: 0 };
 
-export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove }) => {
+export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove, relative = false }) => {
   const cb = useRef({ stepM, onMove });
   cb.current = { stepM, onMove };
   const state = useRef<StickState>(OFF);
@@ -207,7 +211,12 @@ export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove }) => 
     onPanResponderTerminate: () => { gestureBlock(false); stop(); },
   })).current;
 
-  const dirs: { name: string; label: string; e: number; n: number }[] = [
+  const dirs: { name: string; label: string; e: number; n: number }[] = relative ? [
+    { name: 'north', label: L3(language, '앞으로', 'Forward', '前へ'), e: 0, n: 1 },
+    { name: 'east', label: L3(language, '오른쪽으로', 'Right', '右へ'), e: 1, n: 0 },
+    { name: 'south', label: L3(language, '뒤로', 'Back', '後ろへ'), e: 0, n: -1 },
+    { name: 'west', label: L3(language, '왼쪽으로', 'Left', '左へ'), e: -1, n: 0 },
+  ] : [
     { name: 'north', label: L3(language, '북쪽으로', 'North', '北へ'), e: 0, n: 1 },
     { name: 'east', label: L3(language, '동쪽으로', 'East', '東へ'), e: 1, n: 0 },
     { name: 'south', label: L3(language, '남쪽으로', 'South', '南へ'), e: 0, n: -1 },
@@ -219,16 +228,68 @@ export const MoveStick: React.FC<StickProps> = ({ language, stepM, onMove }) => 
       style={styles.stick}
       accessible
       accessibilityLabel={L3(language, '위치 이동 조이스틱', 'Move joystick', '位置移動ジョイスティック')}
-      accessibilityHint={L3(language, '누르고 밀면 그 방향으로 움직입니다', 'Press and push to move that way', '押して倒すとその方向へ動きます')}
+      accessibilityHint={relative
+        ? L3(language, '누르고 밀면 보는 방향 기준으로 움직입니다', 'Press and push to move relative to where you look', '押して倒すと視線を基準に動きます')
+        : L3(language, '누르고 밀면 그 방향으로 움직입니다', 'Press and push to move that way', '押して倒すとその方向へ動きます')}
       accessibilityActions={dirs.map(d => ({ name: d.name, label: d.label }))}
       onAccessibilityAction={(e) => { const d = dirs.find(x => x.name === e.nativeEvent.actionName); if (d) cb.current.onMove(d.e * cb.current.stepM, d.n * cb.current.stepM); }}
     >
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <View style={styles.crossV} />
         <View style={styles.crossH} />
-        <Text style={styles.north}>N</Text>
+        <Text style={styles.north}>{relative ? L3(language, '앞', 'Fwd', '前') : 'N'}</Text>
         <View style={[styles.stickKnob, { left: (STICK - STICK_KNOB) / 2 + knob.x, top: (STICK - STICK_KNOB) / 2 + knob.y }]} />
       </View>
+    </View>
+  );
+};
+
+// ── 시선 읽음 줄 ─────────────────────────────────────────────────────────────
+
+interface ReadoutProps {
+  language: Lang;
+  /** 장면이 알려 주는 지금 시선(방위 · 앙각). 아직 못 알려 주면 null. */
+  getView: () => ViewAzEl | null;
+  /** 눈 높이(m, 땅 위) */
+  eyeHeightM: number;
+  /** 시선을 읽는 간격(ms) */
+  intervalMs?: number;
+}
+
+/**
+ * 지금 시선의 방위 · 앙각과 눈 높이를 한 줄로(목업 2번 위 줄의 "AZ 128.4° EL 6.9°"). 시선은 장면 손잡이(`getView`)에서 `intervalMs` 마다 읽되,
+ * 읽을 만큼(0.05°) 바뀔 때만 상태를 바꿔 이 줄만 다시 그립니다 — 하늘 화면 전체가 다시 그려지지 않습니다.
+ */
+export const ViewReadout: React.FC<ReadoutProps> = ({ language, getView, eyeHeightM, intervalMs = 200 }) => {
+  const get = useRef(getView);
+  get.current = getView;
+  const [v, setV] = useState<ViewAzEl | null>(() => get.current());
+  useEffect(() => {
+    const tick = () => {
+      const n = get.current();
+      setV(p => (viewDiffers(p, n) ? (n ? { az: n.az, el: n.el } : null) : p));
+    };
+    tick();
+    const id = setInterval(tick, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  const azT = v ? fmtAz(v.az) : '—';
+  const elT = v ? fmtEl(v.el) : '—';
+  const eyeLabel = L3(language, '눈', 'EYE', '目');
+  return (
+    <View
+      style={styles.readout}
+      accessible
+      accessibilityLabel={L3(
+        language,
+        `시선 방위 ${azT}도, 앙각 ${elT}도, 눈 높이 ${fmtEye(eyeHeightM)}`,
+        `View azimuth ${azT} degrees, elevation ${elT} degrees, eye height ${fmtEye(eyeHeightM)}`,
+        `視線の方位 ${azT}度、仰角 ${elT}度、目の高さ ${fmtEye(eyeHeightM)}`,
+      )}
+    >
+      <Text style={[styles.readoutText, styles.readoutAz]}>{v ? `AZ ${azT}°` : 'AZ —'}</Text>
+      <Text style={[styles.readoutText, styles.readoutEl]}>{v ? `EL ${elT}°` : 'EL —'}</Text>
+      <Text style={styles.readoutText}>{`${eyeLabel} ${fmtEye(eyeHeightM)}`}</Text>
     </View>
   );
 };
@@ -252,6 +313,15 @@ const styles = StyleSheet.create({
   },
   crossV: { position: 'absolute', left: STICK / 2 - 0.5, top: 10, bottom: 10, width: 1, backgroundColor: DARK.border },
   crossH: { position: 'absolute', top: STICK / 2 - 0.5, left: 10, right: 10, height: 1, backgroundColor: DARK.border },
+  readout: {
+    flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 8,
+    paddingHorizontal: 6, paddingVertical: 4,
+    backgroundColor: DARK.overlay, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.xs,
+  },
+  readoutText: { fontFamily: mono, fontSize: 11, color: DARK.text },
+  // 숫자 길이가 달라도 줄 폭이 흔들리지 않게(등폭 글꼴 기준 9 글자)
+  readoutAz: { minWidth: 62 },
+  readoutEl: { minWidth: 62 },
   north: { position: 'absolute', top: 2, left: 0, right: 0, textAlign: 'center', fontFamily: mono, fontSize: 9, fontWeight: '700', color: DARK.textDim },
   stickKnob: { position: 'absolute', width: STICK_KNOB, height: STICK_KNOB, borderRadius: STICK_KNOB / 2, backgroundColor: DARK.accent, borderColor: '#04121C', borderWidth: 2, opacity: 0.92 },
 });

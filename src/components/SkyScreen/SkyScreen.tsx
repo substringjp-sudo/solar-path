@@ -1031,6 +1031,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             <SandboxPanel
               language={language}
               far={{ status: farStatus, onLoad: loadFarBuildings }}
+              getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
               eyeHeightM={eyeH}
               onEyeHeight={setEyeH}
               stepM={moveStepM}
