@@ -28,6 +28,7 @@ import {
   fetchDayWeatherRing,
   fetchWeatherCanary,
   getInterpolatedWeather,
+  layerWindsFrom,
   type CloudPathData,
   type TerrainData,
 } from '../../utils/weather';
@@ -35,6 +36,7 @@ import { findPresetTerrain } from '../../utils/presetTerrains';
 import { isCurrentTerrainModel } from '../../utils/terrainPick';
 import { scenePrediction } from '../../utils/scenePrediction';
 import { alignRingToSun } from '../../utils/sunsetPhysics';
+import { cloudSceneUsable } from '../../utils/calcSteps';
 import {
   weatherCacheKey,
   sameBucket,
@@ -901,6 +903,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return { prediction: pred, ring, time, eventMs: ev ? ev.getTime() : undefined, sunAzDeg: sunAz, kind: isSunriseSide ? 'sunrise' : 'sunset' };
   };
 
+  // 계산 과정 보기("구름 모양")의 입력: 하늘 그림이 쓴 값(`getRenderState().scene`: 층별 운량 · 그려진 종류 · 광학두께)과 그 그림의 시각 관측점 예보의 층별 높이 · 바람.
+  // 그 그림이 계산 과정이 보는 시각의 것이 아니면(다른 날짜를 열었거나 아직 안 그려짐) null — 다른 시각의 값을 섞어 쓰지 않습니다(`calcSteps.cloudSceneUsable`).
+  const getCloudArgs = () => {
+    const st = sceneRef.current?.getRenderState?.()?.scene ?? null;
+    if (!st || !cloudSceneUsable(st.t, calcDate.getTime())) return null;
+    const obs = pathData.length ? getInterpolatedWeather(pathData, new Date(st.t))[0] : undefined;
+    const alt = (v: number | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    return { scene: st, altKm: { low: alt(obs?.layerAltLowKm), mid: alt(obs?.layerAltMidKm), high: alt(obs?.layerAltHighKm) }, winds: layerWindsFrom(obs) };
+  };
+
   // 계산 과정 보기("별 보기 조건")의 입력(`utils/starTonight.ts`): 별을 볼 시각(이미 밤이면 그 시각, 아니면 그날 천문 박명 30분 뒤)의
   // 구름·연무 예보와 해·달, 밤 불빛 지도의 한계등급. 그 시각의 예보가 받아 둔 시간 범위 밖이면 "모름"으로 둡니다(가장자리 값을 지어 쓰지 않음).
   const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());
@@ -1009,7 +1021,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         />
 
         {/* 하늘 위 구름 한 줄(쉬운 말) — 초보자 화면만 */}
-        {cloudCaption && !isCameraOverlayActive && <CloudCaption text={cloudCaption} />}
+        {cloudCaption && !isCameraOverlayActive && (
+          <CloudCaption
+            text={cloudCaption}
+            onPress={() => { setCalcDate(currentTime); setCalcTopic('cloud'); setCalcOpen(true); }}
+            accessibilityLabel={`${cloudCaption} — ${L3(language, '구름 모양 계산 과정 보기', 'See how the cloud shapes are decided', '雲の形の計算過程を見る')}`}
+          />
+        )}
 
         {trackingTarget && (
           <PressScale
@@ -1470,6 +1488,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         getHorizon={() => sceneRef.current?.getHorizonProfile?.() ?? null}
         getScoreInput={getScoreInput}
         getStarArgs={getStarArgs}
+        getCloudArgs={getCloudArgs}
         qualityWord={(q) => verdictWord(q as any, language)}
         onOpenSandbox={() => { setCalcOpen(false); setExpertMode(true); }}
       />
