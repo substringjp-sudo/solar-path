@@ -46,7 +46,9 @@ export interface TimelapsePlan {
   videoSec: number;
   /** 빨라지는 배수 = 총 시간 ÷ 요청한 영상 길이 */
   speedup: number;
-  /** 저장 공간 어림(MB) */
+  /** 앨범에 저장되는 그림 수(일반 · 누적은 찍은 장수, 합성은 묶음 수 = 올림(장수 ÷ stackSize)) */
+  savedFrames: number;
+  /** 저장 공간 어림(MB), 앨범에 저장되는 그림 기준 */
   estimateMB: number;
   /** 간격을 2 초로 올려 영상이 요청보다 짧아졌으면 'interval', 아니면 null */
   clamped: 'interval' | null;
@@ -70,11 +72,12 @@ export function planTimelapse(input: PlanInput): TimelapsePlan {
   const intervalS = Math.max(MIN_INTERVAL_S, rounded);
   const frames = Math.floor(totalS / intervalS) + 1;
   const outFrames = kind === 'stacked' ? Math.floor(frames / stackSize) : frames;
+  const savedFrames = kind === 'stacked' ? Math.ceil(frames / stackSize) : frames;
   return {
-    totalMin, targetVideoSec, fps, intervalS, kind, stackSize, cumulative: kind === 'trail', frames, outFrames,
+    totalMin, targetVideoSec, fps, intervalS, kind, stackSize, cumulative: kind === 'trail', frames, outFrames, savedFrames,
     videoSec: outFrames / fps,
     speedup: totalS / targetVideoSec,
-    estimateMB: Math.round(frames * FRAME_MB),
+    estimateMB: Math.round(savedFrames * FRAME_MB),
     clamped,
   };
 }
@@ -137,4 +140,25 @@ export function previewTimeAt(startMs: number, endMs: number, videoSec: number, 
   if (!(videoSec > 0) || !Number.isFinite(elapsedS)) return endMs;
   const u = Math.min(1, Math.max(0, elapsedS / videoSec));
   return startMs + (endMs - startMs) * u;
+}
+
+export interface ShotPlan {
+  /** 이 장을 쌓는 그림(평균 또는 밝은 쪽 남기기)에 겹친다 */
+  accumulate: boolean;
+  /** 쌓인 그림을 앨범에 저장한다 */
+  flush: boolean;
+  /** 저장한 뒤 쌓은 그림을 비운다 */
+  reset: boolean;
+  /** 이 장을 합치지 않고 그대로 저장한다 */
+  saveRaw: boolean;
+}
+
+/** 장마다 합치기: 일반은 그대로 저장, 궤적 누적은 겹치고 매번 저장(안 비움), 밝게 합성은 `stackSize` 장마다(마지막이 덜 차도) 저장하고 비웁니다. */
+export function shotPlan(kind: TimelapseKind, stackSize: number, index: number, isLast: boolean): ShotPlan {
+  if (kind === 'plain') return { accumulate: false, flush: false, reset: false, saveRaw: true };
+  if (kind === 'trail') return { accumulate: true, flush: true, reset: false, saveRaw: false };
+  const k = Math.max(1, Math.floor(stackSize));
+  const full = (index + 1) % k === 0;
+  const flush = full || isLast;
+  return { accumulate: true, flush, reset: flush, saveRaw: false };
 }

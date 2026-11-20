@@ -117,8 +117,10 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
               {plan.clamped === 'interval' ? (
                 <Text style={styles.note}>{L3(language, '간격이 너무 짧아 2초로 맞췄어요. 영상이 조금 짧아져요.', 'Interval raised to 2 s, so the video comes out shorter.', '間隔が短すぎるため2秒にしました。動画は少し短くなります。')}</Text>
               ) : null}
-              {kind !== 'plain' ? (
-                <Text style={styles.note}>{L3(language, '합성은 준비 중이에요. 지금은 찍은 사진을 그대로 앨범에 저장해요.', 'Compositing is coming soon. For now the shots are saved as they are.', '合成は準備中です。今は撮った写真をそのまま保存します。')}</Text>
+              {kind === 'stacked' ? (
+                <Text style={styles.note}>{L3(language, `${plan.stackSize}장씩 합쳐 ${plan.savedFrames}장을 앨범에 저장해요. 찍은 원본은 합친 뒤 지워요.`, `Every ${plan.stackSize} shots merge into one; ${plan.savedFrames} images go to your album. The raw shots are discarded after merging.`, `${plan.stackSize}枚ずつ合成して${plan.savedFrames}枚をアルバムに保存します。元の写真は合成後に消します。`)}</Text>
+              ) : kind === 'trail' ? (
+                <Text style={styles.note}>{L3(language, `찍을 때마다 겹친 누적 그림 ${plan.savedFrames}장을 앨범에 저장해요. 마지막 장이 별 일주 사진이에요.`, `A cumulative image is saved to your album after every shot (${plan.savedFrames}); the last one is the star-trail photo.`, `撮影のたびに累積画像を保存します(${plan.savedFrames}枚)。最後の1枚が星の軌跡写真です。`)}</Text>
               ) : null}
               <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
             </View>
