@@ -117,7 +117,7 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
   const [ko, en, ja] = HANDLE_LABELS[stage];
   return (
     <View testID="dock" pointerEvents="box-none" style={styles.dock} {...pan.panHandlers}>
-      <Scrim edge="bottom" height={fixedH + extra + 40} />
+      <Scrim edge="bottom" height={fixedH + extra + 72} />
       <View {...handlePan.panHandlers}>
         <Pressable
           testID="dock-handle"

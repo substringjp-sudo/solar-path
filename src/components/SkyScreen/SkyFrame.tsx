@@ -195,7 +195,7 @@ export const SkyFrame: React.FC<Props> = ({
 
   return (
     <>
-      <Scrim edge="top" />
+      <Scrim edge="top" height={180} />
       <View testID="frame-readout" pointerEvents="none" style={styles.readout}>
         {typeof readout === 'string' ? <Text style={[styles.readoutText, readoutShadow]}>{readout}</Text> : readout}
       </View>

@@ -270,7 +270,7 @@ export const DirectionGuideOverlay: React.FC<DirectionGuideOverlayProps> = ({
       )}
 
       {/* 무대 하단 상태·진동·해제 칩 바 (중앙 원 정렬 시야를 가리지 않도록 하단 배치) */}
-      <View style={[styles.bottomHud, { bottom: bottomInset + 12 }]} pointerEvents="box-none">
+      <View style={[styles.bottomHud, { bottom: bottomInset + 6 }]} pointerEvents="box-none">
         <View style={[styles.dirPill, guide.onTarget && styles.dirPillOk]} pointerEvents="none">
           <Text style={[styles.dirText, guide.onTarget && { color: color.success }]}>
             {hintLabel}

@@ -94,6 +94,7 @@ import { tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
+import { Scrim } from './glass/Scrim';
 import { GlassChip } from './glass/GlassChip';
 import { GlassIconButton } from './glass/GlassIconButton';
 import { TEXT } from '../theme/glassTokens';
@@ -2568,6 +2569,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
               {/* 무대 위 최소 상태 HUD (모드/방위 알약 · 보정 메뉴 · 카메라 전환) */}
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+                <Scrim edge="top" height={180} />
                 <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
                   <Pressable
                     onPress={() => setTopInfoExpanded(v => !v)}
