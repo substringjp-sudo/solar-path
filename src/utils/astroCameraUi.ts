@@ -374,3 +374,39 @@ export function formatDurationLabel(sec: number, lang: 'ko' | 'en' | 'ja'): stri
   }
   return lang === 'ko' ? `${m}분` : lang === 'ja' ? `${m}分` : `${m}m`;
 }
+
+// ── 카메라 새 틀(2026-11-21, docs/SANDBOX_MODE_PLAN.md 23절): 막대의 천체 칩 · 설정 패널이 쓰는 계산 ──
+
+type UiLang = 'ko' | 'en' | 'ja';
+
+/** 시간 칩(초): 1 · 2 · 4 · 6 · 8 · 10 · 15 분 — 60 초 단위 슬라이더의 대표값. */
+export const ASTRO_DURATION_CHIPS_SEC: readonly number[] = [60, 120, 240, 360, 480, 600, 900];
+
+/** 주어진 총 노출(초)에 가장 가까운 시간 칩. 같은 거리면 작은 쪽, 숫자가 아니면 480(8분). */
+export function nearestDurationChip(sec: number): number {
+  if (typeof sec !== 'number' || !Number.isFinite(sec)) return 480;
+  let best = ASTRO_DURATION_CHIPS_SEC[0];
+  for (const c of ASTRO_DURATION_CHIPS_SEC) if (Math.abs(c - sec) < Math.abs(best - sec)) best = c;
+  return best;
+}
+
+/** 타이머 순환: 0 → 3 → 5 → 10 → 0. 모르는 값은 0. */
+export function nextCountdown(cur: number): CountdownDelaySec {
+  const idx = (COUNTDOWN_PRESETS_SEC as readonly number[]).indexOf(cur);
+  return COUNTDOWN_PRESETS_SEC[(idx + 1) % COUNTDOWN_PRESETS_SEC.length];
+}
+
+/** 타이머 칩 글: 0 이면 "즉시"(en "0s" · ja "即時"), 아니면 "5s". */
+export function countdownLabel(sec: number, lang: UiLang): string {
+  if (sec === 0) return lang === 'ko' ? '즉시' : lang === 'ja' ? '即時' : '0s';
+  return `${sec}s`;
+}
+
+/** 막대의 천체 칩 글: "별 궤적 · 8분 · ISO 3200 · 8s×60장". */
+export function astroChipLabel(settings: Pick<AstroSettingsState, 'mode' | 'durationSec'>, summary: Pick<AstroShotSummary, 'clampedIso' | 'subExposureSecUsed' | 'totalFrames'>, lang: UiLang): string {
+  const mode = settings.mode === 'tracked'
+    ? (lang === 'ko' ? '별 추적' : lang === 'ja' ? '星追尾' : 'Track')
+    : (lang === 'ko' ? '별 궤적' : lang === 'ja' ? '星軌跡' : 'Trails');
+  const unit = lang === 'ko' ? '장' : lang === 'ja' ? '枚' : 'f';
+  return `${mode} · ${formatDurationLabel(settings.durationSec, lang)} · ISO ${summary.clampedIso} · ${summary.subExposureSecUsed}s×${summary.totalFrames}${unit}`;
+}

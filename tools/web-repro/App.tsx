@@ -51,6 +51,7 @@ import { distanceM } from '../../src/utils/geoMove';
 import { GlassRepro } from './GlassRepro';
 import { SkyFrameRepro } from './SkyFrameRepro';
 import { TimelapseGlassRepro } from './TimelapseGlassRepro';
+import { CameraFrameRepro } from './CameraFrameRepro';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -503,6 +504,8 @@ export default function App() {
   if (Q.skyframe) return <SkyFrameRepro W={W} H={H} Q={Q} />;
   // tlglass:1 — 타임랩스 설정 시트와 촬영 중 카드(유리). 일어난 일은 window.__tl.
   if (Q.tlglass) return <TimelapseGlassRepro W={W} H={H} Q={Q} />;
+  // camframe:1 — 카메라 새 틀(CameraFrame)을 가짜 카메라 위에. 일어난 일은 window.__cam.
+  if (Q.camframe) return <CameraFrameRepro W={W} H={H} Q={Q} />;
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.
   const [picked, setPicked] = React.useState<any>(null);
   // drive:1 — 실제 장면 아래에 샌드박스 패널을 붙여 조이스틱 → 구동기 → 장면의 눈 → 위치 확정을 끝까지 잇습니다(2026-11-20). 확정은 window.__commits 에 남고 장면의 위치(lat · lon)가 바뀝니다.

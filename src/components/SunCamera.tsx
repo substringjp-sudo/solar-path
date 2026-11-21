@@ -62,6 +62,7 @@ import {
   type AstroCaptureRunResult,
 } from '../utils/astroCapturePipeline';
 import {
+  astroChipLabel,
   computeAstroSimExposureParams,
   createDefaultAstroSettings,
   evaluateDirectionGuide,
@@ -71,7 +72,8 @@ import {
   type DirectionGuideState,
   type DirectionTarget,
 } from '../utils/astroCameraUi';
-import { AstroControlsOverlay, AstroForecastBanner } from './AstroCamera/AstroControlsOverlay';
+import { AstroForecastBanner } from './AstroCamera/AstroForecastBanner';
+import { AstroSettingsPanel } from './AstroCamera/AstroSettingsPanel';
 import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/AstroCaptureNightOverlay';
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
@@ -87,7 +89,6 @@ import { FrameAccumulator } from '../utils/frameComposite';
 import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
 import { TimelapseRunCard } from './AstroCamera/TimelapseRunCard';
 import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
-import { TEXT } from '../theme/glassTokens';
 import { useRunDevice } from '../hooks/useRunDevice';
 import { readSmallRgba } from '../utils/imageZones';
 import { lumaFromRgba, photoStops } from '../utils/runCurve';
@@ -95,6 +96,9 @@ import { exposureStops } from '../utils/exposureCurve';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
+import { CameraFrame } from './AstroCamera/CameraFrame';
+import { GlassChip } from './glass/GlassChip';
+import { TEXT } from '../theme/glassTokens';
 import { adviseExposure } from '../utils/exposureAdvice';
 import { autoStartDue, autoStartState } from '../utils/autoStart';
 import { lensLine } from '../utils/lensInfo';
@@ -265,6 +269,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     ? Math.max(Constants.statusBarHeight ?? 44, 48) + 10
     : 12;
   const [rootH, setRootH] = useState(H);
+  // 유리 막대(고정부 + 손잡이 줄)의 높이 — 카메라가 화면 전체를 채우므로 막대 위에 떠 있는 것(천체 설정 · 방위 눈금)을 그만큼 올립니다.
+  const [dockInset, setDockInset] = useState(150);
   const [stageLayoutH, setStageLayoutH] = useState(Math.max(240, H - 220));
   const stageLayoutHRef = useRef(stageLayoutH);
   stageLayoutHRef.current = stageLayoutH;
@@ -487,7 +493,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
     supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
   });
-  const [astroDrawerOpen, setAstroDrawerOpen] = useState(false);
   const [astroNightPhase, setAstroNightPhase] = useState<AstroNightPhase | null>(null);
   const [astroCountdownSec, setAstroCountdownSec] = useState(0);
   const [astroProgress, setAstroProgress] = useState<AstroCaptureProgress | null>(null);
@@ -2561,7 +2566,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   sun={{ az: sunPos.azimuth, alt: apparentAltitude(sunPos.altitude) }}
                   sunLabel={`${L3(language, '태양', 'Sun', '太陽')} ${apparentAltitude(sunPos.altitude) >= 0 ? '+' : ''}${apparentAltitude(sunPos.altitude).toFixed(1)}°`}
                   event={markerEvent ? { az: markerEvent.az, label: `${t(markerEvent.type, language)} ${hhmmAt(markerEvent.at)}` } : null}
-                  rulerY={stageLayoutH - RULER_FROM_BOTTOM}
+                  rulerY={stageLayoutH - dockInset - RULER_FROM_BOTTOM}
                 />
               )}
 
@@ -2828,214 +2833,109 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   </View>
                 )}
 
-                {( (viewMode !== 'camera' && onTimeChange) || cameraTab === 'astro' ) && (
-                  <View style={styles.stageBottomControls} pointerEvents="box-none">
-                    {viewMode !== 'camera' && onTimeChange && (
-                      <View style={styles.timeSliderRow}>
-                        <Clock size={12} color={isTimeMachineEnabled ? color.accent : color.textDim} />
-                        <View style={styles.timeSliderWrap}>
-                          <ScrubTrack
-                            value={timeSliderPct}
-                            height={34}
-                            trackHeight={4}
-                            knobTone={isTimeMachineEnabled ? color.accentLine : color.borderStrong}
-                            formatLabel={(pct) => {
-                              const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
-                              return hhmmAt(new Date(scrubDayStartRef.current + min * 60_000));
-                            }}
-                            getDisplayBucket={(pct) => Math.round((pct / 100) * 1440)}
-                            onScrubStart={() => {
-                              scrubDayStartRef.current = dayStartUtcMs;
-                              setIsInteracting(true);
-                            }}
-                            onScrub={(pct) => {
-                              const min = Math.min(1439, Math.max(0, Math.round((pct / 100) * 1440)));
-                              onTimeChange(new Date(scrubDayStartRef.current + min * 60_000));
-                            }}
-                            onScrubEnd={() => setIsInteracting(false)}
-                            onAdjust={(dir) => onTimeChange(new Date(currentTime.getTime() + dir * 900_000))}
-                            accessibilityLabel={L3(language, '촬영 시각', 'Simulation time', '撮影時刻')}
-                          >
-                            <View style={styles.timeTrackBg}>
-                              <View style={[styles.timeTrackFill, { width: `${timeSliderPct}%` }]} />
-                            </View>
-                          </ScrubTrack>
-                        </View>
-                        {isTimeMachineEnabled && (
-                          <PressScale
-                            style={[styles.timeDisplayBtn, styles.timeDisplayBtnActive]}
-                            onPress={() => onResetTime?.()}
-                            accessibilityRole="button"
-                            accessibilityLabel={L3(language, '현재 시각으로 돌아가기', 'Reset to live time', '現在時刻に戻す')}
-                          >
-                            <Text style={[styles.timeDisplayText, { color: color.accent }]}>
-                              {L3(language, '현재', 'Now', '現在')}
-                            </Text>
-                          </PressScale>
-                        )}
-                      </View>
-                    )}
-
-                    {cameraTab === 'astro' && (
-                      <AstroControlsOverlay
-                        inline
-                        settings={astroSettings}
-                        onChange={setAstroSettings}
-                        summary={astroShotSummary}
-                        caps={astroCaps}
-                        simParams={astroSimParams}
-                        showPrediction={viewMode !== 'camera'}
-                        isSimRendering={isLongExpRendering}
-                        onRefreshPrediction={() => {
-                          if (viewMode !== 'sim') setViewMode('sim');
-                          else setLongExpRefreshTick(v => v + 1);
-                        }}
-                        drawerOpen={astroDrawerOpen}
-                        onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
-                        language={language}
-                      />
-                    )}
-                  </View>
-                )}
               </View>
             </View>
 
-            {/* 하단 슬림 컨트롤 덱 — 컴팩트 줌 알약 + 1단 셔터 도킹 */}
-            <View style={styles.bottomDeck}>
-              {cameraTab === 'sunset' && (
-                <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} />
-              )}
-              <View style={styles.zoomPillBar} accessibilityRole="radiogroup">
-                {[1, 2, 3, 5].map((mag) => {
-                  const sel = Math.abs(currentMagnification - mag) < 0.25;
-                  return (
-                    <PressScale
-                      key={mag}
-                      style={[styles.zoomPillBtn, sel && styles.zoomPillBtnOn]}
-                      onPress={() => setMagnification(mag)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: sel }}
-                    >
-                      <Text style={[styles.zoomText, sel && { color: color.accent }]}>{sel ? `${currentMagnification.toFixed(1)}x` : `${mag}x`}</Text>
-                    </PressScale>
-                  );
-                })}
-              </View>
-
-              <View style={styles.dock}>
-                <View style={styles.dockSideLeft}>
-                  <PressScale
-                    style={styles.dockBtn}
-                    onPress={() => {
-                      Vibration.cancel();
-                      const next = viewMode === 'camera' ? 'blend' : viewMode === 'blend' ? 'sim' : 'camera';
-                      setViewMode(next);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={L3(language, '보기 전환 (카메라 / 겹침 / 3D 시뮬)', 'Switch view mode', '表示モード切替')}
-                  >
-                    <View style={[styles.dockIcon, viewMode !== 'camera' && { borderColor: color.accentLine, backgroundColor: color.accentSoft }]}>
-                      <Layers size={18} color={viewMode !== 'camera' ? color.accent : color.text} />
-                    </View>
-                    <Text style={[styles.dockLabel, viewMode !== 'camera' && { color: color.accent }]} numberOfLines={1}>
-                      {viewMode === 'camera'
-                        ? L3(language, '카메라 ▾', 'Camera ▾', 'カメラ ▾')
-                        : viewMode === 'blend'
-                          ? L3(language, '겹침 ▾', 'Blend ▾', '重ねる ▾')
-                          : L3(language, '3D 시뮬 ▾', '3D Sim ▾', '3D ▾')}
-                    </Text>
-                  </PressScale>
-                </View>
-
-                <PressScale
-                  style={[
-                    styles.shutter,
-                    cameraTab === 'astro' && { borderColor: color.moon },
-                    isCapturing && viewMode !== 'sim' && { opacity: 0.5 },
-                  ]}
+            {/* 카메라의 새 틀(17절 4번 · 23절): 유리 막대 — 칩(줌 · 노출) · 시간 자(3D · 겹침일 때만) · 셔터 줄 · 모드 줄. 카메라는 화면 전체를 채웁니다. */}
+            <CameraFrame
+              language={language}
+              chips={[
+                ...[1, 2, 3, 5].map(mag => ({
+                  id: `zoom-${mag}`,
+                  label: Math.abs(currentMagnification - mag) < 0.25 ? `${currentMagnification.toFixed(1)}×` : `${mag}×`,
+                  mono: true,
+                  active: Math.abs(currentMagnification - mag) < 0.25,
+                  onPress: () => setMagnification(mag),
+                })),
+                cameraTab === 'astro'
+                  ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
+                  : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
+              ]}
+              panels={cameraTab === 'astro' ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> } : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
+              ruler={viewMode !== 'camera' && onTimeChange ? {
+                timeMs: currentTime.getTime(),
+                tz: tzHours,
+                nowMs: Date.now(),
+                onDragStart: () => setIsInteracting(true),
+                onChange: (ms) => onTimeChange(new Date(ms)),
+                onCommit: () => setIsInteracting(false),
+                sunsetMs: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+                showNow: isTimeMachineEnabled,
+                onNow: () => onResetTime?.(),
+              } : null}
+              left={
+                <GlassChip
+                  label=""
+                  active={viewMode !== 'camera'}
+                  icon={<Layers size={20} color={TEXT} />}
+                  accessibilityLabel={L3(language, '보기 전환 (카메라 / 겹침 / 3D 시뮬)', 'Switch view mode', '表示モード切替')}
                   onPress={() => {
                     Vibration.cancel();
-                    if (viewMode === 'sim') {
-                      if (frozenView) handleGuideToFrozenView();
-                      else setViewMode('camera');
-                      return;
-                    }
-                    if (cameraTab === 'astro') handleAstroStart();
-                    else handleCapturePress();
+                    setViewMode(viewMode === 'camera' ? 'blend' : viewMode === 'blend' ? 'sim' : 'camera');
                   }}
-                  disabled={isCapturing && viewMode !== 'sim'}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    viewMode === 'sim'
-                      ? frozenView
-                        ? L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')
-                        : L3(language, '실제 카메라로 전환', 'Switch to live camera', '実カメラへ切替')
-                      : L3(language, '셔터', 'Shutter', 'シャッター')
-                  }
-                >
-                  <View style={[styles.shutterInner, cameraTab === 'astro' && { backgroundColor: color.moon }]}>
-                    {viewMode === 'sim' ? (
-                      frozenView ? (
-                        <Crosshair size={22} color={color.onAccent} />
-                      ) : (
-                        <Camera size={22} color={color.onAccent} />
-                      )
-                    ) : isCapturing ? (
-                      <ActivityIndicator size="small" color={color.onAccent} />
-                    ) : cameraTab === 'astro' ? (
-                      <Moon size={22} color={color.onAccent} />
-                    ) : (
-                      <Camera size={22} color={color.onAccent} />
-                    )}
-                  </View>
-                </PressScale>
-
-                <View style={styles.dockSideRight}>
-                  {(() => {
-                    const isAngleLocked = viewMode === 'camera' ? !!lockedTarget : !!frozenView;
-                    return (
-                      <PressScale
-                        style={styles.dockBtn}
-                        onPress={handleToggleFreeze}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          viewMode === 'camera'
-                            ? lockedTarget
-                              ? L3(language, '저장한 목표 각도 해제', 'Clear saved camera angle', '保存した角度を解除')
-                              : L3(language, '현재 본 각도를 저장해 두고 다시 맞추기', 'Save current angle to re-aim later', '現在の角度を記憶')
-                            : frozenView
-                              ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
-                              : L3(language, '현재 방향 고정하기', 'Freeze current direction', '現在の方向を固定')
-                        }
-                      >
-                        <View style={[styles.dockIcon, isAngleLocked && styles.dockIconFrozen]}>
-                          {isAngleLocked
-                            ? (viewMode === 'camera' ? <Unlock size={18} color={color.accent} /> : <Compass size={18} color={color.accent} />)
-                            : <Lock size={18} color={color.text} />}
-                        </View>
-                        <Text style={[styles.dockLabel, isAngleLocked && { color: color.accent }]} numberOfLines={1}>
-                          {viewMode === 'camera'
-                            ? (lockedTarget ? L3(language, '고정 해제', 'Clear', '固定解除') : L3(language, '방향 고정', 'Save angle', '方向固定'))
-                            : (frozenView ? L3(language, '폰 방향', 'Follow', 'スマホ連動') : L3(language, '방향 고정', 'Freeze', '方向固定'))}
-                        </Text>
-                      </PressScale>
-                    );
-                  })()}
-                </View>
-              </View>
-              {/* 셔터 아래 모드 줄. 하늘 쪽(시뮬레이션 · 샌드박스)을 고르면 카메라를 닫고 돌아갑니다. */}
-              <ModeStrip
-                  mode={timelapseOpen ? 'timelapse' : cameraTab === 'astro' ? 'astro' : 'photo'}
-                  modes={CAMERA_STRIP_MODES}
-                  language={language}
-                  onPick={(m) => {
-                    if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
-                    const key = captureKeyFor(m);
-                    if (key) pickMode(key);
-                  }}
+                  style={{ width: 48, minHeight: 48, borderRadius: 24, paddingHorizontal: 0 }}
                 />
-            </View>
+              }
+              right={(() => {
+                const isAngleLocked = viewMode === 'camera' ? !!lockedTarget : !!frozenView;
+                return (
+                  <GlassChip
+                    label=""
+                    active={isAngleLocked}
+                    icon={isAngleLocked ? (viewMode === 'camera' ? <Unlock size={20} color={TEXT} /> : <Compass size={20} color={TEXT} />) : <Lock size={20} color={TEXT} />}
+                    accessibilityLabel={
+                      viewMode === 'camera'
+                        ? lockedTarget
+                          ? L3(language, '저장한 목표 각도 해제', 'Clear saved camera angle', '保存した角度を解除')
+                          : L3(language, '현재 본 각도를 저장해 두고 다시 맞추기', 'Save current angle to re-aim later', '現在の角度を記憶')
+                        : frozenView
+                          ? L3(language, '방향 고정 해제 — 실시간 폰 각도로 돌아가기', 'Unfreeze direction — return to live phone angle', '方向固定を解除')
+                          : L3(language, '현재 방향 고정하기', 'Freeze current direction', '現在の方向を固定')
+                    }
+                    onPress={handleToggleFreeze}
+                    style={{ width: 48, minHeight: 48, borderRadius: 24, paddingHorizontal: 0 }}
+                  />
+                );
+              })()}
+              shutterLabel={
+                viewMode === 'sim'
+                  ? frozenView
+                    ? L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')
+                    : L3(language, '실제 카메라로 전환', 'Switch to live camera', '実カメラへ切替')
+                  : L3(language, '셔터', 'Shutter', 'シャッター')
+              }
+              shutterColor={cameraTab === 'astro' ? color.moon : undefined}
+              shutterBusy={isCapturing && viewMode !== 'sim'}
+              shutterInner={
+                viewMode === 'sim' ? (
+                  frozenView ? <Crosshair size={22} color={color.onAccent} /> : <Camera size={22} color={color.onAccent} />
+                ) : isCapturing ? (
+                  <ActivityIndicator size="small" color={color.onAccent} />
+                ) : cameraTab === 'astro' ? (
+                  <Moon size={22} color={color.onAccent} />
+                ) : (
+                  <Camera size={22} color={color.onAccent} />
+                )
+              }
+              onShutter={() => {
+                Vibration.cancel();
+                if (viewMode === 'sim') {
+                  if (frozenView) handleGuideToFrozenView();
+                  else setViewMode('camera');
+                  return;
+                }
+                if (cameraTab === 'astro') handleAstroStart();
+                else handleCapturePress();
+              }}
+              stripMode={timelapseOpen ? 'timelapse' : cameraTab === 'astro' ? 'astro' : 'photo'}
+              stripModes={CAMERA_STRIP_MODES}
+              onPickMode={(m) => {
+                if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
+                const key = captureKeyFor(m);
+                if (key) pickMode(key);
+              }}
+              onDockHeight={setDockInset}
+            />
           </View>
         )}
 
@@ -3093,28 +2993,6 @@ const styles = StyleSheet.create({
   // ── 전체 화면 카메라(2026-10-25) ──
   liveRoot: { flex: 1, backgroundColor: '#000' },
   stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
-  bottomDeck: {
-    backgroundColor: color.panel,
-    borderTopWidth: 1,
-    borderColor: color.border,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingTop: space.sm,
-    paddingHorizontal: space.md,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 12,
-    gap: space.xs + 2,
-  },
-  deckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.xs,
-  },
-  deckRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
   deckFlipBtn: {
     width: 34,
     height: 32,
@@ -3125,40 +3003,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dock: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center',
-    paddingHorizontal: space.xs, paddingTop: space.xs,
-  },
-  dockSideLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-    gap: space.sm,
-    paddingRight: space.md,
-  },
-  dockSideRight: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
-    paddingLeft: space.md,
-  },
-  dockBtn: { width: DOCK_BTN_W, height: DOCK_BTN_H, marginTop: (SHUTTER - DOCK_BTN_H) / 2, alignItems: 'center', gap: space.xs },
-  dockIcon: {
-    width: TOUCH, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
-    backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-  },
-  dockIconFrozen: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
-  dockLabel: { ...type.label, color: color.text },
-  shutter: {
-    width: SHUTTER, height: SHUTTER, borderRadius: SHUTTER / 2, borderWidth: 3, borderColor: color.accent,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: color.accent, alignItems: 'center', justifyContent: 'center' },
   topRow: {
     position: 'absolute',
     left: space.md,
@@ -3352,39 +3196,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
-  stageBottomControls: {
-    position: 'absolute',
-    left: space.md,
-    right: space.md,
-    bottom: space.sm,
-    gap: space.xs,
-  },
-  timeSliderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space.sm,
-    backgroundColor: color.overlay,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-  },
-  timeSliderWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  timeTrackBg: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: color.borderStrong,
-    overflow: 'hidden',
-  },
-  timeTrackFill: {
-    height: '100%',
-    borderRadius: 2,
-    backgroundColor: color.accent,
-  },
   longExpBadge: {
     height: 24,
     flexDirection: 'row',
@@ -3420,25 +3231,6 @@ const styles = StyleSheet.create({
     color: color.text,
     fontWeight: '700',
   },
-  timeDisplayBtn: {
-    height: 26,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  timeDisplayBtnActive: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
-  timeDisplayText: {
-    ...type.label,
-    fontSize: 11,
-    color: color.text,
-  },
   microText: { ...type.micro, color: color.textDim },
   statusCol: { position: 'absolute', left: space.md, right: TOUCH + space.md * 2, gap: space.xs, alignItems: 'flex-start' },
   badge: {
@@ -3471,7 +3263,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center',
   },
   zoomBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
-  zoomText: { ...type.label, fontSize: 11, color: color.text },
 
   container: {
     flex: 1,
@@ -3906,18 +3697,4 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
   },
   alignPopoverText: { fontSize: 12, fontWeight: '700', color: color.text },
-  zoomPillBar: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    padding: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(11, 18, 32, 0.72)',
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: 6,
-  },
-  zoomPillBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  zoomPillBtnOn: { backgroundColor: 'rgba(255, 255, 255, 0.16)' },
 });
