@@ -42,6 +42,7 @@ export function SkyFrameRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
         onNow={() => { log.current.nows++; setTimeMs(C); }}
         sunsetMs={Date.UTC(2026, 10, 21, 8, 17)}
         sunsetLabel="일몰 17:17"
+        scoreSamples={Array.from({ length: 19 }, (_, i) => ({ t: C + (i - 9) * 10 * 60000, score: i === 5 ? null : 100 - Math.abs(i - 12) * 10 }))}
         mode={mode}
         onSwitch={onSwitch}
         getView={() => ({ azDeg: 159, elDeg: 13 })}
