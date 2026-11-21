@@ -98,6 +98,7 @@ import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
 import { GlassChip } from './glass/GlassChip';
+import { GlassIconButton } from './glass/GlassIconButton';
 import { TEXT } from '../theme/glassTokens';
 import { adviseExposure } from '../utils/exposureAdvice';
 import { autoStartDue, autoStartState } from '../utils/autoStart';
@@ -2591,57 +2592,52 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               {/* 무대 위 최소 상태 HUD (닫기 · 모드/방위 알약 · 보정 메뉴 · 카메라 전환) */}
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
                 <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
-                  <PressScale style={styles.hudBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close', language)}>
-                    <X size={18} color={color.text} />
-                  </PressScale>
+                  <GlassIconButton
+                    icon={<X size={18} color={TEXT} />}
+                    onPress={onClose}
+                    accessibilityLabel={t('close', language)}
+                  />
 
-                  <PressScale
-                    style={[styles.azBox, viewMode !== 'camera' && frozenView && styles.azBoxFrozen, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+                  <Pressable
                     onPress={() => setModeSheetOpen(true)}
                     accessibilityRole="button"
                     accessibilityLabel={`${L3(language, '촬영 모드 고르기', 'Choose capture mode', '撮影モードを選ぶ')}: ${modeLabel(cameraTab === 'astro' ? 'astro' : 'normal', language)}`}
+                    style={({ pressed }) => [pressed && { opacity: 0.7 }, { flexShrink: 1 }]}
                   >
-                    {cameraTab === 'astro' ? <Moon size={12} color={color.moon} /> : <Sun size={12} color={color.sun} />}
-                    <Text style={[styles.azBoxText, { color: cameraTab === 'astro' ? color.moon : color.sun }]} numberOfLines={1}>
-                      {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : L3(language, '사진 ▾', 'Photo ▾', '写真 ▾')}
-                    </Text>
-                    <Text
-                      style={[styles.azBoxText, viewMode !== 'camera' && frozenView && { color: color.accent }]}
-                      numberOfLines={1}
-                    >
-                      {`AZ ${Math.round(displayAz)}° · ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(0)}°`}
-                    </Text>
-                  </PressScale>
+                    <GlassSurface active={viewMode !== 'camera' && !!frozenView} style={styles.modeAz}>
+                      {cameraTab === 'astro' ? <Moon size={12} color={TEXT} /> : <Sun size={12} color={TEXT} />}
+                      <Text style={styles.modeAzText} numberOfLines={1}>
+                        {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : L3(language, '사진 ▾', 'Photo ▾', '写真 ▾')}
+                      </Text>
+                      <Text style={styles.modeAzText} numberOfLines={1}>
+                        {`AZ ${Math.round(displayAz)}° · ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(0)}°`}
+                      </Text>
+                    </GlassSurface>
+                  </Pressable>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <PressScale
-                      style={[styles.topPillBtn, alignMenuOpen && { borderColor: color.accent }]}
+                    <GlassChip
+                      label={L3(language, '보정', 'Align', '補正')}
+                      active={alignMenuOpen}
+                      expanded={alignMenuOpen}
                       onPress={() => setAlignMenuOpen(v => !v)}
-                      accessibilityRole="button"
                       accessibilityLabel={L3(language, '화면·방위 보정', 'Align & Heading', '画面・方位補正')}
-                    >
-                      <Text style={[styles.topPillText, alignMenuOpen && { color: color.accent }]}>
-                        {L3(language, '보정', 'Align', '補正')}
-                      </Text>
-                      {(hasInterference || (headingStatus && !headingStatus.trueNorth)) && (
-                        <View style={[styles.dot, { backgroundColor: hasInterference ? color.danger : color.warning }]} />
-                      )}
-                    </PressScale>
+                      icon={(hasInterference || (headingStatus && !headingStatus.trueNorth))
+                        ? <View style={[styles.dot, { backgroundColor: hasInterference ? color.danger : color.warning }]} />
+                        : undefined}
+                    />
                     {viewMode !== 'sim' && (
-                      <PressScale
-                        style={styles.hudBtn}
+                      <GlassIconButton
+                        icon={<RefreshCw size={15} color={TEXT} />}
                         onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
-                        accessibilityRole="button"
                         accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
-                      >
-                        <RefreshCw size={15} color={color.text} />
-                      </PressScale>
+                      />
                     )}
                   </View>
                 </View>
 
                 {alignMenuOpen && (
-                  <View style={[styles.alignPopover, { top: TOP_INSET + 42 }]}>
+                  <GlassSurface style={[styles.alignPopover, { top: TOP_INSET + 46 }]}>
                     {viewMode !== 'sim' && (
                       <PressScale
                         style={styles.alignPopoverBtn}
@@ -2649,7 +2645,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         onLongPress={() => { setAlignMenuOpen(false); handleSunSnap(); }}
                         disabled={isVisionRunning}
                       >
-                        {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={14} color={color.sun} />}
+                        {isVisionRunning ? <ActivityIndicator size="small" color={TEXT} /> : <Sun size={14} color={TEXT} />}
                         <Text style={styles.alignPopoverText}>
                           {L3(language, '화면 보정 (길게: 해 맞춤)', 'Auto-align (hold: Sun)', '画面補正 (長押し: 太陽)')}
                         </Text>
@@ -2659,12 +2655,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       style={styles.alignPopoverBtn}
                       onPress={() => { setAlignMenuOpen(false); handleCalibrate(); }}
                     >
-                      <RotateCcw size={14} color={color.text} />
+                      <RotateCcw size={14} color={TEXT} />
                       <Text style={styles.alignPopoverText}>
                         {L3(language, '방위 맞춤 (나침반)', 'Calibrate heading', '方位補正')}
                       </Text>
                     </PressScale>
-                  </View>
+                  </GlassSurface>
                 )}
 
                 <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="none">
@@ -3020,10 +3016,6 @@ const styles = StyleSheet.create({
     gap: 5,
     flexShrink: 1,
   },
-  hudBtn: {
-    width: 38, height: 38, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
-    backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center',
-  },
   countdown: {
     height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, flexShrink: 1,
     borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
@@ -3048,32 +3040,8 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   countdownLabel: { ...type.body, color: color.textDim, flexShrink: 1 },
   countdownValue: { ...type.display, color: color.text },
-  azBox: {
-    height: 38,
-    justifyContent: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 0,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.overlay,
-  },
-  azBoxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  azBoxText: {
-    ...type.micro,
-    fontSize: 10,
-    lineHeight: 13,
-    color: color.textDim,
-    includeFontPadding: false,
-  },
-  azBoxFrozen: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
+  modeAz: { minHeight: TOUCH, paddingHorizontal: 12, borderRadius: TOUCH / 2, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  modeAzText: { ...type.micro, fontSize: 11, lineHeight: 14, color: TEXT, includeFontPadding: false, ...glassTextShadow },
   azBoxLive: {
     borderColor: 'rgba(74, 222, 128, 0.45)',
     backgroundColor: 'rgba(10, 28, 18, 0.78)',
@@ -3665,36 +3633,7 @@ const styles = StyleSheet.create({
     color: color.text,
     fontWeight: '800',
   },
-  topPillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: color.overlay,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  topPillText: { fontSize: 11, fontWeight: '700', color: color.text },
-  alignPopover: {
-    position: 'absolute',
-    right: space.md,
-    backgroundColor: color.overlay,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    padding: 6,
-    gap: 4,
-    zIndex: 40,
-  },
-  alignPopoverBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: radius.xs,
-  },
-  alignPopoverText: { fontSize: 12, fontWeight: '700', color: color.text },
+  alignPopover: { position: 'absolute', right: space.md, borderRadius: radius.sm, padding: 6, gap: 4, zIndex: 40 },
+  alignPopoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, minHeight: TOUCH, borderRadius: radius.xs },
+  alignPopoverText: { fontSize: 12, fontWeight: '700', color: TEXT, ...glassTextShadow },
 });
