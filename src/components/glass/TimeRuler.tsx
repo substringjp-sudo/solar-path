@@ -7,6 +7,7 @@
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Sun } from 'lucide-react-native';
 import { color as DARK, mono } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
 import { dateLabel, dragTimeMs, daySwipeSteps, markerX, PX_PER_HOUR, rulerBand, rulerFade, rulerTicks, RULER_WIDTH, timeText, type ScoreSample } from '../../utils/timeRuler';
@@ -39,6 +40,9 @@ interface Props {
   /** 현재 시각/위치와 다를 때만 "지금" 단추를 보임. */
   showNow?: boolean;
   onNow?: () => void;
+  /** 슬라이더 우측 상단의 작은 태양 따라가기 아이콘 버튼 */
+  sunTracked?: boolean;
+  onToggleTrackSun?: () => void;
 }
 
 const RULER_COMPACT_H = 22;
@@ -50,7 +54,7 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, showNow = true, onNow }) => {
+export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const [rulerActive, setRulerActive] = useState(false);
   const [dayDragY, setDayDragY] = useState(0);
@@ -164,11 +168,22 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
           <Text testID="ruler-digits" style={[styles.digits, glassTextShadow]}>{text}</Text>
         </View>
 
-        {showNow && onNow ? (
-          <View style={styles.nowWrap}>
+        <View style={styles.nowWrap}>
+          {showNow && onNow ? (
             <GlassChip testID="ruler-now" label={L3(language, '지금', 'Now', '今')} onPress={onNow} />
-          </View>
-        ) : null}
+          ) : null}
+          {onToggleTrackSun ? (
+            <GlassChip
+              testID="ruler-track-sun"
+              label=""
+              active={sunTracked}
+              icon={<Sun size={14} color={sunTracked ? DARK.sun : TEXT} />}
+              onPress={onToggleTrackSun}
+              accessibilityLabel={L3(language, '태양 따라가기', 'Track the sun', '太陽を追う')}
+              style={styles.sunBtn}
+            />
+          ) : null}
+        </View>
       </View>
 
       <Animated.View
@@ -214,7 +229,8 @@ const styles = StyleSheet.create({
   dateCurrent: { height: DAY_ROW_H, lineHeight: DAY_ROW_H, fontSize: 11.5, fontWeight: '500', color: TEXT },
   digitsCenter: { position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
   digits: { fontFamily: mono, fontSize: 16, fontWeight: '500', color: TEXT, letterSpacing: 0.4 },
-  nowWrap: { marginLeft: 'auto', zIndex: 2 },
+  nowWrap: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 },
+  sunBtn: { width: 28, minHeight: 28, borderRadius: 14, paddingHorizontal: 0 },
   track: { overflow: 'hidden' },
   tick: { position: 'absolute', width: 1.5, borderRadius: 1 },
   tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 9.5, fontWeight: '400', color: TEXT },

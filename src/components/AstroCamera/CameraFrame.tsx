@@ -114,22 +114,27 @@ export const CameraFrame: React.FC<Props> = ({
     </GlassSurface>
   ) : null;
 
+  const zoomChips = chips.filter(c => c.id.startsWith('zoom-'));
+  const subChips = chips.filter(c => !c.id.startsWith('zoom-'));
+  const renderChip = (c: CameraChipSpec) => (
+    <GlassChip
+      key={c.id}
+      testID={`chip-${c.id}`}
+      label={c.label}
+      mono={c.mono}
+      active={c.active || isOpen(c)}
+      expanded={c.expands ? isOpen(c) : undefined}
+      accessibilityLabel={c.accessibilityLabel}
+      onPress={() => onChip(c)}
+    />
+  );
+
   return (
     <DockSheet stage={stage} onStageChange={setStage} language={language} expanded={expanded} screenH={screenH} fitContent onFixedHeight={onDockHeight}>
       {chips.length > 0 ? (
-        <View testID="chips-row" style={styles.chips}>
-          {chips.map(c => (
-            <GlassChip
-              key={c.id}
-              testID={`chip-${c.id}`}
-              label={c.label}
-              mono={c.mono}
-              active={c.active || isOpen(c)}
-              expanded={c.expands ? isOpen(c) : undefined}
-              accessibilityLabel={c.accessibilityLabel}
-              onPress={() => onChip(c)}
-            />
-          ))}
+        <View testID="chips-row" style={styles.chipsCol}>
+          {zoomChips.length > 0 ? <View style={styles.chips}>{zoomChips.map(renderChip)}</View> : null}
+          {subChips.length > 0 ? <View style={styles.chips}>{subChips.map(renderChip)}</View> : null}
         </View>
       ) : null}
       {ruler ? (
@@ -170,6 +175,7 @@ export const CameraFrame: React.FC<Props> = ({
 export const cameraFrameLabel = (language: Language): string => L3(language, '카메라 조작', 'Camera controls', 'カメラ操作');
 
 const styles = StyleSheet.create({
+  chipsCol: { alignItems: 'center', gap: 6 },
   chips: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10 },
   panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
   panelScroll: { flexShrink: 1 },

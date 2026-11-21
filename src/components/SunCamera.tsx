@@ -505,6 +505,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [topInfoExpanded, setTopInfoExpanded] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [timelapseMode, setTimelapseMode] = useState(false);
+  const [tlSummaryLabel, setTlSummaryLabel] = useState<string>('');
   const [camStage, setCamStage] = useState<'min' | 'mid' | 'full'>('min');
   // 월식 이벤트 모드: 켜짐 계산은 10 분 · 위경도 0.1° 단위로만 다시 하고, 남은 시간만 매초 갱신한다.
   const [eclipseOn, setEclipseOn] = useState(false);
@@ -2820,7 +2821,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   onPress: () => setMagnification(mag),
                 })),
                 timelapseMode
-                  ? { id: 'timelapse', label: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定'), expands: true, openStage: 'full' }
+                  ? { id: 'timelapse', label: tlSummaryLabel || L3(language, '노을 · 1시간 · 10초 · 12s', 'Sunset · 1h · 10s · 12s', '夕焼け · 1時間 · 10秒 · 12s'), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定') }
                   : cameraTab === 'astro'
                     ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
                     : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
@@ -2845,6 +2846,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                           onPreview={playPreview}
                           onStart={startTimelapse}
                           onClose={() => setCamStage('min')}
+                          onSummaryChange={setTlSummaryLabel}
                         />
                       ),
                     }

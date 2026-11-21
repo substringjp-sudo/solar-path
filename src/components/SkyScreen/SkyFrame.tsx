@@ -114,7 +114,6 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return jumpDay(-1);
     if (c === 'today') return jumpDay(0);
     if (c === 'tomorrow') return jumpDay(1);
-    if (c === 'trackSun') { onToggleTrackSun?.(); return; }
     if (c === 'move' || c === 'view') {
       setShutterTool(prev => (prev === c ? null : c));
       if (stage !== 'min') setStageSafe('min');
@@ -139,46 +138,12 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return off === -1;
     if (c === 'today') return off === 0;
     if (c === 'tomorrow') return off === 1;
-    if (c === 'trackSun') return !!sunTracked;
     if (c === 'move' || c === 'view') return shutterTool === c;
     return active === c && stage !== 'min';
   };
 
   let expanded: React.ReactNode = null;
-  if (mode === 'simulation') {
-    expanded = (
-      <View style={styles.simWrap}>
-        <View onLayout={(e) => { const h = Math.ceil(e.nativeEvent.layout.height); if (h > 0 && h !== dateStripH) setDateStripH(h); }}>
-          <View testID="week-strip" style={styles.week}>
-            {week.map(w => (
-              <Pressable
-                key={w.offset}
-                testID={`week-${w.day}`}
-                accessibilityRole="button"
-                accessibilityLabel={`${w.weekday} ${w.day}`}
-                aria-pressed={w.selected}
-                onPress={() => { onSlideStart('date'); onPick(w.ms, 'date'); onSlideEnd('date'); }}
-                style={styles.weekPress}
-              >
-                <GlassSurface active={w.selected} style={styles.weekCell}>
-                  <Text style={[styles.weekDay, glassTextShadow]}>{w.weekday}</Text>
-                  <Text style={[styles.weekNum, glassTextShadow]}>{w.day}</Text>
-                </GlassSurface>
-              </Pressable>
-            ))}
-          </View>
-          {onOpenCalendar ? (
-            <View style={styles.calRow}>
-              <GlassChip testID="calendar" label={L3(language, '달력에서 고르기', 'Open calendar', 'カレンダーで選ぶ')} onPress={onOpenCalendar} />
-            </View>
-          ) : null}
-        </View>
-        {stage === 'full' && simBody ? (
-          <ScrollView testID="sim-body" style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>{simBody}</ScrollView>
-        ) : null}
-      </View>
-    );
-  } else {
+  if (mode === 'sandbox') {
     const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene'])
       ? (active as 'move' | 'view' | 'scene')
       : firstSandboxTab;
@@ -206,6 +171,7 @@ export const SkyFrame: React.FC<Props> = ({
         expanded={expanded}
         midMaxH={mode === 'simulation' && dateStripH > 0 ? dateStripH : undefined}
         fitContent={mode === 'sandbox'}
+        hideHandle={mode === 'simulation'}
       >
         {chips.length > 0 && (
         <View testID="chips-row" style={styles.chips}>
@@ -226,10 +192,12 @@ export const SkyFrame: React.FC<Props> = ({
           sunsetLabel={sunsetLabel}
           scoreSamples={scoreSamples}
           dateText={mode === 'simulation' ? dateShort(timeMs, tz, language) : undefined}
-          onDatePress={() => { if (active === 'date' && stage !== 'min') { setStageSafe('min'); return; } setActive('date'); setStage(s => (s === 'min' ? 'mid' : s)); }}
+          onDatePress={onOpenCalendar}
           onDayShift={(n) => jumpDay(off + n)}
           showNow={effectiveShowNow}
           onNow={onNow}
+          sunTracked={mode === 'simulation' ? sunTracked : undefined}
+          onToggleTrackSun={mode === 'simulation' ? onToggleTrackSun : undefined}
         />
         <View testID="shutter-row" style={styles.shutterRow}>
           <Pressable testID="thumb" accessibilityRole="button" accessibilityLabel={L3(language, '저장한 장면 열기', 'Open saved scene', '保存したシーンを開く')} disabled={!onOpenLatestScene} onPress={onOpenLatestScene} style={[styles.thumb, !onOpenLatestScene && { opacity: 0.5 }]} />

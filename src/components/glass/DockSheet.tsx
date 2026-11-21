@@ -32,6 +32,8 @@ interface Props {
   midMaxH?: number;
   /** true 면 mid/full 구분 없이 콘텐츠 실제 높이(최대 fullExtra)까지 펼쳐 잘리지 않게 함(샌드박스 패널 등). */
   fitContent?: boolean;
+  /** true 면 손잡이와 펼침 영역을 숨기고 고정부만 둠(시뮬레이션 등). */
+  hideHandle?: boolean;
   /** 고정부 + 손잡이 줄의 높이가 정해지거나 바뀔 때(px). 막대 위에 떠 있는 것을 그만큼 올리는 데 씁니다. */
   onFixedHeight?: (h: number) => void;
 }
@@ -45,7 +47,7 @@ const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   full: ['접기', 'Collapse', '閉じる'],
 };
 
-export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, fitContent = false, onFixedHeight }) => {
+export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, fitContent = false, hideHandle = false, onFixedHeight }) => {
   const win = useWindowDimensions();
   const H = screenH ?? win.height;
   const [fixedH, setFixedH] = useState(380);
@@ -116,33 +118,37 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
 
   const [ko, en, ja] = HANDLE_LABELS[stage];
   return (
-    <View testID="dock" pointerEvents="box-none" style={styles.dock} {...pan.panHandlers}>
-      <Scrim edge="bottom" height={fixedH + extra + 72} />
-      <View {...handlePan.panHandlers}>
-        <Pressable
-          testID="dock-handle"
-          accessibilityRole="button"
-          accessibilityLabel={L3(language, ko, en, ja)}
-          aria-expanded={stage !== 'min'}
-          onPress={() => { if (!isRecentDrag()) onStageChange(tapNext(stage)); }}
-          hitSlop={{ top: 8, bottom: 8 }}
-          style={styles.handleHit}
-        >
-          <View style={styles.handle} />
-        </Pressable>
-      </View>
-      <Animated.View testID="dock-expanded" style={[styles.expanded, { height: anim }]} pointerEvents={stage === 'min' ? 'none' : 'auto'}>
-        <View
-          style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
-          onLayout={(e: LayoutChangeEvent) => {
-            const h = Math.ceil(e.nativeEvent.layout.height);
-            if (h !== contentH) setContentH(h);
-          }}
-        >
-          {typeof expanded === 'function' ? expanded(rawExtra) : expanded}
-        </View>
-      </Animated.View>
-      <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => { const h = Math.round(e.nativeEvent.layout.height); setFixedH(h); onFixedHeight?.(h + HANDLE_ROW_H); }} style={styles.fixed}>
+    <View testID="dock" pointerEvents="box-none" style={styles.dock} {...(hideHandle ? {} : pan.panHandlers)}>
+      <Scrim edge="bottom" height={fixedH + (hideHandle ? 0 : extra) + 72} />
+      {!hideHandle && (
+        <>
+          <View {...handlePan.panHandlers}>
+            <Pressable
+              testID="dock-handle"
+              accessibilityRole="button"
+              accessibilityLabel={L3(language, ko, en, ja)}
+              aria-expanded={stage !== 'min'}
+              onPress={() => { if (!isRecentDrag()) onStageChange(tapNext(stage)); }}
+              hitSlop={{ top: 8, bottom: 8 }}
+              style={styles.handleHit}
+            >
+              <View style={styles.handle} />
+            </Pressable>
+          </View>
+          <Animated.View testID="dock-expanded" style={[styles.expanded, { height: anim }]} pointerEvents={stage === 'min' ? 'none' : 'auto'}>
+            <View
+              style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
+              onLayout={(e: LayoutChangeEvent) => {
+                const h = Math.ceil(e.nativeEvent.layout.height);
+                if (h !== contentH) setContentH(h);
+              }}
+            >
+              {typeof expanded === 'function' ? expanded(rawExtra) : expanded}
+            </View>
+          </Animated.View>
+        </>
+      )}
+      <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => { const h = Math.round(e.nativeEvent.layout.height); setFixedH(h); onFixedHeight?.(h + (hideHandle ? 0 : HANDLE_ROW_H)); }} style={styles.fixed}>
         {children}
       </View>
     </View>

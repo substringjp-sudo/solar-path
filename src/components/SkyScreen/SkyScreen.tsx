@@ -1229,8 +1229,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </OverlayButton>
           )}
 
-          {/* 구/지도 — 두 손가락 줌아웃의 누르기 대안(디자인 2단). 지도에서는 "착륙"으로 돌아옵니다. */}
-          {expertMode && !ascended && (
+          {/* 구/지도 — 기본 시뮬레이션에서만 보이고 샌드박스에서는 숨김. 지도에서는 "착륙"으로 돌아옵니다. */}
+          {!expertMode && !ascended && (
             <OverlayButton
               onPress={() => sceneRef.current?.flyToMap()}
               accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}

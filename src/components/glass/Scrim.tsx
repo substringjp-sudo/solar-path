@@ -15,8 +15,27 @@ interface Props {
   testID?: string;
 }
 
+const TOP_SMOOTH: ScrimStops = [
+  [0, 0.56],
+  [0.22, 0.44],
+  [0.45, 0.27],
+  [0.66, 0.13],
+  [0.82, 0.04],
+  [0.93, 0.01],
+  [1, 0],
+];
+
+const BOTTOM_SMOOTH: ScrimStops = [
+  [0, 0],
+  [0.08, 0.04],
+  [0.18, 0.18],
+  [0.34, 0.38],
+  [0.58, 0.58],
+  [1, 0.72],
+];
+
 export const Scrim: React.FC<Props> = ({ edge, height, style, testID }) => {
-  const stops: ScrimStops = edge === 'top' ? SCRIM_TOP.stops : SCRIM_BOTTOM;
+  const stops: ScrimStops = edge === 'top' ? TOP_SMOOTH : BOTTOM_SMOOTH;
   const h = height ?? (edge === 'top' ? SCRIM_TOP.heightPx : 380);
   const id = `scrim-${edge}`;
   return (

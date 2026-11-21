@@ -5,7 +5,7 @@
  * "미리보기"는 3D 시뮬레이션이 그 구간을 영상 길이만큼 재생합니다(촬영 없이). "지금 시작"은 지금부터 그 총 시간 동안 간격마다 사진을 찍어 앨범에 저장합니다.
  * 영상(MP4) 만들기는 아직 없습니다: 사진 묶음으로 저장합니다. 계산은 `utils/timelapsePlan.ts`.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import Svg, { Polyline } from 'react-native-svg';
@@ -15,12 +15,12 @@ import { TEXT } from '../../theme/glassTokens';
 import { mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
 import { exposureLine, exposureStops, exposureSummary } from '../../utils/exposureCurve';
-import { clockLabel, planTimelapse, presetWindow, windowLabel, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
+import { MIN_INTERVAL_S, STACK_RANGE, clockLabel, planTimelapse, windowLabel, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
 
 export const VIDEO_SEC_CHOICES = [5, 10, 20, 30] as const;
-const PRESETS: readonly PresetKind[] = ['sunset', 'sunrise', 'day-to-night'];
+export const DURATION_MIN_CHOICES = [10, 30, 60, 300] as const;
+export type DurationMinChoice = (typeof DURATION_MIN_CHOICES)[number];
 const KINDS: readonly TimelapseKind[] = ['plain', 'stacked', 'trail'];
-export const STACK_CHOICES = [2, 4, 8] as const;
 
 interface Props {
   visible: boolean;
@@ -42,34 +42,59 @@ interface Props {
   onPreview: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
   onStart: (plan: TimelapsePlan) => void;
   onClose: () => void;
+  /** 현재 세팅 요약 문자열이 바뀔 때 알림(줌 아래 칩 라벨 표시용) */
+  onSummaryChange?: (label: string) => void;
 }
 
 export const kindLabel = (k: TimelapseKind, l: Language): string => {
-  if (k === 'plain') return L3(l, '일반', 'Plain', '通常');
-  if (k === 'stacked') return L3(l, '밝게 합성', 'Bright stack', '明るく合成');
-  return L3(l, '궤적 누적', 'Trails', '軌跡の累積');
+  if (k === 'plain') return L3(l, '노을', 'Sunset', '夕焼け');
+  if (k === 'stacked') return L3(l, '천체', 'Astro', '天体');
+  return L3(l, '궤적', 'Trails', '軌跡');
 };
 const kindDesc = (k: TimelapseKind, l: Language): string => {
   if (k === 'plain') return L3(l, '한 장이 영상 한 프레임이에요.', 'Each photo is one video frame.', '1枚が動画の1フレームです。');
-  if (k === 'stacked') return L3(l, '여러 장을 한 프레임으로 합쳐 밤을 밝고 깨끗하게 만들어요.', 'Several photos merge into one bright, clean frame for night scenes.', '複数枚を1フレームに合成し、夜を明るくきれいにします。');
+  if (k === 'stacked') return L3(l, '구간과 영상 길이에 맞춰 여러 장을 한 프레임으로 자동 합성해 밤하늘을 밝고 깨끗하게 만들어요.', 'Automatically merges multiple shots per frame based on window and video length for bright, clean night skies.', '区間と動画の長さに合わせて複数枚を1フレームに自動合成し、夜空を明るくきれいにします。');
   return L3(l, '처음 장부터 계속 쌓아 별 궤적이 점점 그려져요. 마지막 프레임이 별 일주 사진이에요.', 'Photos keep stacking so star trails draw in; the last frame is the star-trail photo.', '最初から積み重ねて星の軌跡が少しずつ描かれます。最後のフレームが星の軌跡写真です。');
 };
 
-const presetLabel = (k: PresetKind, l: Language): string => {
-  if (k === 'sunset') return L3(l, '일몰 60분', 'Sunset 60 min', '日没 60分');
-  if (k === 'sunrise') return L3(l, '일출 60분', 'Sunrise 60 min', '日の出 60分');
-  return L3(l, '낮에서 밤으로 150분', 'Day to night 150 min', '昼から夜へ 150分');
+export const durationLabel = (min: number, l: Language): string => {
+  if (min === 10) return L3(l, '10분', '10m', '10分');
+  if (min === 30) return L3(l, '30분', '30m', '30分');
+  if (min === 60) return L3(l, '1시간', '1h', '1時間');
+  if (min === 300) return L3(l, '5시간', '5h', '5時間');
+  return `${min}${L3(l, '분', 'm', '分')}`;
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose }) => {
-  const [preset, setPreset] = useState<PresetKind>('sunset');
+/** 구간(분)과 영상 길이(초)로 한 프레임에 합칠 장수를 자동 계산합니다. */
+export const autoStackSize = (totalMin: number, videoSec: number, fps: number = 30): number => {
+  const raw = Math.floor((totalMin * 60) / (Math.max(1, videoSec * fps) * MIN_INTERVAL_S));
+  return Math.max(STACK_RANGE.min, Math.min(STACK_RANGE.max, raw));
+};
+
+export const timelapseChipLabel = (plan: TimelapsePlan, l: Language): string => {
+  const iv = `${plan.intervalS % 1 === 0 ? plan.intervalS : plan.intervalS.toFixed(1)}s`;
+  const base = `${kindLabel(plan.kind, l)} · ${durationLabel(plan.totalMin, l)} · ${Math.round(plan.targetVideoSec)}${L3(l, '초', 's', '秒')} · ${iv}`;
+  return plan.kind === 'stacked'
+    ? `${base} · ${plan.stackSize}${L3(l, '장합성', '×stack', '枚合成')}`
+    : base;
+};
+
+export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose, onSummaryChange }) => {
+  const [totalMin, setTotalMin] = useState<DurationMinChoice>(60);
   const [videoSec, setVideoSec] = useState<number>(10);
   const [kind, setKind] = useState<TimelapseKind>('plain');
-  const [stackSize, setStackSize] = useState<number>(4);
-  const eventMs = preset === 'sunrise' ? events.sunrise : events.sunset;
-  const win = useMemo(() => (eventMs !== null ? presetWindow(preset, eventMs) : null), [preset, eventMs]);
-  const totalMin = win?.totalMin ?? presetWindow(preset, 0)!.totalMin;
+  const stackSize = kind === 'stacked' ? autoStackSize(totalMin, videoSec, 30) : 1;
   const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30, kind, stackSize }), [totalMin, videoSec, kind, stackSize]);
+  const win = useMemo(() => {
+    if (kind === 'plain' && events.sunset !== null) {
+      const before = Math.round(totalMin / 3);
+      return { startMs: events.sunset - before * 60000, endMs: events.sunset + (totalMin - before) * 60000, totalMin };
+    }
+    return { startMs: nowMs, endMs: nowMs + totalMin * 60000, totalMin };
+  }, [kind, events.sunset, totalMin, nowMs]);
+
+  const chipSummary = useMemo(() => timelapseChipLabel(plan, language), [plan, language]);
+  useEffect(() => { onSummaryChange?.(chipSummary); }, [chipSummary, onSummaryChange]);
   // 예측 노출 곡선: 구간을 25 칸으로 나눈 해 고도 → 첫 장면 대비 단 수(맑은 하늘 기준 어림, 구름 · 지형 반영 안 함)
   const expo = useMemo(() => {
     if (!win || !sunAltAt) return null;
@@ -92,6 +117,7 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
   const cells = [
     { label: L3(language, '간격', 'Interval', '間隔'), value: `${plan.intervalS % 1 === 0 ? plan.intervalS : plan.intervalS.toFixed(1)} s` },
     { label: L3(language, '찍는 장', 'Shots', '撮影枚数'), value: String(plan.frames) },
+    ...(kind === 'stacked' ? [{ label: L3(language, '프레임 합성', 'Per frame', '1フレーム'), value: `${plan.stackSize}${L3(language, '장', '×', '枚')}` }] : []),
     { label: L3(language, '영상', 'Video', '動画'), value: `${Math.round(plan.videoSec)} s` },
     { label: L3(language, '저장', 'Saved', '保存'), value: String(plan.savedFrames) },
   ];
@@ -107,11 +133,8 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
       <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
       {chipsOf(KINDS, v => kind === v, setKind, v => kindLabel(v, language), v => `tl-kind-${v}`)}
       <Text style={styles.note}>{kindDesc(kind, language)}</Text>
-      {kind === 'stacked'
-        ? chipsOf(STACK_CHOICES, v => stackSize === v, setStackSize, n => `${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`, n => `tl-stack-${n}`)
-        : null}
       <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
-      {chipsOf(PRESETS, v => preset === v, setPreset, v => presetLabel(v, language), v => `tl-preset-${v}`)}
+      {chipsOf(DURATION_MIN_CHOICES, v => totalMin === v, setTotalMin, v => durationLabel(v, language), v => `tl-dur-${v}`)}
       <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '영상 길이', 'VIDEO LENGTH', '動画の長さ')}</Text>
       {chipsOf(VIDEO_SEC_CHOICES, v => videoSec === v, setVideoSec, v => `${v}${L3(language, '초', ' s', '秒')}`, v => `tl-video-${v}`)}
       <View testID="tl-card" style={styles.card}>
@@ -132,10 +155,10 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
             <Text style={styles.expoText}>{`${L3(language, '밝기', 'Light', '明るさ')} ${expo.total > 0 ? '+' : '−'}${Math.abs(expo.total).toFixed(1)}${L3(language, '단', ' stops', '段')} · ${L3(language, '맑은 하늘 기준 어림', 'clear-sky estimate', '快晴の目安')}`}</Text>
           </View>
         ) : null}
-        {lowCloud && preset === 'sunset' ? (
+        {lowCloud && kind === 'plain' ? (
           <Text style={styles.lowCloudLine}>{`${L3(language, '낮은 구름 두꺼움', 'Low cloud thick', '低い雲が厚い')} ${windowLabel(lowCloud.fromMs, lowCloud.toMs, tzHours)}`}</Text>
         ) : null}
-        {peak && preset === 'sunset' ? (
+        {peak && kind === 'plain' ? (
           <Text style={styles.peakLine}>{`${L3(language, '가장 붉을 때', 'Reddest', '最も赤い時')} ${windowLabel(peak.fromMs, peak.toMs, tzHours)}`}</Text>
         ) : null}
         {plan.clamped === 'interval' ? (
