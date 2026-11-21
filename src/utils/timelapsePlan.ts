@@ -184,3 +184,13 @@ export function savedSoFar(plan: TimelapsePlan, taken: number): number {
   if (plan.kind !== 'stacked') return Math.floor(taken);
   return taken >= plan.frames ? plan.savedFrames : Math.floor(taken / plan.stackSize);
 }
+
+const mmss = (sec: number): string => `${Math.floor(sec / 60)}:${p2(sec % 60)}`;
+
+/** 미리보기 읽음 "0:06 / 0:12": 지난 초(0 ~ 영상 초로 자르고 버림) / 영상 초(반올림). 숫자가 아니면 "0:00 / 0:00". */
+export function videoClock(elapsedS: number, videoSec: number): string {
+  if (!Number.isFinite(elapsedS) || !Number.isFinite(videoSec)) return '0:00 / 0:00';
+  const total = Math.max(0, Math.round(videoSec));
+  const el = Math.max(0, Math.min(total, Math.floor(elapsedS)));
+  return `${mmss(el)} / ${mmss(total)}`;
+}
