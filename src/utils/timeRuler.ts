@@ -136,3 +136,20 @@ export function rulerBand(samples: readonly ScoreSample[], centerMs: number, wid
   }
   return out;
 }
+
+/**
+ * 가장자리로 갈수록 작고 투명하게(입체감). d = 가운데에서 떨어진 정도(0 ~ 1)일 때 scale = 1 − 0.45·d, opacity = 1 − 0.8·d².
+ * 숫자가 아니면 { 1, 1 }.
+ */
+export function rulerFade(x: number, width: number = RULER_WIDTH): { scale: number; opacity: number } {
+  if (!Number.isFinite(x) || !Number.isFinite(width) || width <= 0) return { scale: 1, opacity: 1 };
+  const d = Math.max(0, Math.min(1, Math.abs(x - width / 2) / (width / 2)));
+  return { scale: 1 - 0.45 * d, opacity: 1 - 0.8 * d * d };
+}
+
+/** 날짜 단추를 위아래로 밀 때 옮길 날 수. 위로(dy 음수) 다음 날, 아래로 이전 날. 20 px 마다 하루(소수 버림), 최대 7일. */
+export function daySwipeSteps(dy: number): number {
+  if (!Number.isFinite(dy)) return 0;
+  const n = Math.max(-7, Math.min(7, Math.trunc(-dy / 20)));
+  return n === 0 ? 0 : n;
+}

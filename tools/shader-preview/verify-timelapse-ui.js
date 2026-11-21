@@ -15,7 +15,7 @@
  *     그 아래 한 줄 "시작 HH:mm · 촬영 N분 · 종류". 시트는 `tzHours` 를 받는다.
  *  2c. 목업 12 모양(촬영 중): 위쪽 줄이 카드로 — 제목 "타임랩스 · 종류", 부제 "HH:mm 시작 · 지금 HH:mm", 빨간 점 REC, 값 칸(찍은 장수 / 전체 · 남은 시간 · 앨범 저장 수), 오른쪽 "마치기". 끝나거나 멈추면 점과 REC 는 사라지고 결과 글이 보인다.
  *  5. 촬영 중 줄: 찍은 장수 / 전체 · 남은 시간(분:초) · "화면을 켜 두세요"(화면이 꺼지지 않게 하는 부품이 없으므로 알린다)와 "마치기". 연속 실패로 멈추면 그렇게 알리고, 끝나면 몇 장이 저장됐는지 알린다.
- *  6. 미리보기: 3D 시뮬레이션(`setViewMode('sim')`)이 `previewTimeAt` 으로 구간을 `onTimeChange` 에 영상 길이만큼 흘리고, 끝나거나 멈추면 원래 시각으로 돌아온다. 줄에 "미리보기 재생 중"과 멈추기 단추.
+ *  6. (2026-11-21: 줄에 `videoClock` 읽음 "0:06 / 0:12" 가 붙는다.) 미리보기: 3D 시뮬레이션(`setViewMode('sim')`)이 `previewTimeAt` 으로 구간을 `onTimeChange` 에 영상 길이만큼 흘리고, 끝나거나 멈추면 원래 시각으로 돌아온다. 줄에 "미리보기 재생 중"과 멈추기 단추.
  *
  *   node tools/shader-preview/verify-timelapse-ui.js
  */
@@ -72,12 +72,13 @@ ok(/timelapse\.run\.taken\}\/\$\{timelapse\.run\.plan\.frames\}/.test(cam) && /t
 ok(/timelapse\.run\.error/.test(cam) && /타임랩스가 멈췄어요/.test(cam) && /타임랩스 끝/.test(cam), '연속 실패로 멈춤과 끝남을 알린다');
 
 console.log('\n[6] 미리보기');
-ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');
+ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);\s+setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');
 ok(/if \(previewOrigin\.current\) \{ onTimeChange\?\.\(previewOrigin\.current\); previewOrigin\.current = null; \}/.test(cam) && /\{previewing && \(/.test(cam) && /'미리보기 멈추기'/.test(cam), '끝나거나 멈추면 원래 시각으로 돌아오고, 줄에 멈추기 단추');
 {
   const panel = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapsePanel.tsx'), 'utf8');
   ok(/\{peak && preset === 'sunset' \? \(\s*<Text style=\{styles\.peakLine\}>\{`\$\{L3\(language, '가장 붉을 때', 'Reddest', '最も赤い時'\)\} \$\{windowLabel\(peak\.fromMs, peak\.toMs, tzHours\)\}`\}<\/Text>/.test(panel) && /peak=\{tlPeak\}/.test(cam) && /const tlPeak = useMemo\(\(\) => \{\s+if \(!timelapseOpen \|\| !tlSunsetMs/.test(cam) && /return peakWindow\(points\);/.test(cam), '시트에 "가장 붉을 때 16:50 ~ 17:20" 줄(일몰 프리셋이고 구간을 알 때만), 카메라가 시트가 열려 있을 때만 `scenePrediction` 표본으로 구간을 셈(2026-11-21 추가)');
 }
+ok(/setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);/.test(cam) && /\{`  \$\{previewClock\}`\}<\/Text>/.test(cam), '미리보기 줄에 "0:06 / 0:12" 읽음(시작에 0 으로, 재생 중 지난 초로 갱신, 줄 글 뒤에 붙임; 2026-11-21 추가)');
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);

@@ -152,11 +152,13 @@ export const SkyFrame: React.FC<Props> = ({
         {typeof readout === 'string' ? <GlassChip mono label={readout} /> : readout}
       </View>
       <DockSheet stage={stage} onStageChange={setStageSafe} language={language} expanded={expanded}>
+        {chips.length > 0 && (
         <View testID="chips-row" style={styles.chips}>
           {chips.map(c => (
             <GlassChip key={c} testID={`chip-${c}`} label={chipLabel(c, language)} active={chipActive(c)} expanded={c === 'date' || mode === 'sandbox' ? chipActive(c) : undefined} onPress={() => onChip(c)} />
           ))}
         </View>
+        )}
         <TimeRuler
           timeMs={timeMs}
           tz={tz}
@@ -169,7 +171,8 @@ export const SkyFrame: React.FC<Props> = ({
           sunsetLabel={sunsetLabel}
           scoreSamples={scoreSamples}
           dateText={mode === 'simulation' ? dateShort(timeMs, tz, language) : undefined}
-          onDatePress={() => { setActive('date'); setStage(s => (s === 'min' ? 'mid' : s)); }}
+          onDatePress={() => { if (active === 'date' && stage !== 'min') { setStageSafe('min'); return; } setActive('date'); setStage(s => (s === 'min' ? 'mid' : s)); }}
+          onDayShift={(n) => jumpDay(off + n)}
           onNow={onNow}
         />
         <View testID="shutter-row" style={styles.shutterRow}>
@@ -199,8 +202,8 @@ const styles = StyleSheet.create({
   week: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 8 },
   weekPress: { flex: 1, minWidth: 0 },
   weekCell: { minHeight: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  weekDay: { color: TEXT, fontSize: 11, fontWeight: '600' },
-  weekNum: { color: TEXT, fontSize: 16, fontWeight: '800' },
+  weekDay: { color: TEXT, fontSize: 10, fontWeight: '600' },
+  weekNum: { color: TEXT, fontSize: 14, fontWeight: '800' },
   calRow: { alignItems: 'center', paddingBottom: 8 },
   body: { flex: 1, marginHorizontal: 10 },
   bodyContent: { paddingBottom: 12, gap: 10 },

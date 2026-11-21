@@ -79,11 +79,13 @@ export function GlassRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
           </GlassSurface>
         )}
       >
+        {(!chips || chips.length > 0) && (
         <View testID="chips-row" style={styles.chips}>
           {chips
             ? chips.map(c => <GlassChip key={c} testID={`chip-${c}`} label={chipLabel(c, lang)} active={c === 'today'} onPress={() => { if (c === 'date') setStage('mid'); }} />)
             : ['.5', '1×', '2', '5'].map(z => <GlassChip key={z} testID={`chip-zoom-${z}`} label={z} mono active={z === '1×'} onPress={() => {}} style={styles.zoom} />)}
         </View>
+        )}
         <TimeRuler
           timeMs={timeMs}
           tz={tz}

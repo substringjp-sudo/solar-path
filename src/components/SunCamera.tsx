@@ -82,7 +82,7 @@ import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/T
 import { ResultCompare } from './ResultCompare';
 import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
-import { clockLabel, previewTimeAt, savedSoFar, shotPlan, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
+import { clockLabel, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
 import { FrameAccumulator } from '../utils/frameComposite';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
@@ -560,6 +560,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [mediaPermission, requestMediaPermission, timelapse, language]);
   // 미리보기: 3D 시뮬레이션이 구간을 영상 길이만큼 재생합니다. 끝나면 원래 시각으로 돌아옵니다.
   const [previewing, setPreviewing] = useState(false);
+  /** 미리보기 읽음 "0:06 / 0:12" (정수 초가 바뀔 때만 다시 그림). */
+  const [previewClock, setPreviewClock] = useState('0:00 / 0:00');
   const previewTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const previewOrigin = useRef<Date | null>(null);
   const stopPreview = useCallback(() => {
@@ -573,10 +575,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     if (!previewOrigin.current) previewOrigin.current = currentTime;
     setViewMode('sim');
     setPreviewing(true);
+    setPreviewClock(videoClock(0, plan.targetVideoSec));
     const t0 = Date.now();
     previewTimer.current = setInterval(() => {
       const elapsed = (Date.now() - t0) / 1000;
       onTimeChange(new Date(previewTimeAt(startMs, endMs, plan.targetVideoSec, elapsed)));
+      setPreviewClock(videoClock(elapsed, plan.targetVideoSec));
       if (elapsed >= plan.targetVideoSec) stopPreview();
     }, 100);
   }, [onTimeChange, currentTime, stopPreview]);
@@ -2630,7 +2634,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   )}
                   {previewing && (
                     <View style={styles.banner}>
-                      <Text style={styles.bannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}</Text>
+                      <Text style={styles.bannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}{`  ${previewClock}`}</Text>
                       <Pressable onPress={stopPreview} accessibilityRole="button" accessibilityLabel={L3(language, '미리보기 멈추기', 'Stop preview', 'プレビューを止める')} hitSlop={8}>
                         <X size={14} color={color.text} />
                       </Pressable>
