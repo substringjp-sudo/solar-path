@@ -136,6 +136,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         activeOpacity={0.8}
         accessibilityRole="tab"
         accessibilityState={{ selected: isActive }}
+        aria-selected={isActive}
       >
         <Text
           numberOfLines={1}

@@ -189,7 +189,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
   // ── 5 겹침
   console.log('\n[5] 겹침');
   {
-    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
+    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tab-sky': 'hdr-tabs', 'hdr-tab-learn': 'hdr-tabs', 'hdr-tab-log': 'hdr-tabs', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
     let bad = [], outside = [], n = 0;
     for (const vp of [{ width: 390, height: 844 }, { width: 360, height: 740 }])
       for (const lang of ['ko', 'en', 'ja'])
