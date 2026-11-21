@@ -19,7 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -76,7 +76,6 @@ import { AstroSettingsPanel } from './AstroCamera/AstroSettingsPanel';
 import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/AstroCaptureNightOverlay';
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
-import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
 import { captureKeyFor, modeList } from '../utils/modeStrip';
 import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/TimelapsePanel';
 import { ResultCompare } from './ResultCompare';
@@ -91,7 +90,7 @@ import { useRunDevice } from '../hooks/useRunDevice';
 import { readSmallRgba } from '../utils/imageZones';
 import { lumaFromRgba, photoStops } from '../utils/runCurve';
 import { exposureStops } from '../utils/exposureCurve';
-import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
+import { tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
@@ -502,8 +501,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [lockedTarget, setLockedTarget] = useState<DirectionTarget | null>(null);
   // 샌드박스 "이 장면 찍기"로 넘어온 장면: 그 시각에 맞는 모드를 먼저 열고, 장면의 시선 방향으로 안내합니다(계획 12.3, 목업 4). 카메라를 닫으면 지웁니다.
   const cameraScene = useCelestialStore(s => s.cameraScene);
-  const [modeSheetOpen, setModeSheetOpen] = useState(false);
+  const [topInfoExpanded, setTopInfoExpanded] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
+  const [timelapseMode, setTimelapseMode] = useState(false);
   const [timelapseOpen, setTimelapseOpen] = useState(false);
   // 월식 이벤트 모드: 켜짐 계산은 10 분 · 위경도 0.1° 단위로만 다시 하고, 남은 시간만 매초 갱신한다.
   const [eclipseOn, setEclipseOn] = useState(false);
@@ -603,9 +603,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [onTimeChange, currentTime, stopPreview]);
   useEffect(() => () => { if (previewTimer.current) clearInterval(previewTimer.current); }, []);
   const pickMode = (key: CaptureModeKey) => {
-    if (key === 'event') { setEclipseOn(true); setCameraTab('astro'); return; }
+    if (key === 'event') { setTimelapseMode(false); setEclipseOn(true); setCameraTab('astro'); return; }
     setEclipseOn(false);
-    if (key === 'timelapse') { setTimelapseOpen(true); return; }
+    if (key === 'timelapse') { setTimelapseMode(true); return; }
+    setTimelapseMode(false);
     const tab = tabForMode(key);
     if (tab) setCameraTab(tab);
   };
@@ -2565,29 +2566,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 )
               )}
 
-              {/* 무대 위 최소 상태 HUD (닫기 · 모드/방위 알약 · 보정 메뉴 · 카메라 전환) */}
+              {/* 무대 위 최소 상태 HUD (모드/방위 알약 · 보정 메뉴 · 카메라 전환) */}
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
                 <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
-                  <GlassIconButton
-                    icon={<X size={18} color={TEXT} />}
-                    onPress={onClose}
-                    accessibilityLabel={t('close', language)}
-                  />
-
                   <Pressable
-                    onPress={() => setModeSheetOpen(true)}
+                    onPress={() => setTopInfoExpanded(v => !v)}
                     accessibilityRole="button"
-                    accessibilityLabel={`${L3(language, '촬영 모드 고르기', 'Choose capture mode', '撮影モードを選ぶ')}: ${modeLabel(cameraTab === 'astro' ? 'astro' : 'normal', language)}`}
+                    aria-expanded={topInfoExpanded}
+                    accessibilityLabel={L3(language, '촬영 정보 펼치기/접기', 'Toggle capture info', '撮影情報を開閉')}
                     style={({ pressed }) => [pressed && { opacity: 0.7 }, { flexShrink: 1 }]}
                   >
-                    <GlassSurface active={viewMode !== 'camera' && !!frozenView} style={styles.modeAz}>
+                    <GlassSurface active={topInfoExpanded || (viewMode !== 'camera' && !!frozenView)} style={styles.modeAz}>
                       {cameraTab === 'astro' ? <Moon size={12} color={TEXT} /> : <Sun size={12} color={TEXT} />}
-                      <Text style={styles.modeAzText} numberOfLines={1}>
-                        {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : L3(language, '사진 ▾', 'Photo ▾', '写真 ▾')}
-                      </Text>
                       <Text style={styles.modeAzText} numberOfLines={1}>
                         {`AZ ${Math.round(displayAz)}° · ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(0)}°`}
                       </Text>
+                      {topInfoExpanded ? <ChevronUp size={13} color={TEXT} /> : <ChevronDown size={13} color={TEXT} />}
                     </GlassSurface>
                   </Pressable>
 
@@ -2643,7 +2637,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   {eclipseOn && eclipseEvent ? (
                     <EclipseCard event={eclipseEvent} language={language} tzHours={tzHours} />
                   ) : null}
-                  {viewMode !== 'camera' && (
+                  {topInfoExpanded && viewMode !== 'camera' && (
                     <View style={styles.badge}>
                       {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering ? (
                         <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
@@ -2663,7 +2657,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                   )}
 
-                  {cameraTab === 'sunset' && countdown && (
+                  {topInfoExpanded && cameraTab === 'sunset' && countdown && (
                     <View style={styles.countdownInline}>
                       <View style={[styles.dot, { backgroundColor: color.sun }]} />
                       <Text style={styles.countdownInlineLabel}>{countdown.label}</Text>
@@ -2671,7 +2665,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                   )}
 
-                  {cameraTab === 'astro' && (
+                  {topInfoExpanded && cameraTab === 'astro' && (
                     <AstroForecastBanner
                       analysis={astroAnalysis}
                       durationSec={astroSettings.durationSec}
@@ -2775,6 +2769,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     }}
                     stageWidth={W}
                     stageHeight={stageLayoutH}
+                    bottomInset={dockInset}
                     language={language}
                   />
                 )}
@@ -2822,9 +2817,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   active: Math.abs(currentMagnification - mag) < 0.25,
                   onPress: () => setMagnification(mag),
                 })),
-                cameraTab === 'astro'
-                  ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
-                  : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
+                timelapseMode
+                  ? { id: 'timelapse-settings', label: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定'), active: timelapseOpen, onPress: () => setTimelapseOpen(true) }
+                  : cameraTab === 'astro'
+                    ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
+                    : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
               ]}
               panels={cameraTab === 'astro' ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> } : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
               ruler={viewMode !== 'camera' && onTimeChange ? {
@@ -2899,10 +2896,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   else setViewMode('camera');
                   return;
                 }
+                if (timelapseMode) { setTimelapseOpen(true); return; }
                 if (cameraTab === 'astro') handleAstroStart();
                 else handleCapturePress();
               }}
-              stripMode={timelapseOpen ? 'timelapse' : eclipseOn ? 'event' : cameraTab === 'astro' ? 'astro' : 'photo'}
+              stripMode={timelapseMode ? 'timelapse' : eclipseOn ? 'event' : cameraTab === 'astro' ? 'astro' : 'photo'}
               stripModes={eclipseBase ? CAMERA_STRIP_MODES_EVENT : CAMERA_STRIP_MODES}
               onPickMode={(m) => {
                 if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
@@ -2914,16 +2912,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           </View>
         )}
 
-        <CaptureModeSheet
-          visible={modeSheetOpen}
-          language={language}
-          nowLabel={clockLabel(currentTime.getTime(), tzHours)}
-          currentTab={cameraTab}
-          eventReady={eclipseBase != null}
-          recommended={cameraScene ? modeForScene(cameraScene) : recommendMode(sunPos.altitude)}
-          onPick={pickMode}
-          onClose={() => setModeSheetOpen(false)}
-        />
         <TimelapsePanel
           visible={timelapseOpen}
           language={language}

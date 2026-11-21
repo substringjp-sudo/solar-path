@@ -120,12 +120,12 @@ export function switchMode(from: AppMode, target: AppMode, view: { azDeg?: numbe
   return { mode, guideOp: 'clear', guide: null };
 }
 
-export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'move' | 'view' | 'scene' | 'tools';
+export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'move' | 'view' | 'scene' | 'trackSun';
 
 /** 하늘 쪽 모드의 기초 칩. 시뮬레이션은 없음(날짜는 자 왼쪽 하나). 카메라 쪽은 칩이 따로라 null. 샌드박스는 높이와 줌을 "보기"로 합쳤습니다. */
 export function chipsFor(m: AppMode): ChipId[] | null {
   if (m === 'simulation') return []; // 날짜는 시간 자 왼쪽 하나(위아래로 밀면 다른 날)
-  if (m === 'sandbox') return ['move', 'view', 'scene', 'tools'];
+  if (m === 'sandbox') return ['move', 'view', 'scene', 'trackSun'];
   return null;
 }
 
@@ -138,6 +138,6 @@ export function chipLabel(c: ChipId, l: Lang): string {
     case 'move': return pick(l, '이동', 'Move', '移動');
     case 'view': return pick(l, '보기', 'View', '表示');
     case 'scene': return pick(l, '장면', 'Scenes', 'シーン');
-    default: return pick(l, '도구', 'Tools', 'ツール');
+    default: return pick(l, '태양 따라가기', 'Track sun', '太陽を追う');
   }
 }

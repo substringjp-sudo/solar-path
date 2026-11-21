@@ -30,6 +30,8 @@ interface Props {
   screenH?: number;
   /** mid 단계일 때 펼친 영역의 최대 높이(콘텐츠 실제 높이에 맞춰 빈 여백을 없앨 때). */
   midMaxH?: number;
+  /** true 면 mid/full 구분 없이 콘텐츠 실제 높이(최대 fullExtra)까지 펼쳐 잘리지 않게 함(샌드박스 패널 등). */
+  fitContent?: boolean;
   /** 고정부 + 손잡이 줄의 높이가 정해지거나 바뀔 때(px). 막대 위에 떠 있는 것을 그만큼 올리는 데 씁니다. */
   onFixedHeight?: (h: number) => void;
 }
@@ -43,7 +45,7 @@ const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   full: ['접기', 'Collapse', '閉じる'],
 };
 
-export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, onFixedHeight }) => {
+export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, fitContent = false, onFixedHeight }) => {
   const win = useWindowDimensions();
   const H = screenH ?? win.height;
   const [fixedH, setFixedH] = useState(380);
@@ -53,8 +55,12 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
   const fullExtra = dockExtraHeight('full', H, fixedH + HANDLE_ROW_H);
   let extra = rawExtra;
   if (stage !== 'min') {
-    if (contentH > 0) extra = Math.min(extra, contentH);
-    if (stage === 'mid' && midMaxH != null && midMaxH > 0) extra = Math.min(extra, midMaxH);
+    if (fitContent && contentH > 0) {
+      extra = Math.min(fullExtra, contentH);
+    } else {
+      if (contentH > 0) extra = Math.min(extra, contentH);
+      if (stage === 'mid' && midMaxH != null && midMaxH > 0) extra = Math.min(extra, midMaxH);
+    }
   }
 
   const anim = useRef(new Animated.Value(extra)).current;

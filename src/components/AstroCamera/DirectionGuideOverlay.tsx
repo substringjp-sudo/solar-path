@@ -19,6 +19,8 @@ interface DirectionGuideOverlayProps {
   onClearTarget: () => void;
   stageWidth: number;
   stageHeight: number;
+  /** 하단 막대 높이(px) — 가이드 HUD 와 가장자리 마커가 하단 메뉴에 가리지 않도록 올립니다. */
+  bottomInset?: number;
   language: Language;
 }
 
@@ -105,6 +107,7 @@ export const DirectionGuideOverlay: React.FC<DirectionGuideOverlayProps> = ({
   onClearTarget,
   stageWidth,
   stageHeight,
+  bottomInset = 0,
   language,
 }) => {
   const cx = stageWidth / 2;
@@ -113,7 +116,7 @@ export const DirectionGuideOverlay: React.FC<DirectionGuideOverlayProps> = ({
   const proj = projectAzAlt(target.azDeg, target.elDeg, attitude, optics.k);
   const padX = 30;
   const padTop = 96;
-  const padBottom = 86;
+  const padBottom = Math.max(86, bottomInset + 72);
 
   const isInsideScreen =
     proj != null &&
@@ -267,7 +270,7 @@ export const DirectionGuideOverlay: React.FC<DirectionGuideOverlayProps> = ({
       )}
 
       {/* 무대 하단 상태·진동·해제 칩 바 (중앙 원 정렬 시야를 가리지 않도록 하단 배치) */}
-      <View style={styles.bottomHud} pointerEvents="box-none">
+      <View style={[styles.bottomHud, { bottom: bottomInset + 12 }]} pointerEvents="box-none">
         <View style={[styles.dirPill, guide.onTarget && styles.dirPillOk]} pointerEvents="none">
           <Text style={[styles.dirText, guide.onTarget && { color: color.success }]}>
             {hintLabel}
@@ -361,18 +364,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    height: 30,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.accentLine,
-    backgroundColor: color.overlay,
+    height: 28,
+    paddingHorizontal: space.xs,
   },
-  targetChipOk: {
-    borderColor: color.success,
-    backgroundColor: 'rgba(10, 28, 18, 0.85)',
+  targetChipOk: {},
+  targetText: {
+    ...type.micro,
+    color: color.text,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  targetText: { ...type.micro, color: color.text, fontWeight: '600' },
   iconBtn: {
     width: 30,
     height: 30,
@@ -388,16 +391,15 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   dirPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    backgroundColor: color.overlay,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
-  dirPillOk: {
-    borderColor: color.success,
-    backgroundColor: 'rgba(10, 28, 18, 0.9)',
+  dirPillOk: {},
+  dirText: {
+    ...type.label,
+    color: color.text,
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  dirText: { ...type.label, color: color.text },
 });

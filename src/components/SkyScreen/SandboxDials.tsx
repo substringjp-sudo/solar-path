@@ -157,6 +157,8 @@ interface StickProps {
   onNudge: (dir: { east: number; north: number }) => void;
   /** 시선 기준으로 쓰는 중 — 위쪽 글이 "N" 대신 "앞", 스크린리더 동작이 앞으로 · 오른쪽으로 · 뒤로 · 왼쪽으로. */
   relative?: boolean;
+  /** 원 지름(px). 기본 96, 셔터 자리에서는 78 등. */
+  size?: number;
 }
 
 const STICK = 96;
@@ -164,9 +166,11 @@ const STICK_KNOB = 38;
 const TRAVEL = (STICK - STICK_KNOB) / 2;
 const OFF: StickState = { active: false, east: 0, north: 0, mag: 0 };
 
-export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, relative = false }) => {
-  const cb = useRef({ onStick, onNudge });
-  cb.current = { onStick, onNudge };
+export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, relative = false, size = STICK }) => {
+  const knobSize = Math.round(size * (STICK_KNOB / STICK));
+  const travel = (size - knobSize) / 2;
+  const cb = useRef({ onStick, onNudge, size, travel });
+  cb.current = { onStick, onNudge, size, travel };
   const held = useRef(false);
   const center = useRef({ x: 0, y: 0 });
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -181,9 +185,9 @@ export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, re
 
   const track = (moveX: number, moveY: number) => {
     const dx = moveX - center.current.x, dy = moveY - center.current.y;
-    setKnob(clampKnob(dx, dy, TRAVEL));
+    setKnob(clampKnob(dx, dy, cb.current.travel));
     held.current = true;
-    cb.current.onStick(stickState(dx, dy, TRAVEL));
+    cb.current.onStick(stickState(dx, dy, cb.current.travel));
   };
 
   const pan = useRef(PanResponder.create({
@@ -194,7 +198,7 @@ export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, re
       gestureBlock(true);
       const ne = e.nativeEvent;
       // 누른 자리와 누름 영역 안 자리의 차로 중심의 화면 좌표를 얻습니다(그림은 터치를 안 받으므로 누름 영역 기준).
-      center.current = { x: ne.pageX - ne.locationX + STICK / 2, y: ne.pageY - ne.locationY + STICK / 2 };
+      center.current = { x: ne.pageX - ne.locationX + cb.current.size / 2, y: ne.pageY - ne.locationY + cb.current.size / 2 };
       track(g.x0, g.y0);
     },
     onPanResponderMove: (_e, g) => track(g.moveX, g.moveY),
@@ -216,7 +220,7 @@ export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, re
   return (
     <View
       {...pan.panHandlers}
-      style={styles.stick}
+      style={[styles.stick, { width: size, height: size, borderRadius: size / 2 }]}
       accessible
       accessibilityLabel={L3(language, '위치 이동 조이스틱', 'Move joystick', '位置移動ジョイスティック')}
       accessibilityHint={relative
@@ -226,10 +230,88 @@ export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, re
       onAccessibilityAction={(e) => { const d = dirs.find(x => x.name === e.nativeEvent.actionName); if (d) cb.current.onNudge({ east: d.e, north: d.n }); }}
     >
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <View style={styles.crossV} />
-        <View style={styles.crossH} />
+        <View style={[styles.crossV, { left: size / 2 - 0.5 }]} />
+        <View style={[styles.crossH, { top: size / 2 - 0.5 }]} />
         <Text style={styles.north}>{relative ? L3(language, '앞', 'Fwd', '前') : 'N'}</Text>
-        <View style={[styles.stickKnob, { left: (STICK - STICK_KNOB) / 2 + knob.x, top: (STICK - STICK_KNOB) / 2 + knob.y }]} />
+        <View style={[styles.stickKnob, { width: knobSize, height: knobSize, borderRadius: knobSize / 2, left: (size - knobSize) / 2 + knob.x, top: (size - knobSize) / 2 + knob.y }]} />
+      </View>
+    </View>
+  );
+};
+
+interface ViewStickProps {
+  language: Lang;
+  eyeHeightM: number;
+  onEyeHeight: (m: number) => void;
+  zoomX: number;
+  onZoom: (x: number) => void;
+  size?: number;
+}
+
+/** 셔터 자리용 2축 보기 조이스틱: 좌우로 끌면 줌, 위아래로 끌면 눈 높이. */
+export const ViewStick: React.FC<ViewStickProps> = ({ language, eyeHeightM, onEyeHeight, zoomX, onZoom, size = 78 }) => {
+  const knobSize = Math.round(size * (STICK_KNOB / STICK));
+  const travel = (size - knobSize) / 2;
+  const cb = useRef({ eyeHeightM, onEyeHeight, zoomX, onZoom, travel });
+  cb.current = { eyeHeightM, onEyeHeight, zoomX, onZoom, travel };
+  const startRef = useRef({ eyeT: 0, zoomT: 0, eyeVal: eyeHeightM, zoomVal: zoomX });
+  const lastEmit = useRef(0);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+
+  const applyDrag = (dx: number, dy: number, final: boolean) => {
+    const now = Date.now();
+    if (!final && now - lastEmit.current < DIAL_EMIT_MS) return;
+    lastEmit.current = now;
+    const spanPx = 110;
+    const nextZoomT = clamp01(startRef.current.zoomT + dx / spanPx);
+    const nextEyeT = clamp01(startRef.current.eyeT - dy / spanPx);
+    const nextZoom = roundZoom(tToValue(nextZoomT, ZOOM_RANGE));
+    const nextEye = roundEye(tToValue(nextEyeT, EYE_RANGE));
+    cb.current.onZoom(final ? snapValue(nextZoom, ZOOM_RANGE, ZOOM_TICKS) : nextZoom);
+    cb.current.onEyeHeight(final ? snapValue(nextEye, EYE_RANGE, EYE_TICKS) : nextEye);
+  };
+
+  const pan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => {
+      gestureBlock(true);
+      startRef.current = {
+        eyeT: tOf(cb.current.eyeHeightM, EYE_RANGE),
+        zoomT: tOf(cb.current.zoomX, ZOOM_RANGE),
+        eyeVal: cb.current.eyeHeightM,
+        zoomVal: cb.current.zoomX,
+      };
+    },
+    onPanResponderMove: (_e, g) => {
+      setKnob(clampKnob(g.dx, g.dy, cb.current.travel));
+      applyDrag(g.dx, g.dy, false);
+    },
+    onPanResponderRelease: (_e, g) => {
+      gestureBlock(false);
+      setKnob({ x: 0, y: 0 });
+      applyDrag(g.dx, g.dy, true);
+    },
+    onPanResponderTerminate: () => {
+      gestureBlock(false);
+      setKnob({ x: 0, y: 0 });
+    },
+  })).current;
+
+  return (
+    <View
+      {...pan.panHandlers}
+      style={[styles.stick, { width: size, height: size, borderRadius: size / 2 }]}
+      accessible
+      accessibilityLabel={L3(language, '보기 조이스틱, 좌우 줌 · 상하 높이', 'View joystick, sideways zoom and vertical height', '表示ジョイスティック、左右でズーム・上下で高さ')}
+    >
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View style={[styles.crossV, { left: size / 2 - 0.5 }]} />
+        <View style={[styles.crossH, { top: size / 2 - 0.5 }]} />
+        <Text style={styles.north}>{fmtEye(eyeHeightM)}</Text>
+        <Text style={[styles.north, { top: undefined, bottom: 2 }]}>{fmtZoom(zoomX)}</Text>
+        <View style={[styles.stickKnob, { width: knobSize, height: knobSize, borderRadius: knobSize / 2, left: (size - knobSize) / 2 + knob.x, top: (size - knobSize) / 2 + knob.y }]} />
       </View>
     </View>
   );

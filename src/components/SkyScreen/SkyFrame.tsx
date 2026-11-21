@@ -18,7 +18,7 @@ import { ModeStrip } from '../glass/ModeStrip';
 import { Scrim } from '../glass/Scrim';
 import { belowHeader } from '../../utils/headerLayout';
 import { TimeRuler } from '../glass/TimeRuler';
-import { color as DARK } from '../../theme/tokens';
+import { color as DARK, mono as monoFont } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
 import type { DockStage } from '../../utils/dockStages';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
@@ -57,7 +57,13 @@ interface Props {
   /** 시뮬레이션을 끝까지 펼쳤을 때 보이는 내용 */
   simBody?: React.ReactNode;
   /** 샌드박스 칩별 펼친 내용 */
-  sandbox?: Partial<Record<'move' | 'view' | 'scene' | 'tools', React.ReactNode>>;
+  sandbox?: Partial<Record<'move' | 'view' | 'scene', React.ReactNode>>;
+  /** 샌드박스 "이동" · "보기" 칩을 켰을 때 가운데 셔터 자리에 대신 놓을 조이스틱 */
+  shutterMove?: React.ReactNode;
+  shutterView?: React.ReactNode;
+  /** 태양 따라가기 칩 활성 여부 및 토글 */
+  sunTracked?: boolean;
+  onToggleTrackSun?: () => void;
   /** 셔터: 이 장면 찍기 */
   onShoot: () => void;
   /** 오른쪽 아래: 장면 저장 */
@@ -72,20 +78,22 @@ interface Props {
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
+  readout, simBody, sandbox, shutterMove, shutterView, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | null>(null);
+  const [shutterTool, setShutterTool] = React.useState<'move' | 'view' | null>(null);
   const [dateStripH, setDateStripH] = React.useState<number>(0);
   const simBodyOpen = mode === 'simulation' && stage === 'full';
   const simBodyCb = React.useRef(onSimBodyOpenChange);
   simBodyCb.current = onSimBodyOpenChange;
   React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
+  React.useEffect(() => { if (mode !== 'sandbox') setShutterTool(null); }, [mode]);
   const modes = React.useMemo(() => modeList(false), []);
   const off = dayOffset(timeMs, nowMs, tz);
 
   const firstSandboxTab = React.useMemo(
-    () => (['move', 'view', 'scene', 'tools'] as const).find(k => sandbox?.[k]) ?? null,
+    () => (['scene', 'move', 'view'] as const).find(k => sandbox?.[k]) ?? null,
     [sandbox],
   );
 
@@ -106,7 +114,14 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return jumpDay(-1);
     if (c === 'today') return jumpDay(0);
     if (c === 'tomorrow') return jumpDay(1);
-    // 날짜 · 이동 · 보기 · 장면 · 도구: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
+    if (c === 'trackSun') { onToggleTrackSun?.(); return; }
+    if (c === 'move' || c === 'view') {
+      setShutterTool(prev => (prev === c ? null : c));
+      if (stage !== 'min') setStageSafe('min');
+      return;
+    }
+    setShutterTool(null);
+    // 날짜 · 장면: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
     if (active === c && stage !== 'min') { setStageSafe('min'); return; }
     setActive(c);
     setStage(s => (s === 'min' ? 'mid' : s));
@@ -124,6 +139,8 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return off === -1;
     if (c === 'today') return off === 0;
     if (c === 'tomorrow') return off === 1;
+    if (c === 'trackSun') return !!sunTracked;
+    if (c === 'move' || c === 'view') return shutterTool === c;
     return active === c && stage !== 'min';
   };
 
@@ -162,13 +179,13 @@ export const SkyFrame: React.FC<Props> = ({
       </View>
     );
   } else {
-    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene' | 'tools'])
-      ? (active as 'move' | 'view' | 'scene' | 'tools')
+    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene'])
+      ? (active as 'move' | 'view' | 'scene')
       : firstSandboxTab;
     if (sbTab && sandbox?.[sbTab]) {
       expanded = (
         <GlassSurface testID={`panel-${sbTab}`} style={styles.panel}>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
+          <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
         </GlassSurface>
       );
     }
@@ -180,7 +197,7 @@ export const SkyFrame: React.FC<Props> = ({
     <>
       <Scrim edge="top" />
       <View testID="frame-readout" pointerEvents="none" style={styles.readout}>
-        {typeof readout === 'string' ? <GlassChip mono label={readout} /> : readout}
+        {typeof readout === 'string' ? <Text style={[styles.readoutText, readoutShadow]}>{readout}</Text> : readout}
       </View>
       <DockSheet
         stage={stage}
@@ -188,11 +205,12 @@ export const SkyFrame: React.FC<Props> = ({
         language={language}
         expanded={expanded}
         midMaxH={mode === 'simulation' && dateStripH > 0 ? dateStripH : undefined}
+        fitContent={mode === 'sandbox'}
       >
         {chips.length > 0 && (
         <View testID="chips-row" style={styles.chips}>
           {chips.map(c => (
-            <GlassChip key={c} testID={`chip-${c}`} label={chipLabel(c, language)} active={chipActive(c)} expanded={c === 'date' || mode === 'sandbox' ? chipActive(c) : undefined} onPress={() => onChip(c)} />
+            <GlassChip key={c} testID={`chip-${c}`} label={chipLabel(c, language)} active={chipActive(c)} expanded={c === 'date' || c === 'scene' ? chipActive(c) : undefined} onPress={() => onChip(c)} />
           ))}
         </View>
         )}
@@ -215,9 +233,15 @@ export const SkyFrame: React.FC<Props> = ({
         />
         <View testID="shutter-row" style={styles.shutterRow}>
           <Pressable testID="thumb" accessibilityRole="button" accessibilityLabel={L3(language, '저장한 장면 열기', 'Open saved scene', '保存したシーンを開く')} disabled={!onOpenLatestScene} onPress={onOpenLatestScene} style={[styles.thumb, !onOpenLatestScene && { opacity: 0.5 }]} />
-          <Pressable testID="shutter" accessibilityRole="button" accessibilityLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')} onPress={onShoot} style={styles.shutterRing}>
-            <View style={styles.shutter} />
-          </Pressable>
+          {mode === 'sandbox' && shutterTool === 'move' && shutterMove ? (
+            shutterMove
+          ) : mode === 'sandbox' && shutterTool === 'view' && shutterView ? (
+            shutterView
+          ) : (
+            <Pressable testID="shutter" accessibilityRole="button" accessibilityLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')} onPress={onShoot} style={styles.shutterRing}>
+              <View style={styles.shutter} />
+            </Pressable>
+          )}
           <GlassChip
             testID="scene-save"
             label=""
@@ -236,6 +260,7 @@ export const SkyFrame: React.FC<Props> = ({
 const styles = StyleSheet.create({
   // 머리줄이 하늘 위에 떠 있으므로 그 아래에서 시작합니다(`utils/headerLayout`).
   readout: { position: 'absolute', left: 10, right: 10, top: belowHeader(12), alignItems: 'center' },
+  readoutText: { fontFamily: monoFont, fontSize: 11, fontWeight: '500', color: TEXT, letterSpacing: 0.3 },
   chips: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
   simWrap: { maxHeight: '100%' },
   week: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 8 },
@@ -247,6 +272,7 @@ const styles = StyleSheet.create({
   body: { flexShrink: 1, marginHorizontal: 10 },
   bodyContent: { paddingBottom: 12, gap: 10 },
   panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
+  panelScroll: { flexGrow: 0 },
   panelContent: { padding: 12 },
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
   thumb: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#2b3a66', borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)' },
@@ -264,7 +290,13 @@ interface LiveReadoutProps {
   intervalMs?: number;
 }
 
-/** 지금 시선의 방위 · 앙각(과 눈 높이)을 유리 알약 한 줄로. 읽을 만큼 바뀔 때만 이 줄만 다시 그립니다(`SandboxDials.ViewReadout` 과 같은 읽기). */
+const readoutShadow = {
+  textShadowColor: 'rgba(0,0,0,0.85)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 4,
+} as const;
+
+/** 지금 시선의 방위 · 앙각(과 눈 높이)을 투명 글자 한 줄로. 읽을 만큼 바뀔 때만 이 줄만 다시 그립니다(`SandboxDials.ViewReadout` 과 같은 읽기). */
 export const LiveReadout: React.FC<LiveReadoutProps> = ({ language, getView, eyeHeightM, intervalMs = 200 }) => {
   const get = React.useRef(getView);
   get.current = getView;
@@ -276,5 +308,5 @@ export const LiveReadout: React.FC<LiveReadoutProps> = ({ language, getView, eye
     return () => clearInterval(id);
   }, [intervalMs]);
   const eye = eyeHeightM == null ? '' : ` · ${L3(language, '눈', 'EYE', '目')} ${fmtEye(eyeHeightM)}`;
-  return <GlassChip mono label={`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${eye}`} />;
+  return <Text style={[styles.readoutText, readoutShadow]}>{`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${eye}`}</Text>;
 };

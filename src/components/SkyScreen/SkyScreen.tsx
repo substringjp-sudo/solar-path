@@ -78,7 +78,8 @@ import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type 
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
 import { eyeForMode } from '../../utils/flightAssist';
 import { useGlide } from '../../hooks/useGlide';
-import { DialPair } from './SandboxDials';
+import { DialPair, MoveStick, ViewStick } from './SandboxDials';
+import { useJoystickDriver } from '../../hooks/useJoystickDriver';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
 
@@ -1089,6 +1090,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
   );
 
+  const shutterMoveDriver = useJoystickDriver({
+    mode: moveMode,
+    ref: 'view',
+    getOrigin: () => {
+      const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
+      return { latitude: c.latitude, longitude: c.longitude };
+    },
+    getHeading: () => sceneRef.current?.getRenderState?.()?.view?.az ?? null,
+    setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
+    clearEye: () => sceneRef.current?.clearEyeLocation?.(),
+    commit: setSpot,
+    onGrab: glide.finish,
+  });
+
   // ── 새 화면 틀(SkyFrame) 연결 ────────────────────────────────────────────────
   const frameGetView = useCallback(() => {
     const v = sceneRef.current?.getRenderState?.()?.view;
@@ -1102,18 +1117,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </View>
     ),
     scene: <SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />,
-    tools: (
-      <View style={{ gap: 8, alignItems: 'flex-start' }}>
-        <GlassChip label={t('layerTitle', language)} onPress={() => setLayerModalVisible(true)} />
-        {!ascended && <GlassChip label={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')} onPress={() => sceneRef.current?.flyToMap()} />}
-        <GlassChip
-          label={L3(language, '태양 따라가기', 'Track the sun', '太陽を追う')}
-          active={trackingTarget === 'sun'}
-          onPress={() => setTrackingTarget(prev => (prev === 'sun' ? null : 'sun'))}
-        />
-        <GlassChip label={L3(language, '개발자 튜닝', 'Dev tuning', '開発者調整')} active={isDevPanelOpen} onPress={() => setDevPanelOpen(v => !v)} />
-      </View>
-    ),
   };
 
   return (
@@ -1359,9 +1362,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           mode={expertMode ? 'sandbox' : 'simulation'}
           onSwitch={(sw) => {
             if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
-            // 카메라 쪽: 사진에 내려 열고, 보던 방향이 촬영 가이드가 됩니다(저장하지 않는 지금 장면을 그대로 넘김).
-            const sc = readScene('');
-            if (sc) useCelestialStore.getState().setCameraScene(sc);
+            // 모드 줄로 카메라에 들어가면 방향을 고정하지 않습니다(촬영 버튼을 누를 때만 고정).
+            useCelestialStore.getState().setCameraScene(null);
             onCameraPress?.();
           }}
           getView={frameGetView}
@@ -1377,6 +1379,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </>
           )}
           sandbox={frameSandbox}
+          shutterMove={<MoveStick language={language} size={78} relative onStick={shutterMoveDriver.onStick} onNudge={shutterMoveDriver.nudge} />}
+          shutterView={<ViewStick language={language} size={78} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />}
+          sunTracked={trackingTarget === 'sun'}
+          onToggleTrackSun={() => setTrackingTarget(prev => (prev === 'sun' ? null : 'sun'))}
           onShoot={() => { if (readScene('')) shootScene(); else onCameraPress?.(); }}
           onSaveScene={() => setSceneSheetOpen(true)}
           onOpenLatestScene={savedScenes.length > 0 ? () => openScene(savedScenes[0]) : undefined}
