@@ -74,6 +74,10 @@ ok(/timelapse\.run\.error/.test(cam) && /타임랩스가 멈췄어요/.test(cam)
 console.log('\n[6] 미리보기');
 ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');
 ok(/if \(previewOrigin\.current\) \{ onTimeChange\?\.\(previewOrigin\.current\); previewOrigin\.current = null; \}/.test(cam) && /\{previewing && \(/.test(cam) && /'미리보기 멈추기'/.test(cam), '끝나거나 멈추면 원래 시각으로 돌아오고, 줄에 멈추기 단추');
+{
+  const panel = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapsePanel.tsx'), 'utf8');
+  ok(/\{peak && preset === 'sunset' \? \(\s*<Text style=\{styles\.peakLine\}>\{`\$\{L3\(language, '가장 붉을 때', 'Reddest', '最も赤い時'\)\} \$\{windowLabel\(peak\.fromMs, peak\.toMs, tzHours\)\}`\}<\/Text>/.test(panel) && /peak=\{tlPeak\}/.test(cam) && /const tlPeak = useMemo\(\(\) => \{\s+if \(!timelapseOpen \|\| !tlSunsetMs/.test(cam) && /return peakWindow\(points\);/.test(cam), '시트에 "가장 붉을 때 16:50 ~ 17:20" 줄(일몰 프리셋이고 구간을 알 때만), 카메라가 시트가 열려 있을 때만 `scenePrediction` 표본으로 구간을 셈(2026-11-21 추가)');
+}
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
