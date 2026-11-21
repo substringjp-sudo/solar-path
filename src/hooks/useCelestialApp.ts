@@ -293,11 +293,11 @@ export function useCelestialApp() {
   useEffect(() => {
     if (isAppReady && !hasInitializedTab.current) {
       hasInitializedTab.current = true;
-      // 저장·전달된 값이 옛 'map' 이면(지도 탭은 없어졌습니다) 하늘로.
+      // 저장·전달된 값이 옛 'map' · 'log' 이면 하늘로.
       const startTab: AppTab = (TAB_ORDER as string[]).includes(initialTab) ? (initialTab as AppTab) : 'sky';
       setActiveTabState(startTab);
       const toIdx = tabOrder.indexOf(startTab);
-      contentTranslateX.setValue(-toIdx * width);
+      contentTranslateX.setValue(-Math.max(0, toIdx) * width);
       // 지연 업로드 대기 큐 복구 및 스케줄링 실행
       initializePendingUploads();
     }
@@ -377,17 +377,7 @@ export function useCelestialApp() {
   //   화면이 멈춥니다(utils/liveClock.ts). 그날 일출·일몰은 하늘 시트의 이벤트 칩이 한 번에 옮깁니다.
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
-      const targetTab = activeTab;
-      prevTabRef.current = targetTab;
-      
-      const task = InteractionManager.runAfterInteractions(() => {
-        if (targetTab === 'log') {
-          // 기록 탭은 시간과 무관하므로 타임머신을 꺼 현재 시각으로 돌립니다.
-          setTimeMachineEnabled(false);
-        }
-      });
-
-      return () => task.cancel();
+      prevTabRef.current = activeTab;
     }
   }, [activeTab]);
 
@@ -478,7 +468,7 @@ export function useCelestialApp() {
     };
   }, [isGyroEnabled, setUserRotation]);
 
-  const contentTranslateX = useRef(new Animated.Value(0)).current;
+  const contentTranslateX = useRef(new Animated.Value(-Dimensions.get('window').width)).current;
   // 스와이프·애니메이션 순서는 헤더의 탭 순서(TAB_ORDER) 하나에서 나옵니다.
   // 예전에는 여기와 TabNavigator가 각자 배열을 들고 있어 서로 어긋났습니다.
   const tabOrder = TAB_ORDER;

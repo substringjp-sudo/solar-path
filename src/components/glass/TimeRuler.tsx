@@ -58,10 +58,12 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   const [width, setWidth] = useState(RULER_WIDTH);
   const [rulerActive, setRulerActive] = useState(false);
   const [dayDragY, setDayDragY] = useState(0);
+  const [scrubMs, setScrubMs] = useState<number | null>(null);
   const rulerAnim = useRef(new Animated.Value(0)).current;
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
+  const lastEmitTsRef = useRef(0);
   const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart });
   propsRef.current = { timeMs, onChange, onCommit, onDragStart };
 
@@ -91,15 +93,27 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
     },
     onPanResponderMove: (_, g) => {
       const ms = dragTimeMs(startRef.current, g.dx);
-      if (ms !== lastRef.current) { lastRef.current = ms; propsRef.current.onChange(ms); }
+      if (ms !== lastRef.current) {
+        lastRef.current = ms;
+        setScrubMs(ms);
+        const now = Date.now();
+        if (now - lastEmitTsRef.current >= 32) {
+          lastEmitTsRef.current = now;
+          propsRef.current.onChange(ms);
+        }
+      }
     },
     onPanResponderRelease: () => {
       markDragEnd();
+      setScrubMs(null);
+      propsRef.current.onChange(lastRef.current);
       propsRef.current.onCommit?.(lastRef.current);
       setRulerOpen(false);
     },
     onPanResponderTerminate: () => {
       markDragEnd();
+      setScrubMs(null);
+      propsRef.current.onChange(lastRef.current);
       propsRef.current.onCommit?.(lastRef.current);
       setRulerOpen(false);
     },
@@ -121,15 +135,16 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
     onPanResponderTerminate: () => { markDragEnd(); setDayDragY(0); },
   }), []);
 
-  const ticks = rulerTicks(timeMs, tz, width, PX_PER_HOUR);
-  const mx = sunsetMs == null ? null : markerX(timeMs, sunsetMs, width, PX_PER_HOUR);
+  const displayMs = scrubMs ?? timeMs;
+  const ticks = rulerTicks(displayMs, tz, width, PX_PER_HOUR);
+  const mx = sunsetMs == null ? null : markerX(displayMs, sunsetMs, width, PX_PER_HOUR);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
-  const text = timeText(timeMs, tz);
-  const band = scoreSamples ? rulerBand(scoreSamples, timeMs, width, PX_PER_HOUR) : [];
+  const text = timeText(displayMs, tz);
+  const band = scoreSamples ? rulerBand(scoreSamples, displayMs, width, PX_PER_HOUR) : [];
 
   // 세로 날짜 휠: 드래그 거리에 맞춰 위아래 날짜가 부드럽게 오르내림
   const liveDays = daySwipeSteps(dayDragY);
-  const previewCenterMs = timeMs + liveDays * DAY_MS;
+  const previewCenterMs = displayMs + liveDays * DAY_MS;
   const wheelOffsetY = dayDragY + liveDays * DAY_STEP_PX;
   const prevDayText = dateLabel(previewCenterMs - DAY_MS, nowMs, tz, language);
   const currDayText = liveDays === 0 && dateText ? dateText : dateLabel(previewCenterMs, nowMs, tz, language);

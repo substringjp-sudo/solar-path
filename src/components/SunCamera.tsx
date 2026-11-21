@@ -19,7 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass, ChevronDown, ChevronUp, Settings } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -129,6 +129,7 @@ interface SunCameraProps {
   onResetTime?: () => void;
   goldenTimeInfo: GoldenTimeInfo;
   onViewModeChange?: (mode: CameraViewMode) => void;
+  onSettingsPress?: () => void;
 }
 
 const stampPhoto = async (
@@ -243,6 +244,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   onResetTime,
   goldenTimeInfo,
   onViewModeChange,
+  onSettingsPress,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
   // 전체 화면 카메라 — 안드로이드에서는 App.tsx의 paddingTop(statusBarHeight)과 동일하게 알림바 아래부터 시작해
@@ -252,7 +254,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     : 0;
   const TOP_INSET = Platform.OS === 'ios'
     ? Math.max(Constants.statusBarHeight ?? 44, 48) + 10
-    : 12;
+    : 4;
   const [rootH, setRootH] = useState(H);
   // 유리 막대(고정부 + 손잡이 줄)의 높이 — 카메라가 화면 전체를 채우므로 막대 위에 떠 있는 것(천체 설정 · 방위 눈금)을 그만큼 올립니다.
   const [dockInset, setDockInset] = useState(150);
@@ -2604,6 +2606,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         icon={<RefreshCw size={15} color={TEXT} />}
                         onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
                         accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
+                      />
+                    )}
+                    {onSettingsPress && (
+                      <GlassIconButton
+                        testID="cam-settings"
+                        icon={<Settings size={15} color={TEXT} />}
+                        onPress={onSettingsPress}
+                        accessibilityLabel={t('settings', language)}
                       />
                     )}
                   </View>

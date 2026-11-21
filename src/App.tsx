@@ -434,6 +434,7 @@ export default function App() {
           onResetTime={() => handleToggleTimeMachine(false)}
           goldenTimeInfo={goldenTimeInfo!}
           onViewModeChange={setCameraViewMode}
+          onSettingsPress={() => setSettingsVisible(true)}
         />
       )}
 

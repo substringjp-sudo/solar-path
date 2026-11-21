@@ -135,7 +135,13 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
               <View style={styles.handle} />
             </Pressable>
           </View>
-          <Animated.View testID="dock-expanded" style={[styles.expanded, { height: anim }]} pointerEvents={stage === 'min' ? 'none' : 'auto'}>
+          <Animated.View
+            testID="dock-expanded"
+            renderToHardwareTextureAndroid
+            shouldRasterizeIOS
+            style={[styles.expanded, { height: anim }]}
+            pointerEvents={stage === 'min' ? 'none' : 'auto'}
+          >
             <View
               style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
               onLayout={(e: LayoutChangeEvent) => {

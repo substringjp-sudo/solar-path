@@ -10,7 +10,7 @@ import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'reac
 import { GLASS, glassFill } from '../../theme/glassTokens';
 
 let BlurViewImpl: React.ComponentType<any> | null = null;
-if (Platform.OS !== 'web') {
+if (Platform.OS === 'ios') {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     BlurViewImpl = require('expo-blur').BlurView ?? null;

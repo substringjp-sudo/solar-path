@@ -1104,6 +1104,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     onGrab: glide.finish,
   });
 
+  const setSkyHeaderActions = useCelestialStore(s => s.setSkyHeaderActions);
+  useEffect(() => {
+    setSkyHeaderActions({
+      flyToMap: () => sceneRef.current?.flyToMap(),
+      openLayers: () => setLayerModalVisible(true),
+      openDev: () => setDevPanelOpen(v => !v),
+      ascended,
+    });
+    return () => setSkyHeaderActions(null);
+  }, [setSkyHeaderActions, ascended]);
+
   // ── 새 화면 틀(SkyFrame) 연결 ────────────────────────────────────────────────
   const frameGetView = useCallback(() => {
     const v = sceneRef.current?.getRenderState?.()?.view;
@@ -1215,36 +1226,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onClose={() => setSceneSheetOpen(false)}
         />
 
-        {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
-        {!isCameraOverlayActive && (
+        {/* 개발자 튜닝 패널이 켜졌을 때만 닫기 버튼 표시 (지도·레이어 버튼은 AppHeader 상단 줄로 통합) */}
+        {!isCameraOverlayActive && isDevPanelOpen && (
         <View style={overlayStyles.sceneOverlayButtons}>
-          {/* 전문가 모드 — 꺼짐이면 아래 보기 조작(레이어 · 구/지도)과 시트의 상세가 숨습니다. 길게 누르면 개발자 튜닝 패널. */}
-          {/* 3D 요소 표시 설정 모달 */}
-          {expertMode && (
-          <OverlayButton
-            onPress={() => setLayerModalVisible(true)}
-            accessibilityLabel={t('layerTitle', language)}
-          >
-            <SlidersHorizontal size={16} color={DARK.text} />
+          <OverlayButton active onPress={() => setDevPanelOpen(false)}>
+            <SlidersVertical size={14} color={DARK.accent} />
           </OverlayButton>
-          )}
-
-          {/* 구/지도 — 기본 시뮬레이션에서만 보이고 샌드박스에서는 숨김. 지도에서는 "착륙"으로 돌아옵니다. */}
-          {!expertMode && !ascended && (
-            <OverlayButton
-              onPress={() => sceneRef.current?.flyToMap()}
-              accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
-            >
-              <Globe size={16} color={DARK.text} />
-            </OverlayButton>
-          )}
-
-          {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
-          {isDevPanelOpen && (
-            <OverlayButton active onPress={() => setDevPanelOpen(false)}>
-              <SlidersVertical size={14} color={DARK.accent} />
-            </OverlayButton>
-          )}
         </View>
         )}
 

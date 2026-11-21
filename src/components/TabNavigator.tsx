@@ -11,11 +11,10 @@
  * `selectedCategory`는 그대로였고, `sim3dView`는 배열에 없어 스와이프로
  * 오갈 수조차 없었습니다. 카테고리 개념을 없애 이 어긋남을 구조적으로 제거합니다.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
-import { Gallery } from './Gallery';
 import { LearnScreen } from './LearnScreen/LearnScreen';
 import { TAB_ORDER, type AppTab } from './AppHeader';
 import { contentInsetTop } from '../utils/headerLayout';
@@ -147,6 +146,18 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
     })
   ).current;
 
+  const learnEl = useMemo(
+    () => (
+      <LearnScreen
+        isActive={activeTab === 'learn' && !isSuspended}
+        setCurrentTime={setCurrentTime}
+        onOpenSky={() => setActiveTab('sky')}
+        entry={learnEntry}
+      />
+    ),
+    [activeTab, isSuspended, setCurrentTime, setActiveTab, learnEntry],
+  );
+
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
       <Animated.View
@@ -156,7 +167,17 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         ]}
       >
         <View
+          pointerEvents={activeTab === 'learn' ? 'auto' : 'none'}
+          renderToHardwareTextureAndroid
+          shouldRasterizeIOS
+          style={[styles.page, { width, paddingTop: contentInsetTop('learn') }]}
+        >
+          {learnEl}
+        </View>
+        <View
           pointerEvents={activeTab === 'sky' ? 'auto' : 'none'}
+          renderToHardwareTextureAndroid
+          shouldRasterizeIOS
           style={[styles.page, { width, paddingTop: contentInsetTop('sky') }]}
         >
           <SkyScreen
@@ -172,29 +193,6 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             isActive={activeTab === 'sky' && !isSuspended}
             isCameraOverlayActive={isCameraOverlayActive}
             onOpenLearn={openLearn}
-          />
-        </View>
-        <View
-          pointerEvents={activeTab === 'learn' ? 'auto' : 'none'}
-          style={[styles.page, { width, paddingTop: contentInsetTop('learn') }]}
-        >
-          <LearnScreen
-            isActive={activeTab === 'learn' && !isSuspended}
-            setCurrentTime={setCurrentTime}
-            onOpenSky={() => setActiveTab('sky')}
-            entry={learnEntry}
-          />
-        </View>
-        <View
-          pointerEvents={activeTab === 'log' ? 'auto' : 'none'}
-          style={[styles.page, { width, paddingTop: contentInsetTop('log') }]}
-        >
-          <Gallery
-            theme={theme}
-            dynamicTheme={dynamicTheme}
-            globalPhotos={globalPhotos}
-            myPhotos={myPhotos}
-            removeGlobalPhoto={removeGlobalPhoto}
           />
         </View>
       </Animated.View>

@@ -30,7 +30,7 @@
  */
 import React, { useMemo, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, Animated, useWindowDimensions } from 'react-native';
-import { MapPin, Settings } from 'lucide-react-native';
+import { Globe, MapPin, Settings, SlidersHorizontal } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
 import { radius, mono, space, type, TOUCH } from '../theme/tokens';
@@ -44,13 +44,12 @@ import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
 import { tabLabel } from '../utils/tabLabels';
 
-/** 앱의 최상위 화면. 이 셋이 전부입니다. */
-export type AppTab = 'sky' | 'learn' | 'log';
+/** 앱의 최상위 화면. 데이터(-1 왼쪽) · 하늘(메인). */
+export type AppTab = 'learn' | 'sky';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
-  { id: 'sky', code: '01', label: 'SKY' },
-  { id: 'learn', code: '02', label: 'DATA' },
-  { id: 'log', code: '03', label: 'LOG' },
+  { id: 'learn', code: '01', label: 'DATA' },
+  { id: 'sky', code: '02', label: 'SKY' },
 ];
 
 /**
@@ -98,6 +97,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const language = useCelestialStore(s => s.language);
   const location = useCelestialStore(s => s.location);
   const savedLocations = useCelestialStore(s => s.savedLocations);
+  const expertMode = useCelestialStore(s => s.expertMode);
+  const skyHeaderActions = useCelestialStore(s => s.skyHeaderActions);
   const adminName = useAdministrativeArea(location?.coords?.latitude, location?.coords?.longitude);
   const place = useMemo(
     () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName),
@@ -143,10 +144,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           style={[
             styles.navText,
             glass ? [{ color: TEXT }, glassTextShadow] : { color: isActive ? color.accent : color.textMute },
-            isActive && { fontWeight: '800' },
+            isActive && { fontWeight: '600' },
           ]}
         >
-          {/* 숫자 없이 이름만(2026-11-21): 하늘 · 데이터 · 기록 */}
+          {/* 숫자 없이 이름만: 데이터 · 하늘 */}
           {tabLabel(tab.id, language)}
         </Text>
       </PressScale>
@@ -187,8 +188,35 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               accessibilityRole="button"
             >
               {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
-              <MapPin size={16} color={glass ? TEXT : color.accent} />
+              <MapPin size={13} color={glass ? TEXT : color.accent} />
               {!!place && showPlaceName && <Text style={[styles.placeText, glass && [{ color: TEXT }, glassTextShadow]]} numberOfLines={1}>{place}</Text>}
+            </PressScale>
+          )}
+
+          {glass && expertMode && skyHeaderActions?.openLayers && (
+            <PressScale
+              testID="hdr-layers"
+              onPress={skyHeaderActions.openLayers}
+              onLongPress={skyHeaderActions.openDev}
+              style={g!.iconBtn}
+              accessibilityLabel={t('layerTitle', language)}
+              accessibilityRole="button"
+            >
+              <GlassSurface style={StyleSheet.absoluteFill} />
+              <SlidersHorizontal size={15} color={TEXT} />
+            </PressScale>
+          )}
+
+          {glass && !expertMode && !skyHeaderActions?.ascended && skyHeaderActions?.flyToMap && (
+            <PressScale
+              testID="hdr-map"
+              onPress={skyHeaderActions.flyToMap}
+              style={g!.iconBtn}
+              accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
+              accessibilityRole="button"
+            >
+              <GlassSurface style={StyleSheet.absoluteFill} />
+              <Globe size={15} color={TEXT} />
             </PressScale>
           )}
 
@@ -200,7 +228,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             accessibilityRole="button"
           >
             {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
-            <Settings size={16} color={glass ? TEXT : color.textDim} />
+            <Settings size={15} color={glass ? TEXT : color.textDim} />
           </PressScale>
         </View>
       </View>
@@ -211,9 +239,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 /** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다. */
 const GLASS_TINT = `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})`;
 const glassStyles = StyleSheet.create({
-  navToggle: { flexDirection: 'row', height: HEADER_ROW, borderRadius: HEADER_ROW / 2, flex: 1, position: 'relative' },
+  navToggle: { flexDirection: 'row', height: HEADER_ROW, width: 120, borderRadius: HEADER_ROW / 2, position: 'relative' },
   navIndicator: { position: 'absolute', top: 0, bottom: 0, borderRadius: HEADER_ROW / 2, backgroundColor: GLASS_TINT },
-  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: space.xs, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 160, paddingHorizontal: space.md, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center' },
+  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 118, paddingHorizontal: 10, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center' },
   iconBtn: { width: TOUCH, height: HEADER_ROW, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
 });
 
@@ -228,22 +256,23 @@ const useStyles = makeStyles((color) => ({
     height: HEADER_HEIGHT,
     paddingTop: HEADER_PAD_TOP,
     paddingBottom: HEADER_PAD_BOTTOM,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    justifyContent: 'space-between',
+    gap: 6,
   },
-  /** 탭 · 아이콘 버튼 모두 높이 40(touch). 예전에는 탭 약 26 · 아이콘 32 였습니다. */
+  /** 탭 · 아이콘 버튼 모두 높이 40(touch), 사진 상단 줄과 크기·배치를 맞춤. */
   navToggle: {
     flexDirection: 'row',
     height: TOUCH,
+    width: 120,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.panel,
-    flex: 1,
     position: 'relative',
   },
   navIndicator: {
@@ -265,29 +294,30 @@ const useStyles = makeStyles((color) => ({
   navText: {
     fontSize: 11,
     fontFamily: mono,
-    letterSpacing: 0.5,
+    fontWeight: '400',
+    letterSpacing: 0.3,
   },
   rightButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: 6,
   },
   /** 위치 버튼 — 지금 어느 하늘인지 이름으로 보여 줍니다(예전에는 핀 아이콘만). */
   placeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.xs,
+    gap: 4,
     height: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 160,
-    paddingHorizontal: space.md,
+    maxWidth: 118,
+    paddingHorizontal: 10,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.panel,
     justifyContent: 'center',
   },
-  placeText: { ...type.bodyStrong, color: color.text, flexShrink: 1 },
+  placeText: { fontSize: 11, fontWeight: '500', color: color.text, flexShrink: 1 },
   iconBtn: {
     width: TOUCH,
     height: TOUCH,

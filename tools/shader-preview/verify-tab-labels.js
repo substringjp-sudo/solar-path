@@ -31,7 +31,7 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   console.log('\n[3~4] 쓰는 곳');
   const hdr = read('src', 'components', 'AppHeader.tsx');
   ok(/tabLabel\(tab\.id, language\)/.test(hdr) && !/\$\{tab\.code\}/.test(hdr), '머리줄은 tabLabel 로 글을 만들고 code 를 붙이지 않는다');
-  ok(/export type AppTab = 'sky' \| 'learn' \| 'log';/.test(hdr) && /id: 'sky'[\s\S]*id: 'learn'[\s\S]*id: 'log'/.test(hdr), '탭 id 와 순서는 그대로');
+  ok(/export type AppTab = 'learn' \| 'sky';/.test(hdr) && /id: 'learn'[\s\S]*id: 'sky'/.test(hdr), '탭 id 와 순서(learn → sky)가 맞다');
   const learn = read('src', 'components', 'LearnScreen', 'LearnScreen.tsx');
   ok(/L3\(language, '데이터', 'Data', 'データ'\)/.test(learn), '데이터 화면 제목');
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
