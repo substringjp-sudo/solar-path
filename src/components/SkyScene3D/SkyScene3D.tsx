@@ -3327,6 +3327,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
+                // 연속 이동: 구름 · 대기 카메라도 눈의 가로 자리로(장면은 관측 위치 기준이라 눈이 가면 구름이 시차로 움직임).
+                const volHere = location?.coords;
+                const volEyeOff = curEyeForKey && volHere ? localOffsetM(volHere, curEyeForKey.latitude, curEyeForKey.longitude) : { eastM: 0, northM: 0 };
+                vol.setEyeOffset?.(volEyeOff.northM, volEyeOff.eastM);
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, volRollDeg, volOffY);
                 volViewRef.current = viewKey;
                 if (overrideSceneTimeMsRef.current === null && !volPendingRef.current) {
