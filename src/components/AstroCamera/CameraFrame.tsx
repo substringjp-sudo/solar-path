@@ -78,7 +78,23 @@ export const CameraFrame: React.FC<Props> = ({
   const [stageState, setStageState] = React.useState<DockStage>('min');
   const stage = stageProp ?? stageState;
   const [active, setActive] = React.useState<string | null>(null);
-  const setStage = (s: DockStage) => { (onStageChange ?? setStageState)(s); if (s === 'min') setActive(null); };
+  const firstPanelId = React.useMemo(
+    () => chips.find(c => c.expands && panels?.[c.id])?.id ?? Object.keys(panels ?? {}).find(k => panels?.[k]) ?? null,
+    [chips, panels],
+  );
+  React.useEffect(() => {
+    setActive(null);
+    if (stageProp == null) setStageState('min');
+  }, [stripMode, stageProp]);
+
+  const setStage = (s: DockStage) => {
+    (onStageChange ?? setStageState)(s);
+    if (s === 'min') {
+      setActive(null);
+    } else if ((!active || !panels?.[active]) && firstPanelId) {
+      setActive(firstPanelId);
+    }
+  };
 
   const onChip = (c: CameraChipSpec) => {
     if (!c.expands || !panels?.[c.id]) { c.onPress?.(); return; }
@@ -87,18 +103,19 @@ export const CameraFrame: React.FC<Props> = ({
     if (stage === 'min') setStage(c.openStage ?? 'mid');
     c.onPress?.();
   };
-  const isOpen = (c: CameraChipSpec) => !!c.expands && active === c.id && stage !== 'min';
+  const activeKey = (active && panels?.[active]) ? active : firstPanelId;
+  const isOpen = (c: CameraChipSpec) => !!c.expands && activeKey === c.id && stage !== 'min';
 
-  const panel = active && stage !== 'min' ? panels?.[active] : null;
+  const panel = activeKey ? panels?.[activeKey] : null;
   // 패널은 펼친 영역이 정해 준 최대 높이 안에서 그려지고, 길면 안쪽에서 스크롤됩니다(막대의 고정부 쪽으로 삐져나오지 않게).
   const expanded = panel ? (maxH: number) => (
-    <GlassSurface testID={`panel-${active}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
+    <GlassSurface testID={`panel-${activeKey}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
       <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{panel}</ScrollView>
     </GlassSurface>
   ) : null;
 
   return (
-    <DockSheet stage={stage} onStageChange={setStage} language={language} expanded={expanded} screenH={screenH} onFixedHeight={onDockHeight}>
+    <DockSheet stage={stage} onStageChange={setStage} language={language} expanded={expanded} screenH={screenH} fitContent onFixedHeight={onDockHeight}>
       {chips.length > 0 ? (
         <View testID="chips-row" style={styles.chips}>
           {chips.map(c => (

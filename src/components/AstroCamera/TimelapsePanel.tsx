@@ -24,6 +24,8 @@ export const STACK_CHOICES = [2, 4, 8] as const;
 
 interface Props {
   visible: boolean;
+  /** true 면 Modal · 외곽 시트 없이 CameraFrame 확장 패널 본문만 렌더링 */
+  inline?: boolean;
   language: Language;
   /** 해가 뜨고 지는 시각(ms). 구간 미리보기의 기준입니다. 모르면 null(지금부터 재생). */
   events: { sunrise: number | null; sunset: number | null };
@@ -59,7 +61,7 @@ const presetLabel = (k: PresetKind, l: Language): string => {
   return L3(l, '낮에서 밤으로 150분', 'Day to night 150 min', '昼から夜へ 150分');
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose }) => {
+export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose }) => {
   const [preset, setPreset] = useState<PresetKind>('sunset');
   const [videoSec, setVideoSec] = useState<number>(10);
   const [kind, setKind] = useState<TimelapseKind>('plain');
@@ -100,6 +102,61 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
       ))}
     </View>
   );
+  const body = (
+    <>
+      <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
+      {chipsOf(KINDS, v => kind === v, setKind, v => kindLabel(v, language), v => `tl-kind-${v}`)}
+      <Text style={styles.note}>{kindDesc(kind, language)}</Text>
+      {kind === 'stacked'
+        ? chipsOf(STACK_CHOICES, v => stackSize === v, setStackSize, n => `${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`, n => `tl-stack-${n}`)
+        : null}
+      <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
+      {chipsOf(PRESETS, v => preset === v, setPreset, v => presetLabel(v, language), v => `tl-preset-${v}`)}
+      <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '영상 길이', 'VIDEO LENGTH', '動画の長さ')}</Text>
+      {chipsOf(VIDEO_SEC_CHOICES, v => videoSec === v, setVideoSec, v => `${v}${L3(language, '초', ' s', '秒')}`, v => `tl-video-${v}`)}
+      <View testID="tl-card" style={styles.card}>
+        <View style={styles.cellRow}>
+          {cells.map(c => (
+            <View key={c.label} style={styles.cell}>
+              <Text style={styles.cellLabel}>{c.label}</Text>
+              <Text style={styles.cellValue}>{c.value}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.summary}>{`${L3(language, '시작', 'Start', '開始')} ${clockLabel(startShown, tzHours)} · ${L3(language, '촬영', 'Shoot', '撮影')} ${totalMin}${L3(language, '분', ' min', '分')} · ${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}</Text>
+        {expo && expo.line ? (
+          <View style={styles.expoRow}>
+            <Svg width={120} height={24} accessibilityLabel={L3(language, '예측 노출 곡선', 'Predicted exposure curve', '予測露出カーブ')}>
+              <Polyline points={expo.line} fill="none" stroke={TEXT} strokeWidth={2} />
+            </Svg>
+            <Text style={styles.expoText}>{`${L3(language, '밝기', 'Light', '明るさ')} ${expo.total > 0 ? '+' : '−'}${Math.abs(expo.total).toFixed(1)}${L3(language, '단', ' stops', '段')} · ${L3(language, '맑은 하늘 기준 어림', 'clear-sky estimate', '快晴の目安')}`}</Text>
+          </View>
+        ) : null}
+        {lowCloud && preset === 'sunset' ? (
+          <Text style={styles.lowCloudLine}>{`${L3(language, '낮은 구름 두꺼움', 'Low cloud thick', '低い雲が厚い')} ${windowLabel(lowCloud.fromMs, lowCloud.toMs, tzHours)}`}</Text>
+        ) : null}
+        {peak && preset === 'sunset' ? (
+          <Text style={styles.peakLine}>{`${L3(language, '가장 붉을 때', 'Reddest', '最も赤い時')} ${windowLabel(peak.fromMs, peak.toMs, tzHours)}`}</Text>
+        ) : null}
+        {plan.clamped === 'interval' ? (
+          <Text style={styles.note}>{L3(language, '간격이 너무 짧아 2초로 맞췄어요. 영상이 조금 짧아져요.', 'Interval raised to 2 s, so the video comes out shorter.', '間隔が短すぎるため2秒にしました。動画は少し短くなります。')}</Text>
+        ) : null}
+        {kind === 'stacked' ? (
+          <Text style={styles.note}>{L3(language, `${plan.stackSize}장씩 합쳐 ${plan.savedFrames}장을 앨범에 저장해요. 찍은 원본은 합친 뒤 지워요.`, `Every ${plan.stackSize} shots merge into one; ${plan.savedFrames} images go to your album. The raw shots are discarded after merging.`, `${plan.stackSize}枚ずつ合成して${plan.savedFrames}枚をアルバムに保存します。元の写真は合成後に消します。`)}</Text>
+        ) : kind === 'trail' ? (
+          <Text style={styles.note}>{L3(language, `찍을 때마다 겹친 누적 그림 ${plan.savedFrames}장을 앨범에 저장해요. 마지막 장이 별 일주 사진이에요.`, `A cumulative image is saved to your album after every shot (${plan.savedFrames}); the last one is the star-trail photo.`, `撮影のたびに累積画像を保存します(${plan.savedFrames}枚)。最後の1枚が星の軌跡写真です。`)}</Text>
+        ) : null}
+        <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
+      </View>
+      <View style={styles.actions}>
+        <GlassChip testID="tl-preview" label={L3(language, '미리보기', 'Preview', 'プレビュー')} onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn} />
+        <GlassChip testID="tl-start" label={L3(language, '지금 시작', 'Start now', '今すぐ開始')} active onPress={start} accessibilityLabel={L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn} />
+      </View>
+    </>
+  );
+
+  if (inline) return <View style={styles.inlineWrap}>{body}</View>;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.fill}>
@@ -114,54 +171,7 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
             <GlassChip testID="tl-close" label="" icon={<X size={18} color={TEXT} />} onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} style={styles.closeBtn} />
           </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
-            {chipsOf(KINDS, v => kind === v, setKind, v => kindLabel(v, language), v => `tl-kind-${v}`)}
-            <Text style={styles.note}>{kindDesc(kind, language)}</Text>
-            {kind === 'stacked'
-              ? chipsOf(STACK_CHOICES, v => stackSize === v, setStackSize, n => `${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`, n => `tl-stack-${n}`)
-              : null}
-            <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
-            {chipsOf(PRESETS, v => preset === v, setPreset, v => presetLabel(v, language), v => `tl-preset-${v}`)}
-            <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '영상 길이', 'VIDEO LENGTH', '動画の長さ')}</Text>
-            {chipsOf(VIDEO_SEC_CHOICES, v => videoSec === v, setVideoSec, v => `${v}${L3(language, '초', ' s', '秒')}`, v => `tl-video-${v}`)}
-            <View testID="tl-card" style={styles.card}>
-              <View style={styles.cellRow}>
-                {cells.map(c => (
-                  <View key={c.label} style={styles.cell}>
-                    <Text style={styles.cellLabel}>{c.label}</Text>
-                    <Text style={styles.cellValue}>{c.value}</Text>
-                  </View>
-                ))}
-              </View>
-              <Text style={styles.summary}>{`${L3(language, '시작', 'Start', '開始')} ${clockLabel(startShown, tzHours)} · ${L3(language, '촬영', 'Shoot', '撮影')} ${totalMin}${L3(language, '분', ' min', '分')} · ${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}</Text>
-              {expo && expo.line ? (
-                <View style={styles.expoRow}>
-                  <Svg width={120} height={24} accessibilityLabel={L3(language, '예측 노출 곡선', 'Predicted exposure curve', '予測露出カーブ')}>
-                    <Polyline points={expo.line} fill="none" stroke={TEXT} strokeWidth={2} />
-                  </Svg>
-                  <Text style={styles.expoText}>{`${L3(language, '밝기', 'Light', '明るさ')} ${expo.total > 0 ? '+' : '−'}${Math.abs(expo.total).toFixed(1)}${L3(language, '단', ' stops', '段')} · ${L3(language, '맑은 하늘 기준 어림', 'clear-sky estimate', '快晴の目安')}`}</Text>
-                </View>
-              ) : null}
-              {lowCloud && preset === 'sunset' ? (
-                <Text style={styles.lowCloudLine}>{`${L3(language, '낮은 구름 두꺼움', 'Low cloud thick', '低い雲が厚い')} ${windowLabel(lowCloud.fromMs, lowCloud.toMs, tzHours)}`}</Text>
-              ) : null}
-              {peak && preset === 'sunset' ? (
-                <Text style={styles.peakLine}>{`${L3(language, '가장 붉을 때', 'Reddest', '最も赤い時')} ${windowLabel(peak.fromMs, peak.toMs, tzHours)}`}</Text>
-              ) : null}
-              {plan.clamped === 'interval' ? (
-                <Text style={styles.note}>{L3(language, '간격이 너무 짧아 2초로 맞췄어요. 영상이 조금 짧아져요.', 'Interval raised to 2 s, so the video comes out shorter.', '間隔が短すぎるため2秒にしました。動画は少し短くなります。')}</Text>
-              ) : null}
-              {kind === 'stacked' ? (
-                <Text style={styles.note}>{L3(language, `${plan.stackSize}장씩 합쳐 ${plan.savedFrames}장을 앨범에 저장해요. 찍은 원본은 합친 뒤 지워요.`, `Every ${plan.stackSize} shots merge into one; ${plan.savedFrames} images go to your album. The raw shots are discarded after merging.`, `${plan.stackSize}枚ずつ合成して${plan.savedFrames}枚をアルバムに保存します。元の写真は合成後に消します。`)}</Text>
-              ) : kind === 'trail' ? (
-                <Text style={styles.note}>{L3(language, `찍을 때마다 겹친 누적 그림 ${plan.savedFrames}장을 앨범에 저장해요. 마지막 장이 별 일주 사진이에요.`, `A cumulative image is saved to your album after every shot (${plan.savedFrames}); the last one is the star-trail photo.`, `撮影のたびに累積画像を保存します(${plan.savedFrames}枚)。最後の1枚が星の軌跡写真です。`)}</Text>
-              ) : null}
-              <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
-            </View>
-            <View style={styles.actions}>
-              <GlassChip testID="tl-preview" label={L3(language, '미리보기', 'Preview', 'プレビュー')} onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn} />
-              <GlassChip testID="tl-start" label={L3(language, '지금 시작', 'Start now', '今すぐ開始')} active onPress={start} accessibilityLabel={L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn} />
-            </View>
+            {body}
           </ScrollView>
         </GlassSurface>
       </View>
@@ -171,6 +181,7 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
 
 const styles = StyleSheet.create({
   fill: { flex: 1, justifyContent: 'flex-end' },
+  inlineWrap: { gap: 4 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
   sheet: { maxHeight: '80%', borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 12 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },

@@ -505,7 +505,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [topInfoExpanded, setTopInfoExpanded] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [timelapseMode, setTimelapseMode] = useState(false);
-  const [timelapseOpen, setTimelapseOpen] = useState(false);
+  const [camStage, setCamStage] = useState<'min' | 'mid' | 'full'>('min');
   // 월식 이벤트 모드: 켜짐 계산은 10 분 · 위경도 0.1° 단위로만 다시 하고, 남은 시간만 매초 갱신한다.
   const [eclipseOn, setEclipseOn] = useState(false);
   const [eclipseTick, setEclipseTick] = useState(() => Date.now());
@@ -1139,7 +1139,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 시트가 열려 있고 일몰이 겨눠질 때만 셉니다. 받아 둔 예보 시각 밖의 표본은 비웁니다(없는 값을 짓지 않음).
   const tlSunsetMs = goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null;
   const tlPeak = useMemo(() => {
-    if (!timelapseOpen || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
+    if (!timelapseMode || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
     const h = camWeatherData[0]?.hourly as any;
     const times: number[] | undefined = h?.timeMs ?? h?.time?.map((x: string) => new Date(x).getTime());
     const covered = (ms: number) => !!times?.length && ms >= times[0] && ms <= times[times.length - 1];
@@ -1154,11 +1154,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     });
     return peakWindow(points);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timelapseOpen, tlSunsetMs, camWeatherData, latitude, longitude, tzHours]);
+  }, [timelapseMode, tlSunsetMs, camWeatherData, latitude, longitude, tzHours]);
 
   // 낮은 구름이 두꺼운 구간(일몰 ±90분): 같은 10분 표본에서 보간한 낮은 구름 %가 60 이상 이어진 가장 긴 구간. 예측을 부르지 않아 가볍습니다.
   const tlLowCloud = useMemo(() => {
-    if (!timelapseOpen || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
+    if (!timelapseMode || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
     const h = camWeatherData[0]?.hourly as any;
     const times: number[] | undefined = h?.timeMs ?? h?.time?.map((x: string) => new Date(x).getTime());
     const covered = (ms: number) => !!times?.length && ms >= times[0] && ms <= times[times.length - 1];
@@ -1170,7 +1170,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     });
     return lowCloudWindow(points);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timelapseOpen, tlSunsetMs, camWeatherData, tzHours]);
+  }, [timelapseMode, tlSunsetMs, camWeatherData, tzHours]);
 
   const tlSunAltAt = useCallback((ms: number) => getSunPosition(new Date(ms), latitude, longitude).altitude, [latitude, longitude]);
 
@@ -2820,12 +2820,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   onPress: () => setMagnification(mag),
                 })),
                 timelapseMode
-                  ? { id: 'timelapse-settings', label: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定'), active: timelapseOpen, onPress: () => setTimelapseOpen(true) }
+                  ? { id: 'timelapse', label: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定'), expands: true, openStage: 'full' }
                   : cameraTab === 'astro'
                     ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
                     : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
               ]}
-              panels={cameraTab === 'astro' ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> } : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
+              panels={
+                timelapseMode
+                  ? {
+                      timelapse: (
+                        <TimelapsePanel
+                          inline
+                          visible
+                          language={language}
+                          events={{
+                            sunrise: goldenTimeInfo.type === 'sunrise' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+                            sunset: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+                          }}
+                          nowMs={currentTime.getTime()}
+                          tzHours={tzHours}
+                          peak={tlPeak}
+                          lowCloud={tlLowCloud}
+                          sunAltAt={tlSunAltAt}
+                          onPreview={playPreview}
+                          onStart={startTimelapse}
+                          onClose={() => setCamStage('min')}
+                        />
+                      ),
+                    }
+                  : cameraTab === 'astro'
+                    ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> }
+                    : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }
+              }
               ruler={viewMode !== 'camera' && onTimeChange ? {
                 timeMs: currentTime.getTime(),
                 tz: tzHours,
@@ -2898,10 +2924,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   else setViewMode('camera');
                   return;
                 }
-                if (timelapseMode) { setTimelapseOpen(true); return; }
+                if (timelapseMode) { setCamStage(s => (s === 'min' ? 'full' : 'min')); return; }
                 if (cameraTab === 'astro') handleAstroStart();
                 else handleCapturePress();
               }}
+              stage={camStage}
+              onStageChange={setCamStage}
               stripMode={timelapseMode ? 'timelapse' : eclipseOn ? 'event' : cameraTab === 'astro' ? 'astro' : 'photo'}
               stripModes={eclipseBase ? CAMERA_STRIP_MODES_EVENT : CAMERA_STRIP_MODES}
               onPickMode={(m) => {
@@ -2913,23 +2941,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             />
           </View>
         )}
-
-        <TimelapsePanel
-          visible={timelapseOpen}
-          language={language}
-          events={{
-            sunrise: goldenTimeInfo.type === 'sunrise' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
-            sunset: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
-          }}
-          nowMs={currentTime.getTime()}
-          tzHours={tzHours}
-          peak={tlPeak}
-          lowCloud={tlLowCloud}
-          sunAltAt={tlSunAltAt}
-          onPreview={playPreview}
-          onStart={startTimelapse}
-          onClose={() => setTimelapseOpen(false)}
-        />
 
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
         <PostDetailModal
