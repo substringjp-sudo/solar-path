@@ -18,6 +18,7 @@ import { SkyScreen } from './SkyScreen/SkyScreen';
 import { Gallery } from './Gallery';
 import { LearnScreen } from './LearnScreen/LearnScreen';
 import { TAB_ORDER, type AppTab } from './AppHeader';
+import { contentInsetTop } from '../utils/headerLayout';
 import type { LearnEntry } from '../utils/learnSections';
 import { springTo } from '../theme/motion';
 
@@ -148,7 +149,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
 
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
-      <View style={[styles.page, { width }, activeTab !== 'sky' && styles.hiddenPage]}>
+      <View style={[styles.page, { width, paddingTop: contentInsetTop('sky') }, activeTab !== 'sky' && styles.hiddenPage]}>
         <SkyScreen
           theme={theme}
           currentTime={currentTime}
@@ -164,7 +165,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           onOpenLearn={openLearn}
         />
       </View>
-      <View style={[styles.page, { width }, activeTab !== 'learn' && styles.hiddenPage]}>
+      <View style={[styles.page, { width, paddingTop: contentInsetTop('learn') }, activeTab !== 'learn' && styles.hiddenPage]}>
         <LearnScreen
           isActive={activeTab === 'learn' && !isSuspended}
           setCurrentTime={setCurrentTime}
@@ -172,7 +173,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           entry={learnEntry}
         />
       </View>
-      <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>
+      <View style={[styles.page, { width, paddingTop: contentInsetTop('log') }, activeTab !== 'log' && styles.hiddenPage]}>
         <Gallery
           theme={theme}
           dynamicTheme={dynamicTheme}

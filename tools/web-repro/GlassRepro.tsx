@@ -16,7 +16,8 @@ import { DockSheet } from '../../src/components/glass/DockSheet';
 import { TEXT } from '../../src/theme/glassTokens';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode } from '../../src/utils/modeStrip';
 import { dateShort, weekStrip } from '../../src/utils/timeRuler';
-import { tabLabel } from '../../src/utils/tabLabels';
+import { AppHeader, type AppTab } from '../../src/components/AppHeader';
+import { useCelestialStore } from '../../src/store/useCelestialStore';
 import type { DockStage } from '../../src/utils/dockStages';
 
 const SKY: Record<string, string> = {
@@ -29,6 +30,9 @@ export function GlassRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
   const lang = (Q.lang ?? 'ko') as 'ko' | 'en' | 'ja';
   const tz = 9;
   const C = Date.UTC(2026, 10, 21, 8, 4);
+  React.useEffect(() => {
+    useCelestialStore.setState({ language: lang, location: { coords: { latitude: 37.4979, longitude: 127.0276 } }, savedLocations: [{ id: 'g', name: '강남구', latitude: 37.4979, longitude: 127.0276 }] } as any);
+  }, []);
   const [stage, setStage] = React.useState<DockStage>(Q.stage ?? 'min');
   const [mode, setMode] = React.useState<AppMode>(Q.mode ?? 'simulation');
   const [timeMs, setTimeMs] = React.useState(C);
@@ -43,16 +47,13 @@ export function GlassRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
   return (
     <View testID="glass-root" style={[styles.root, { width: W, height: H }, { backgroundImage: SKY[Q.sky ?? 'haze'] } as any]}>
       <Scrim edge="top" />
-      <View style={styles.header}>
-        <GlassSurface testID="hdr-tabs" style={styles.tabs}>
-          {(['sky', 'learn', 'log'] as const).map((id, i) => (
-            <GlassChip key={id} flat label={tabLabel(id, lang)} active={i === 0} onPress={() => {}} style={styles.tab} />
-          ))}
-        </GlassSurface>
-        <View style={{ flex: 1 }} />
-        <GlassChip testID="hdr-place" label="강남구" icon={<MapPin size={16} color={TEXT} />} onPress={() => {}} />
-        <GlassChip testID="hdr-settings" label="" icon={<Settings size={18} color={TEXT} />} onPress={() => {}} accessibilityLabel="설정" style={styles.round} />
-      </View>
+      {/* 실제 앱 머리줄(`AppHeader`, 하늘 탭 = 유리) — 예전에는 손으로 만든 복사본이었습니다(2026-11-21). */}
+      <AppHeader
+        activeTab={(Q.tab ?? 'sky') as AppTab}
+        setActiveTab={(tab) => { (globalThis as any).__glass_tabs = ((globalThis as any).__glass_tabs ?? []).concat(tab); }}
+        setSettingsVisible={() => { (globalThis as any).__glass_hdr = ((globalThis as any).__glass_hdr ?? []).concat('settings'); }}
+        setMapVisible={() => { (globalThis as any).__glass_hdr = ((globalThis as any).__glass_hdr ?? []).concat('place'); }}
+      />
       <View style={styles.readout}>
         <GlassChip testID="readout" mono label={`159° S · ${mode === 'simulation' ? '해 EL 13.0°' : 'EL 13.0° · 눈 1.6 m'}`} />
       </View>

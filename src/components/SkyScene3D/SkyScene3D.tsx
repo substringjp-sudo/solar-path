@@ -392,6 +392,8 @@ interface SkyScene3DProps {
   telephotoX?: number;
   /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
   showLensInfo?: boolean;
+  /** 위에 떠 있는 것(앱 머리줄)이 가리는 높이(px). 위쪽 알림 · 렌즈 배지를 그만큼 내립니다. 기본 0. */
+  topInset?: number;
   /**
    * 샌드박스: 짧게 탭하면 그 방향에서 눈에 처음 닿는 땅이나 건물(멀면 가까운 봉우리·건물 꼭대기로 붙임)을 골라 `onPickTarget` 으로 알립니다.
    * 하늘·바다 쪽을 탭하면 null. 지상 단계에서만 동작합니다.
@@ -648,6 +650,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     onAscendedChange,
     telephotoX = 1,
     showLensInfo = false,
+    topInset = 0,
     eyeHeightM,
     pickEnabled = false,
     onPickTarget,
@@ -4770,6 +4773,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           theme={theme}
           adjusting={viewAdjusting}
           lensAspect={showLensInfo ? width / Math.max(1, height) : undefined}
+          topInset={topInset}
         />
       )}
 
@@ -4927,7 +4931,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       {/* ── 무한 줌 상공 모드 및 우주 궤도 지구본 모드 HUD 뱃지 ── */}
       {(zoomProgressState > P_FOV_END + 0.1 || divingLocation) && (
-        <View style={styles.radarHudPill}>
+        <View style={[styles.radarHudPill, { top: 50 + topInset }]}>
           <View style={[styles.radarHudDot, isGlobeMode && { backgroundColor: '#F59E0B' }]} />
           <Text style={styles.radarHudTitle}>
             {divingLocation

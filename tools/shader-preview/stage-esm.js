@@ -137,6 +137,8 @@ const ENTRIES = [
   'src/utils/modeStrip.ts',
   // 유리 재질 · 위아래 어두운 막 값과 글자 대비 계산 — verify-glass-tokens.js
   'src/theme/glassTokens.ts',
+  // 앱 머리줄 유리 자리 · 재질 — verify-header-layout.js
+  'src/utils/headerLayout.ts',
   // 시간 자(끌어서 시각 바꾸기 · 눈금 · 날짜 줄) — verify-time-ruler.js
   'src/utils/timeRuler.ts',
   // 타임랩스 예측 노출 곡선(해 고도 → 맑은 하늘 밝기 → 단 변화) — verify-exposure-curve.js

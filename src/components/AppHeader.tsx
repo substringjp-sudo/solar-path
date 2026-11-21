@@ -3,6 +3,11 @@
  *
  * 앱 맨 위 한 줄 — **탭 셋(01 하늘 · 02 학습 · 03 기록)** + 위치(장소 이름) · 설정.
  *
+ * ## 달라진 것 (2026-11-21, 헤더 유리)
+ *
+ * - **머리줄이 하늘 위에 떠 있습니다**(절대 위치, 높이 `HEADER_HEIGHT` 48). 하늘 탭에서는 3D 하늘이 머리줄 뒤까지 이어지고 탭 · 장소 · 설정이 테두리 없는 유리(흐림 + 어두운 칠)이며 글자는 모두 #F1F5F9 입니다.
+ *   학습 · 기록 탭은 불투명한 화면이라 내용이 머리줄 아래에서 시작하고(`TabNavigator`) 머리줄은 예전 테마 상자 그대로입니다(밝은 테마에서 유리 위 흰 글자 대비가 모자람, `utils/headerLayout.ts`).
+ *
  * ## 달라진 것 (2026-11-20)
  *
  * - **02 예보가 02 학습이 됐습니다**(`LearnScreen`). 16일 예보 표는 그대로 있고, 시트의 이벤트 목록 · 기상 정보, 왜 그런가요 창이
@@ -31,6 +36,9 @@ import { t, L3 } from '../utils/i18n';
 import { color, radius, mono, space, type, TOUCH } from '../theme/tokens';
 import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
+import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
+import { GLASS, TEXT } from '../theme/glassTokens';
+import { HEADER_HEIGHT, HEADER_PAD_BOTTOM, HEADER_PAD_TOP, HEADER_ROW, headerMaterial } from '../utils/headerLayout';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
@@ -114,77 +122,112 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     outputRange: APP_TABS.map((_, i) => `${(i * 100) / APP_TABS.length}%`),
   });
 
+  const glass = headerMaterial(activeTab) === 'glass';
+  const g = glass ? glassStyles : null;
+
+  const tabs = APP_TABS.map(tab => {
+    const isActive = activeTab === tab.id;
+    return (
+      <PressScale
+        key={tab.id}
+        testID={`hdr-tab-${tab.id}`}
+        onPress={() => setActiveTab(tab.id)}
+        style={styles.navButton}
+        activeOpacity={0.8}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: isActive }}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.navText,
+            glass ? [{ color: TEXT }, glassTextShadow] : { color: isActive ? color.accent : color.textMute },
+            isActive && { fontWeight: '800' },
+          ]}
+        >
+          {/* 숫자 없이 이름만(2026-11-21): 하늘 · 데이터 · 기록 */}
+          {tabLabel(tab.id, language)}
+        </Text>
+      </PressScale>
+    );
+  });
+  const indicator = (
+    <Animated.View
+      style={[
+        glass ? g!.navIndicator : styles.navIndicator,
+        { left: indicatorLeft, width: `${100 / APP_TABS.length}%` },
+      ]}
+    />
+  );
+  const placeLabelText = `${L3(language, '위치 변경', 'Change location', '位置を変更')}${place ? ` — ${place}` : ''}`;
+
   return (
-    <View style={styles.header}>
-      <View style={styles.headerTop}>
-        <View style={styles.navToggle}>
-          <Animated.View
-            style={[
-              styles.navIndicator,
-              {
-                left: indicatorLeft,
-                width: `${100 / APP_TABS.length}%`,
-              },
-            ]}
-          />
-          {APP_TABS.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <PressScale
-                key={tab.id}
-                onPress={() => setActiveTab(tab.id)}
-                style={styles.navButton}
-                activeOpacity={0.8}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.navText,
-                    { color: isActive ? color.accent : color.textMute },
-                    isActive && { fontWeight: '800' }
-                  ]}
-                >
-                  {/* 숫자 없이 이름만(2026-11-21): 하늘 · 데이터 · 기록 */}
-                  {tabLabel(tab.id, language)}
-                </Text>
-              </PressScale>
-            );
-          })}
-        </View>
+    <View style={styles.header} pointerEvents="box-none">
+      <View style={styles.headerTop} pointerEvents="box-none">
+        {glass ? (
+          <GlassSurface testID="hdr-tabs" style={g!.navToggle}>
+            {indicator}
+            {tabs}
+          </GlassSurface>
+        ) : (
+          <View style={styles.navToggle}>
+            {indicator}
+            {tabs}
+          </View>
+        )}
 
         <View style={styles.rightButtons}>
           {setMapVisible && (
             <PressScale
+              testID="hdr-place"
               onPress={() => setMapVisible(true)}
-              style={styles.placeBtn}
-              accessibilityLabel={`${L3(language, '위치 변경', 'Change location', '位置を変更')}${place ? ` — ${place}` : ''}`}
+              style={glass ? g!.placeBtn : styles.placeBtn}
+              accessibilityLabel={placeLabelText}
               accessibilityRole="button"
             >
-              <MapPin size={16} color={color.accent} />
-              {!!place && showPlaceName && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
+              {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
+              <MapPin size={16} color={glass ? TEXT : color.accent} />
+              {!!place && showPlaceName && <Text style={[styles.placeText, glass && [{ color: TEXT }, glassTextShadow]]} numberOfLines={1}>{place}</Text>}
             </PressScale>
           )}
 
           <PressScale
+            testID="hdr-settings"
             onPress={() => setSettingsVisible(true)}
-            style={styles.iconBtn}
+            style={glass ? g!.iconBtn : styles.iconBtn}
             accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
-            <Settings size={16} color={color.textDim} />
+            {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
+            <Settings size={16} color={glass ? TEXT : color.textDim} />
           </PressScale>
         </View>
       </View>
-
     </View>
   );
 };
 
+/** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다. */
+const GLASS_TINT = `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})`;
+const glassStyles = StyleSheet.create({
+  navToggle: { flexDirection: 'row', height: HEADER_ROW, borderRadius: radius.md, flex: 1, position: 'relative' },
+  navIndicator: { position: 'absolute', top: 0, bottom: 0, borderRadius: radius.md, backgroundColor: GLASS_TINT },
+  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: space.xs, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 160, paddingHorizontal: space.md, borderRadius: radius.md, overflow: 'hidden', justifyContent: 'center' },
+  iconBtn: { width: TOUCH, height: HEADER_ROW, borderRadius: radius.md, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+});
+
 const useStyles = makeStyles((color) => ({
+  // 하늘 위에 떠 있습니다(`HEADER_HEIGHT` = 위 여백 4 + 줄 40 + 아래 여백 4). 탭 내용이 아래에서 시작하는 것은 `TabNavigator` 가 맡습니다.
   header: {
-    paddingTop: space.xs,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    height: HEADER_HEIGHT,
+    paddingTop: HEADER_PAD_TOP,
+    paddingBottom: HEADER_PAD_BOTTOM,
     paddingHorizontal: space.lg,
-    marginBottom: space.xs,
   },
   headerTop: {
     flexDirection: 'row',
