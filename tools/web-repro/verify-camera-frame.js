@@ -184,7 +184,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4), HOUR = 3600000;
 
   console.log('\n[9] 겹침');
   {
-    const parents = { 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'astro-panel': 'dock-expanded', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', 'view-toggle': 'shutter-row', lock: 'shutter-row', shutter: 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock' };
+    const parents = { 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'astro-panel': 'panel-astro', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', 'view-toggle': 'shutter-row', lock: 'shutter-row', shutter: 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock' };
     const states = [
       ['photo-camera', {}, []],
       ['photo-exposure', {}, ['chip-exposure']],
