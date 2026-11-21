@@ -72,7 +72,7 @@ ok(/timelapse\.run\.taken\}\/\$\{timelapse\.run\.plan\.frames\}/.test(cam) && /t
 ok(/timelapse\.run\.error/.test(cam) && /타임랩스가 멈췄어요/.test(cam) && /타임랩스 끝/.test(cam), '연속 실패로 멈춤과 끝남을 알린다');
 
 console.log('\n[6] 미리보기');
-ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');
+ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);\s+setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');
 ok(/if \(previewOrigin\.current\) \{ onTimeChange\?\.\(previewOrigin\.current\); previewOrigin\.current = null; \}/.test(cam) && /\{previewing && \(/.test(cam) && /'미리보기 멈추기'/.test(cam), '끝나거나 멈추면 원래 시각으로 돌아오고, 줄에 멈추기 단추');
 ok(/setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);/.test(cam) && /\{`  \$\{previewClock\}`\}<\/Text>/.test(cam), '미리보기 줄에 "0:06 / 0:12" 읽음(시작에 0 으로, 재생 중 지난 초로 갱신, 줄 글 뒤에 붙임; 2026-11-21 추가)');
 
