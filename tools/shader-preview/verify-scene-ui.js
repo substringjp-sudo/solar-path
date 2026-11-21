@@ -75,9 +75,9 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   ok(/onPickTarget=\{\(t\) => \{ pendingSceneTargetRef\.current = null; setPicked\(t\); \}\}/.test(sky) && /onClear=\{\(\) => \{ pendingSceneTargetRef\.current = null; setPicked\(null\); \}\}/.test(sky), '대상을 새로 고르거나 지우면 되살리던 대상은 접는다');
 
   console.log('\n[5] 자리');
-  ok(/\{!isCameraOverlayActive && expertMode && !ascended && picked && \([\s\S]*?sceneRow=\{<SceneBar language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>\}/.test(sky), '고른 대상이 있으면 객체 정보 패널 안(sceneRow)');
-  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !picked && !sheetOpen && \(\s*<View style=\{overlayStyles\.sceneBar\} pointerEvents="box-none">\s*<SceneBar boxed language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>/.test(sky), '없으면 아래에 따로 한 줄(boxed), 시트 손잡이 위에 두고 시트가 열리면 숨긴다');
-  ok(/sceneBar: \{ position: 'absolute', left: 12, right: 12, bottom: PEEK_HEIGHT \+ 8, zIndex: 22 \},/.test(sky), '그 자리는 bottom: PEEK_HEIGHT + 8');
+  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !cleanView && picked && \([\s\S]*?sceneRow=\{<SceneBar language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>\}/.test(sky), '고른 대상이 있으면 객체 정보 패널 안(sceneRow)');
+  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !cleanView && !picked && !sheetOpen && sandboxTool === 'tools' && \(\s*<View style=\{overlayStyles\.sceneBar\} pointerEvents="box-none">\s*<SceneBar boxed language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>/.test(sky), '없으면 도구 열었을 때 하단 툴독 위에 따로 한 줄(boxed)');
+  ok(/sceneBar: \{ position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 \},/.test(sky), '그 자리는 bottom: 72 (하단 툴독 위)');
   ok(/<SceneSheet\s+visible=\{sceneSheetOpen && expertMode\}/.test(sky) && /onOpen=\{openScene\}/.test(sky) && /renameSavedScene\(id, n\)/.test(sky) && /removeSavedScene\(id\)/.test(sky), '시트는 전문가 모드에서만, 열기 · 이름 바꾸기 · 지우기가 이어진다');
 
   console.log('\n[6] 시트');

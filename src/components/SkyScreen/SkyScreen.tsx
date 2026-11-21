@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform, Switch } from 'react-native';
-import { SlidersHorizontal, Sun, Sunset, Moon, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks } from 'lucide-react-native';
+import { SlidersHorizontal, Sun, Sunset, Moon, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks, Eye, EyeOff, Clock, Bookmark, Camera, Navigation } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
@@ -671,6 +671,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 그 뒤로는 시간을 아무리 움직여도 네트워크도, fBm도 다시 돌지 않고
   // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
   const [isDevPanelOpen, setDevPanelOpen] = useState(false);
+  const [sandboxTool, setSandboxTool] = useState<'time' | 'move' | 'tools' | null>(null);
+  const [cleanView, setCleanView] = useState(false);
+  useEffect(() => {
+    if (picked) setSandboxTool(cur => (cur === 'move' ? null : cur));
+  }, [picked]);
   const sceneRef = useRef<SkyScene3DHandle>(null);
   // 해·달 걸기로 시선을 옮겼다면(시야 중심을 올려 둠) 고른 대상을 지울 때 되돌립니다.
   const alignedViewRef = useRef(false);
@@ -1073,6 +1078,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const sandboxPanelEl = (
     <SandboxPanel
               language={language}
+              activeTool={frameV2 ? 'move' : (sandboxTool === 'move' ? 'move' : sandboxTool === 'tools' ? 'tools' : null)}
               far={{ status: farStatus, onLoad: loadFarBuildings }}
               getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
               getLoad={() => sceneRef.current?.getBuildingProgress?.() ?? null}
@@ -1130,7 +1136,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
       {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
       <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
-      <View style={[styles.sceneWrapper, (isCameraOverlayActive || frameV2) && { bottom: 0 }]}>
+      <View style={[styles.sceneWrapper, (isCameraOverlayActive || frameV2 || expertMode) && { bottom: 0 }]}>
         <SkyScene3D
           ref={sceneRef}
           onAscendedChange={setAscended}
@@ -1186,14 +1192,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         )}
 
         {/* 샌드박스 구도 도구: 눈 높이 · 위치 이동 · 내 위치 아님 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && !frameV2 && (
+        {!isCameraOverlayActive && expertMode && !ascended && !frameV2 && !cleanView && (
           <View style={overlayStyles.sandboxPanel} pointerEvents="box-none">
             {sandboxPanelEl}
           </View>
         )}
 
         {/* 고른 대상 정보 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && picked && (
+        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && picked && (
           <View style={frameV2 ? overlayStyles.objectPanelTop : overlayStyles.objectPanel} pointerEvents="box-none">
             <ObjectInfoPanel
               language={language}
@@ -1223,8 +1229,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (전문가 모드, 지상에서만). 아래 시트 손잡이(PEEK_HEIGHT) 바로 위에 두고, 시트가 열려 있으면 숨깁니다. */}
-        {!isCameraOverlayActive && expertMode && !ascended && !picked && !sheetOpen && !frameV2 && (
+        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (도구 열었을 때만 표시) */}
+        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && !picked && !sheetOpen && !frameV2 && sandboxTool === 'tools' && (
           <View style={overlayStyles.sceneBar} pointerEvents="box-none">
             <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />
           </View>
@@ -1250,7 +1256,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {!frameV2 && (
           <OverlayButton
             active={expertMode}
-            onPress={() => setExpertMode(!expertMode)}
+            onPress={() => {
+              const next = !expertMode;
+              setExpertMode(next);
+              if (!next) { setCleanView(false); setSandboxTool(null); }
+            }}
             onLongPress={() => setDevPanelOpen(v => !v)}
             accessibilityLabel={L3(language, '전문가 모드', 'Expert mode', 'エキスパートモード')}
             style={overlayStyles.expertBtn}
@@ -1261,8 +1271,18 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </OverlayButton>
           )}
 
+          {!frameV2 && expertMode && !ascended && (
+            <OverlayButton
+              active={cleanView}
+              onPress={() => setCleanView(v => !v)}
+              accessibilityLabel={L3(language, 'UI 숨기기(순수 화면 보기)', 'Hide HUD (Clean view)', 'HUDを隠す')}
+            >
+              {cleanView ? <EyeOff size={16} color={DARK.accent} /> : <Eye size={16} color={DARK.text} />}
+            </OverlayButton>
+          )}
+
           {/* 3D 요소 표시 설정 모달 */}
-          {expertMode && (
+          {expertMode && !cleanView && (frameV2 || sandboxTool === 'tools') && (
           <OverlayButton
             onPress={() => setLayerModalVisible(true)}
             accessibilityLabel={t('layerTitle', language)}
@@ -1272,7 +1292,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           )}
 
           {/* 구/지도 — 두 손가락 줌아웃의 누르기 대안(디자인 2단). 지도에서는 "착륙"으로 돌아옵니다. */}
-          {expertMode && !ascended && (
+          {expertMode && !cleanView && !ascended && (frameV2 || sandboxTool === 'tools') && (
             <OverlayButton
               onPress={() => sceneRef.current?.flyToMap()}
               accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
@@ -1282,7 +1302,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           )}
 
           {/* 눈 높이 · 줌 세로 막대 — 전문가 모드, 지상에서만(예전의 망원 단추 다섯 개를 줌 막대가 이어받습니다) */}
-          {expertMode && !ascended && !frameV2 && (
+          {expertMode && !cleanView && !ascended && !frameV2 && (
             <DialPair
               language={language}
               eyeHeightM={eyeH}
@@ -1386,8 +1406,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         )}
       </View>
 
-      {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
-      {!isCameraOverlayActive && !frameV2 && (
+      {/* ── peek 시트: 기본 모드에서만 표시 (전문가 모드·새 틀에서는 숨김) ── */}
+      {!isCameraOverlayActive && !frameV2 && !expertMode && (
       <PeekSheet
         theme={theme}
         maxHeight={stageH || undefined}
@@ -1458,9 +1478,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       )}
       </View>
 
-      {/* ── 상시 노출: 날짜 + 시간 막대 한 벌(§143) ─────────────────────────
-             ±1일 · ±1시간 · ±1년, 리드타임 정확도 띠, 데이터 기간 — `TimeBar/DateTimeBar.tsx`. */}
-      {!isCameraOverlayActive && !frameV2 && (
+      {/* ── 날짜 + 시간 막대: 기본 모드는 상시, 전문가 모드는 [시각] 토글 시만 표시 ── */}
+      {!isCameraOverlayActive && !frameV2 && (!expertMode || (!cleanView && sandboxTool === 'time')) && (
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
         <DateTimeBar
           currentTime={currentTime}
@@ -1478,6 +1497,69 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           simple={!expertMode}
         />
       </View>
+      )}
+
+      {/* ── 전문가(샌드박스) 단일 하단 툴독: [시각] [이동] [장면] [도구] [촬영] ── */}
+      {!isCameraOverlayActive && !frameV2 && expertMode && !ascended && !cleanView && (
+        <View style={overlayStyles.sandboxDock}>
+          <OverlayButton
+            active={sandboxTool === 'time'}
+            onPress={() => setSandboxTool(t => (t === 'time' ? null : 'time'))}
+            style={overlayStyles.sandboxDockBtn}
+          >
+            <Clock size={14} color={sandboxTool === 'time' ? DARK.accent : DARK.text} />
+            <Text style={[overlayStyles.sandboxDockText, sandboxTool === 'time' && { color: DARK.accent }]}>
+              {localHHMM(currentTime, tz)}
+            </Text>
+          </OverlayButton>
+          <OverlayButton
+            active={sandboxTool === 'move'}
+            onPress={() => {
+              setSandboxTool(t => {
+                const next = t === 'move' ? null : 'move';
+                if (next === 'move') { pendingSceneTargetRef.current = null; setPicked(null); }
+                return next;
+              });
+            }}
+            style={overlayStyles.sandboxDockBtn}
+          >
+            <Navigation size={14} color={sandboxTool === 'move' ? DARK.accent : DARK.text} />
+            <Text style={[overlayStyles.sandboxDockText, sandboxTool === 'move' && { color: DARK.accent }]}>
+              {L3(language, '이동', 'Move', '移動')}
+            </Text>
+          </OverlayButton>
+          <OverlayButton
+            onPress={() => setSceneSheetOpen(true)}
+            style={overlayStyles.sandboxDockBtn}
+          >
+            <Bookmark size={14} color={DARK.text} />
+            <Text style={overlayStyles.sandboxDockText}>
+              {L3(language, '장면', 'Scenes', 'シーン')}
+            </Text>
+          </OverlayButton>
+          <OverlayButton
+            active={sandboxTool === 'tools'}
+            onPress={() => setSandboxTool(t => (t === 'tools' ? null : 'tools'))}
+            style={overlayStyles.sandboxDockBtn}
+          >
+            <SlidersHorizontal size={14} color={sandboxTool === 'tools' ? DARK.accent : DARK.text} />
+            <Text style={[overlayStyles.sandboxDockText, sandboxTool === 'tools' && { color: DARK.accent }]}>
+              {L3(language, '도구', 'Tools', 'ツール')}
+            </Text>
+          </OverlayButton>
+          {onCameraPress && (
+            <OverlayButton
+              active
+              onPress={onCameraPress}
+              style={[overlayStyles.sandboxDockBtn, { backgroundColor: DARK.accent }]}
+            >
+              <Camera size={14} color={DARK.onAccent} />
+              <Text style={[overlayStyles.sandboxDockText, { color: DARK.onAccent }]}>
+                {L3(language, '촬영', 'Shoot', '撮影')}
+              </Text>
+            </OverlayButton>
+          )}
+        </View>
       )}
 
       <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
@@ -1515,8 +1597,15 @@ const overlayStyles = StyleSheet.create({
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 고른 대상 정보는 위(읽음 줄 아래)에 둡니다.
   objectPanelTop: { position: 'absolute', left: 12, right: 12, top: 64, zIndex: 22 },
-  // 고른 대상이 없을 때의 장면 저장 줄: 객체 정보 패널 자리(bottom 12)는 아래 시트 손잡이를 덮으므로, 손잡이 바로 위에 둡니다.
-  sceneBar: { position: 'absolute', left: 12, right: 12, bottom: PEEK_HEIGHT + 8, zIndex: 22 },
+  // 고른 대상이 없을 때의 장면 저장 줄: 도구 열었을 때 하단 툴독 위에 배치
+  sceneBar: { position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 },
+  sandboxDock: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingTop: 8, paddingBottom: Platform.OS === 'android' ? 20 : 8,
+    backgroundColor: DARK.panel, borderTopWidth: 1, borderColor: DARK.border,
+  },
+  sandboxDockBtn: { width: 'auto', flex: 1, height: 38, paddingHorizontal: 6, gap: 4 },
+  sandboxDockText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   expertBtn: { width: 'auto', minWidth: 32, paddingHorizontal: 10 },
   expertBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
   overlayButton: {

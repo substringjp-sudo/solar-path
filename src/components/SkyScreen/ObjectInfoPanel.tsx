@@ -8,7 +8,7 @@
  * 해발과 눈 대비는 8 칸 밑 한 줄로 둡니다. 건물을 골랐으면 한 줄이 더 붙습니다: 높이(지도 자료) · 꼭대기 해발 · 발자국 ·
  * 대상 점(꼭대기 / 누른 곳 전환).
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
@@ -46,6 +46,8 @@ const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
 export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onGo, sceneRow, onClear }) => {
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => { setExpanded(false); }, [target.latitude, target.longitude, target.kind]);
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
   const moonSep = angularSeparationDeg(target.azDeg, target.elDeg, moon.azDeg, moon.altDeg);
   const b = target.kind === 'building' ? target.building : undefined;
@@ -71,6 +73,36 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
     { label: L3(language, '발자국', 'Footprint', '底面'), value: `${Math.round(b.longM)}×${Math.round(b.shortM)} m` },
   ] : [];
   const toneColor = (t?: string) => (t === 'good' ? DARK.success : t === 'bad' ? DARK.danger : t === 'sun' ? DARK.sun : t === 'moon' ? DARK.moon : DARK.text);
+  const shortTitle = b
+    ? `${L3(language, '건물', 'Building', '建物')} ${Math.round(b.heightM)}m · ${fmtDist(target.distM)}${moonRatio != null ? ` · ${L3(language, '달', 'Moon', '月')} ${moonRatio.toFixed(moonRatio < 10 ? 1 : 0)}×` : ''}`
+    : `${L3(language, '지형', 'Terrain', '地形')} · ${fmtDist(target.distM)} · ${fmtDeg(target.elDeg, 1)}`;
+
+  if (!expanded) {
+    return (
+      <View style={styles.summaryBar}>
+        <View style={styles.summaryLeft}>
+          <Text style={styles.title} numberOfLines={1}>{shortTitle}</Text>
+          <Text style={styles.summarySub} numberOfLines={1}>
+            {`${target.visible ? L3(language, '시야 트임', 'Clear', '視界開') : `${L3(language, '가려짐', 'Hidden', '遮られ')} ${Math.round(-target.marginM)}m`}${sun.altDeg > -1 ? ` · ${L3(language, '해까지', 'Sun', '太陽')} ${fmtDeg(sunSep)}` : ''}`}
+          </Text>
+        </View>
+        <View style={styles.summaryActions}>
+          {onGo && (
+            <OverlayButton onPress={onGo} style={styles.compactBtn}>
+              <Text style={styles.compactBtnText}>{L3(language, '여기로', 'Go', 'ここへ')}</Text>
+            </OverlayButton>
+          )}
+          <OverlayButton onPress={() => setExpanded(true)} style={[styles.compactBtn, { borderColor: DARK.accentLine }]}>
+            <Text style={[styles.compactBtnText, { color: DARK.accent }]}>{L3(language, '상세 ▾', 'Details ▾', '詳細 ▾')}</Text>
+          </OverlayButton>
+          <OverlayButton onPress={onClear} accessibilityLabel={L3(language, '고른 대상 지우기', 'Clear target', '選択を消す')} style={styles.close}>
+            <X size={14} color={DARK.text} />
+          </OverlayButton>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
       <View style={styles.head}>
@@ -78,6 +110,9 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           {b ? `${L3(language, '건물', 'Building', '建物')} · ${Math.round(b.heightM)} m` : L3(language, '지형 지점', 'Terrain point', '地形の点')}
           {target.latitude != null && target.longitude != null ? `  ·  ${target.latitude.toFixed(4)}, ${target.longitude.toFixed(4)}` : ''}
         </Text>
+        <OverlayButton onPress={() => setExpanded(false)} style={styles.compactBtn}>
+          <Text style={styles.compactBtnText}>{L3(language, '접기 ▴', 'Hide ▴', '閉じる ▴')}</Text>
+        </OverlayButton>
         <OverlayButton onPress={onClear} accessibilityLabel={L3(language, '고른 대상 지우기', 'Clear target', '選択を消す')} style={styles.close}>
           <X size={14} color={DARK.text} />
         </OverlayButton>
@@ -173,4 +208,14 @@ const styles = StyleSheet.create({
   snapLabel: { fontFamily: mono, fontSize: 9, color: DARK.textMute },
   snapBtn: { width: 'auto', minWidth: 60, height: 28, paddingHorizontal: 8 },
   snapText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
+  summaryBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    backgroundColor: DARK.overlay, borderColor: DARK.accentLine, borderWidth: 1,
+    borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 8,
+  },
+  summaryLeft: { flex: 1, minWidth: 0, gap: 2 },
+  summarySub: { fontFamily: mono, fontSize: 10, color: DARK.textDim },
+  summaryActions: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  compactBtn: { width: 'auto', height: 28, paddingHorizontal: 8 },
+  compactBtnText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },
 });
