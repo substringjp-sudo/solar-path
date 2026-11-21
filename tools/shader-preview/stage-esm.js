@@ -128,6 +128,8 @@ const ENTRIES = [
   'src/utils/flightAssist.ts',
   // 촬영 모드 고르기(권하는 모드 · 줄 · 글) — verify-capture-mode.js
   'src/utils/captureMode.ts',
+  // 모드 줄(시뮬레이션 · 샌드박스 · 사진 · 천체 · 타임랩스) 고르기 · 밀기 · 가이드 넘기기 — verify-mode-strip.js
+  'src/utils/modeStrip.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
   // 03 기록의 종류 거르기 · 피드백 요약 — verify-record-compare.js
