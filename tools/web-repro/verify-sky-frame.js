@@ -6,6 +6,7 @@
  * 하네스: 390 × 844, 밝은 하늘, 한국어, 시각 C = 2026-11-21 17:04 KST(+9), 지금도 C. 일어난 일은 `window.__frame` = { mode, timeMs, ev: [{ e: 'start' | 'pick' | 'end', kind, ms? }], switches, shoots, saves, nows, calendars }. 하루 = 86400000 ms.
  *
  *  1. 처음(시뮬레이션): 칩 "어제" "오늘" "내일" "날짜", "오늘" 칩이 켜짐(aria-pressed 참)이고 다른 둘은 거짓, 읽음 줄 "159° S · 해 EL 13.0°", 자 왼쪽 단추 "11.21 토", 시각 숫자 "17:04", 펼친 내용(일주일 줄 · 시뮬레이션 내용)은 안 보임.
+ *     자 위 점수 띠(2026-11-21 추가): 하네스가 표본 19 개(10분 간격, 앞뒤 90분, 점수 100 − |i − 12| · 10, i = 5 만 null)를 주면 띠 칸이 14 개(이웃 쌍 18 개에서 null 이 낀 두 쌍과 평균이 0 이하인 앞쪽 두 쌍(−20·−10, −10·0)을 뺌 — 처음 16 개로 손계산했다가 점수가 음수인 앞쪽 쌍을 놓친 실수라 컴퓨터로 세어 바로잡음), 칸 폭 12 px, 알파는 0 보다 크고 1 이하이며 가장 진한 칸(평균 95)이 0.95.
  *  2. 날짜 칩(펼치지 않고 바로 옮김): "어제" → ev 가 start(date) · pick(date, C − 1일) · end(date) 순서, 자 왼쪽 "11.20 금", 시각 숫자는 그대로 "17:04", "어제" 칩만 켜짐. 이어서 "내일" → pick(date, C + 1일)(어제에서 이틀 건너 내일로 감), "오늘" → pick(date, C).
  *  3. "날짜" 칩: 누르면 일주일 줄(7 칸, 날 19 20 21 22 23 24 25, 21 이 켜짐)이 펼쳐지고 "날짜" 칩이 펼쳐짐(aria-expanded 참), "달력에서 고르기" 단추가 보임. 23 칸을 누르면 pick(date, C + 2일)와 23 이 켜짐. "달력에서 고르기"를 누르면 calendars 1. "날짜" 를 다시 누르면 접힌다(일주일 줄이 안 보임, aria-expanded 거짓).
  *  4. 시간 자를 오른쪽으로 72 px 끌면 ev 에 start(time) 이 먼저, pick(time) 들이 이어지고 end(time) 이 마지막이며, 마지막 pick 은 C − 1시간, 시각 숫자 "16:04". "지금"을 누르면 nows 1 이고 "17:04" 로 돌아온다.
@@ -65,6 +66,8 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
     const { ctx, p } = await open();
     const t = await body(p);
     ok(['어제', '오늘', '내일', '날짜', '159° S · 해 EL 13.0°', '11.21 토', '17:04'].every(w => t.includes(w)) && !t.includes('이동'), '칩 · 읽음 줄 · 자 왼쪽 날짜 · 시각');
+    const bands = await p.locator('[data-testid="ruler-band"]').evaluateAll(els => els.map(e => ({ w: e.getBoundingClientRect().width, o: parseFloat(getComputedStyle(e).opacity) })));
+    ok(bands.length === 14 && bands.every(b => Math.abs(b.w - 12) < 0.6 && b.o > 0 && b.o <= 1) && Math.max(...bands.map(b => b.o)) >= 0.949, `점수 띠: 표본 19 개 중 null 하나가 양옆 두 칸을 끊고 평균이 0 이하인 두 칸이 빠져 14 칸, 칸마다 폭 12 px, 알파 0 ~ 1 (${bands.length} 칸)`);
     ok((await attr(p, 'chip-today', 'aria-pressed')) === 'true' && (await attr(p, 'chip-yesterday', 'aria-pressed')) === 'false' && (await attr(p, 'chip-tomorrow', 'aria-pressed')) === 'false', '"오늘" 칩만 켜짐');
     ok(!(await vis(p, 'week-strip')) && !t.includes('점수와 다가오는 좋은 순간'), '펼친 내용 안 보임');
     await shot(p, '1-sim');
@@ -182,7 +185,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   // ── 9 겹침
   console.log('\n[9] 겹침');
   {
-    const parents = { 'chips-row': 'dock-fixed', 'ruler-date': 'dock-fixed', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'week-strip': 'dock-expanded', calendar: 'dock-expanded', 'sim-body': 'dock-expanded' };
+    const parents = { 'chips-row': 'dock-fixed', 'ruler-date': 'dock-fixed', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'week-strip': 'dock-expanded', calendar: 'dock-expanded', 'sim-body': 'dock-expanded' };
     const states = [
       ['sim-min', []],
       ['sim-week', ['chip-date']],

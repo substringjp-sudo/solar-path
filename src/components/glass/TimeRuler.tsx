@@ -10,7 +10,7 @@ import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 're
 import { ChevronDown } from 'lucide-react-native';
 import { color as DARK, mono } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
-import { dateLabel, dragTimeMs, markerX, PX_PER_HOUR, rulerTicks, RULER_WIDTH, timeText } from '../../utils/timeRuler';
+import { dateLabel, dragTimeMs, markerX, PX_PER_HOUR, rulerBand, rulerTicks, RULER_WIDTH, timeText, type ScoreSample } from '../../utils/timeRuler';
 import { L3 } from '../../utils/i18n';
 import { GlassChip } from './GlassChip';
 import { glassTextShadow } from './GlassSurface';
@@ -30,6 +30,8 @@ interface Props {
   /** 자 위에 뜨는 일몰 표시(없으면 안 그림) */
   sunsetMs?: number | null;
   sunsetLabel?: string;
+  /** 시간대별 점수 표본(없으면 띠를 안 그림). 높을수록 진한 주황 띠가 자 위에 깔립니다. */
+  scoreSamples?: readonly ScoreSample[] | null;
   /** 날짜 단추 글을 직접 정할 때(칩 줄에 어제 · 오늘 · 내일이 이미 있으면 날짜 자체를 보여 같은 것이 두 번 안 보이게). 없으면 오늘 · 어제 · 내일 글. */
   dateText?: string;
   onDatePress?: () => void;
@@ -41,7 +43,7 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, dateText, onDatePress, onNow }) => {
+export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onNow }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
@@ -65,6 +67,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   const mx = sunsetMs == null ? null : markerX(timeMs, sunsetMs, width, PX_PER_HOUR);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
   const text = timeText(timeMs, tz);
+  const band = scoreSamples ? rulerBand(scoreSamples, timeMs, width, PX_PER_HOUR) : [];
 
   return (
     <View style={styles.wrap} onLayout={(e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width) || RULER_WIDTH)}>
@@ -91,6 +94,9 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
         onAccessibilityAction={(e) => step(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
         style={styles.track}
       >
+        {band.map((b, i) => (
+          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { left: b.x0, width: b.x1 - b.x0, opacity: b.alpha }]} />
+        ))}
         {ticks.map(t => (
           <View key={t.ms} pointerEvents="none" style={[styles.tick, { left: t.x - 1, height: TICK_H[t.kind], backgroundColor: `rgba(241,245,249,${TICK_A[t.kind]})` }]} />
         ))}
@@ -112,6 +118,7 @@ const styles = StyleSheet.create({
   track: { height: RULER_H, overflow: 'hidden' },
   tick: { position: 'absolute', bottom: 18, width: 2, borderRadius: 1 },
   tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 11, color: TEXT },
+  band: { position: 'absolute', bottom: 38, height: 3, borderRadius: 2, backgroundColor: DARK.glow },
   pin: { position: 'absolute', top: 2, bottom: 16, width: 3, borderRadius: 2, backgroundColor: DARK.accent },
   sunset: { position: 'absolute', bottom: 34, width: 10, height: 10, borderRadius: 5, backgroundColor: DARK.sun },
   sunsetLabel: { position: 'absolute', top: 0, fontSize: 11, fontWeight: '700', color: TEXT },

@@ -1450,6 +1450,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onNow={() => setTimeMachineEnabled?.(false)}
           sunsetMs={events?.sunset ? events.sunset.getTime() : null}
           sunsetLabel={`${L3(language, '일몰', 'Sunset', '日没')} ${sunsetText}`}
+          scoreSamples={scoreGraph ? scoreGraph.points : null}
           mode={expertMode ? 'sandbox' : 'simulation'}
           onSwitch={(sw) => {
             if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
