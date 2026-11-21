@@ -23,6 +23,7 @@ import type { DockStage } from '../../utils/dockStages';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
 import { dateShort, dayOffset, shiftDays, weekStrip } from '../../utils/timeRuler';
 import { L3 } from '../../utils/i18n';
+import { fmtAz, fmtEl, fmtEye, viewDiffers, type ViewAzEl } from '../../utils/sandboxDials';
 
 type Lang = 'ko' | 'en' | 'ja';
 export type SlideKind = 'time' | 'date';
@@ -46,8 +47,8 @@ interface Props {
   onSwitch: (sw: ModeSwitch) => void;
   /** 지금 보는 방향(가이드가 됨). 못 읽으면 null. */
   getView: () => { azDeg: number; elDeg: number } | null;
-  /** 맨 위 읽음 줄 글 */
-  readout: string;
+  /** 맨 위 읽음 줄(글이면 유리 알약에 담고, 요소면 그대로) */
+  readout: React.ReactNode;
   /** 시뮬레이션을 끝까지 펼쳤을 때 보이는 내용 */
   simBody?: React.ReactNode;
   /** 샌드박스 칩별 펼친 내용 */
@@ -144,7 +145,7 @@ export const SkyFrame: React.FC<Props> = ({
     <>
       <Scrim edge="top" />
       <View testID="frame-readout" pointerEvents="none" style={styles.readout}>
-        <GlassChip mono label={readout} />
+        {typeof readout === 'string' ? <GlassChip mono label={readout} /> : readout}
       </View>
       <DockSheet stage={stage} onStageChange={setStageSafe} language={language} expanded={expanded}>
         <View testID="chips-row" style={styles.chips}>
@@ -206,3 +207,27 @@ const styles = StyleSheet.create({
   shutter: { width: 64, height: 64, borderRadius: 32, backgroundColor: DARK.accent },
   round48: { width: 48, minHeight: 48, borderRadius: 24, paddingHorizontal: 0 },
 });
+
+interface LiveReadoutProps {
+  language: Lang;
+  /** 장면이 알려 주는 지금 시선. 못 알려 주면 null. */
+  getView: () => ViewAzEl | null;
+  /** 눈 높이(m, 땅 위). 시뮬레이션이면 생략(적지 않음). */
+  eyeHeightM?: number;
+  intervalMs?: number;
+}
+
+/** 지금 시선의 방위 · 앙각(과 눈 높이)을 유리 알약 한 줄로. 읽을 만큼 바뀔 때만 이 줄만 다시 그립니다(`SandboxDials.ViewReadout` 과 같은 읽기). */
+export const LiveReadout: React.FC<LiveReadoutProps> = ({ language, getView, eyeHeightM, intervalMs = 200 }) => {
+  const get = React.useRef(getView);
+  get.current = getView;
+  const [v, setV] = React.useState<ViewAzEl | null>(() => get.current());
+  React.useEffect(() => {
+    const tick = () => { const n = get.current(); setV(p => (viewDiffers(p, n) ? (n ? { az: n.az, el: n.el } : null) : p)); };
+    tick();
+    const id = setInterval(tick, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  const eye = eyeHeightM == null ? '' : ` · ${L3(language, '눈', 'EYE', '目')} ${fmtEye(eyeHeightM)}`;
+  return <GlassChip mono label={`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${eye}`} />;
+};
