@@ -37,7 +37,6 @@ interface Props {
   /** "여기로 가기" 단추: 이 점까지 눈을 부드럽게 옮깁니다. 없으면 그리지 않습니다. */
   onGo?: () => void;
   /** 제목 줄 아래에 끼우는 줄: "장면 저장 · 저장한 장면"(`SceneBar`, 목업 2번). 없으면 그리지 않습니다. */
-  sceneRow?: React.ReactNode;
   onClear: () => void;
 }
 
@@ -45,7 +44,7 @@ const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1
 const fmtDeg = (d: number, digits = 1) => `${d.toFixed(digits)}°`;
 const fmtSigned = (m: number) => `${m >= 0 ? '+' : '−'}${Math.abs(Math.round(m))} m`;
 
-export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onGo, sceneRow, onClear }) => {
+export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, observer, onAlign, getSkyline, onSnap, moonDiskDeg = 0.52, onCalc, onGo, onClear }) => {
   const [expanded, setExpanded] = useState(false);
   useEffect(() => { setExpanded(false); }, [target.latitude, target.longitude, target.kind]);
   const sunSep = angularSeparationDeg(target.azDeg, target.elDeg, sun.azDeg, sun.altDeg);
@@ -117,7 +116,6 @@ export const ObjectInfoPanel: React.FC<Props> = ({ language, target, sun, moon, 
           <X size={14} color={DARK.text} />
         </OverlayButton>
       </View>
-      {sceneRow}
       <View style={styles.grid}>
         {cells.map(c => (
           <View key={c.label} style={styles.cell}>

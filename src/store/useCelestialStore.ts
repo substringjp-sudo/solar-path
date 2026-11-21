@@ -175,7 +175,6 @@ interface CelestialState extends ClockState {
   /**
    * 새 화면 틀(실험, 2026-11-21): 하늘 화면 아래를 유리 막대(시간 자 · 칩 · 셔터 · 모드 줄)로 바꿉니다. 꺼짐이 기본이고, 실기기 확인 뒤 기본으로 켭니다.
    */
-  uiFrameV2: boolean;
   /**
    * 처음 실행 안내(docs/SANDBOX_MODE_PLAN.md 10.1 의 8번)를 마쳤거나 건너뛰었는가. 저장합니다.
    * 거짓이면 앱이 준비되는 대로 안내를 한 번 보이고, 설정의 "안내 다시 보기"는 이 값과 상관없이 엽니다.
@@ -273,7 +272,6 @@ interface CelestialState extends ClockState {
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setExpertMode: (on: boolean) => void;
-  setUiFrameV2: (on: boolean) => void;
   setOnboardingSeen: (seen: boolean) => void;
   setHomeCoords: (c: { latitude: number; longitude: number } | null) => void;
   /** 장면을 맨 앞에 저장합니다. 50 개가 찼거나 같은 id 면 거절하고 이유를 돌려줍니다(저장소는 그대로). */
@@ -357,7 +355,6 @@ export const useCelestialStore = create<CelestialState>()(
       themeMode: 'dark',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       expertMode: false,
-      uiFrameV2: false,
       onboardingSeen: false,
       homeCoords: null,
       savedScenes: [],
@@ -1091,7 +1088,6 @@ export const useCelestialStore = create<CelestialState>()(
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       setExpertMode: (on) => set({ expertMode: !!on }),
-      setUiFrameV2: (on) => set({ uiFrameV2: !!on }),
       setOnboardingSeen: (seen) => set({ onboardingSeen: !!seen }),
       setHomeCoords: (c) => set({ homeCoords: c }),
       addSavedScene: (scene) => {
@@ -1406,7 +1402,6 @@ export const useCelestialStore = create<CelestialState>()(
         themeMode: state.themeMode,
         notifPrefs: state.notifPrefs,
         expertMode: state.expertMode,
-        uiFrameV2: state.uiFrameV2,
         onboardingSeen: state.onboardingSeen,
         homeCoords: state.homeCoords,
         savedScenes: state.savedScenes,
