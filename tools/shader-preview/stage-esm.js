@@ -130,6 +130,10 @@ const ENTRIES = [
   'src/utils/captureMode.ts',
   // 모드 줄(시뮬레이션 · 샌드박스 · 사진 · 천체 · 타임랩스) 고르기 · 밀기 · 가이드 넘기기 — verify-mode-strip.js
   'src/utils/modeStrip.ts',
+  // 유리 재질 · 위아래 어두운 막 값과 글자 대비 계산 — verify-glass-tokens.js
+  'src/theme/glassTokens.ts',
+  // 시간 자(끌어서 시각 바꾸기 · 눈금 · 날짜 줄) — verify-time-ruler.js
+  'src/utils/timeRuler.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
   // 머리줄 탭 이름 — verify-tab-labels.js
