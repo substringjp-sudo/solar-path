@@ -5,7 +5,7 @@
  * ## ⚠ 재기 전에 정한 기준 (2026-11-21, 구현보다 먼저 박았습니다)
  * 하네스: 390 × 844, 밝은 하늘(연무), 한국어, 시각 2026-11-21 17:04 KST, 일몰 17:17. 일어난 일은 `window.__glass` = { stage, mode, timeMs, switches: [{ mode, guideOp, guide }], commits: [ms], shutter, dates, nows }.
  *
- *  1. 처음 모습(시뮬레이션 · 접힘): 글에 "하늘" "데이터" "기록"(숫자 없음), "17:04", "지금", 칩 "어제" "오늘" "내일" "날짜", "일몰 17:17", 모드 줄 "시뮬레이션" "샌드박스" "사진" "천체"(네 개는 보이고 "타임랩스"는 줄 밖이라 DOM 에 없음).
+ *  1. 처음 모습(시뮬레이션 · 접힘): 글에 "하늘" "데이터" "기록"(숫자 없음), "17:04", "지금", "일몰 17:17"(2026-11-21 기기 의견으로 시뮬레이션의 칩 줄 "어제 · 오늘 · 내일 · 날짜"를 없앴고, 화소 확인은 샌드박스 칩 "이동"에서 한다), 모드 줄 "시뮬레이션" "샌드박스" "사진" "천체"(네 개는 보이고 "타임랩스"는 줄 밖이라 DOM 에 없음).
  *     같은 것이 두 번 안 보인다(2026-11-21): 시뮬레이션은 칩 줄에 "오늘"이 있으므로 자 왼쪽 날짜 단추는 날짜 자체("11.21 토"), 그래서 "오늘"은 화면에 정확히 한 번. 샌드박스는 칩에 오늘이 없어 자 왼쪽이 "오늘" 한 번.
  *     머리줄 탭(하늘 · 데이터 · 기록)은 하나의 유리 면 안에 있고 탭마다 따로 유리 칠을 하지 않는다(탭 글자 단추의 배경이 투명, 켜진 "하늘"만 하늘색 덧칠).
  *     손잡이 이름 "펼치기". 손가락으로 누르는 단추(손잡이 제외)는 모두 폭 · 높이 40 px 이상. 손잡이는 눌림 영역을 8 px 씩 넓혀 28 + 16 = 44.
@@ -20,7 +20,7 @@
  *     조합: 언어 ko · en · ja × 단계 min · mid · full × 모드 simulation · sandbox · photo × 화면 390 × 844 · 360 × 740. 모든 칩과 요소는 화면 안(0 ≤ x, x + 폭 ≤ 화면 폭). 읽음 줄은 머리줄과 겹치지 않는다.
  *  6. 접근성: 손잡이 이름이 단계마다 "펼치기" · "더 펼치기" · "접기". 시간 자는 슬라이더 역할이고 이름에 "시각". 모드 줄은 tablist, 고른 글자가 선택됨.
  *  7. 글자색 · 재질: 화면의 모든 글자는 계산된 색이 rgb(241, 245, 249)(#F1F5F9 — 하늘색 글자 없음). 유리 면(머리줄 탭)의 계산된 backdrop-filter 에 blur(22px) 가 있다. 유리 면에 테두리 너비 0.
- *     화소 확인(밝은 하늘): 칩 줄 안의 한 점(칩의 왼쪽 안쪽 6 px, 세로 가운데, 글자 없는 자리)의 색이 `glassBackdrop(연무, 아래 막 알파(그 자리 비율), 흐림 있음)` 과 채널마다 12 이내. 하늘 바탕은 이 장면에서 #e9e2d6 한 가지로 평평해지는 아래쪽만 잰다.
+ *     화소 확인(밝은 하늘): 칩 줄 안의 한 점(칩의 왼쪽 안쪽 6 px, 세로 가운데, 글자 없는 자리)의 색이 `glassBackdrop(연무, 아래 막 알파(그 자리 비율), 흐림 있음)` 과 채널마다 12 이내(샌드박스 칩 "이동"). 하늘 바탕은 이 장면에서 #e9e2d6 한 가지로 평평해지는 아래쪽만 잰다.
  *
  * 사용: sh tools/web-repro/build.sh && node tools/web-repro/verify-glass-parts.js .harness/web-repro [그림 저장 폴더]
  * 필요: Playwright, `node tools/shader-preview/stage-esm.js`(계산 모듈을 읽어 옴).
@@ -68,8 +68,8 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
   {
     const { ctx, p } = await open();
     const t = await body(p);
-    ok(['하늘', '데이터', '기록', '17:04', '오늘', '지금', '어제', '내일', '날짜', '일몰 17:17', '시뮬레이션', '샌드박스', '사진', '천체'].every(w => t.includes(w)) && !t.includes('타임랩스') && !/\b0[123]\b/.test(t.split('17:04')[0]), `글 확인(타임랩스는 줄 밖): ${t.replace(/\n+/g, ' ').slice(0, 90)}`);
-    ok((t.match(/오늘/g) || []).length === 1 && t.includes('11.21 토'), `시뮬레이션: "오늘"은 한 번, 자 왼쪽은 날짜("11.21 토"): ${(t.match(/오늘/g) || []).length}번`);
+    ok(['하늘', '데이터', '기록', '17:04', '지금', '일몰 17:17', '시뮬레이션', '샌드박스', '사진', '천체'].every(w => t.includes(w)) && !t.includes('타임랩스') && !/\b0[123]\b/.test(t.split('17:04')[0]), `글 확인(타임랩스는 줄 밖): ${t.replace(/\n+/g, ' ').slice(0, 90)}`);
+    ok(!t.includes('어제') && !t.includes('내일') && t.includes('11.21 토'), '시뮬레이션: 칩 줄이 없고 자 왼쪽은 날짜("11.21 토")');
     const tabBg = await p.locator('[data-testid="hdr-tabs"] [role="button"]').evaluateAll(els => els.map(e => getComputedStyle(e.firstElementChild || e).backgroundColor));
     ok(tabBg.length === 3 && tabBg.slice(1).every(c => c === 'rgba(0, 0, 0, 0)'), `탭 단추 배경이 투명(켜진 것 빼고): ${tabBg.join(' | ')}`);
     const handle = p.locator('[data-testid="dock-handle"]');
@@ -117,17 +117,17 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
     const want = (s) => D.dockExtraHeight(s, 844, fixedH + 28); // 손잡이 줄(28 px)도 막대가 차지하는 자리
     ok(Math.abs(seq[0][1] - 0) <= 1 && Math.abs(seq[1][1] - want('mid')) <= 1 && Math.abs(seq[2][1] - want('full')) <= 1 && 0 < seq[1][1] && seq[1][1] <= seq[2][1], `펼친 영역 높이 ${seq.map(x => x[1])} (고정부 ${fixedH} + 손잡이 줄 28 → mid ${want('mid')} · full ${want('full')})`);
     // 세로 밀기: 칩 줄 위에서
-    const chips = center(await rect(p, 'chips-row'));
-    await drag(p, { x: 24, y: chips.y }, 0, -100);
+    const sr = center(await rect(p, 'shutter-row'));
+    await drag(p, { x: 8, y: sr.y }, 0, -100);
     ok((await st(p)).stage === 'mid', `위로 100 px → mid (${(await st(p)).stage})`);
-    await drag(p, { x: 24, y: (await rect(p, 'chips-row')).y + 20 }, 0, 100);
+    await drag(p, { x: 8, y: center(await rect(p, 'shutter-row')).y }, 0, 100);
     ok((await st(p)).stage === 'min', `아래로 100 px → min (${(await st(p)).stage})`);
-    await drag(p, { x: 24, y: (await rect(p, 'chips-row')).y + 20 }, 0, -200);
+    await drag(p, { x: 8, y: center(await rect(p, 'shutter-row')).y }, 0, -200);
     ok((await st(p)).stage === 'full', `위로 200 px → full (${(await st(p)).stage})`);
     const hdl = await rect(p, 'dock-handle'), ro = await rect(p, 'readout');
     ok(hdl.y >= ro.y + ro.h - 1, `full 일 때 손잡이 위(${hdl.y.toFixed(0)}) ≥ 읽음 줄 아래(${(ro.y + ro.h).toFixed(0)})`);
     await shot(p, '3-full');
-    await drag(p, { x: 24, y: (await rect(p, 'chips-row')).y + 20 }, 0, 100);
+    await drag(p, { x: 8, y: center(await rect(p, 'shutter-row')).y }, 0, 100);
     ok((await st(p)).stage === 'mid', `아래로 100 px → mid (${(await st(p)).stage})`);
     await p.locator('[data-testid="dock-handle"]').click({ force: true }); await p.locator('[data-testid="dock-handle"]').click({ force: true }); await p.waitForTimeout(400);
     const s0 = (await st(p)).stage;
@@ -175,7 +175,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
   // ── 5 겹침
   console.log('\n[5] 겹침');
   {
-    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date': 'dock-fixed', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
+    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
     let bad = [], outside = [], n = 0;
     for (const vp of [{ width: 390, height: 844 }, { width: 360, height: 740 }])
       for (const lang of ['ko', 'en', 'ja'])
@@ -232,9 +232,9 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
     ok(/blur\(22px\)/.test(glass.bf) && glass.bw === '0px', `유리 면 backdrop-filter "${glass.bf}", 테두리 ${glass.bw}`);
     await ctx.close();
     // 화소: 칩 줄 안, 칩 왼쪽 안쪽 6 px 의 색
-    const q = await open({ sky: 'haze' });
+    const q = await open({ sky: 'haze', mode: 'sandbox' });
     const dock = await rect(q.p, 'dock-handle');
-    const chip = await rect(q.p, 'chip-yesterday');
+    const chip = await rect(q.p, 'chip-move');
     const fixed = await rect(q.p, 'dock-fixed');
     const png = await q.p.screenshot();
     const px = await q.p.evaluate(async (b64) => { const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode(); const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const cx = cv.getContext('2d'); cx.drawImage(img, 0, 0); return null; }, png.toString('base64')).catch(() => null);

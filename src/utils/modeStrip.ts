@@ -122,9 +122,9 @@ export function switchMode(from: AppMode, target: AppMode, view: { azDeg?: numbe
 
 export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'move' | 'view' | 'scene' | 'tools';
 
-/** 하늘 쪽 모드의 기초 칩. 카메라 쪽은 칩이 따로라 null. 샌드박스는 높이와 줌을 "보기"로 합쳤습니다. */
+/** 하늘 쪽 모드의 기초 칩. 시뮬레이션은 없음(날짜는 자 왼쪽 하나). 카메라 쪽은 칩이 따로라 null. 샌드박스는 높이와 줌을 "보기"로 합쳤습니다. */
 export function chipsFor(m: AppMode): ChipId[] | null {
-  if (m === 'simulation') return ['yesterday', 'today', 'tomorrow', 'date'];
+  if (m === 'simulation') return []; // 날짜는 시간 자 왼쪽 하나(위아래로 밀면 다른 날)
   if (m === 'sandbox') return ['move', 'view', 'scene', 'tools'];
   return null;
 }

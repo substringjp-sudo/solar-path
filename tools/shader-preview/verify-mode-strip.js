@@ -26,7 +26,7 @@
  *     이전이 카메라가 아니고 mode 가 카메라이면 guideOp 'set' 과 guide = viewGuide(보던 방향)(보던 방향이 잘못이면 guideOp 'clear', guide null). 이전과 mode 가 같으면 'keep'. 카메라 → 카메라는 'keep'(가이드 그대로).
  *     그 밖(카메라 → 시뮬레이션 · 샌드박스, 시뮬레이션 ↔ 샌드박스)은 'clear'. keep · clear 일 때 guide 는 null.
  *     (sandbox, astro, {159, 13}) → { photo, set, {159, 13} }. (simulation, photo, {−10, 5}) → { photo, set, {350, 5} }. (photo, astro, …) → { astro, keep, null }. (astro, sandbox, …) → { sandbox, clear, null }. (sandbox, photo, {NaN, 1}) → { photo, clear, null }. (photo, photo, …) → keep.
- * 11. 칩 `chipsFor(모드)`: simulation → [yesterday, today, tomorrow, date], sandbox → [move, view, scene, tools](높이와 줌을 "보기"로 합쳤다), 카메라 쪽 모드는 null(카메라 칩은 따로). `chipLabel(칩, 언어)`: 한국어 어제 · 오늘 · 내일 · 날짜 / 이동 · 보기 · 장면 · 도구,
+ * 11. 칩 `chipsFor(모드)`: simulation → [](2026-11-21 기기에서 보신 사용자 의견: 날짜가 칩 줄과 시간 자 왼쪽 두 곳에 있어 공간을 덜 쓰는 자 왼쪽 하나만 남기고, 그 날짜를 위아래로 밀어 바로 다른 날로 간다 — 그래서 시뮬레이션에는 칩 줄이 없다), sandbox → [move, view, scene, tools](높이와 줌을 "보기"로 합쳤다), 카메라 쪽 모드는 null(카메라 칩은 따로). `chipLabel(칩, 언어)`: 한국어 어제 · 오늘 · 내일 · 날짜 / 이동 · 보기 · 장면 · 도구,
  *     영어 Yesterday · Today · Tomorrow · Date / Move · View · Scenes · Tools, 일본어 昨日 · 今日 · 明日 · 日付 / 移動 · 表示 · シーン · ツール. 줄마다 칩은 4개 이하, 이름은 12자 이하.
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-mode-strip.js
@@ -104,12 +104,13 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   ok(T('photo', 'photo').guideOp === 'keep' && T('simulation', 'simulation').guideOp === 'keep', '같은 모드는 keep');
 
   console.log('\n[11] 칩');
-  ok(J(M.chipsFor('simulation')) === J(['yesterday', 'today', 'tomorrow', 'date']) && J(M.chipsFor('sandbox')) === J(['move', 'view', 'scene', 'tools']) && ['photo', 'astro', 'timelapse', 'event'].every(k => M.chipsFor(k) === null), '시뮬레이션 · 샌드박스 칩(높이와 줌은 보기로), 카메라 쪽은 null');
-  const lab = (l) => [...M.chipsFor('simulation'), ...M.chipsFor('sandbox')].map(c => M.chipLabel(c, l));
-  ok(J(lab('ko')) === J(['어제', '오늘', '내일', '날짜', '이동', '보기', '장면', '도구']), '한국어 칩 이름');
-  ok(J(lab('en')) === J(['Yesterday', 'Today', 'Tomorrow', 'Date', 'Move', 'View', 'Scenes', 'Tools']), '영어 칩 이름');
-  ok(J(lab('ja')) === J(['昨日', '今日', '明日', '日付', '移動', '表示', 'シーン', 'ツール']), '일본어 칩 이름');
-  ok(['ko', 'en', 'ja'].every(l => lab(l).every(s => s.length > 0 && s.length <= 12)) && M.chipsFor('simulation').length <= 4 && M.chipsFor('sandbox').length <= 4, '줄마다 칩 4개 이하, 이름 12자 이하');
+  ok(J(M.chipsFor('simulation')) === J([]) && J(M.chipsFor('sandbox')) === J(['move', 'view', 'scene', 'tools']) && ['photo', 'astro', 'timelapse', 'event'].every(k => M.chipsFor(k) === null), '시뮬레이션은 칩 없음, 샌드박스 칩(높이와 줌은 보기로), 카메라 쪽은 null');
+  const lab = (l) => M.chipsFor('sandbox').map(c => M.chipLabel(c, l));
+  const labDay = (l) => ['yesterday', 'today', 'tomorrow', 'date'].map(c => M.chipLabel(c, l));
+  ok(J(lab('ko')) === J(['이동', '보기', '장면', '도구']) && J(labDay('ko')) === J(['어제', '오늘', '내일', '날짜']), '한국어 칩 이름');
+  ok(J(lab('en')) === J(['Move', 'View', 'Scenes', 'Tools']) && J(labDay('en')) === J(['Yesterday', 'Today', 'Tomorrow', 'Date']), '영어 칩 이름');
+  ok(J(lab('ja')) === J(['移動', '表示', 'シーン', 'ツール']) && J(labDay('ja')) === J(['昨日', '今日', '明日', '日付']), '일본어 칩 이름');
+  ok(['ko', 'en', 'ja'].every(l => lab(l).every(s => s.length > 0 && s.length <= 12)) && M.chipsFor('simulation').length === 0 && M.chipsFor('sandbox').length <= 4, '줄마다 칩 4개 이하, 이름 12자 이하');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n통과 — pass ${pass}`);
   process.exit(fail ? 1 : 0);
