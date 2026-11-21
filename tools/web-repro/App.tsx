@@ -51,6 +51,7 @@ import { distanceM } from '../../src/utils/geoMove';
 import { GlassRepro } from './GlassRepro';
 import { SkyFrameRepro } from './SkyFrameRepro';
 import { TimelapseGlassRepro } from './TimelapseGlassRepro';
+import { EclipseCardRepro } from './EclipseCardRepro';
 import { CameraFrameRepro } from './CameraFrameRepro';
 
 const Q = (() => {
@@ -502,6 +503,8 @@ export default function App() {
   if (Q.glass) return <GlassRepro W={W} H={H} Q={Q} />;
   // skyframe:1 — 하늘 화면 새 틀(SkyFrame)을 가짜 내용으로. 일어난 일은 window.__frame.
   if (Q.skyframe) return <SkyFrameRepro W={W} H={H} Q={Q} />;
+  // eclipsecard:1 — 월식 이벤트 카드(유리).
+  if (Q.eclipsecard) return <EclipseCardRepro W={W} H={H} Q={Q} />;
   // tlglass:1 — 타임랩스 설정 시트와 촬영 중 카드(유리). 일어난 일은 window.__tl.
   if (Q.tlglass) return <TimelapseGlassRepro W={W} H={H} Q={Q} />;
   // camframe:1 — 카메라 새 틀(CameraFrame)을 가짜 카메라 위에. 일어난 일은 window.__cam.

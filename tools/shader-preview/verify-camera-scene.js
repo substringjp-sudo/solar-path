@@ -46,7 +46,7 @@ console.log('\n[3] 장면 줄');
 ok(/onShoot\?: \(\) => void;/.test(bar) && /\{onShoot && \(/.test(bar) && /L3\(language, '이 장면 찍기', 'Shoot', '撮る'\)/.test(bar), 'onShoot 선택 항목, 있을 때만 "이 장면 찍기" 단추');
 
 console.log('\n[5] 카메라 안 모드 줄(새 화면 틀, 2026-11-21)');
-ok(/stripMode=\{timelapseOpen \? 'timelapse' : cameraTab === 'astro' \? 'astro' : 'photo'\}\s+stripModes=\{CAMERA_STRIP_MODES\}/.test(cam) && !/uiFrameV2/.test(cam), '모드 줄은 새 틀(CameraFrame) 안에서 늘 보이고(스위치는 2026-11-21 에 없앰), 지금 모드는 타임랩스 · 천체 · 사진');
+ok(/stripMode=\{timelapseOpen \? 'timelapse' : eclipseOn \? 'event' : cameraTab === 'astro' \? 'astro' : 'photo'\}\s+stripModes=\{eclipseBase \? CAMERA_STRIP_MODES_EVENT : CAMERA_STRIP_MODES\}/.test(cam) && !/uiFrameV2/.test(cam), '모드 줄은 새 틀(CameraFrame) 안에서 늘 보이고(스위치는 2026-11-21 에 없앰), 지금 모드는 타임랩스 · 이벤트(월식이 있을 때) · 천체 · 사진(2026-11-21 이벤트 추가)');
 ok(/if \(m === 'simulation' \|\| m === 'sandbox'\) \{ useCelestialStore\.getState\(\)\.setExpertMode\(m === 'sandbox'\); onClose\(\); return; \}\s+const key = captureKeyFor\(m\);\s+if \(key\) pickMode\(key\);/.test(cam), '하늘 쪽을 고르면 전문가 모드를 맞추고 카메라를 닫고, 카메라 쪽은 기존 pickMode 로');
 ok(/const CAMERA_STRIP_MODES = modeList\(false\);/.test(cam) && /: L3\(language, '사진 ▾', 'Photo ▾', '写真 ▾'\)/.test(cam) && !/노을 ▾/.test(cam), '이벤트 없는 모드 목록, 위 알약은 "노을" 대신 "사진"');
 
@@ -59,7 +59,7 @@ console.log('\n[5] 모드 시트 연결');
 ok(/onPress=\{\(\) => setModeSheetOpen\(true\)\}/.test(cam) && /<CaptureModeSheet[\s\S]*?recommended=\{cameraScene \? modeForScene\(cameraScene\) : recommendMode\(sunPos\.altitude\)\}[\s\S]*?onPick=\{pickMode\}/.test(cam) && /const tab = tabForMode\(key\);\s+if \(tab\) setCameraTab\(tab\);/.test(cam), '"모드" 단추가 시트를 열고, 권하는 모드와 고른 탭 연결');
 
 console.log('\n[6] 시트');
-ok(/sheetRows\(recommended\)/.test(sheet) && /disabled=\{!r\.ready\}/.test(sheet) && /if \(!CAPTURE_MODES\.find\(m => m\.key === k\)\?\.ready\) return;\s+onPick\(k\);/.test(sheet), 'sheetRows 로 줄, 못 여는 모드는 disabled 이고 눌러도 반환(ready 가 아니면)');
+ok(/sheetRows\(recommended\)/.test(sheet) && /disabled=\{!r\.ready\}/.test(sheet) && /if \(!rows\.find\(r => r\.key === k\)\?\.ready\) return;\s+onPick\(k\);/.test(sheet), 'sheetRows 로 줄, 못 여는 모드는 disabled 이고 눌러도 반환(ready 가 아니면; 이벤트 줄은 eventReady 가 정함)');
 ok(/modeLabel\(/.test(sheet) && /modeDesc\(/.test(sheet) && /recommendReason\(/.test(sheet) && /'준비 중', 'Coming soon', '準備中'/.test(sheet), '글은 captureMode 에서, 못 여는 줄에 "준비 중"');
 
 console.log('\n[7] 목업 16 모양');

@@ -103,14 +103,18 @@ import { TEXT } from '../theme/glassTokens';
 import { adviseExposure } from '../utils/exposureAdvice';
 import { autoStartDue, autoStartState } from '../utils/autoStart';
 import { lensLine } from '../utils/lensInfo';
+import { EclipseCard } from './AstroCamera/EclipseCard';
+import { eclipseEventFor } from '../utils/eclipseEvent';
+import { stageAt } from '../utils/eclipsePlan';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
  * 촬영 결과 화면의 QR 한 변(pt). 시선·구름판 상태를 실어 모듈이 93칸 안팎입니다 — 캡처를 1080px
  * 에서 절반쯤 줄여 보내도 모듈 하나가 3px 넘게 남도록 화면 폭의 60% 안에서 크게 잡습니다.
  */
-/** 카메라 안 모드 줄의 모드들(이벤트는 아직 없어 뺌). */
+/** 카메라 안 모드 줄의 모드들. 이벤트(월식)는 식이 있을 때만 끝에 붙습니다. */
 const CAMERA_STRIP_MODES = modeList(false);
+const CAMERA_STRIP_MODES_EVENT = modeList(true);
 
 const QR_RESULT_SIZE_PT = Math.min(220, Math.round(SCREEN_WIDTH * 0.6));
 
@@ -521,6 +525,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [modeSheetOpen, setModeSheetOpen] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [timelapseOpen, setTimelapseOpen] = useState(false);
+  // 월식 이벤트 모드: 켜짐 계산은 10 분 · 위경도 0.1° 단위로만 다시 하고, 남은 시간만 매초 갱신한다.
+  const [eclipseOn, setEclipseOn] = useState(false);
+  const [eclipseTick, setEclipseTick] = useState(() => Date.now());
   useEffect(() => {
     if (!visible || !cameraScene) return;
     setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
@@ -616,6 +623,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [onTimeChange, currentTime, stopPreview]);
   useEffect(() => () => { if (previewTimer.current) clearInterval(previewTimer.current); }, []);
   const pickMode = (key: CaptureModeKey) => {
+    if (key === 'event') { setEclipseOn(true); setCameraTab('astro'); return; }
+    setEclipseOn(false);
     if (key === 'timelapse') { setTimelapseOpen(true); return; }
     const tab = tabForMode(key);
     if (tab) setCameraTab(tab);
@@ -678,6 +687,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const sunPos = useMemo(() => {
     return getSunPosition(currentTime, latitude, longitude);
   }, [currentTime, latitude, longitude]);
+  const eclipseBucket = Math.floor(currentTime.getTime() / 600000);
+  const eclipseLat = Math.round(latitude * 10) / 10, eclipseLon = Math.round(longitude * 10) / 10;
+  const eclipseBase = useMemo(
+    () => eclipseEventFor(eclipseBucket * 600000, eclipseLat, eclipseLon),
+    [eclipseBucket, eclipseLat, eclipseLon],
+  );
+  useEffect(() => { if (!eclipseBase) setEclipseOn(false); }, [eclipseBase]);
+  useEffect(() => {
+    if (!eclipseOn) return;
+    setEclipseTick(Date.now());
+    const id = setInterval(() => setEclipseTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [eclipseOn]);
+  const eclipseEvent = eclipseBase ? { ...eclipseBase, now: stageAt(eclipseBase.plan, eclipseTick) } : null;
 
   // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
   const dynamicEventAzimuths = useMemo(() => {
@@ -2663,7 +2686,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   </GlassSurface>
                 )}
 
-                <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="none">
+                <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="box-none">
+                  {eclipseOn && eclipseEvent ? (
+                    <EclipseCard event={eclipseEvent} language={language} tzHours={tzHours} nowMs={eclipseTick} />
+                  ) : null}
                   {viewMode !== 'camera' && (
                     <View style={styles.badge}>
                       {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering ? (
@@ -2923,8 +2949,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 if (cameraTab === 'astro') handleAstroStart();
                 else handleCapturePress();
               }}
-              stripMode={timelapseOpen ? 'timelapse' : cameraTab === 'astro' ? 'astro' : 'photo'}
-              stripModes={CAMERA_STRIP_MODES}
+              stripMode={timelapseOpen ? 'timelapse' : eclipseOn ? 'event' : cameraTab === 'astro' ? 'astro' : 'photo'}
+              stripModes={eclipseBase ? CAMERA_STRIP_MODES_EVENT : CAMERA_STRIP_MODES}
               onPickMode={(m) => {
                 if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
                 const key = captureKeyFor(m);
@@ -2940,6 +2966,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           language={language}
           nowLabel={clockLabel(currentTime.getTime(), tzHours)}
           currentTab={cameraTab}
+          eventReady={eclipseBase != null}
           recommended={cameraScene ? modeForScene(cameraScene) : recommendMode(sunPos.altitude)}
           onPick={pickMode}
           onClose={() => setModeSheetOpen(false)}
