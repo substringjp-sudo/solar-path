@@ -4,8 +4,8 @@
  *
  * ## ⚠ 재기 전에 정한 기준 (2026-11-21, 구현보다 먼저 박았습니다)
  * 하네스: 390 × 844, 밝은 하늘(연무), 한국어. 일어난 일은 `window.__cam` = { zoom, view, shutter, lock, picks, times, commits, nows, dock, drawer }.
- *  1. 처음(사진 · 실제 카메라): 글에 "1×" "2×" "3×" "5×" "노출" "시뮬레이션" "샌드박스" "사진" "천체"가 있고 "타임랩스"는 줄 밖. **시간 자는 없다**(실제 카메라는 지금 시각이라 바꿀 수 없음: `ruler-track` 없음).
- *     손잡이 이름 "펼치기". 손가락으로 누르는 단추(손잡이 제외)는 모두 40 px 이상. 셔터 줄: 셔터 링 78 × 78(하늘 화면 새 틀과 같음), 왼쪽 · 오른쪽 둥근 칩은 48 × 48.
+ *  1. 처음(사진 · 실제 카메라): 글에 "1×" "2×" "3×" "5×" "노출" "시뮬레이션" "샌드박스" "사진" "천체" "타임랩스"가 있다(사진에서 타임랩스는 두 칸 옆이라 줄 안에 흐리게 보임 — 처음에 "줄 밖"이라고 적었으나 줄 밖인 것은 네 칸 이상 떨어진 시뮬레이션 모드일 때만이라 기준이 틀렸음). **시간 자는 없다**(실제 카메라는 지금 시각이라 바꿀 수 없음: `ruler-track` 없음).
+ *     손잡이 이름 "펼치기". 손가락으로 누르는 단추(손잡이 제외)는 모두 40 px 이상 — 칩은 눌림 영역(`hitSlop` 위아래 6 · 좌우 4)을 더해서 잰다(칩 28 px + 12 = 40). 셔터 줄: 셔터 링 78 × 78(하늘 화면 새 틀과 같음), 왼쪽 · 오른쪽 둥근 칩은 48 × 48.
  *  2. 줌 칩: "2×" 를 누르면 zoom 2, "2×" 만 aria-pressed 가 참.
  *  3. 노출 칩: 누르면 `panel-exposure` 가 펼쳐져(막대 단계 mid) "ISO" · "셔터" · "WB" · "추천 · 맑은 하늘 기준 어림"이 보이고 칩의 aria-expanded 가 참. 다시 누르면 접혀 패널이 안 보인다.
  *  4. 보기 전환: 왼쪽 둥근 칩을 누르면 view = blend 이고 **시간 자가 나타난다**(`ruler-track`). 자를 오른쪽으로 72 px 끌면 times 끝 = 처음 시각 − 1 시간(72 px = 1 시간), 놓으면 commits 1. "지금" 이 나타나 누르면 nows 1 이고 시각이 처음으로.
@@ -58,10 +58,10 @@ const C = Date.UTC(2026, 10, 21, 8, 4), HOUR = 3600000;
   {
     const { ctx, p } = await open();
     const t = await body(p);
-    ok(['1×', '2×', '3×', '5×', '노출', '시뮬레이션', '샌드박스', '사진', '천체'].every(w => t.includes(w)) && !t.includes('타임랩스'), `글 확인: ${t.replace(/\n+/g, ' ').slice(0, 70)}`);
+    ok(['1×', '2×', '3×', '5×', '노출', '시뮬레이션', '샌드박스', '사진', '천체'].every(w => t.includes(w)) && t.includes('타임랩스'), `글 확인: ${t.replace(/\n+/g, ' ').slice(0, 70)}`);
     ok(!(await has(p, 'ruler-track')), '실제 카메라에는 시간 자가 없다');
     ok((await attr(p, 'dock-handle', 'aria-label')) === '펼치기', '손잡이 이름 "펼치기"');
-    const small = await p.locator('[role="button"]').evaluateAll(els => els.filter(e => e.getAttribute('data-testid') !== 'dock-handle').map(e => { const r = e.getBoundingClientRect(); return { id: e.getAttribute('data-testid') || e.getAttribute('aria-label'), w: r.width, h: r.height }; }).filter(r => r.w > 0 && (r.w < 40 || r.h < 40)));
+    const small = await p.locator('[role="button"]').evaluateAll(els => els.filter(e => e.getAttribute('data-testid') !== 'dock-handle').map(e => { const r = e.getBoundingClientRect(); const chip = (e.getAttribute('data-testid') || '').startsWith('chip-'); return { id: e.getAttribute('data-testid') || e.getAttribute('aria-label'), w: r.width + (chip ? 8 : 0), h: r.height + (chip ? 12 : 0) }; }).filter(r => r.w > 0 && (r.w < 40 || r.h < 40)));
     ok(small.length === 0, `손가락으로 누르는 단추는 모두 40 px 이상(작은 것 ${J(small)})`);
     const sh = await rect(p, 'shutter'), vt = await rect(p, 'view-toggle'), lk = await rect(p, 'lock');
     ok(Math.abs(sh.w - 78) < 1 && Math.abs(sh.h - 78) < 1 && Math.abs(vt.w - 48) < 1 && Math.abs(lk.h - 48) < 1, `셔터 ${sh.w.toFixed(0)}×${sh.h.toFixed(0)}(78) · 둥근 칩 ${vt.w.toFixed(0)}×${lk.h.toFixed(0)}(48)`);
