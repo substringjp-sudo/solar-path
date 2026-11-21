@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { ACTIVE_CHIP_TEXT, TEXT } from '../../theme/glassTokens';
+import { ACTIVE_CHIP_TEXT, GLASS, TEXT } from '../../theme/glassTokens';
 import { mono as monoFont } from '../../theme/tokens';
 import { GlassSurface, glassTextShadow } from './GlassSurface';
 import { isRecentDrag } from './dragGuard';
@@ -16,6 +16,8 @@ interface Props {
   active?: boolean;
   expanded?: boolean;
   mono?: boolean;
+  /** 유리 칠 없이 글자만(이미 유리 면 안에 놓인 탭 따위). 켜졌을 때만 하늘색 덧칠. */
+  flat?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -23,12 +25,17 @@ interface Props {
 
 export const CHIP_MIN_H = 40;
 
-export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = false, expanded, mono = false, accessibilityLabel, style, testID }) => {
-  const body = (
-    <GlassSurface active={active} style={[styles.pill, style]}>
+export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = false, expanded, mono = false, flat = false, accessibilityLabel, style, testID }) => {
+  const content = (
+    <>
       {icon ? <View style={styles.icon}>{icon}</View> : null}
       <Text numberOfLines={1} style={[styles.text, mono && styles.mono, { color: active ? ACTIVE_CHIP_TEXT : TEXT }, glassTextShadow]}>{label}</Text>
-    </GlassSurface>
+    </>
+  );
+  const body = flat ? (
+    <View style={[styles.pill, style, active && styles.flatActive]}>{content}</View>
+  ) : (
+    <GlassSurface active={active} style={[styles.pill, style]}>{content}</GlassSurface>
   );
   if (!onPress) return <View testID={testID}>{body}</View>;
   return (
@@ -52,4 +59,5 @@ const styles = StyleSheet.create({
   text: { fontSize: 13, fontWeight: '700' },
   mono: { fontFamily: monoFont },
   pressed: { opacity: 0.7 },
+  flatActive: { backgroundColor: `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})` },
 });

@@ -28,6 +28,8 @@ interface Props {
   /** 자 위에 뜨는 일몰 표시(없으면 안 그림) */
   sunsetMs?: number | null;
   sunsetLabel?: string;
+  /** 날짜 단추 글을 직접 정할 때(칩 줄에 어제 · 오늘 · 내일이 이미 있으면 날짜 자체를 보여 같은 것이 두 번 안 보이게). 없으면 오늘 · 어제 · 내일 글. */
+  dateText?: string;
   onDatePress?: () => void;
   onNow?: () => void;
 }
@@ -37,7 +39,7 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, sunsetMs = null, sunsetLabel, onDatePress, onNow }) => {
+export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, sunsetMs = null, sunsetLabel, dateText, onDatePress, onNow }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
@@ -67,7 +69,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
       <View style={styles.top}>
         <GlassChip
           testID="ruler-date"
-          label={dateLabel(timeMs, nowMs, tz, language)}
+          label={dateText ?? dateLabel(timeMs, nowMs, tz, language)}
           icon={<ChevronDown size={14} color={TEXT} />}
           onPress={onDatePress}
           accessibilityLabel={L3(language, '날짜 고르기', 'Pick date', '日付を選ぶ')}

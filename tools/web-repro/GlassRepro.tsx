@@ -15,7 +15,7 @@ import { ModeStrip } from '../../src/components/glass/ModeStrip';
 import { DockSheet } from '../../src/components/glass/DockSheet';
 import { TEXT } from '../../src/theme/glassTokens';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode } from '../../src/utils/modeStrip';
-import { weekStrip } from '../../src/utils/timeRuler';
+import { dateShort, weekStrip } from '../../src/utils/timeRuler';
 import { tabLabel } from '../../src/utils/tabLabels';
 import type { DockStage } from '../../src/utils/dockStages';
 
@@ -46,7 +46,7 @@ export function GlassRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
       <View style={styles.header}>
         <GlassSurface testID="hdr-tabs" style={styles.tabs}>
           {(['sky', 'learn', 'log'] as const).map((id, i) => (
-            <GlassChip key={id} label={tabLabel(id, lang)} active={i === 0} style={styles.tab} />
+            <GlassChip key={id} flat label={tabLabel(id, lang)} active={i === 0} onPress={() => {}} style={styles.tab} />
           ))}
         </GlassSurface>
         <View style={{ flex: 1 }} />
@@ -93,6 +93,7 @@ export function GlassRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
           onCommit={(ms) => { log.current.commits.push(ms); }}
           sunsetMs={Date.UTC(2026, 10, 21, 8, 17)}
           sunsetLabel="일몰 17:17"
+          dateText={mode === 'simulation' ? dateShort(timeMs, tz, lang) : undefined}
           onDatePress={() => { log.current.dates++; setStage('mid'); }}
           onNow={() => { log.current.nows++; setTimeMs(C); }}
         />

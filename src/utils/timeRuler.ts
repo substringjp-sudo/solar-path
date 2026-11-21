@@ -85,6 +85,11 @@ export function dateLabel(ms: number, nowMs: number, tz: number, lang: Lang): st
   if (off === 0) return lang === 'en' ? 'Today' : lang === 'ja' ? '今日' : '오늘';
   if (off === -1) return lang === 'en' ? 'Yesterday' : lang === 'ja' ? '昨日' : '어제';
   if (off === 1) return lang === 'en' ? 'Tomorrow' : lang === 'ja' ? '明日' : '내일';
+  return dateShort(ms, tz, lang);
+}
+
+/** 오늘 · 어제 · 내일 말고 날짜와 요일 그대로("11.21 토" · "Sat 11/21" · "11/21(土)"). */
+export function dateShort(ms: number, tz: number, lang: Lang): string {
   const d = localDate(ms, tz);
   const mo = d.getUTCMonth() + 1, da = d.getUTCDate();
   const wd = WEEKDAYS[lang][d.getUTCDay()];
