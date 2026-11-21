@@ -595,7 +595,7 @@ const DEFAULT_LAYERS: LayerState = {
   clouds: true,
   paths: true,
   cityLights: true,
-  buildings: false,
+  buildings: true,
 };
 
 const DRAG_SENSITIVITY = 0.3;

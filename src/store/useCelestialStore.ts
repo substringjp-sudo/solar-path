@@ -375,7 +375,7 @@ export const useCelestialStore = create<CelestialState>()(
       isGestureBlocked: false,
       skyLayers: {
         labels: true, sun: true, moon: true, stars: true, milkyway: true,
-        planets: true, clouds: true, paths: true, cityLights: true, buildings: false,
+        planets: true, clouds: true, paths: true, cityLights: true, buildings: true,
       },
       setSkyLayers: (update) => set(state => ({ skyLayers: update(state.skyLayers) })),
       // SkyScene3D 의 DEFAULT_SKY_SETTINGS 와 같은 값입니다(컴포넌트를 스토어로 끌어오지 않으려고 적어 둠).
