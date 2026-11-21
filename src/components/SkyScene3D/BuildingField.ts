@@ -65,6 +65,7 @@ attribute vec4 aWallCoord;
 uniform float uObsElevM;
 uniform float uEyeHeightM;
 uniform float uBlendInner;
+uniform vec2  uBldEyeOffset;
 
 varying vec3  vNormalW;
 varying float vDistM;
@@ -105,12 +106,13 @@ float bf_ringRadius(float distM) {
 }
 
 void main() {
-  vec2 g = vec2(position.x, position.z);
+  vec2 g = vec2(position.x, position.z) - uBldEyeOffset;
   float d = max(length(g), 0.1);
   float r = bf_ringRadius(d);
 
   // 건물 중심 지반 고도에 상대 높이(position.y)를 더해 경사지 위에서도 옥상이 수평을 유지
-  float baseElevM = bf_groundElev(aGroundPos);
+  vec2 gCenter = aGroundPos - uBldEyeOffset;
+  float baseElevM = bf_groundElev(gCenter);
   float h = baseElevM + position.y;
   float eyeElevM = bf_groundAtEye() + uEyeHeightM;
 
@@ -120,7 +122,7 @@ void main() {
   vDistM = d;
   vNormalW = normalize(normal);
   vViewDir = normalize(p);
-  vBuildPos = aGroundPos;
+  vBuildPos = gCenter;
 #ifdef TERRAIN_WINDOW_OUT
   vWallCoord = aWallCoord;
 #endif
@@ -137,7 +139,7 @@ void main() {
 const LAMP_VERT = BUILDING_VERT.slice(0, BUILDING_VERT.indexOf('void main() {')) + /* glsl */ `
 uniform float uLampPx;
 void main() {
-  vec2 g = vec2(position.x, position.z);
+  vec2 g = vec2(position.x, position.z) - uBldEyeOffset;
   float d = max(length(g), 0.1);
   float r = bf_ringRadius(d);
   float h = bf_groundElev(g) + position.y;
@@ -369,8 +371,10 @@ export interface BuildingFieldHandle {
   material: THREE.ShaderMaterial;
   setBuildings: (data: BuildingMeshData | null) => void;
   setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null, farPatch?: DemPatch | null) => void;
-  /** 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다(`TerrainFieldHandle.setObserver` 와 같음). 건물 자리는 옮기지 않습니다 — 움직이는 동안은 숨깁니다. */
+  /** 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다(`TerrainFieldHandle.setObserver` 와 같음). */
   setObserver: (lat: number, lon: number) => void;
+  /** 건물 기준점 대비 현재 눈의 오프셋(동쪽 m, 남쪽 m)을 셰이더에 전달해 이동 중에도 건물이 부드럽게 지나가게 합니다. */
+  setEyeOffset: (eastM: number, southM: number) => void;
   setVisible: (v: boolean) => void;
   setWindowLighting: (rate: number, glow: number) => void;
   hasGeometry: () => boolean;
@@ -387,6 +391,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     uObsElevM: { value: opts.observerElevM ?? 0 },
     uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
     uBlendInner: { value: 0.30 },
+    uBldEyeOffset: { value: new THREE.Vector2(0, 0) },
     uDepthOnly: { value: 0 },
     uSunAzRad: { value: 0 },
     uSunAltRad: { value: 0.5 },
@@ -542,6 +547,10 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       const dp = material.userData.demPatches as Record<string, DemPatch | null | undefined> | undefined;
       if (!dp) return;
       for (const k of ['dem', 'demEye', 'demFar']) setDemObserver(material.uniforms, k, dp[k], lat, lon);
+    },
+    setEyeOffset: (eastM, southM) => {
+      const v = material.uniforms.uBldEyeOffset?.value as THREE.Vector2 | undefined;
+      if (v) v.set(Number.isFinite(eastM) ? eastM : 0, Number.isFinite(southM) ? southM : 0);
     },
     setPatch: (patch, eyePatch, farPatch) => {
       const dp = (material.userData.demPatches ??= {}) as Record<string, DemPatch | null | undefined>;

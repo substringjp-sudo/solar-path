@@ -2908,10 +2908,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           terrainFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
         }
         if (buildingFieldRef.current) {
-          // 건물 자리는 커밋된 위치 기준이라, 눈이 떨어져 있는 동안과 새 위치의 건물이 오기 전에는 숨깁니다(옛 건물이 엉뚱한 자리에 서 있지 않게).
           const bc = bldCenterRef.current;
           const bldFresh = buildingLoadedKeyRef.current === `${bc.lat.toFixed(3)},${bc.lng.toFixed(3)}`;
-          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings) && !eyeMovingRef.current && bldFresh);
+          const curEye = eyeCoords();
+          const bOff = curEye ? localOffsetM({ latitude: bc.lat, longitude: bc.lng }, curEye.latitude, curEye.longitude) : { eastM: 0, northM: 0 };
+          buildingFieldRef.current.setEyeOffset(bOff.eastM, -bOff.northM);
+          const bldInRange = Math.hypot(bOff.eastM, bOff.northM) < 2500;
+          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings) && bldFresh && bldInRange);
           buildingFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
           updateBuildingFieldEye(buildingFieldRef.current, camera);
         }
@@ -3064,10 +3067,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 2026-11-18 볼륨 하늘 카메라도 하늘 화면 카메라와 같은 기울기(roll)·화면 중심 이동을 써야 구름·달 빛무리가 천체 표시와 겹침.
             const volRollDeg = rv?.rollDeg ?? cameraRollRef.current ?? 0;
             const volOffY = viewCenterOffsetYFracRef.current;
-            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}`;
+            const curEyeForKey = eyeCoords();
+            const eyeKey = curEyeForKey ? `${curEyeForKey.latitude.toFixed(6)},${curEyeForKey.longitude.toFixed(6)}` : '';
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}|${eyeKey}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
-            const isInteractingNow = isSlidingNow || useCelestialStore.getState().isGestureBlocked;
+            const isInteractingNow = isSlidingNow || eyeMovingRef.current || useCelestialStore.getState().isGestureBlocked;
             const isFast = false;
             const needUpgrade = false;
             const volKeyChanged = Boolean(live && (key !== volKeyRef.current || needUpgrade));
@@ -4242,6 +4247,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainFieldRef.current?.setObserver(e.latitude, e.longitude);
     seaPlaneRef.current?.setObserver(e.latitude, e.longitude);
     buildingFieldRef.current?.setObserver(e.latitude, e.longitude);
+    const bc = bldCenterRef.current;
+    const bOff = localOffsetM({ latitude: bc.lat, longitude: bc.lng }, e.latitude, e.longitude);
+    buildingFieldRef.current?.setEyeOffset(bOff.eastM, -bOff.northM);
     skylineCacheRef.current = null;
     sceneDirtyRef.current = true;
     requestRender(2);
