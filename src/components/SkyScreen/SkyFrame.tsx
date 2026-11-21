@@ -41,6 +41,8 @@ interface Props {
   onSlideEnd: (kind: SlideKind) => void;
   /** "지금" 단추 */
   onNow: () => void;
+  /** 날짜·시간·위치가 현재와 다를 때만 "지금" 단추를 보임. 생략하면 시각 차이(>1분)로 판단. */
+  showNow?: boolean;
   sunsetMs?: number | null;
   sunsetLabel?: string;
   /** 시간대별 점수 표본(자 위 색 띠) */
@@ -69,11 +71,12 @@ interface Props {
 }
 
 export const SkyFrame: React.FC<Props> = ({
-  language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
+  language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
   readout, simBody, sandbox, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | null>(null);
+  const [dateStripH, setDateStripH] = React.useState<number>(0);
   const simBodyOpen = mode === 'simulation' && stage === 'full';
   const simBodyCb = React.useRef(onSimBodyOpenChange);
   simBodyCb.current = onSimBodyOpenChange;
@@ -81,7 +84,19 @@ export const SkyFrame: React.FC<Props> = ({
   const modes = React.useMemo(() => modeList(false), []);
   const off = dayOffset(timeMs, nowMs, tz);
 
-  const setStageSafe = (s: DockStage) => { setStage(s); if (s === 'min') setActive(null); };
+  const firstSandboxTab = React.useMemo(
+    () => (['move', 'view', 'scene', 'tools'] as const).find(k => sandbox?.[k]) ?? null,
+    [sandbox],
+  );
+
+  const setStageSafe = (s: DockStage) => {
+    setStage(s);
+    if (s === 'min') {
+      setActive(null);
+    } else if (mode === 'sandbox' && (!active || active === 'date') && firstSandboxTab) {
+      setActive(firstSandboxTab);
+    }
+  };
   const jumpDay = (target: number) => {
     onSlideStart('date');
     onPick(shiftDays(timeMs, target - off), 'date');
@@ -116,41 +131,50 @@ export const SkyFrame: React.FC<Props> = ({
   if (mode === 'simulation') {
     expanded = (
       <View style={styles.simWrap}>
-        <View testID="week-strip" style={styles.week}>
-          {week.map(w => (
-            <Pressable
-              key={w.offset}
-              testID={`week-${w.day}`}
-              accessibilityRole="button"
-              accessibilityLabel={`${w.weekday} ${w.day}`}
-              aria-pressed={w.selected}
-              onPress={() => { onSlideStart('date'); onPick(w.ms, 'date'); onSlideEnd('date'); }}
-              style={styles.weekPress}
-            >
-              <GlassSurface active={w.selected} style={styles.weekCell}>
-                <Text style={[styles.weekDay, glassTextShadow]}>{w.weekday}</Text>
-                <Text style={[styles.weekNum, glassTextShadow]}>{w.day}</Text>
-              </GlassSurface>
-            </Pressable>
-          ))}
-        </View>
-        {onOpenCalendar ? (
-          <View style={styles.calRow}>
-            <GlassChip testID="calendar" label={L3(language, '달력에서 고르기', 'Open calendar', 'カレンダーで選ぶ')} onPress={onOpenCalendar} />
+        <View onLayout={(e) => { const h = Math.ceil(e.nativeEvent.layout.height); if (h > 0 && h !== dateStripH) setDateStripH(h); }}>
+          <View testID="week-strip" style={styles.week}>
+            {week.map(w => (
+              <Pressable
+                key={w.offset}
+                testID={`week-${w.day}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${w.weekday} ${w.day}`}
+                aria-pressed={w.selected}
+                onPress={() => { onSlideStart('date'); onPick(w.ms, 'date'); onSlideEnd('date'); }}
+                style={styles.weekPress}
+              >
+                <GlassSurface active={w.selected} style={styles.weekCell}>
+                  <Text style={[styles.weekDay, glassTextShadow]}>{w.weekday}</Text>
+                  <Text style={[styles.weekNum, glassTextShadow]}>{w.day}</Text>
+                </GlassSurface>
+              </Pressable>
+            ))}
           </View>
-        ) : null}
+          {onOpenCalendar ? (
+            <View style={styles.calRow}>
+              <GlassChip testID="calendar" label={L3(language, '달력에서 고르기', 'Open calendar', 'カレンダーで選ぶ')} onPress={onOpenCalendar} />
+            </View>
+          ) : null}
+        </View>
         {stage === 'full' && simBody ? (
           <ScrollView testID="sim-body" style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>{simBody}</ScrollView>
         ) : null}
       </View>
     );
-  } else if (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene' | 'tools']) {
-    expanded = (
-      <GlassSurface testID={`panel-${active}`} style={styles.panel}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[active as 'move' | 'view' | 'scene' | 'tools']}</ScrollView>
-      </GlassSurface>
-    );
+  } else {
+    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene' | 'tools'])
+      ? (active as 'move' | 'view' | 'scene' | 'tools')
+      : firstSandboxTab;
+    if (sbTab && sandbox?.[sbTab]) {
+      expanded = (
+        <GlassSurface testID={`panel-${sbTab}`} style={styles.panel}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
+        </GlassSurface>
+      );
+    }
   }
+
+  const effectiveShowNow = showNow ?? (Math.abs(timeMs - nowMs) > 60_000);
 
   return (
     <>
@@ -158,7 +182,13 @@ export const SkyFrame: React.FC<Props> = ({
       <View testID="frame-readout" pointerEvents="none" style={styles.readout}>
         {typeof readout === 'string' ? <GlassChip mono label={readout} /> : readout}
       </View>
-      <DockSheet stage={stage} onStageChange={setStageSafe} language={language} expanded={expanded}>
+      <DockSheet
+        stage={stage}
+        onStageChange={setStageSafe}
+        language={language}
+        expanded={expanded}
+        midMaxH={mode === 'simulation' && dateStripH > 0 ? dateStripH : undefined}
+      >
         {chips.length > 0 && (
         <View testID="chips-row" style={styles.chips}>
           {chips.map(c => (
@@ -180,6 +210,7 @@ export const SkyFrame: React.FC<Props> = ({
           dateText={mode === 'simulation' ? dateShort(timeMs, tz, language) : undefined}
           onDatePress={() => { if (active === 'date' && stage !== 'min') { setStageSafe('min'); return; } setActive('date'); setStage(s => (s === 'min' ? 'mid' : s)); }}
           onDayShift={(n) => jumpDay(off + n)}
+          showNow={effectiveShowNow}
           onNow={onNow}
         />
         <View testID="shutter-row" style={styles.shutterRow}>
@@ -206,16 +237,16 @@ const styles = StyleSheet.create({
   // 머리줄이 하늘 위에 떠 있으므로 그 아래에서 시작합니다(`utils/headerLayout`).
   readout: { position: 'absolute', left: 10, right: 10, top: belowHeader(12), alignItems: 'center' },
   chips: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
-  simWrap: { flex: 1 },
+  simWrap: { maxHeight: '100%' },
   week: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 8 },
   weekPress: { flex: 1, minWidth: 0 },
   weekCell: { minHeight: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  weekDay: { color: TEXT, fontSize: 10, fontWeight: '600' },
-  weekNum: { color: TEXT, fontSize: 14, fontWeight: '800' },
+  weekDay: { color: TEXT, fontSize: 10, fontWeight: '400' },
+  weekNum: { color: TEXT, fontSize: 13, fontWeight: '500' },
   calRow: { alignItems: 'center', paddingBottom: 8 },
-  body: { flex: 1, marginHorizontal: 10 },
+  body: { flexShrink: 1, marginHorizontal: 10 },
   bodyContent: { paddingBottom: 12, gap: 10 },
-  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, flex: 1 },
+  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
   panelContent: { padding: 12 },
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
   thumb: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#2b3a66', borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)' },

@@ -67,7 +67,7 @@ export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) =>
             onPress={() => { if (isRecentDrag()) return; const t = pickMode(modes, mode, i.mode); if (t !== mode) onPick(t); }}
             style={[styles.item, { left: i.x - ITEM_W / 2 + dragDx, opacity: i.opacity }]}
           >
-            <Text style={[styles.label, { fontWeight: on ? '800' : '600' }, glassTextShadow]}>{modeName(i.mode, language)}</Text>
+            <Text style={[styles.label, { fontWeight: on ? '600' : '400' }, glassTextShadow]}>{modeName(i.mode, language)}</Text>
           </Pressable>
         );
       })}

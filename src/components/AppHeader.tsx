@@ -211,10 +211,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 /** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다. */
 const GLASS_TINT = `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})`;
 const glassStyles = StyleSheet.create({
-  navToggle: { flexDirection: 'row', height: HEADER_ROW, borderRadius: radius.md, flex: 1, position: 'relative' },
-  navIndicator: { position: 'absolute', top: 0, bottom: 0, borderRadius: radius.md, backgroundColor: GLASS_TINT },
-  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: space.xs, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 160, paddingHorizontal: space.md, borderRadius: radius.md, overflow: 'hidden', justifyContent: 'center' },
-  iconBtn: { width: TOUCH, height: HEADER_ROW, borderRadius: radius.md, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+  navToggle: { flexDirection: 'row', height: HEADER_ROW, borderRadius: HEADER_ROW / 2, flex: 1, position: 'relative' },
+  navIndicator: { position: 'absolute', top: 0, bottom: 0, borderRadius: HEADER_ROW / 2, backgroundColor: GLASS_TINT },
+  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: space.xs, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 160, paddingHorizontal: space.md, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center' },
+  iconBtn: { width: TOUCH, height: HEADER_ROW, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
 });
 
 const useStyles = makeStyles((color) => ({

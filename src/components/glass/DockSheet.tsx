@@ -25,6 +25,8 @@ interface Props {
   children: React.ReactNode;
   /** 화면 높이를 직접 넘길 때(하네스). 기본은 창 높이. */
   screenH?: number;
+  /** mid 단계일 때 펼친 영역의 최대 높이(콘텐츠 실제 높이에 맞춰 빈 여백을 없앨 때). */
+  midMaxH?: number;
 }
 
 /** 손잡이 줄 높이(px). */
@@ -36,47 +38,98 @@ const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   full: ['접기', 'Collapse', '閉じる'],
 };
 
-export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH }) => {
+export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH }) => {
   const win = useWindowDimensions();
   const H = screenH ?? win.height;
   const [fixedH, setFixedH] = useState(380);
+  const [contentH, setContentH] = useState(0);
   // 막대 전체 = 손잡이 줄 + 펼친 영역 + 고정부. 펼친 영역이 쓸 수 있는 자리는 손잡이 줄까지 빼고 셉니다.
-  const extra = dockExtraHeight(stage, H, fixedH + HANDLE_ROW_H);
+  const rawExtra = dockExtraHeight(stage, H, fixedH + HANDLE_ROW_H);
+  const fullExtra = dockExtraHeight('full', H, fixedH + HANDLE_ROW_H);
+  let extra = rawExtra;
+  if (stage !== 'min') {
+    if (contentH > 0) extra = Math.min(extra, contentH);
+    if (stage === 'mid' && midMaxH != null && midMaxH > 0) extra = Math.min(extra, midMaxH);
+  }
+
   const anim = useRef(new Animated.Value(extra)).current;
+  const animValRef = useRef(extra);
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef(extra);
+
   useEffect(() => {
+    const id = anim.addListener(({ value }) => { animValRef.current = value; });
+    return () => anim.removeListener(id);
+  }, [anim]);
+
+  useEffect(() => {
+    if (draggingRef.current) return;
     Animated.timing(anim, { toValue: extra, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
   }, [extra, anim]);
 
-  const ref = useRef({ stage, onStageChange });
-  ref.current = { stage, onStageChange };
-  const pan = useMemo(() => PanResponder.create({
+  const maxDrag = contentH > 0 ? Math.min(fullExtra, contentH) : fullExtra;
+  const ref = useRef({ stage, onStageChange, extra, maxDrag });
+  ref.current = { stage, onStageChange, extra, maxDrag };
+  const makePan = (capture: boolean) => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 10 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+    onMoveShouldSetPanResponder: capture ? undefined : (_, g) => Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.4,
+    onMoveShouldSetPanResponderCapture: capture ? (_, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.2 : undefined,
     onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => {
+      draggingRef.current = true;
+      dragStartRef.current = animValRef.current;
+      anim.stopAnimation();
+    },
+    onPanResponderMove: (_, g) => {
+      const clamped = Math.max(0, Math.min(ref.current.maxDrag, dragStartRef.current - g.dy));
+      anim.setValue(clamped);
+    },
     onPanResponderRelease: (_, g) => {
+      draggingRef.current = false;
       markDragEnd();
       const next = dragStage(ref.current.stage, g.dy, g.vy * 1000);
-      if (next !== ref.current.stage) ref.current.onStageChange(next);
+      if (next !== ref.current.stage) {
+        ref.current.onStageChange(next);
+      } else {
+        Animated.timing(anim, { toValue: ref.current.extra, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+      }
     },
-  }), []);
+    onPanResponderTerminate: () => {
+      draggingRef.current = false;
+      markDragEnd();
+      Animated.timing(anim, { toValue: ref.current.extra, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    },
+  });
+  const pan = useMemo(() => makePan(false), [anim]);
+  const handlePan = useMemo(() => makePan(true), [anim]);
 
   const [ko, en, ja] = HANDLE_LABELS[stage];
   return (
     <View testID="dock" pointerEvents="box-none" style={styles.dock} {...pan.panHandlers}>
       <Scrim edge="bottom" height={fixedH + extra + 40} />
-      <Pressable
-        testID="dock-handle"
-        accessibilityRole="button"
-        accessibilityLabel={L3(language, ko, en, ja)}
-        aria-expanded={stage !== 'min'}
-        onPress={() => { if (!isRecentDrag()) onStageChange(tapNext(stage)); }}
-        hitSlop={{ top: 8, bottom: 8 }}
-        style={styles.handleHit}
-      >
-        <View style={styles.handle} />
-      </Pressable>
+      <View {...handlePan.panHandlers}>
+        <Pressable
+          testID="dock-handle"
+          accessibilityRole="button"
+          accessibilityLabel={L3(language, ko, en, ja)}
+          aria-expanded={stage !== 'min'}
+          onPress={() => { if (!isRecentDrag()) onStageChange(tapNext(stage)); }}
+          hitSlop={{ top: 8, bottom: 8 }}
+          style={styles.handleHit}
+        >
+          <View style={styles.handle} />
+        </Pressable>
+      </View>
       <Animated.View testID="dock-expanded" style={[styles.expanded, { height: anim }]} pointerEvents={stage === 'min' ? 'none' : 'auto'}>
-        {expanded}
+        <View
+          style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
+          onLayout={(e: LayoutChangeEvent) => {
+            const h = Math.ceil(e.nativeEvent.layout.height);
+            if (h !== contentH) setContentH(h);
+          }}
+        >
+          {expanded}
+        </View>
       </Animated.View>
       <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => setFixedH(Math.round(e.nativeEvent.layout.height))} style={styles.fixed}>
         {children}

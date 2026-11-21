@@ -23,7 +23,7 @@ interface Props {
   testID?: string;
 }
 
-export const CHIP_MIN_H = 40;
+export const CHIP_MIN_H = 28;
 
 export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = false, expanded, mono = false, flat = false, accessibilityLabel, style, testID }) => {
   const content = (
@@ -42,6 +42,7 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
     <Pressable
       testID={testID}
       onPress={() => { if (!isRecentDrag()) onPress(); }}
+      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       aria-pressed={active}
@@ -54,9 +55,9 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
 };
 
 const styles = StyleSheet.create({
-  pill: { minHeight: CHIP_MIN_H, paddingHorizontal: 14, borderRadius: CHIP_MIN_H / 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  pill: { minHeight: CHIP_MIN_H, paddingHorizontal: 10, borderRadius: CHIP_MIN_H / 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   icon: { alignItems: 'center', justifyContent: 'center' },
-  text: { fontSize: 11, fontWeight: '700' },
+  text: { fontSize: 11, fontWeight: '500' },
   mono: { fontFamily: monoFont },
   pressed: { opacity: 0.7 },
   flatActive: { backgroundColor: `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})` },

@@ -1340,7 +1340,19 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onSlideStart={handleBarSlidingStart}
           onPick={(ms, kind) => handleBarPick(new Date(ms), { scrub: kind })}
           onSlideEnd={handleBarSlidingComplete}
-          onNow={() => setTimeMachineEnabled?.(false)}
+          showNow={
+            isTimeMachineEnabled
+            || Math.abs(currentTime.getTime() - Date.now()) > 60_000
+            || (homeCoords != null && distanceM(homeCoords, { latitude, longitude }) > 20)
+          }
+          onNow={() => {
+            setTimeMachineEnabled?.(false);
+            if (homeCoords && distanceM(homeCoords, { latitude, longitude }) > 20) {
+              glide.cancel();
+              sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
+              setSpot(homeCoords);
+            }
+          }}
           sunsetMs={events?.sunset ? events.sunset.getTime() : null}
           sunsetLabel={`${L3(language, '일몰', 'Sunset', '日没')} ${sunsetText}`}
           scoreSamples={scoreGraph ? scoreGraph.points : null}
