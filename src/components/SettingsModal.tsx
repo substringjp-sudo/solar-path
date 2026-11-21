@@ -89,6 +89,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setThemeMode,
     notifPrefs: storedNotifPrefs,
     setNotifPref,
+    uiFrameV2,
+    setUiFrameV2,
   } = useCelestialStore();
   const notifPrefs: NotifPrefs = { ...DEFAULT_NOTIF_PREFS, ...storedNotifPrefs };
   const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
@@ -821,6 +823,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </View>
                   )}
                 </View>
+              </View>
+
+              {/* 1-c. 실험 — 새 화면 틀(유리 막대 · 시간 자 · 모드 줄). 실기기에서 써 보고 괜찮으면 기본이 됩니다. */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '실험', 'Experiments', '実験')}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <PressScale
+                    style={styles.permissionRow}
+                    onPress={() => setUiFrameV2(!uiFrameV2)}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: uiFrameV2 }}
+                    accessibilityLabel={L3(language, '새 화면 틀', 'New screen layout', '新しい画面レイアウト')}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{L3(language, '새 화면 틀(하늘 화면)', 'New layout (sky screen)', '新レイアウト(空の画面)')}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {uiFrameV2 ? (
+                        <View style={styles.badgeGranted}><CheckCircle2 size={12} color={color.success} /><Text style={styles.badgeTextGranted}>ON</Text></View>
+                      ) : (
+                        <View style={styles.badgeDenied}><AlertCircle size={12} color={color.danger} /><Text style={styles.badgeTextDenied}>OFF</Text></View>
+                      )}
+                    </View>
+                  </PressScale>
+                </View>
+                <Text style={[styles.modeHint, { color: theme.subText }]}>
+                  {L3(language,
+                    '아래에 시간 자 · 칩 · 셔터 · 모드 줄이 있는 새 하늘 화면입니다. 끄면 지금 화면 그대로입니다.',
+                    'A new sky screen with a time ruler, chips, shutter and mode strip at the bottom. Off keeps the current screen.',
+                    '下に時間の定規・チップ・シャッター・モード列がある新しい空の画面です。オフなら今の画面のままです。')}
+                </Text>
               </View>
 
               {/* 개발자 옵션 — 개발 빌드에서만, 맨 아래 */}
