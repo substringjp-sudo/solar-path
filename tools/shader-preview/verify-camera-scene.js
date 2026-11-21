@@ -45,6 +45,11 @@ ok((sky.match(/onShoot=\{shootScene\}/g) || []).length === 3 && (sky.match(/<Sce
 console.log('\n[3] 장면 줄');
 ok(/onShoot\?: \(\) => void;/.test(bar) && /\{onShoot && \(/.test(bar) && /L3\(language, '이 장면 찍기', 'Shoot', '撮る'\)/.test(bar), 'onShoot 선택 항목, 있을 때만 "이 장면 찍기" 단추');
 
+console.log('\n[5] 카메라 안 모드 줄(새 화면 틀, 2026-11-21)');
+ok(/\{uiFrameV2 && \(\s*<ModeStrip\s+mode=\{timelapseOpen \? 'timelapse' : cameraTab === 'astro' \? 'astro' : 'photo'\}\s+modes=\{CAMERA_STRIP_MODES\}/.test(cam), '스위치가 켜졌을 때만 모드 줄, 지금 모드는 타임랩스 · 천체 · 사진');
+ok(/if \(m === 'simulation' \|\| m === 'sandbox'\) \{ useCelestialStore\.getState\(\)\.setExpertMode\(m === 'sandbox'\); onClose\(\); return; \}\s+const key = captureKeyFor\(m\);\s+if \(key\) pickMode\(key\);/.test(cam), '하늘 쪽을 고르면 전문가 모드를 맞추고 카메라를 닫고, 카메라 쪽은 기존 pickMode 로');
+ok(/const CAMERA_STRIP_MODES = modeList\(false\);/.test(cam) && /uiFrameV2 \? L3\(language, '사진 ▾'/.test(cam), '이벤트 없는 모드 목록, 새 틀에서는 위 알약이 "노을" 대신 "사진"');
+
 console.log('\n[4] 카메라');
 ok(/useEffect\(\(\) => \{\s+if \(!visible \|\| !cameraScene\) return;\s+setLockedTarget\(\{ azDeg: cameraScene\.azDeg, elDeg: cameraScene\.elDeg \}\);\s+(?:\/\/[^\n]*\n\s+)?const tab = useCelestialStore\.getState\(\)\.uiFrameV2 \? tabForMode\('normal'\) : tabForMode\(modeForScene\(cameraScene\)\);\s+if \(tab\) setCameraTab\(tab\);\s+\}, \[visible, cameraScene\]\);/.test(cam), '장면의 방위 · 앙각으로 목표를 잡고 시각에 맞는 탭을 연다');
 ok(/useEffect\(\(\) => \(\) => \{ useCelestialStore\.getState\(\)\.setCameraScene\(null\); \}, \[\]\);/.test(cam), '카메라가 사라질 때 장면을 지운다');
