@@ -138,6 +138,7 @@ void main() {
  */
 const LAMP_VERT = BUILDING_VERT.slice(0, BUILDING_VERT.indexOf('void main() {')) + /* glsl */ `
 uniform float uLampPx;
+varying float vElevSin;
 void main() {
   vec2 g = vec2(position.x, position.z) - uBldEyeOffset;
   float d = max(length(g), 0.1);
@@ -146,27 +147,42 @@ void main() {
   float eyeElevM = bf_groundAtEye() + uEyeHeightM;
   vec3 p = gp_project(g, h, eyeElevM, r);
   vDistM = d;
+  vElevSin = p.y / max(length(p), 0.001);
   vec4 wp = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
-  gl_PointSize = clamp(uLampPx * 160.0 / d, 2.0 * uLampPx, 12.0 * uLampPx);
+  gl_PointSize = clamp(uLampPx * 240.0 / d, 3.5 * uLampPx, 20.0 * uLampPx);
 }
 `;
 const LAMP_FRAG = /* glsl */ `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 varying float vDistM;
+varying float vElevSin;
 uniform float uLampGlow;
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 void main() {
   vec2 q = gl_PointCoord * 2.0 - 1.0;
-  float rr = dot(q, q);
-  if (rr > 1.0 || uLampGlow <= 0.001) discard;
-  float a = exp(-rr * 4.5);
+  if (dot(q, q) > 1.0 || uLampGlow <= 0.001) discard;
+  // 위쪽 전구 헤드(갓으로 위쪽 빛 차단) + 아래로 퍼지는 호박색 빛 원뿔과 기둥 줄기
+  vec2 bulb = vec2(q.x * 0.85, (q.y + 0.42) * 1.35);
+  float r2 = dot(bulb, bulb);
+  float hood = smoothstep(-0.22, 0.04, q.y + 0.42);
+  float core = exp(-r2 * 22.0) * hood;
+  float halo = exp(-r2 * 5.2) * mix(0.2, 1.0, hood);
+  float dy = max(0.0, q.y + 0.38);
+  float coneW = 0.14 + dy * 0.56;
+  float cone = step(0.0, q.y + 0.38) * exp(-(q.x * q.x) / max(coneW * coneW * 0.35, 1e-4)) * (1.0 - smoothstep(0.0, 1.35, dy)) * 0.55;
+  float pole = step(0.0, q.y + 0.38) * exp(-(q.x * q.x) / 0.0045) * (1.0 - smoothstep(0.0, 1.38, dy)) * 0.35;
+  float intensity = core + halo + cone + pole;
+  if (intensity <= 0.003) discard;
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
   float fade = 1.0 - smoothstep(1350.0, 1580.0, vDistM);
-  gl_FragColor = vec4(vec3(1.00, 0.90, 0.72) * a * uLampGlow * T * fade, 1.0);
+  // 중·원거리 언덕 위 가로등이 지평선 위 밤하늘 별자리에 섞이지 않도록 앙각 감쇠
+  float skyGuard = 1.0 - smoothstep(110.0, 320.0, vDistM) * smoothstep(0.01, 0.055, vElevSin);
+  vec3 col = vec3(1.00, 0.93, 0.78) * core + vec3(1.00, 0.56, 0.16) * (halo + cone + pole);
+  gl_FragColor = vec4(col * uLampGlow * T * fade * skyGuard, 1.0);
 }
 `;
 
