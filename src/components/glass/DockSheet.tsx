@@ -27,6 +27,8 @@ interface Props {
   screenH?: number;
   /** mid 단계일 때 펼친 영역의 최대 높이(콘텐츠 실제 높이에 맞춰 빈 여백을 없앨 때). */
   midMaxH?: number;
+  /** 고정부 + 손잡이 줄의 높이가 정해지거나 바뀔 때(px). 막대 위에 떠 있는 것을 그만큼 올리는 데 씁니다. */
+  onFixedHeight?: (h: number) => void;
 }
 
 /** 손잡이 줄 높이(px). */
@@ -38,7 +40,7 @@ const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   full: ['접기', 'Collapse', '閉じる'],
 };
 
-export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH }) => {
+export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, onFixedHeight }) => {
   const win = useWindowDimensions();
   const H = screenH ?? win.height;
   const [fixedH, setFixedH] = useState(380);
@@ -131,7 +133,7 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
           {expanded}
         </View>
       </Animated.View>
-      <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => setFixedH(Math.round(e.nativeEvent.layout.height))} style={styles.fixed}>
+      <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => { const h = Math.round(e.nativeEvent.layout.height); setFixedH(h); onFixedHeight?.(h + HANDLE_ROW_H); }} style={styles.fixed}>
         {children}
       </View>
     </View>
