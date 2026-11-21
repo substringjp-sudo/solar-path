@@ -76,6 +76,8 @@ const ENTRIES = [
   // 정밀한 달 위치(Meeus 47 장)와 해·달 걸기 탐색 — 판정이 astronomy-engine 표에 대어 봅니다
   // (verify-moon-position.js · verify-align-search.js).
   'src/utils/moonPosition.ts',
+  // 월식(접촉 시각 · 크기) — verify-lunar-eclipse.js
+  'src/utils/lunarEclipse.ts',
   'src/utils/horizon.ts',
   // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
   'src/utils/terrainSun.ts',
