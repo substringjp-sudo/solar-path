@@ -17,6 +17,10 @@
  *  5. 막대 높이(`dockHeights(화면 높이)`, px, 정수): min = 232. mid = 화면의 55 % 와 432 중 작은 값, 단 min + 96 보다 작아지면 min + 96. full = 화면의 78 % (반올림), 단 mid + 96 보다 작아지면 mid + 96.
  *     화면 844 → { min 232, mid 432, full 658 }, 700 → { 232, 385, 546 }(0.55 · 700 = 385), 500 → { 232, 328, 424 }(mid 는 275 라서 328 로 올림, full 은 390 이라서 424 로 올림).
  *     400 ~ 1200 어느 화면에서도 min < mid < full. 숫자가 아니거나 0 이하면 844 로 본다.
+ *  5-2. 펼친 영역 높이(`dockExtraHeight(단계, 화면 높이, 고정부 높이)`, px, 정수; 2026-11-21 추가 — 아래 막대는 고정부(칩 · 시간 자 · 셔터 · 모드 줄, 약 380 px) 위에 펼친 영역을 얹는 모양이라 5번의 min = 232 를 전체 높이로 쓸 수 없다):
+ *     min → 0. mid · full → `dockHeights(화면).단계 − dockHeights(화면).min`(= 펼침 몫)과 `0.86 × 화면 − 고정부` 중 작은 값(음수면 0). 화면 높이가 숫자가 아니거나 0 이하면 844, 고정부가 숫자가 아니거나 음수면 380.
+ *     (844, 380): mid 200, full 345(펼침 몫 426 과 자리 0.86 · 844 − 380 = 345.84 → 내림 345 중 작은 값; 처음 346 으로 적었다가 0.86 · 844 = 725.84 를 반올림해 계산한 실수라 바로잡음). (700, 380): mid 153, full 222(몫 314 와 602 − 380 = 222). (600, 380): mid 98, full 136(dockHeights(600) 의 mid 는 0.55 · 600 = 330 이라 몫 98, full 은 468 − 232 = 236 과 516 − 380 = 136 중 136; 처음 mid 96 으로 적었던 것은 mid 가 328 이라고 잘못 본 실수). (600, 500): mid 16, full 16(둘 다 16 으로 붙음, 자리가 없으면 단계 차이가 사라진다).
+ *     항상 min ≤ mid ≤ full, 정수. 400 ~ 1200 화면에서 고정부 380 일 때 고정부 + full 이 max(0.86 × 화면, 고정부)를 넘지 않는다(화면이 442 px 보다 낮으면 고정부만으로 이미 0.86 × 화면을 넘어 펼친 영역은 0; 처음 "0.86 × 화면 이내"라고만 적었다가 400 px 화면에서 틀려 바로잡음).
  *  6. 겹침(`overlaps(a, b)`): 두 사각형({ x, y, w, h })이 가로 · 세로 모두 0.5 px 넘게 겹치면 참. 맞닿기만 하면(겹침 0) 거짓, 0.3 px 겹침도 거짓(반올림 오차).
  *     (0,0,10,10) · (10,0,10,10) → 거짓, (0,0,10,10) · (9,0,10,10) → 참, (0,0,10,10) · (9.7,0,10,10) → 거짓, 완전히 포함되는 것은 참.
  *  7. `findOverlaps(목록)`: 목록의 각 항목은 { id, rect, parent? }. 겹치는 쌍을 [앞 id, 뒤 id] 로 목록 순서대로 모두 돌려준다. 부모와 자식(직접 부모 · 조상 모두) 쌍은 겹쳐도 세지 않는다.
@@ -57,6 +61,16 @@ const J = JSON.stringify;
   let ordered = true; for (let h = 400; h <= 1200; h++) { const x = D.dockHeights(h); if (!(x.min < x.mid && x.mid < x.full)) ordered = false; }
   ok(ordered, '400 ~ 1200 어느 화면에서도 min < mid < full');
   ok(J(D.dockHeights(NaN)) === J(D.dockHeights(844)) && J(D.dockHeights(0)) === J(D.dockHeights(844)) && J(D.dockHeights(-5)) === J(D.dockHeights(844)), '숫자가 아니거나 0 이하면 844 로 본다');
+
+  console.log('\n[5-2] 펼친 영역 높이');
+  const X = (st, h, f) => D.dockExtraHeight(st, h, f);
+  ok(typeof D.dockExtraHeight === 'function' && X('min', 844, 380) === 0 && X('mid', 844, 380) === 200 && X('full', 844, 380) === 345, '(844, 380): min 0 · mid 200 · full 345');
+  ok(typeof D.dockExtraHeight === 'function' && X('mid', 700, 380) === 153 && X('full', 700, 380) === 222 && X('mid', 600, 380) === 98 && X('full', 600, 380) === 136, '(700, 380): 153 · 222, (600, 380): 98 · 136');
+  ok(typeof D.dockExtraHeight === 'function' && X('mid', 600, 500) === 16 && X('full', 600, 500) === 16 && X('mid', 600, 900) === 0 && X('full', 300, 380) === 0, '자리가 없으면 붙고, 음수는 0');
+  ok(typeof D.dockExtraHeight === 'function' && X('mid', NaN, 380) === X('mid', 844, 380) && X('full', 0, NaN) === X('full', 844, 380) && X('mid', 844, -5) === 200, '숫자가 아니거나 0 이하면 화면 844, 고정부 380');
+  let okAll = typeof D.dockExtraHeight === 'function';
+  if (okAll) for (let h = 400; h <= 1200; h++) { const a = X('min', h, 380), b = X('mid', h, 380), c = X('full', h, 380); if (!(a === 0 && a <= b && b <= c && Number.isInteger(b) && Number.isInteger(c) && 380 + c <= Math.max(0.86 * h, 380) + 1e-9)) okAll = false; }
+  ok(okAll, '400 ~ 1200 화면: min ≤ mid ≤ full, 정수, 고정부 + full 이 max(0.86 × 화면, 고정부) 이내');
 
   console.log('\n[6] 겹침');
   const R = (x, y, w, h) => ({ x, y, w, h });
