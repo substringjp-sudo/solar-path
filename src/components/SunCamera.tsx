@@ -75,6 +75,8 @@ import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/As
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
+import { ModeStrip } from './glass/ModeStrip';
+import { captureKeyFor, modeList } from '../utils/modeStrip';
 import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/TimelapsePanel';
 import { ResultCompare } from './ResultCompare';
 import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
@@ -89,6 +91,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
  * 촬영 결과 화면의 QR 한 변(pt). 시선·구름판 상태를 실어 모듈이 93칸 안팎입니다 — 캡처를 1080px
  * 에서 절반쯤 줄여 보내도 모듈 하나가 3px 넘게 남도록 화면 폭의 60% 안에서 크게 잡습니다.
  */
+/** 카메라 안 모드 줄의 모드들(이벤트는 아직 없어 뺌). */
+const CAMERA_STRIP_MODES = modeList(false);
+
 const QR_RESULT_SIZE_PT = Math.min(220, Math.round(SCREEN_WIDTH * 0.6));
 
 export type CameraViewMode = 'camera' | 'blend' | 'sim';
@@ -461,6 +466,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // 천체 모드 상태 · 야간 암적응 촬영 화면 · 천체 전용 결과
   const [cameraTab, setCameraTab] = useState<CameraTabMode>('sunset');
+  // 새 화면 틀(실험, 설정의 "실험")이 켜져 있으면 셔터 아래에 모드 줄이 섭니다(docs/SANDBOX_MODE_PLAN.md 18 · 21절).
+  const uiFrameV2 = useCelestialStore(s => s.uiFrameV2);
   const [astroSettings, setAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
   const [astroCaps, setAstroCaps] = useState<AstroCameraCapabilities>({
     available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
@@ -2483,7 +2490,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   >
                     {cameraTab === 'astro' ? <Moon size={12} color={color.moon} /> : <Sun size={12} color={color.sun} />}
                     <Text style={[styles.azBoxText, { color: cameraTab === 'astro' ? color.moon : color.sun }]} numberOfLines={1}>
-                      {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : L3(language, '노을 ▾', 'Sunset ▾', '夕焼け ▾')}
+                      {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : (uiFrameV2 ? L3(language, '사진 ▾', 'Photo ▾', '写真 ▾') : L3(language, '노을 ▾', 'Sunset ▾', '夕焼け ▾'))}
                     </Text>
                     <Text
                       style={[styles.azBoxText, viewMode !== 'camera' && frozenView && { color: color.accent }]}
@@ -2899,6 +2906,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   })()}
                 </View>
               </View>
+              {/* 새 화면 틀(실험): 셔터 아래 모드 줄. 하늘 쪽(시뮬레이션 · 샌드박스)을 고르면 카메라를 닫고 돌아갑니다. */}
+              {uiFrameV2 && (
+                <ModeStrip
+                  mode={timelapseOpen ? 'timelapse' : cameraTab === 'astro' ? 'astro' : 'photo'}
+                  modes={CAMERA_STRIP_MODES}
+                  language={language}
+                  onPick={(m) => {
+                    if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
+                    const key = captureKeyFor(m);
+                    if (key) pickMode(key);
+                  }}
+                />
+              )}
             </View>
           </View>
         )}
