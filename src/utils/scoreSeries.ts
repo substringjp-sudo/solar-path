@@ -157,3 +157,26 @@ export function peakWindow(points: readonly ScorePoint[], frac: number = 0.8): P
   while (b + 1 < points.length && ok(b + 1)) b++;
   return { fromMs: points[a].t, toMs: points[b].t, score: top };
 }
+
+/**
+ * 낮은 구름 구간. 표본의 `score` 자리에 낮은 구름 %를 넣어 부릅니다. 문턱(기본 60 %) 이상이 이어진 구간 가운데 가장 긴 것(같으면 먼저 온 쪽)을
+ * { fromMs, toMs, score = 구간 최댓값 } 으로 돌려줍니다. null 에서 끊기고(없는 값을 메우지 않음), 없으면 null. 문턱이 숫자가 아니거나 0 이하 · 100 초과이면 60.
+ */
+export function lowCloudWindow(points: readonly ScorePoint[], thresh: number = 60): PeakWindow | null {
+  const th = Number.isFinite(thresh) && thresh > 0 && thresh <= 100 ? thresh : 60;
+  let best: PeakWindow | null = null, bestLen = 0;
+  let a = -1, mx = 0;
+  const close = (end: number) => {
+    if (a < 0) return;
+    const len = end - a + 1;
+    if (len > bestLen) { bestLen = len; best = { fromMs: points[a].t, toMs: points[end].t, score: mx }; }
+    a = -1;
+  };
+  for (let i = 0; i < points.length; i++) {
+    const s = points[i].score;
+    if (s != null && s >= th) { if (a < 0) { a = i; mx = s; } else if (s > mx) mx = s; }
+    else close(i - 1);
+  }
+  close(points.length - 1);
+  return best;
+}
