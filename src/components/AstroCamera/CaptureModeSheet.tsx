@@ -10,7 +10,7 @@ import { Camera, Check, Moon, Sparkles, Timer, X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
-import { CAPTURE_MODES, modeDesc, modeLabel, modeResultTag, recommendReason, sheetRows, tabForMode, type CameraTab, type CaptureModeKey } from '../../utils/captureMode';
+import { modeDesc, modeLabel, modeResultTag, recommendReason, sheetRows, tabForMode, type CameraTab, type CaptureModeKey } from '../../utils/captureMode';
 
 interface Props {
   visible: boolean;
@@ -21,6 +21,8 @@ interface Props {
   currentTab: CameraTab;
   /** 지금 권하는 모드(해 고도 · 샌드박스에서 넘어온 장면의 시각으로 정합니다) */
   recommended: CaptureModeKey;
+  /** 월식이 있어 이벤트 모드를 누를 수 있는가 */
+  eventReady?: boolean;
   /** 열 수 있는 모드를 골랐을 때(일반 · 천체 장노출은 카메라 탭, 타임랩스는 자체 패널) */
   onPick: (key: CaptureModeKey) => void;
   onClose: () => void;
@@ -34,11 +36,11 @@ const ICONS: Record<CaptureModeKey, { Icon: React.ComponentType<{ size?: number;
   event: { Icon: Moon, tint: DARK.moon },
 };
 
-export const CaptureModeSheet: React.FC<Props> = ({ visible, language, nowLabel, currentTab, recommended, onPick, onClose }) => {
-  const { rows } = sheetRows(recommended);
+export const CaptureModeSheet: React.FC<Props> = ({ visible, language, nowLabel, currentTab, recommended, eventReady = false, onPick, onClose }) => {
+  const rows = sheetRows(recommended).rows.map(r => ({ ...r, ready: r.key === 'event' ? eventReady : r.ready }));
   const reason = recommendReason(recommended, language);
   const pick = (k: CaptureModeKey) => {
-    if (!CAPTURE_MODES.find(m => m.key === k)?.ready) return;
+    if (!rows.find(r => r.key === k)?.ready) return;
     onPick(k);
     onClose();
   };

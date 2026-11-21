@@ -12,7 +12,7 @@
  */
 import { sceneLux } from './exposureCurve';
 
-const APERTURE_N = 1.8;
+export const APERTURE_N = 1.8;
 const HANDHELD_MAX_S = 1 / 30;
 const TRIPOD_OK_S = 1;
 export const ISO_STEPS: readonly number[] = [100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200];
