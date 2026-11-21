@@ -220,25 +220,26 @@ export const FLOW_DEFAULTS: FlowSceneParams = {
  */
 export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.35, flowLag: 0.85, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 128,
-    flowMode: 2, flowTop: 2, densPow: 0.5, flowEdge: 1.5, flowDensityScale: 0.03, flowErode: 0.5, flowTilt: 0.3, sheet: 0.55,
+    flowMode: 2, flowTop: 2, densPow: 0.55, flowEdge: 1.35, flowDensityScale: 0.032, flowErode: 0.75, flowTilt: 0.4, sheet: 0.55,
     flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2,
     // 2026-11-13 가까운 가장자리 깎기 + 바람결(4배) — 흐름 모형 층적운이 결 없이 뭉개지던 것.
-    flowCarve: 1.4, flowGrain: 4,
-    // 2026-11-13 찢긴 결 0.65 — 흐름 구름 끝이 포도송이 대신 이어지면서 거칠게 찢긴 결로 풀리게 함.
-    flowWisp: 0.65 },
+    flowCarve: 1.55, flowGrain: 4,
+    // 2026-11-13 찢긴 결 — 흐름 구름 끝이 포도송이·상자 대신 이어지면서 거칠게 찢긴 결로 풀리게 함.
+    flowWisp: 0.8 },
   // 2026-11-13 상·중층(ac·ci·cs)은 변위를 줄임(flowDisp) — 흐름 + high 에서 우유 거품처럼 소용돌이로 늘어지던 것. 덩어리 배치는 그대로.
   ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.45, flowLag: 0.8, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 128,
-    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.04, flowErode: 0.6, flowTilt: 0.3,
+    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 1.8, flowDensityScale: 0.04, flowErode: 0.7, flowTilt: 0.35,
     flowShapeAmount: 0.25, flowShapeDetailAmount: 0.3,
-    flowCarve: 0.8, flowGrain: 3, flowWisp: 0.4 },
-  cu: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.75, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
-    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0,
-    flowCarve: 0.7, flowGrain: 2.5, flowWisp: 0.35 },
+    flowCarve: 1.05, flowGrain: 3.2, flowWisp: 0.55 },
+  cu: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.75, flowWave: 0, flowAniso: 0.65, flowTemplateRes: 128,
+    flowMode: 2, flowTop: 2, densPow: 0.55, flowEdge: 1.15, flowDensityScale: 0.045, flowErode: 1.1, flowTilt: 0.35,
+    flowCarve: 1.35, flowGrain: 3.2, flowWisp: 0.75 },
   cg: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.75, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
-    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0,
-    flowCarve: 0.7, flowGrain: 2.5, flowWisp: 0.35 },
+    flowMode: 2, flowTop: 2, densPow: 0.45, flowEdge: 1.15, flowDensityScale: 0.055, flowErode: 1.0, flowTilt: 0.25,
+    flowCarve: 1.1, flowGrain: 2.8, flowWisp: 0.55 },
   cb: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
-    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1.5, flowErode: 1.0, flowTilt: 0 },
+    flowMode: 2, flowTop: 2, densPow: 0.4, flowEdge: 1.4, flowDensityScale: 0.075, flowErode: 1.0, flowTilt: 0.15,
+    flowCarve: 0.85, flowGrain: 2.2, flowWisp: 0.4 },
   // 상층 권운: 저층 와류(flowCore)와 분리해 상층 바람·연직 시어·안정도(stratiformField/flowLaminar)로 생성.
   // 기울임 0.6(부드러운 낙하 경사 — 과도한 직선화 방지). 기본값은 liveScene 이 상층 습윤·운량·전단·DNI 로 연속 보간.
   ci: { flow: 1, flowLaminar: 1, flowVeil: 0.25, flowDPow: 1.4, flowQ: 0.6, flowZ: 0.2, flowT: 0.8, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 128,

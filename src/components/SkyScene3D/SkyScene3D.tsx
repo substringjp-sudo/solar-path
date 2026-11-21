@@ -4385,6 +4385,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               ...(mask.water ? [{ size: mask.size, halfM: mask.halfM, data: mask.water }] : []),
             ],
             footprints: mask.footprints,
+            pave: mask.pave,
           };
           bldCoverRef.current = { key, cover };
           const patch = demPatchRef.current, renderer = rendererRef.current;

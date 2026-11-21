@@ -72,7 +72,8 @@ export function patchBillowShader(mat: PatchableMaterial): void {
     '      vec4 bH = smoothstep(vec4(0.05), vec4(0.3), weather.heightFraction);',
     '      // 깎기 꼴(billowP.w 1): 혹 사이 골만 파고 바깥으로 솟지 않음 — 솟기 꼴은 약한 칸에 새 조각 구름을 만듦(3차 판정)',
     '      float bV = billowP.w > 0.5 ? min(bB, 0.0) : bB;',
-    '      density = mix(density, clamp(weather.sd + billowP.y * bV * bH - billowP.z, 0.0, 1.0), bNear);',
+    '      vec4 bBaseScale = weather.density / max(clamp(weather.sd, 0.0, 1.0), vec4(1e-4));',
+    '      density = mix(density, clamp(weather.sd + billowP.y * bV * bH - billowP.z, 0.0, 1.0) * clamp(bBaseScale, 0.0, 1.0), bNear);',
     '    }',
     '  }',
   ].join('\n') + '\n');

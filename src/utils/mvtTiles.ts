@@ -523,11 +523,18 @@ export const ROAD_WIDTH_M: Record<string, number> = {
   motorway: 24, trunk: 20, primary: 16, secondary: 12, tertiary: 10, minor: 7, service: 5,
 };
 /** 도로 양옆 인도·갓길(시멘트) 폭(m) */
-export const ROAD_SIDEWALK_M = 4;
-/** 건물 둘레 시멘트 마당 폭(m) */
-export const PAVE_BUILDING_APRON_M = 12;
+export const ROAD_SIDEWALK_M = 3.5;
+/** 건물 둘레 시멘트 마당 폭(m) — 도로 인도 바깥으로 둥근 혹처럼 튀어나오지 않도록 건물 바로 둘레(3.5m)로 제한 */
+export const PAVE_BUILDING_APRON_M = 3.5;
 export const PAVE_HALF_M = 1600;
 export const PAVE_SIZE = 1024;
+/**
+ * 포장·도로 경계 SDF(Signed Distance Field) 반폭(텍셀).
+ * 0.5(바이트 128)를 정확한 기하학적 경계(d = r)로 두고 ±PAVE_SDF_HALF_PX 텍셀 구간에 선형 거리를 기록합니다.
+ * 쌍선형 보간(THREE.LinearFilter) 시 4개 코너 텍셀이 모두 클램프(0/255) 안쪽 선형 구간에 놓이므로,
+ * 셰이더에서 0.5 등고선을 자르면 3.125 m 격자에서도 물결(Scalloping) 없이 완벽한 대각선 직선이 복원됩니다.
+ */
+export const PAVE_SDF_HALF_PX = 2.75;
 /** 가로등을 세우는 큰 도로 종류. */
 export const LAMP_ROAD_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 /** 가로등 간격(m, 한쪽 기준). 넓은 도로(폭 16 m 이상)는 양쪽에, 좁은 도로는 지그재그로. */
@@ -542,14 +549,16 @@ export const FOOTPRINT_MAX_M = 1700;
 /** 이보다 작은 발자국(m², 대략)은 모으지 않습니다 — 창고 문짝·정자 같은 것. */
 export const FOOTPRINT_MIN_AREA_M2 = 12;
 
-/** 선분 둘레 반지름 r(m) 안의 칸을 value 로(최댓값). buf 는 stride 2 의 채널 ch. */
+/** 선분 둘레 반지름 r(m)의 부호 거리장(SDF, d=r 에서 0.5·value)을 기록(최댓값). buf 는 stride 2 의 채널 ch. */
 function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
   a: { x: number; z: number }, b: { x: number; z: number }, rM: number, value: number): void {
   const scale = size / (2 * halfM);
   const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
   const r = rM * scale;
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + 1));
-  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + 1));
+  const sdfW = PAVE_SDF_HALF_PX;
+  const invSpan = 1 / (2 * sdfW);
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - sdfW - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + sdfW + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - sdfW - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + sdfW + 1));
   if (x0 > x1 || z0 > z1) return;
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
   for (let zz = z0; zz <= z1; zz++) {
@@ -560,8 +569,7 @@ function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
       const d = Math.sqrt(ex * ex + ez * ez);
-      // 가장자리 1칸은 부드럽게(안티에일리어싱)
-      const cov = d <= r - 0.5 ? 1 : d >= r + 0.5 ? 0 : r + 0.5 - d;
+      const cov = d <= r - sdfW ? 1 : d >= r + sdfW ? 0 : 0.5 + (r - d) * invSpan;
       if (cov <= 0) continue;
       const o = (zz * size + xx) * 2 + ch, v = Math.round(value * cov);
       if (v > buf[o]) buf[o] = v;
@@ -574,8 +582,10 @@ function stampSegmentMono(buf: Uint8Array, size: number, halfM: number,
   const scale = size / (2 * halfM);
   const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
   const r = rM * scale;
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + 1));
-  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + 1));
+  const sdfW = value > 0 ? PAVE_SDF_HALF_PX : 0.5;
+  const invSpan = 1 / (2 * sdfW);
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - sdfW - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + sdfW + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - sdfW - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + sdfW + 1));
   if (x0 > x1 || z0 > z1) return;
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
   for (let zz = z0; zz <= z1; zz++) {
@@ -586,7 +596,11 @@ function stampSegmentMono(buf: Uint8Array, size: number, halfM: number,
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
       const d = Math.sqrt(ex * ex + ez * ez);
-      const cov = d <= r - 0.5 ? 1 : d >= r + 0.5 ? 0 : r + 0.5 - d;
+      if (value === 0) {
+        if (d <= r) buf[zz * size + xx] = 0;
+        continue;
+      }
+      const cov = d <= r - sdfW ? 1 : d >= r + sdfW ? 0 : 0.5 + (r - d) * invSpan;
       if (cov <= 0) continue;
       const o = zz * size + xx, v = Math.round(value * cov);
       if (v > buf[o]) buf[o] = v;
@@ -727,13 +741,17 @@ export async function fetchUrbanMask(
         }
       }
     }
-    // 건물 둘레 마당: 원판 팽창(분리 가능한 최댓값 두 번 = 정사각형이라, 거리장으로 원판). 반지름 PAVE_BUILDING_APRON_M.
+    // 건물 둘레 마당: 원판 팽창(거리장으로 원판 + SDF 선형 램프). 반지름 PAVE_BUILDING_APRON_M.
     const rA = PAVE_BUILDING_APRON_M * pSize / (2 * pHalf);
-    const R = Math.ceil(rA);
+    const sdfW = PAVE_SDF_HALF_PX;
+    const R = Math.ceil(rA + sdfW);
     const offs: [number, number, number][] = [];
     for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
       const d = Math.hypot(dx, dy);
-      if (d <= rA + 0.5) offs.push([dx, dy, d <= rA - 0.5 ? 255 : Math.round(255 * (rA + 0.5 - d))]);
+      if (d < rA + sdfW) {
+        const cov = d <= rA - sdfW ? 1 : 0.5 + (rA - d) / (2 * sdfW);
+        offs.push([dx, dy, Math.round(255 * cov)]);
+      }
     }
     for (let y = 0; y < pSize; y++) for (let x = 0; x < pSize; x++) {
       if (bGrid[y * pSize + x] < 128) continue;
@@ -761,6 +779,8 @@ export async function fetchUrbanMask(
           for (let i = 1; i < pts.length; i++) {
             stampSegment(pave, pSize, pHalf, 0, pts[i - 1], pts[i], w / 2 + ROAD_SIDEWALK_M, 255);
             stampSegment(pave, pSize, pHalf, 1, pts[i - 1], pts[i], w / 2, 255);
+            // 도로 구간도 도시 고도 평탄화(bldCover)에 포함해 공원·강변 도로가 SRTM 수목/건물 고도 요철로 출렁이지 않게 함
+            stampSegmentMono(bldCover, BLD_COVER_SIZE, halfM, pts[i - 1], pts[i], w / 2 + ROAD_SIDEWALK_M + 10, 255);
             if (!lit) continue;
             // 2026-11-18 가로등(사용자 제안): 큰 도로 가장자리(차도 끝 안쪽 0.5 m)에 LAMP_SPACING_M 간격.
             //   지도 도로 폭(ROAD_WIDTH_M)이 실제보다 좁을 때가 많아 차도 바깥에 두면 건물 안에 서서 벽에 가려졌음.

@@ -582,8 +582,8 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     if (farCap(band) < FAR_ONLY_MIN) return null;
     if (band === 'low') {
       const gLow = dayFairLowGenus ?? 'sc';
-      const baseKm = Math.max(groundKm + 0.15, forecast.lowBaseKm ?? (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low) - 0.5);
-      return { genus: gLow, cover: FAR_ONLY_COVER, baseKm, thicknessM: 1000, band, opts: { ...flowOpts('low'), spacingKm: aspectSpacingKm(gLow, 1000) } };
+      const baseKm = Math.max(groundKm + 0.15, forecast.lowBaseKm ?? (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low) - 0.3);
+      return { genus: gLow, cover: FAR_ONLY_COVER, baseKm, thicknessM: 550, band, opts: { ...flowOpts('low'), spacingKm: aspectSpacingKm(gLow, 550) } };
     }
     if (band === 'mid') {
       const baseKm = Math.max(groundKm + 0.5, 2.2, forecast.midBaseKm ?? (obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - 0.3);
@@ -655,8 +655,13 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
     } else {
       const g = (rawLowGenus === 'cu' || rawLowGenus === 'sc') && dayFairLowGenus ? dayFairLowGenus : renderGenusFor(rawLowGenus);
-      // 2026-11-18 적운(cu)은 덱 두께를 1.5 km 에서 자름 — 맑은 날 적운(humilis·mediocris)은 깊이가 폭보다 작음. 예보 덱(최대 3 km)을 그대로 쓰면 높고 뾰족한 탑.
-      if (g === 'cu' && thicknessM != null) thicknessM = Math.min(thicknessM, CU_MAX_THICK_M);
+      // 맑거나 부분 운량인 날의 적운(cu)·층적운(sc)은 예보 단면이 성긴 기압면 간격 때문에 1.2~1.6 km 로 과대평가되어
+      // 위아래로 길쭉한 상자 기둥이 되지 않도록, 실제 얕은 적운(humilis/fractus)·층적운의 운량별 물리 두께 상한(360~1300 m)으로 맞춥니다.
+      if (g === 'cu' || g === 'sc') {
+        const coverFrac = clamp(obs.low / 100, 0.05, 1);
+        const fairCapM = Math.round(((g === 'cu' ? 360 + 940 * Math.pow(coverFrac, 0.75) : 320 + 680 * Math.pow(coverFrac, 0.75))) / 50) * 50;
+        thicknessM = thicknessM != null ? Math.min(thicknessM, fairCapM, CU_MAX_THICK_M) : fairCapM;
+      }
       // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
       const spacingKm = g === 'cu' || g === 'sc' ? aspectSpacingKm(g, thicknessM ?? GENUS[g].height) : undefined;
       // §144·§147 층운(st)·난층운(ns) 및 완전 흐림(>= 98% 또는 강수+90%+)은 fullCover(>= 0.999) 이상인 1.0으로 두어

@@ -675,11 +675,22 @@ void main() {
   vec3 nMacro = n;
   float ny = max(nMacro.y, 1e-3);
   float slope = sqrt(max(0.0, 1.0 - ny * ny)) / ny;   // = tanθ
-  // 2026-11-18 포장된 곳은 법선을 위로 많이 눕힙니다. 도심 고도 자료(SRTM 계열)에는 건물 높이가 섞여 평지가
-  // tan 1~2 로 울퉁불퉁하게 나오는데(나고야역 둘레에서 잼), 도로·광장은 실제로 평평합니다.
+  // 2026-11-18 포장된 곳(±1.6 km, 광폭 선형 SDF): 0.5 등고선이 정확한 도로·인도 경계입니다.
+  // 쌍선형 보간된 선형 SDF 에 화면 미분(fwidth / pixG) 폭만큼만 안티에일리어싱을 걸어
+  // 3.125 m 텍셀 격자의 물결(Scalloping) 없이 대각선 도로 경계를 칼날처럼 곧은 직선으로 복원합니다.
   vec2 pvN = paveRaw(vGround);
-  float paveN = max(pvN.r, pvN.g);
-  n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.75 * paveN));
+  float paveSlopeW = (1.0 - smoothstep(2.5, 4.0, slope)) * (1.0 - ((uDemValid > 0.5 && isSeaZone) ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0));
+  // SDF 1단위 = 2 * PAVE_SDF_HALF_PX(2.75) * 3.125m ≈ 17.19m. 화면 1.2 픽셀 폭만큼만 부드럽게 전환.
+  float pvAa = clamp(pixG * 0.075, 0.008, 0.11);
+  float paveC = smoothstep(0.5 - pvAa, 0.5 + pvAa, pvN.r) * paveSlopeW;
+  float paveA = smoothstep(0.5 - pvAa, 0.5 + pvAa, pvN.g) * paveSlopeW;
+  float paveAny = max(paveC, paveA);
+  // 차도(paveA)와 인도(paveC) 경계(pvN.g ≈ 0.5)에 얇은 연석(curb) 음영선을 넣어 도로 경계 품질을 높입니다.
+  float curbW = max(pvAa * 1.35, 0.018);
+  float curbLine = paveC * (1.0 - smoothstep(0.0, curbW, abs(pvN.g - 0.5)));
+  float paveN = paveAny;
+  // 도심 고도 자료(SRTM 계열)에는 건물 높이가 섞여 평지가 기울어 나오지만 도로·인도 노면은 수평에 가깝습니다.
+  n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.95 * paveAny));
 #ifdef TERRAIN_LIT_OUT
   // §157 **미세 기복 + 초근접(cm~dm) 지표 디테일** — 자료(15m)가 모르는 요철과 발밑(0.6~95m)의 풀·자갈·암반 질감.
   //
@@ -770,8 +781,8 @@ void main() {
         }
       }
     }
-    // 포장 위는 풀·자갈 요철을 거의 지웁니다(도로가 풀밭과 같은 결로 보이지 않게).
-    vec2 g0 = vec2(-n.x, -n.z) / max(n.y, 1e-3) + gm * (1.0 - 0.9 * paveN);
+    // 포장 도로·인도 위는 38cm/11cm 풀·자갈 세포 법선 요철(gm)을 완전히 제거해 매끄러운 아스팔트 노면이 되게 합니다.
+    vec2 g0 = vec2(-n.x, -n.z) / max(n.y, 1e-3) + gm * (1.0 - paveAny);
     n = normalize(vec3(-g0.x, 1.0, -g0.y));
   }
 #endif
@@ -805,6 +816,8 @@ void main() {
       shade = smoothstep(uSunAltRad - 0.00463, uSunAltRad + 0.00463, hz);
     }
   }
+  // 도심 DEM의 미세 고도 둔덕이 평평한 도로 한가운데에 구불구불한 가짜 언덕 그림자를 드리우지 않도록 억제합니다.
+  shade *= 1.0 - 0.85 * paveAny;
   ndl *= 1.0 - shade;
 
   // ── 구름이 드리우는 그림자 ──────────────────────────────────────────────
@@ -832,6 +845,7 @@ void main() {
       moonShade = smoothstep(uMoonAltRad - 0.00463, uMoonAltRad + 0.00463, hzMoon);
     }
   }
+  moonShade *= 1.0 - 0.85 * paveAny;
   ndlMoon *= 1.0 - moonShade;
   ndlMoon *= cloudT;
 
@@ -874,17 +888,9 @@ void main() {
   float urbanMask = clamp(urbanRaw * urbanSlopeGuard * (1.0 - wet), 0.0, 1.0);
   vec3 albUrban = vec3(dot(uAlbedo, vec3(0.30, 0.59, 0.11)));
   alb = mix(alb, albUrban, urbanMask);
-  // 2026-11-18 포장(±1.6 km, 약 3 m 칸): 건물 둘레·도로 가장자리는 밝은 시멘트, 도로 가운데는 어두운 아스팔트 — 흙이 비치지 않게.
-  // 포장은 도시 경사 제한(tan 0.16~0.38)을 쓰지 않습니다. 도심 고도 자료는 건물 높이가 섞여 평지가 tan 1~2 로
-  // 나오므로, 그 제한을 쓰면 도심 한가운데 포장이 꺼집니다(나고야역 둘레에서 확인). 지도에 있으면 칠합니다.
-  vec2 pv = pvN * ((1.0 - smoothstep(2.5, 4.0, slope)) * (1.0 - wet));
-  // 3m 격자 포장 텍스처 확대 시 경계가 흐릿하게 번지지 않도록 smoothstep으로 경계선 샤프닝
-  float pvSharp = clamp(pixG * 0.025, 0.035, 0.14);
-  float paveC = smoothstep(0.42 - pvSharp, 0.42 + pvSharp, pv.r);
-  float paveA = smoothstep(0.45 - pvSharp, 0.45 + pvSharp, pv.g);
-  float paveAny = max(paveC, paveA);
-  vec3 albConcrete = albUrban * vec3(1.75, 1.72, 1.66);
-  vec3 albAsphalt = albUrban * vec3(0.52, 0.52, 0.55);
+  // 건물 둘레·도로 인도는 밝은 시멘트, 차도는 차가운 암회색 아스팔트, 그 사이에는 연석(curbLine) 음영을 둡니다.
+  vec3 albConcrete = albUrban * vec3(1.75, 1.72, 1.66) * (1.0 - 0.25 * curbLine);
+  vec3 albAsphalt = albUrban * vec3(0.46, 0.48, 0.54);
   alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
   float waterRaw = max(waterHiRaw(vGround), max(0.0, mvtWaterHere));
   waterRaw *= (1.0 - smoothstep(0.45, 0.75, paveAny)) * (1.0 - smoothstep(0.8, 1.8, slope));
@@ -935,7 +941,7 @@ void main() {
     convex = mix(0.5, ambSample.g, fadeAmb);
   }
   vec3 albL = alb;
-  albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.06), paveAny) * mot;   // 도시 지반은 무채색 콘크리트 농담
+  albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.03), paveAny) * mot;   // 도시 지반은 무채색 콘크리트 농담
   // 군락: 근거리에서는 Height-Based Blending 으로 큰 패치(46m·9.5m·23m) 경계를 자잘한 풀·자갈·틈새로 쪼갭니다.
   vec2 patchG = vGround + nearWarp * (1.2 * nearW);
   float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
@@ -955,19 +961,19 @@ void main() {
     float rockFissure = 1.0 - 0.10 * clamp(rockCrack, 0.0, 1.0);
     float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
     float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
-    grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.10, paveAny);   // 포장: 고운 알갱이만
-    float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi);
+    grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.05, paveAny);   // 포장: 매우 고운 아스팔트 입자만
+    float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi * (1.0 - paveAny));
     albL *= mix(1.0, grainFactor, dryNear * clamp(uLookMottle, 0.0, 1.2));
   }
-  albL *= 1.0 + uLookMottle * 0.25 * (convex - 0.5);          // 둔덕은 조금 밝게(마르고 트임), 움푹은 어둡게
+  albL *= 1.0 + uLookMottle * 0.25 * (convex - 0.5) * (1.0 - 0.85 * paveAny);          // 둔덕은 조금 밝게(마르고 트임), 움푹은 어둡게
   // 갯벌 윗자락·방조제 밑은 마르고 밝습니다 — 젖은 아랫자락(×0.52, 위)과 이어져 물가에서 땅으로 가는 **그라데이션**이 생깁니다.
-  float dryBand = smoothstep(0.9, 1.8, elevF) * (1.0 - smoothstep(2.5, 5.0, elevF)) * slopeFlat;
+  float dryBand = smoothstep(0.9, 1.8, elevF) * (1.0 - smoothstep(2.5, 5.0, elevF)) * slopeFlat * (1.0 - paveAny);
   albL = mix(albL, albL * vec3(1.45, 1.38, 1.22), dryBand * 0.55 * uLookMottle);
 
   // ── 방안 C: 근거리 Micro Cavity AO + Oren-Nayar 거칠기 음영 ──────────────
   // 풀·자갈·바위 틈새에 하늘빛/직달 미세 차폐를 걸고, 건조 지표에 거친 표면 음영과 약한 광물 반짝임을 더합니다.
   // 평균 밝기는 보존(0.5 전후 대칭 보정)해 기존 노출·색감 교정(VOLUMETRIC_TERRAIN_ALBEDO)이 틀어지지 않게 합니다.
-  float microStrength = nearW * (1.0 - wet) * (0.40 + 0.60 * uLookMicro) * (1.0 - 0.85 * paveAny);
+  float microStrength = nearW * (1.0 - wet) * (0.40 + 0.60 * uLookMicro) * (1.0 - paveAny);
   float crackOcc = clamp(rockCrack * 0.55 * mix(0.4, 1.0, rockMaskHi), 0.0, 0.45);
   float microAo = mix(1.0, clamp(mix(0.76, 1.16, detailH) - crackOcc * 0.20, 0.60, 1.14), microStrength);
   float microDirect = mix(1.0, clamp(mix(0.80, 1.16, detailH) - crackOcc * 0.16, 0.64, 1.14), microStrength);
@@ -993,7 +999,7 @@ void main() {
       vec3 H = normalize(V + sun);
       float dryGrit = mix(0.25, 1.0, rockMaskHi) * (1.0 - 0.75 * shrub) * (0.4 + 0.6 * detailCellId);
       float microSpec = pow(max(0.0, dot(n, H)), mix(20.0, 44.0, rockMaskHi)) * 0.14 * dryGrit * (1.0 - shade) * cloudT;
-      float dryWeight = nearW * (1.0 - wet);
+      float dryWeight = nearW * (1.0 - wet) * (1.0 - 0.92 * paveAny);
       litOut = clamp(litOut * mix(1.0, oren, dryWeight) + microSpec * dryWeight, 0.0, 1.0);
     }
   }
@@ -1014,10 +1020,10 @@ void main() {
   float urbLumaScale = clamp(dot(albL, vec3(0.30, 0.59, 0.11)) / max(dot(uAlbedo, vec3(0.30, 0.59, 0.11)), 1e-4), 0.70, 1.30);
   vec3 urbLitAlb = vec3(0.056, 0.058, 0.062) * urbLumaScale;
   // 포장은 도시 평균 회색(urbLitAlb, 밝기 ±30% 로 묶임)을 거치지 않고 제 색을 씁니다.
-  // 풀밭 0.05 안팎에 견줘 시멘트는 약 1.7배, 아스팔트는 약 0.45배입니다.
-  float paveGrain = 1.0 + 0.12 * mot + (nearW > 0.001 ? (detailGrain - 0.5) * 0.10 * nearW : 0.0);
-  vec3 concreteLit = vec3(0.088, 0.087, 0.083) * paveGrain;
-  vec3 asphaltLit = vec3(0.024, 0.024, 0.026) * paveGrain;
+  // 풀밭 0.05 안팎에 견줘 인도(시멘트)는 밝은 회백색, 차도(아스팔트)는 차가운 암회색이며 연석(curbLine)으로 경계를 또렷이 가릅니다.
+  float paveGrain = 1.0 + 0.04 * mot + (nearW > 0.001 ? (detailGrain - 0.5) * 0.06 * nearW : 0.0);
+  vec3 concreteLit = vec3(0.092, 0.091, 0.088) * paveGrain * (1.0 - 0.28 * curbLine);
+  vec3 asphaltLit = vec3(0.023, 0.025, 0.029) * paveGrain;
   vec3 outLitAlb = mix(natLitAlb, urbLitAlb, urbanMask);
   outLitAlb = mix(mix(outLitAlb, concreteLit, paveC), asphaltLit, paveA);
   outLitAlb = mix(outLitAlb, vec3(0.012, 0.042, 0.056), waterMix);

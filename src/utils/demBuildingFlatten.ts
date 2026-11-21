@@ -40,6 +40,12 @@ export interface BuildingCover {
    * (사용자: 내륙의 물이 땅 위에 씌워져 강이 오르락내리락함). 표면 고도 자료는 수면 위 다리·배·둑 높이와 레이더 잡음이 섞여 있습니다.
    */
   water?: Array<{ size: number; halfM: number; data: Uint8Array }>;
+  /**
+   * 포장·도로 덮개(stride 2: [시멘트, 아스팔트], 0~255, 관측자 둘레 ±halfM).
+   * 있으면 도로 노면 아래의 국소 고도 요철(인접 건물·수목 레이더 반사 잔여분)을 완만하게 다림질해
+   * 직선 도로가 위아래·좌우로 구불거리거나 도로 한가운데 가짜 언덕 그림자가 생기는 것을 막습니다.
+   */
+  pave?: { size: number; halfM: number; data: Uint8Array };
 }
 
 /** 발자국 둘레에서 바닥 높이를 재는 고리 폭(m). */
@@ -423,6 +429,71 @@ export function flattenDemPatchUnderBuildings(
     stats.touched += fRes.stats.touched;
     stats.maxDropM = Math.max(stats.maxDropM, fRes.stats.maxDropM);
     stats.maxRaiseM = Math.max(stats.maxRaiseM, fRes.stats.maxRaiseM);
+  }
+  // 도로·인도 노면 고도 다림질: DEM 칸(약 15~19 m)에 남은 건물·가로수 고도 번짐 때문에 직선 도로가
+  // 위아래·좌우로 출렁이거나 도로 한가운데 가짜 언덕 그림자가 생기는 것을 막습니다.
+  if (cover.pave) {
+    const pv = cover.pave;
+    const pScale = pv.size / (2 * pv.halfM);
+    const roadW = new Float32Array(n * n);
+    let rx0 = n, rx1 = -1, ry0 = n, ry1 = -1;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      let maxP = 0;
+      for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
+        const gx = ((i + (sx + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
+        const gz = ((j + (sy + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
+        const cx = Math.floor((gx + pv.halfM) * pScale), cy = Math.floor((gz + pv.halfM) * pScale);
+        if (cx < 0 || cy < 0 || cx >= pv.size || cy >= pv.size) continue;
+        const o = (cy * pv.size + cx) * 2;
+        const v = Math.max(pv.data[o], pv.data[o + 1]) / 255;
+        if (v > maxP) maxP = v;
+      }
+      const w = smoothstep(0.25, 0.55, maxP);
+      roadW[j * n + i] = w;
+      if (w > 0.01) {
+        if (i < rx0) rx0 = i;
+        if (i > rx1) rx1 = i;
+        if (j < ry0) ry0 = j;
+        if (j > ry1) ry1 = j;
+      }
+    }
+    if (rx1 >= 0) {
+      const rRoad = Math.max(2, Math.round(45 / texelM));
+      // 도로 주변의 솟은 봉우리(건물·나무 잔여분)를 한 번 더 깎고 넓은 평균으로 노면 경사를 완만하게 이어 줍니다.
+      let smoothRoad = rankFilter(
+        heights,
+        n,
+        Math.max(1, Math.round(25 / texelM)),
+        true,
+        Math.max(0, ry0 - rRoad),
+        Math.min(n - 1, ry1 + rRoad),
+        Math.max(0, rx0 - rRoad),
+        Math.min(n - 1, rx1 + rRoad),
+      );
+      smoothRoad = rankFilter(
+        smoothRoad,
+        n,
+        Math.max(1, Math.round(25 / texelM)),
+        false,
+        Math.max(0, ry0 - rRoad),
+        Math.min(n - 1, ry1 + rRoad),
+        Math.max(0, rx0 - rRoad),
+        Math.min(n - 1, rx1 + rRoad),
+      );
+      smoothRoad = boxBlur(smoothRoad, n, rRoad);
+      smoothRoad = boxBlur(smoothRoad, n, Math.max(1, Math.round(rRoad * 0.6)));
+      const rwBlur = boxBlur(roadW, n, 1);
+      for (let k = 0; k < n * n; k++) {
+        const wk = Math.max(roadW[k], rwBlur[k] * 0.75);
+        if (wk <= 0.01) continue;
+        const v = heights[k] + wk * (smoothRoad[k] - heights[k]);
+        const d = heights[k] - v;
+        heights[k] = v;
+        stats.touched++;
+        if (d > stats.maxDropM) stats.maxDropM = d;
+        if (-d > stats.maxRaiseM) stats.maxRaiseM = -d;
+      }
+    }
   }
   if (stats.touched === 0) { patch.flattenedBy = cover; return stats; }
   const out = new Uint8Array(n * n * 4);

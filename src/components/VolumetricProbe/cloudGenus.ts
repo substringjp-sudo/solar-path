@@ -1011,38 +1011,45 @@ function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer)
  */
 function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer, flow: FlowSceneParams): FieldPx {
   const windDeg = flow.windDeg ?? param(L, 'windDeg') ?? 30;
-  const warpU = fbm(8, 2, seed + 11), warpV = fbm(8, 2, seed + 13);
+  const warpU = fbm(8, 3, seed + 11), warpV = fbm(8, 3, seed + 13);
+  const fineWarpU = fbm(20, 2, seed + 17), fineWarpV = fbm(20, 2, seed + 19);
   if (L.genus === 'ci') {
     const band = alignedFbm(windDeg, 12, 2.5, tileKm, 3, seed + 1);
     const fib = alignedFbm(windDeg, 4, 0.25, tileKm, 2, seed + 7);
     return (x, y) => {
       const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
-      const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
+      const u = u0 + (warpU(u0, v0) - 0.5) * 0.08, v = v0 + (warpV(u0, v0) - 0.5) * 0.08;
       const r = 1 - Math.abs(2 * fib(u, v) - 1);
       return band(u, v) * (0.25 + 0.75 * r * r * r);
     };
   }
   if (L.genus === 'sc' || L.genus === 'ac') {
-    const cellKm = L.genus === 'ac' ? 0.8 : 2.2;
-    const band = alignedFbm(windDeg, cellKm * 3.5, cellKm, tileKm, 3, seed + 3);
-    const coarse = fbm(Math.max(4, Math.round(tileKm / (cellKm * 1.4))), 3, seed + 5);
-    const fine = fbm(Math.max(8, Math.round(tileKm / (cellKm * 0.45))), 2, seed + 7);
+    const cellKm = L.genus === 'ac' ? 0.8 : 2.0;
+    const band = alignedFbm(windDeg, cellKm * 3.5, cellKm * 0.9, tileKm, 3, seed + 3);
+    const coarse = fbm(Math.max(4, Math.round(tileKm / (cellKm * 1.3))), 3, seed + 5);
+    const fine = fbm(Math.max(10, Math.round(tileKm / (cellKm * 0.35))), 3, seed + 7);
+    const shred = alignedFbm(windDeg + 18, cellKm * 1.6, cellKm * 0.28, tileKm, 2, seed + 23);
     return (x, y) => {
       const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
-      const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
-      const ridge = 1 - Math.abs(2 * coarse(u, v) - 1);
-      return 0.45 * band(u, v) + 0.35 * ridge + 0.20 * fine(u, v);
+      const u = u0 + (warpU(u0, v0) - 0.5) * 0.11 + (fineWarpU(u0, v0) - 0.5) * 0.04;
+      const v = v0 + (warpV(u0, v0) - 0.5) * 0.11 + (fineWarpV(u0, v0) - 0.5) * 0.04;
+      const ridge1 = Math.pow(1 - Math.abs(2 * coarse(u, v) - 1), 1.35);
+      const ridge2 = Math.pow(1 - Math.abs(2 * shred(u, v) - 1), 1.5);
+      return 0.34 * band(u, v) + 0.34 * ridge1 + 0.18 * ridge2 + 0.14 * fine(u, v);
     };
   }
-  const cellKm = L.genus === 'cb' ? 6.0 : L.genus === 'cg' ? 3.2 : 2.0;
-  const macro = fbm(Math.max(2, Math.round(tileKm / (cellKm * 2.0))), 3, seed + 3);
-  const eddy = fbm(Math.max(4, Math.round(tileKm / (cellKm * 0.8))), 3, seed + 5);
-  const detail = alignedFbm(windDeg, cellKm * 1.5, cellKm * 0.5, tileKm, 2, seed + 7);
+  const cellKm = L.genus === 'cb' ? 6.0 : L.genus === 'cg' ? 3.2 : 1.9;
+  const macro = fbm(Math.max(2, Math.round(tileKm / (cellKm * 1.8))), 3, seed + 3);
+  const eddy = fbm(Math.max(5, Math.round(tileKm / (cellKm * 0.7))), 3, seed + 5);
+  const detail = alignedFbm(windDeg, cellKm * 1.6, cellKm * 0.42, tileKm, 3, seed + 7);
+  const filament = alignedFbm(windDeg - 15, cellKm * 1.1, cellKm * 0.24, tileKm, 2, seed + 29);
   return (x, y) => {
     const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
-    const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
-    const ridge = 1 - Math.abs(2 * eddy(u, v) - 1);
-    return 0.45 * macro(u, v) + 0.35 * ridge + 0.20 * detail(u, v);
+    const u = u0 + (warpU(u0, v0) - 0.5) * 0.11 + (fineWarpU(u0, v0) - 0.5) * 0.045;
+    const v = v0 + (warpV(u0, v0) - 0.5) * 0.11 + (fineWarpV(u0, v0) - 0.5) * 0.045;
+    const ridge = Math.pow(1 - Math.abs(2 * eddy(u, v) - 1), 1.4);
+    const shred = Math.pow(1 - Math.abs(2 * filament(u, v) - 1), 1.55);
+    return 0.34 * macro(u, v) + 0.32 * ridge + 0.18 * detail(u, v) + 0.16 * shred;
   };
 }
 

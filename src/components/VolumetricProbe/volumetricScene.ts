@@ -979,7 +979,7 @@ export async function createVolumetricScene(
       '      dens = genusSheetMix(vec4(dens), vec4(densB), vec4(genusSheetW(planeKm + dKm))).x;',
       '    }',
       // 가까운 구름과 같은 큰 무늬(cloudFlowShader genusLsField) — 100 km 너머도 바람에 실려 움직이고 24 km 반복이 덜 보이게.
-      '    if (farLsAmt > 0.0) dens = clamp(dens * (1.0 + farLsAmt * (2.0 * farLsField(planeKm + dKm) - 1.0)), 0.0, 1.0);',
+      '    if (farLsAmt > 0.0) dens = pow(clamp(dens, 0.0, 1.0), exp(-farLsAmt * 0.75 * (2.0 * farLsField(planeKm + dKm) - 1.0)));',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
       '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(mix(texture(farMacroTex, mUv), texture(farMacroTexB, mUv), farMacroMix), mMask);',
@@ -987,6 +987,7 @@ export async function createVolumetricScene(
       '        vec4 sVec = texture(farMacroLut, vec2((mCov * 63.0 + 0.5) / 64.0, 0.5));',
       '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
       '        dens = clamp((dens - gMS) / max(1.0 - gMS, 1e-3), 0.0, 1.0);',
+      '        dens = pow(dens, mix(1.0, 1.85, clamp(gMS * 1.25, 0.0, 1.0)));',
       '      } else {',
       '        dens *= mCov;',
       '      }',
