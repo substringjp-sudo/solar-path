@@ -22,6 +22,7 @@
  *  7. 진행(`runProgress(시작, 간격, 장수, 찍은 장수, 지금)`) = { taken, frames, remainingS, done }: 마지막 장을 찍을 시각 = 시작 + (장수 − 1) × 간격 × 1000. 남은 초 = max(0, 올림((그 시각 − 지금) / 1000)). done = 찍은 장수 ≥ 장수.
  *     시작 0, 간격 12, 301 장: 지금 0 → 남은 3600 초, 지금 100000 → 3500 초, 지금 3600000 이상 → 0. 찍은 장수 301 이면 done 참, 300 이면 거짓.
  *  8. 미리보기 시각(`previewTimeAt(시작, 끝, 영상 초, 지난 초)`) = 시작 + (끝 − 시작) × (지난 초 ÷ 영상 초를 0~1 로 자른 값). 지난 초 0 → 시작, 영상 초의 절반 → 한가운데, 그 이상 → 끝. 영상 초가 0 이하거나 숫자가 아니면 끝.
+ *  8-2. 미리보기 읽음(`videoClock(지난 초, 영상 초)`, 2026-11-21, 목업 9 의 "0:06 / 0:12"): 지난 초는 0 ~ 영상 초로 자르고 버림, 영상 초는 반올림, 각각 "분:초"(분은 자릿수 그대로, 초는 두 자리). (6, 12) → "0:06 / 0:12", (6.9, 12) → "0:06 / 0:12", (13, 12) → "0:12 / 0:12", (−1, 12) → "0:00 / 0:12", (65, 130) → "1:05 / 2:10", (0, 12.6) → "0:00 / 0:13", (59.99, 60) → "0:59 / 1:00". 숫자가 아니면 "0:00 / 0:00".
  *  9. 종류(2026-11-20, 사용자 정리, 구현보다 먼저 박음): `kind` = 'plain'(기본, 한 장이 영상 한 프레임) · 'stacked'(밝게 합성: `stackSize` 장을 한 프레임으로 합쳐 그 프레임들로 영상) · 'trail'(궤적 누적: 처음 장부터 계속 쌓아 매 프레임이 "지금까지의 합").
  *     `frames` 는 **찍는 장수**, `outFrames` 는 **영상 프레임 수**, 영상 길이 = outFrames ÷ fps. plain: outFrames = frames. trail: outFrames = frames(한 장 찍을 때마다 누적 프레임 하나), 계산은 plain 과 같고 `cumulative` 참.
  *     stacked: 영상 프레임 수를 목표(영상 길이 × fps)로 잡고 찍는 장수 = 목표 × stackSize. 간격 = 총 시간 ÷ (영상 길이 × fps × stackSize)를 0.5 초로 맞추고 2 초 아래로는 내리지 않는다. frames = floor(총 시간 ÷ 간격) + 1, outFrames = floor(frames ÷ stackSize).
@@ -138,6 +139,10 @@ const J = JSON.stringify;
   const p4 = T.planTimelapse({ totalMin: 10, videoSec: 10, fps: 30, kind: 'stacked', stackSize: 4 });
   ok(T.savedSoFar(p4, 10) === 2 && T.savedSoFar(p4, 12) === 3 && T.savedSoFar(p4, 300) === 75 && T.savedSoFar(p4, 301) === 76 && T.savedSoFar(p4, 0) === 0, `합성: ${[10, 12, 300, 301, 0].map(n => T.savedSoFar(p4, n))}`);
   ok(T.savedSoFar(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30 }), 10) === 10 && T.savedSoFar(T.planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'trail' }), 10) === 10 && T.savedSoFar(p4, -3) === 0 && T.savedSoFar(p4, NaN) === 0, '일반 · 누적은 그대로, 음수 · NaN 은 0');
+
+  const VC = (e, t) => (typeof T.videoClock === 'function' ? T.videoClock(e, t) : null);
+  ok(VC(6, 12) === '0:06 / 0:12' && VC(6.9, 12) === '0:06 / 0:12' && VC(13, 12) === '0:12 / 0:12' && VC(-1, 12) === '0:00 / 0:12', '미리보기 읽음: 버림 · 자름');
+  ok(VC(65, 130) === '1:05 / 2:10' && VC(0, 12.6) === '0:00 / 0:13' && VC(59.99, 60) === '0:59 / 1:00' && VC(NaN, 12) === '0:00 / 0:00' && VC(5, NaN) === '0:00 / 0:00', '분 넘김 · 반올림 · 숫자가 아니면 0:00 / 0:00');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
