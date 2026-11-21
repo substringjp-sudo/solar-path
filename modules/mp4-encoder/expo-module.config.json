@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.pplaner.mp4encoder.Mp4EncoderModule"]
+  }
+}
