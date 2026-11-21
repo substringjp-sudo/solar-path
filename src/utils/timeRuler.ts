@@ -1,0 +1,108 @@
+/**
+ * timeRuler.ts — 시간 자(눈금자를 끌어 시각을 바꾸는 줄)의 순수 계산(목업 "4차 b", 2026-11-21).
+ *
+ * 가운데 파란 핀은 고정이고 눈금이 손가락을 따라 움직입니다. 한 시간 72 px(15분 18 px)로 15분마다 눈금, 30분은 조금 길게, 정시는 더 길고 글자가 붙습니다.
+ * 시각은 ms(UTC), 현지 시각은 시간대(시간 단위 오프셋)로만 봅니다.
+ *
+ * 판정: `tools/shader-preview/verify-time-ruler.js`
+ */
+type Lang = 'ko' | 'en' | 'ja';
+
+export const PX_PER_HOUR = 72;
+export const RULER_WIDTH = 390;
+/** 화면 밖으로 이만큼(px)까지 눈금을 더 그립니다. */
+export const RULER_PAD_PX = 18;
+const HOUR_MS = 3_600_000;
+const MIN_MS = 60_000;
+const DAY_MS = 24 * HOUR_MS;
+
+export type TickKind = 'hour' | 'half' | 'quarter';
+export interface RulerTick { x: number; ms: number; kind: TickKind; label?: string }
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+const localDate = (ms: number, tz: number): Date => new Date(ms + tz * HOUR_MS);
+
+export function timeText(ms: number, tz: number): string {
+  const d = localDate(ms, tz);
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+/** 가운데 시각을 기준으로 화면에 보일 눈금들(x 오름차순). */
+export function rulerTicks(centerMs: number, tz: number, width: number = RULER_WIDTH, pxPerHour: number = PX_PER_HOUR): RulerTick[] {
+  const out: RulerTick[] = [];
+  if (![centerMs, tz, width, pxPerHour].every(Number.isFinite) || pxPerHour <= 0) return out;
+  const pxPerMs = pxPerHour / HOUR_MS;
+  const lo = centerMs + (-RULER_PAD_PX - width / 2) / pxPerMs;
+  const hi = centerMs + (width + RULER_PAD_PX - width / 2) / pxPerMs;
+  // 현지 15분 경계. 현지 오프셋이 분 단위라 에포크 15분 경계에 시간대 분(0 · 30 · 45)을 더해 맞춥니다.
+  const off = tz * HOUR_MS;
+  const step = 15 * MIN_MS;
+  let t = Math.ceil((lo + off) / step) * step - off;
+  for (; t <= hi; t += step) {
+    const x = width / 2 + (t - centerMs) * pxPerMs;
+    if (x < -RULER_PAD_PX || x > width + RULER_PAD_PX) continue;
+    const d = localDate(t, tz);
+    const m = d.getUTCMinutes();
+    if (m === 0) out.push({ x, ms: t, kind: 'hour', label: `${pad2(d.getUTCHours())}:00` });
+    else out.push({ x, ms: t, kind: m === 30 ? 'half' : 'quarter' });
+  }
+  return out;
+}
+
+/** 손가락이 오른쪽(+)으로 가면 눈금이 따라 오므로 시각은 이전으로. snapMin 분 단위로 가장 가까운 분에 맞춥니다. */
+export function dragTimeMs(startMs: number, dx: number, opt: { pxPerHour?: number; snapMin?: number } = {}): number {
+  const pxPerHour = opt.pxPerHour ?? PX_PER_HOUR;
+  const snapMin = opt.snapMin ?? 1;
+  if (!Number.isFinite(startMs) || !Number.isFinite(dx) || !(pxPerHour > 0) || !(snapMin > 0)) return startMs;
+  const raw = startMs - (dx / pxPerHour) * HOUR_MS;
+  const unit = snapMin * MIN_MS;
+  return Math.round(raw / unit) * unit;
+}
+
+/** 표시(일몰 등)의 x. 0 ~ 폭 밖이면 null. */
+export function markerX(centerMs: number, markMs: number, width: number = RULER_WIDTH, pxPerHour: number = PX_PER_HOUR): number | null {
+  if (![centerMs, markMs, width, pxPerHour].every(Number.isFinite)) return null;
+  const x = width / 2 + ((markMs - centerMs) / HOUR_MS) * pxPerHour;
+  return x < 0 || x > width ? null : x;
+}
+
+const localDayIndex = (ms: number, tz: number): number => Math.floor((ms + tz * HOUR_MS) / DAY_MS);
+
+/** 현지 날짜 차이(시각 − 지금), 정수. */
+export const dayOffset = (ms: number, nowMs: number, tz: number): number => localDayIndex(ms, tz) - localDayIndex(nowMs, tz);
+
+/** 현지 시각은 그대로 n 일 옮김. */
+export const shiftDays = (ms: number, n: number): number => ms + n * DAY_MS;
+
+const WEEKDAYS: Record<Lang, readonly string[]> = {
+  ko: ['일', '월', '화', '수', '목', '금', '토'],
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  ja: ['日', '月', '火', '水', '木', '金', '土'],
+};
+
+export function dateLabel(ms: number, nowMs: number, tz: number, lang: Lang): string {
+  const off = dayOffset(ms, nowMs, tz);
+  if (off === 0) return lang === 'en' ? 'Today' : lang === 'ja' ? '今日' : '오늘';
+  if (off === -1) return lang === 'en' ? 'Yesterday' : lang === 'ja' ? '昨日' : '어제';
+  if (off === 1) return lang === 'en' ? 'Tomorrow' : lang === 'ja' ? '明日' : '내일';
+  const d = localDate(ms, tz);
+  const mo = d.getUTCMonth() + 1, da = d.getUTCDate();
+  const wd = WEEKDAYS[lang][d.getUTCDay()];
+  if (lang === 'en') return `${wd} ${mo}/${da}`;
+  if (lang === 'ja') return `${mo}/${da}(${wd})`;
+  return `${mo}.${da} ${wd}`;
+}
+
+export interface WeekDay { offset: number; ms: number; day: number; weekday: string; selected: boolean }
+
+/** 지금 기준 −2일 ~ +4일 일곱 칸. 각 칸의 ms 는 고른 시각의 현지 시각을 그대로 두고 날짜만 옮긴 값. */
+export function weekStrip(selectedMs: number, nowMs: number, tz: number, lang: Lang): WeekDay[] {
+  const selOff = dayOffset(selectedMs, nowMs, tz);
+  const base = shiftDays(selectedMs, -selOff);
+  return Array.from({ length: 7 }, (_, i) => {
+    const offset = i - 2;
+    const ms = shiftDays(base, offset);
+    const d = localDate(ms, tz);
+    return { offset, ms, day: d.getUTCDate(), weekday: WEEKDAYS[lang][d.getUTCDay()], selected: offset === selOff };
+  });
+}
