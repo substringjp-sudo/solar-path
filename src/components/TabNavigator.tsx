@@ -149,39 +149,55 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
 
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
-      <View style={[styles.page, { width, paddingTop: contentInsetTop('sky') }, activeTab !== 'sky' && styles.hiddenPage]}>
-        <SkyScreen
-          theme={theme}
-          currentTime={currentTime}
-          setCurrentTime={setCurrentTime}
-          isTimeMachineEnabled={isTimeMachineEnabled}
-          setTimeMachineEnabled={setTimeMachineEnabled}
-          events={events}
-          setMapVisible={setMapVisible}
-          onCameraPress={onCameraPress}
-          onOpenDatePicker={onOpenDatePicker}
-          isActive={activeTab === 'sky' && !isSuspended}
-          isCameraOverlayActive={isCameraOverlayActive}
-          onOpenLearn={openLearn}
-        />
-      </View>
-      <View style={[styles.page, { width, paddingTop: contentInsetTop('learn') }, activeTab !== 'learn' && styles.hiddenPage]}>
-        <LearnScreen
-          isActive={activeTab === 'learn' && !isSuspended}
-          setCurrentTime={setCurrentTime}
-          onOpenSky={() => setActiveTab('sky')}
-          entry={learnEntry}
-        />
-      </View>
-      <View style={[styles.page, { width, paddingTop: contentInsetTop('log') }, activeTab !== 'log' && styles.hiddenPage]}>
-        <Gallery
-          theme={theme}
-          dynamicTheme={dynamicTheme}
-          globalPhotos={globalPhotos}
-          myPhotos={myPhotos}
-          removeGlobalPhoto={removeGlobalPhoto}
-        />
-      </View>
+      <Animated.View
+        style={[
+          styles.track,
+          { width: width * TAB_ORDER.length, transform: [{ translateX: contentTranslateX }] },
+        ]}
+      >
+        <View
+          pointerEvents={activeTab === 'sky' ? 'auto' : 'none'}
+          style={[styles.page, { width, paddingTop: contentInsetTop('sky') }]}
+        >
+          <SkyScreen
+            theme={theme}
+            currentTime={currentTime}
+            setCurrentTime={setCurrentTime}
+            isTimeMachineEnabled={isTimeMachineEnabled}
+            setTimeMachineEnabled={setTimeMachineEnabled}
+            events={events}
+            setMapVisible={setMapVisible}
+            onCameraPress={onCameraPress}
+            onOpenDatePicker={onOpenDatePicker}
+            isActive={activeTab === 'sky' && !isSuspended}
+            isCameraOverlayActive={isCameraOverlayActive}
+            onOpenLearn={openLearn}
+          />
+        </View>
+        <View
+          pointerEvents={activeTab === 'learn' ? 'auto' : 'none'}
+          style={[styles.page, { width, paddingTop: contentInsetTop('learn') }]}
+        >
+          <LearnScreen
+            isActive={activeTab === 'learn' && !isSuspended}
+            setCurrentTime={setCurrentTime}
+            onOpenSky={() => setActiveTab('sky')}
+            entry={learnEntry}
+          />
+        </View>
+        <View
+          pointerEvents={activeTab === 'log' ? 'auto' : 'none'}
+          style={[styles.page, { width, paddingTop: contentInsetTop('log') }]}
+        >
+          <Gallery
+            theme={theme}
+            dynamicTheme={dynamicTheme}
+            globalPhotos={globalPhotos}
+            myPhotos={myPhotos}
+            removeGlobalPhoto={removeGlobalPhoto}
+          />
+        </View>
+      </Animated.View>
     </View>
   );
 };
@@ -191,10 +207,11 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
+  track: {
+    flex: 1,
+    flexDirection: 'row',
+  },
   page: {
     flex: 1,
-  },
-  hiddenPage: {
-    display: 'none',
   },
 });
