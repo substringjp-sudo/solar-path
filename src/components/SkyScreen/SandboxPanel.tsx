@@ -61,6 +61,8 @@ interface Props {
   getLoad?: () => LoadProgress | null;
   /** 먼 건물(보는 방향만 받음). 없으면 이 줄을 그리지 않습니다. */
   far?: { status: FarStatus | null; onLoad: () => void };
+  /** 단일 도구 모드: 'move'면 조이스틱, 'tools'면 먼 건물, null이면 상태 배지(시선/진행/내 위치)만. 기본값 'move'. */
+  activeTool?: 'move' | 'tools' | null;
 }
 
 const fmtM = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 1)} km` : `${m % 1 === 0 ? m : m.toFixed(1)} m`);
@@ -111,7 +113,7 @@ const LoadBarView: React.FC<{ language: 'ko' | 'en' | 'ja'; getLoad: () => LoadP
   );
 };
 
-export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, mode, onMode, drive, awayM, home, onHome, getView, getLoad, far }) => {
+export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeight, mode, onMode, drive, awayM, home, onHome, getView, getLoad, far, activeTool = 'move' }) => {
   // 이동 방향 기준: 켜짐 = 시선 기준(손잡이 위 = 지금 보는 방향, 처음 값), 꺼짐 = 북 기준(손잡이 위 = 북). 시선을 못 읽는 장면이면 북 기준으로만 움직입니다.
   const [rel, setRel] = React.useState(true);
   const ref: HeadingRef = rel && getView ? 'view' : 'compass';
@@ -138,64 +140,51 @@ export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeigh
         </View>
       )}
 
-      <Text style={styles.label}>{L3(language, '눈 높이', 'Eye height', '目の高さ')}</Text>
-      <View style={styles.chipRow}>
-        {EYE_HEIGHT_CHOICES_M.map(h => (
-          <OverlayButton
-            key={h}
-            active={Math.abs(eyeHeightM - h) < 0.01}
-            onPress={() => onEyeHeight(h)}
-            accessibilityLabel={`${L3(language, '눈 높이', 'Eye height', '目の高さ')} ${h} m`}
-            style={styles.chip}
-          >
-            <Text style={[styles.chipText, Math.abs(eyeHeightM - h) < 0.01 && { color: DARK.accent }]}>{h}</Text>
-          </OverlayButton>
-        ))}
-        <Text style={styles.unit}>m</Text>
-      </View>
-
-      <Text style={styles.label}>{L3(language, '위치 이동', 'Move', '位置移動')}</Text>
-      <View style={styles.moveRow}>
-        <MoveStick language={language} onStick={driver.onStick} onNudge={driver.nudge} relative={ref === 'view'} />
-        <View style={styles.moveCol}>
-          <View
-            style={styles.speedBox}
-            accessible
-            accessibilityLabel={`${L3(language, '지금 속도', 'Current speed', '現在の速度')} ${formatSpeed(speed)}`}
-          >
-            <Text style={styles.speedLabel}>{L3(language, '지금 속도', 'SPEED', '速度')}</Text>
-            <Text style={[styles.speedValue, moving && { color: DARK.accent }]} numberOfLines={1}>{formatSpeed(speed)}</Text>
+      {activeTool === 'move' && (
+        <View style={styles.toolCard}>
+          <View style={styles.moveRow}>
+            <MoveStick language={language} onStick={driver.onStick} onNudge={driver.nudge} relative={ref === 'view'} />
+            <View style={styles.moveCol}>
+              <View
+                style={styles.speedBox}
+                accessible
+                accessibilityLabel={`${L3(language, '지금 속도', 'Current speed', '現在の速度')} ${formatSpeed(speed)}`}
+              >
+                <Text style={styles.speedLabel}>{L3(language, '지금 속도', 'SPEED', '速度')}</Text>
+                <Text style={[styles.speedValue, moving && { color: DARK.accent }]} numberOfLines={1}>{formatSpeed(speed)}</Text>
+              </View>
+              {getView && (
+                <OverlayButton
+                  active={rel}
+                  onPress={() => setRel(r => !r)}
+                  accessibilityLabel={`${L3(language, '이동 방향 기준', 'Move direction reference', '移動方向の基準')}: ${rel ? L3(language, '시선 기준', 'where you look', '視線基準') : L3(language, '북 기준', 'north', '北基準')}`}
+                  style={styles.refBtn}
+                >
+                  <Text style={[styles.modeText, rel && { color: DARK.accent }]}>{rel ? L3(language, '시선 기준', 'View-up', '視線基準') : L3(language, '북 기준', 'North-up', '北基準')}</Text>
+                  <Text style={styles.stepSub}>{L3(language, '이동 방향', 'move axis', '移動方向')}</Text>
+                </OverlayButton>
+              )}
+            </View>
           </View>
-          {getView && (
-            <OverlayButton
-              active={rel}
-              onPress={() => setRel(r => !r)}
-              accessibilityLabel={`${L3(language, '이동 방향 기준', 'Move direction reference', '移動方向の基準')}: ${rel ? L3(language, '시선 기준', 'where you look', '視線基準') : L3(language, '북 기준', 'north', '北基準')}`}
-              style={styles.refBtn}
-            >
-              <Text style={[styles.modeText, rel && { color: DARK.accent }]}>{rel ? L3(language, '시선 기준', 'View-up', '視線基準') : L3(language, '북 기준', 'North-up', '北基準')}</Text>
-              <Text style={styles.stepSub}>{L3(language, '이동 방향', 'move axis', '移動方向')}</Text>
-            </OverlayButton>
-          )}
+          <View style={styles.modeRow}>
+            {MOVE_MODES.map(m => (
+              <OverlayButton
+                key={m}
+                active={m === mode}
+                onPress={() => onMode(m)}
+                accessibilityLabel={`${modeName(m, language)}, ${L3(language, '최고', 'max', '最高')} ${MODE_MAX_SPEED_MPS[m]} m/s, ${modeUse(m, language)}`}
+                style={styles.modeChip}
+              >
+                <Text style={[styles.chipText, m === mode && { color: DARK.accent }]}>{modeName(m, language)}</Text>
+              </OverlayButton>
+            ))}
+          </View>
+          <Text style={styles.hint}>{L3(language, `끝까지 밀면 ${MODE_MAX_SPEED_MPS[mode]} m/s`, `Full push = ${MODE_MAX_SPEED_MPS[mode]} m/s`, `いっぱいに倒すと ${MODE_MAX_SPEED_MPS[mode]} m/s`)}</Text>
         </View>
-      </View>
-      <View style={styles.modeRow}>
-        {MOVE_MODES.map(m => (
-          <OverlayButton
-            key={m}
-            active={m === mode}
-            onPress={() => onMode(m)}
-            accessibilityLabel={`${modeName(m, language)}, ${L3(language, '최고', 'max', '最高')} ${MODE_MAX_SPEED_MPS[m]} m/s, ${modeUse(m, language)}`}
-            style={styles.modeChip}
-          >
-            <Text style={[styles.chipText, m === mode && { color: DARK.accent }]}>{modeName(m, language)}</Text>
-          </OverlayButton>
-        ))}
-      </View>
-      <Text style={styles.hint}>{L3(language, `끝까지 밀면 ${MODE_MAX_SPEED_MPS[mode]} m/s`, `Full push = ${MODE_MAX_SPEED_MPS[mode]} m/s`, `いっぱいに倒すと ${MODE_MAX_SPEED_MPS[mode]} m/s`)}</Text>
+      )}
 
-      {far && (
-        <>
+      {activeTool === 'tools' && far && (
+        <View style={styles.toolCard}>
           <Text style={styles.label}>{L3(language, '먼 건물', 'Far buildings', '遠くの建物')}</Text>
           <View style={styles.farRow}>
             <OverlayButton
@@ -213,14 +202,19 @@ export const SandboxPanel: React.FC<Props> = ({ language, eyeHeightM, onEyeHeigh
               {!far.status && L3(language, '도심은 한 장이 약 0.4 MB 라 보는 방향만 받아요', 'Downtown tiles are ~0.4 MB each, so only the view direction is loaded', '市街地は1枚約0.4MBなので視線方向だけ読みます')}
             </Text>
           </View>
-        </>
+          <Text style={styles.hint}>{L3(language, `끝까지 밀면 ${MODE_MAX_SPEED_MPS[mode]} m/s`, `Full push = ${MODE_MAX_SPEED_MPS[mode]} m/s`, `いっぱいに倒すと ${MODE_MAX_SPEED_MPS[mode]} m/s`)}</Text>
+        </View>
       )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  wrap: { gap: 4 },
+  wrap: { gap: 6 },
+  toolCard: {
+    backgroundColor: DARK.overlay, borderColor: DARK.border, borderWidth: 1,
+    borderRadius: radius.sm, padding: 10, gap: 6,
+  },
   label: { fontFamily: mono, fontSize: 9, letterSpacing: 1, color: DARK.textMute, marginTop: 4 },
   chipRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   chip: { width: 38, height: 28 },

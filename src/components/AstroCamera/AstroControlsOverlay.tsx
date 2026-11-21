@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { CloudAlert, SlidersHorizontal, Sparkles, Timer } from 'lucide-react-native';
+import { CloudAlert, Moon, SlidersHorizontal, Sparkles, Timer } from 'lucide-react-native';
 import { color, radius, space, type, TOUCH } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { ScrubTrack } from '../TimeBar/ScrubTrack';
@@ -189,6 +189,26 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
     });
   };
 
+  if (!drawerOpen) {
+    const modeWord = settings.mode === 'tracked'
+      ? L3(language, '별 추적', 'Track', '星追尾')
+      : L3(language, '별 궤적', 'Trails', '星軌跡');
+    const durWord = formatDurationLabel(settings.durationSec, language);
+    return (
+      <View style={inline ? styles.wrapInline : [styles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
+        <PressScale onPress={onToggleDrawer} style={styles.compactChip}>
+          <View style={styles.compactLeft}>
+            <Moon size={12} color={color.moon} />
+            <Text style={styles.compactText} numberOfLines={1}>
+              {`${modeWord} · ${durWord} · ISO ${summary.clampedIso} · ${summary.subExposureSecUsed}s×${summary.totalFrames}${L3(language, '장', 'f', '枚')}`}
+            </Text>
+          </View>
+          <Text style={styles.compactToggle}>{L3(language, '설정 ▾', 'Edit ▾', '設定 ▾')}</Text>
+        </PressScale>
+      </View>
+    );
+  }
+
   return (
     <View style={inline ? styles.wrapInline : [styles.wrap, { bottom: bottomOffset }]} pointerEvents="box-none">
       {drawerOpen && (
@@ -335,7 +355,7 @@ export const AstroControlsOverlay: React.FC<AstroControlsOverlayProps> = ({
             >
               <SlidersHorizontal size={12} color={drawerOpen ? color.accent : color.text} />
               <Text style={[styles.actionChipText, drawerOpen && { color: color.accent }]}>
-                {`ISO ${summary.clampedIso}`}
+                {L3(language, '접기 ▴', 'Done ▴', '閉じる ▴')}
               </Text>
             </PressScale>
           </View>
@@ -424,9 +444,24 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: space.md,
-    right: TOUCH + space.md * 2,
-    gap: space.xs,
+    right: space.md,
+    gap: 6,
   },
+  compactChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(167, 139, 250, 0.45)',
+    backgroundColor: color.overlay,
+  },
+  compactLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
+  compactText: { fontSize: 11, fontWeight: '700', color: color.text },
+  compactToggle: { fontSize: 11, fontWeight: '800', color: color.moon },
   wrapInline: {
     width: '100%',
     gap: space.xs,
