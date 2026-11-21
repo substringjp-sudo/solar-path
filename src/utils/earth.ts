@@ -41,6 +41,14 @@ export const REFRACTION_K = 1 / 7;
 /** 땅 위 시선의 유효 지구 반지름 (m) = 7/6 R. 곡률 낙차·수평선·지형각이 모두 이 값을 씁니다. */
 export const EARTH_RADIUS_EFFECTIVE_M = EARTH_RADIUS_M / (1 - REFRACTION_K);
 
+/**
+ * 굴절 계수 k 에서 땅 위 시선의 유효 지구 반지름 (m) = R / (1 − k). 인자를 안 주면 표준 k = 1/7(7/6 R).
+ * k 를 날씨에서 구하는 식은 `refractionK.ts`(날씨에 따른 정밀 굴절, 계획 문서 6.1). **아직 앱은 k 를 넘기지 않으므로 모두 표준 값입니다.**
+ */
+export function effectiveRadiusM(k: number = REFRACTION_K): number {
+  return EARTH_RADIUS_M / (1 - k);
+}
+
 /** 저장한 지형각이 어느 곡률 모델로 계산됐는지 표시. 다르면 저장 자료를 버리고 다시 받습니다. */
 export const TERRAIN_CURVATURE_MODEL = 'refr-k1/7';
 
@@ -61,14 +69,15 @@ export const EARTH_RADIUS_EFFECTIVE_M_GLSL = EARTH_RADIUS_EFFECTIVE_M.toFixed(1)
  * `acos(R′ / (R′ + h))`, R′ = 유효 반지름(굴절 포함). 30m 에서 0.163°, 100m 에서 0.30° 입니다(굴절 없이는 0.176°, 0.32°).
  * 지형선과 달리 수평선은 완벽하게 평평하고 이 각도 하나로 정해집니다.
  */
-export function seaHorizonDipDeg(elevM: number): number {
+export function seaHorizonDipDeg(elevM: number, k: number = REFRACTION_K): number {
   const h = Math.max(0, elevM);
-  return (Math.acos(EARTH_RADIUS_EFFECTIVE_M / (EARTH_RADIUS_EFFECTIVE_M + h)) * 180) / Math.PI;
+  const r = effectiveRadiusM(k);
+  return (Math.acos(r / (r + h)) * 180) / Math.PI;
 }
 
 /** 눈높이 `elevM` 에서 수평선까지의 지상 거리 (m). `sqrt(2R′h)`, 굴절 포함. */
-export function seaHorizonDistM(elevM: number): number {
-  return Math.sqrt(2 * EARTH_RADIUS_EFFECTIVE_M * Math.max(0, elevM));
+export function seaHorizonDistM(elevM: number, k: number = REFRACTION_K): number {
+  return Math.sqrt(2 * effectiveRadiusM(k) * Math.max(0, elevM));
 }
 
 /**
@@ -77,6 +86,6 @@ export function seaHorizonDistM(elevM: number): number {
  * 5km 에서 1.7m, 40km 면 108m 입니다(굴절 없이는 2.0m, 126m). 48절에서 이 항이 빠져 먼 바다가 산으로
  * 오인됐습니다.
  */
-export function curvatureDropM(dM: number): number {
-  return (dM * dM) / (2 * EARTH_RADIUS_EFFECTIVE_M);
+export function curvatureDropM(dM: number, k: number = REFRACTION_K): number {
+  return (dM * dM) / (2 * effectiveRadiusM(k));
 }

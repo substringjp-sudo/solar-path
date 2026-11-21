@@ -84,6 +84,7 @@ const ENTRIES = [
   'src/utils/exposureAdvice.ts',
   'src/utils/autoStart.ts',
   'src/utils/horizon.ts',
+  'src/utils/refractionK.ts',
   // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
   'src/utils/terrainSun.ts',
   'src/utils/calcSteps.ts',
