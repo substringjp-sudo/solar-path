@@ -140,6 +140,8 @@ const ENTRIES = [
   'src/utils/exposureCurve.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
+  // 촬영 중 카드(예측 대 실제 밝기 곡선 · 배터리 줄) — verify-run-card.js
+  'src/utils/runCurve.ts',
   // 머리줄 탭 이름 — verify-tab-labels.js
   'src/utils/tabLabels.ts',
   // 접었다 펼치는 아래 막대의 단계 계산과 화면 요소 겹침 판정 — verify-dock-stages.js

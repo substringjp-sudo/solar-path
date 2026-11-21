@@ -45,9 +45,9 @@ ok(/MAX_CONSECUTIVE_FAILS = 3/.test(hook) && /streak\.current >= MAX_CONSECUTIVE
 ok(/const stop = useCallback\(\(\) => \{\s+clear\(\);\s+const s = live\.current;\s+if \(s\) \{ publish\(\{ \.\.\.s, running: false \}\); if \(s\.running\) void onEndRef\.current\?\.\('stopped'\); \}/.test(hook) && /useEffect\(\(\) => \(\) => \{ clear\(\); \}, \[\]\);/.test(hook), '마치기는 타이머를 지우고 상태만 멈춘다, 사라질 때 타이머를 지운다');
 
 console.log('\n[4] 카메라: 한 장 찍고 저장');
-ok(/const photo = await cameraRef\.current\.takePictureAsync\(\{ quality: 0\.6, shutterSound: false \}\);\s+const \{ kind, stackSize \} = tlKindRef\.current;\s+const p = shotPlan\(kind, stackSize, index, isLast\);\s+let ok = true;\s+if \(p\.saveRaw\) await MediaLibrary\.saveToLibraryAsync\(photo\.uri\);/.test(cam), '찍고 shotPlan 에 따라 그대로 저장');
+ok(/const photo = await cameraRef\.current\.takePictureAsync\(\{ quality: 0\.6, shutterSound: false \}\);\s+\{\s+const rgba = await readSmallRgba\(photo\.uri\)\.catch\(\(\) => null\);\s+const luma = rgba \? lumaFromRgba\(rgba\) : null;\s+setTlLumas\(prev => \{ const n = prev\.slice\(\); n\[index\] = luma; return n; \}\);\s+\}\s+const \{ kind, stackSize \} = tlKindRef\.current;\s+const p = shotPlan\(kind, stackSize, index, isLast\);\s+let ok = true;\s+if \(p\.saveRaw\) await MediaLibrary\.saveToLibraryAsync\(photo\.uri\);/.test(cam), '찍고 shotPlan 에 따라 그대로 저장');
 ok(/if \(p\.accumulate\) \{[\s\S]*?new FrameAccumulator\(kind === 'trail' \? 'lighten' : 'average'\)[\s\S]*?ok = await tlAccRef\.current\.add\(photo\.uri\);\s+if \(ok && p\.flush\) ok = await saveComposite\(\);\s+if \(p\.reset\) tlAccRef\.current\.reset\(\);\s+\}\s+FileSystem\.deleteAsync\(photo\.uri, \{ idempotent: true \}\)/.test(cam), '쌓기(합성 = 평균, 누적 = 밝은 쪽), flush 에서 저장, reset 에서 비움, 원본 임시 파일은 지움');
-ok(/if \(!granted\) \{\s+Alert\.alert\([\s\S]*?return;\s+\}\s+setViewMode\('camera'\);\s+tlKindRef\.current = \{ kind: plan\.kind, stackSize: plan\.stackSize \};\s+tlAccRef\.current = null;\s+timelapse\.start\(plan\);/.test(cam), '권한이 없으면 시작하지 않고, 있으면 실제 카메라 화면으로 두고 시작');
+ok(/if \(!granted\) \{\s+Alert\.alert\([\s\S]*?return;\s+\}\s+setViewMode\('camera'\);\s+tlKindRef\.current = \{ kind: plan\.kind, stackSize: plan\.stackSize \};\s+tlAccRef\.current = null;\s+setTlLumas\(\[\]\);\s+setScreenOff\(false\);\s+timelapse\.start\(plan\);/.test(cam), '권한이 없으면 시작하지 않고, 있으면 실제 카메라 화면으로 두고 시작');
 
 ok(/if \(acc && acc\.count > 0 && tlKindRef\.current\.kind === 'stacked'\) await saveComposite\(\)\.catch\(\(\) => false\);\s+tlAccRef\.current = null;/.test(cam) && /useTimelapseRun\(shootFrame, endTimelapse\)/.test(cam), '끝나면 덜 쌓인 합성 묶음을 저장하고 쌓은 그림을 치운다');
 ok(/void onEndRef\.current\?\.\('error'\)/.test(hook) && /void onEndRef\.current\?\.\('done'\)/.test(hook) && /void onEndRef\.current\?\.\('stopped'\)/.test(hook), '훅이 끝날 때 done · stopped · error 를 알린다');
@@ -88,6 +88,21 @@ ok(/setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /set
 {
   const panel = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapsePanel.tsx'), 'utf8');
   ok(/exposureStops\(alts\)/.test(panel) && /\{expo && expo\.line \? \(/.test(panel) && /<Polyline points=\{expo\.line\}/.test(panel) && /맑은 하늘 기준 어림/.test(panel) && /sunAltAt=\{tlSunAltAt\}/.test(cam) && /const tlSunAltAt = useCallback\(\(ms: number\) => getSunPosition\(new Date\(ms\), latitude, longitude\)\.altitude/.test(cam), '시트에 예측 노출 곡선(구간 25 칸의 해 고도 → 단 수, "맑은 하늘 기준 어림"), 카메라가 해 고도 함수를 넘김(2026-11-21 추가)');
+}
+
+console.log('\n[7] 촬영 중 카드: 밝기 곡선 · 배터리 · 화면 끄고 계속(2026-11-21)');
+{
+  const extras = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'RunExtras.tsx'), 'utf8');
+  const dev = fs.readFileSync(path.join(REPO_ROOT, 'src', 'utils', 'runDevice.ts'), 'utf8');
+  const hook = fs.readFileSync(path.join(REPO_ROOT, 'src', 'hooks', 'useRunDevice.ts'), 'utf8');
+  const early = cam.indexOf('if (!visible) return null;');
+  ok(cam.indexOf('const runBattery = useRunDevice(') > 0 && cam.indexOf('const runBattery = useRunDevice(') < early && cam.indexOf('const runPred = useMemo') < early, '새 훅(기기 상태 · 예측 곡선)은 `if (!visible) return null` 앞(훅 순서)');
+  ok(/const rgba = await readSmallRgba\(photo\.uri\)\.catch\(\(\) => null\);\s+const luma = rgba \? lumaFromRgba\(rgba\) : null;\s+setTlLumas\(prev => \{ const n = prev\.slice\(\); n\[index\] = luma; return n; \}\);/.test(cam) && cam.indexOf('readSmallRgba(photo.uri)') < cam.indexOf('FileSystem.deleteAsync(photo.uri'), '한 장 찍을 때마다 사진 평균 밝기를 재고(사진을 지우기 전에) 장 번호 자리에 둔다');
+  ok(/<RunExtras[\s\S]*?pred=\{runPred\}[\s\S]*?actual=\{runActual\}[\s\S]*?battery=\{runBattery\}[\s\S]*?running=\{timelapse\.run\.running\}[\s\S]*?onScreenOff=\{\(\) => setScreenOff\(true\)\}/.test(cam) && /exposureStops\(alts\)/.test(cam) && /photoStops\(tlLumas\)/.test(cam), '카드에 곡선(예측 = 해 고도 25 칸, 실제 = 사진 밝기) · 배터리 · 화면 끄고 계속');
+  ok(/\{screenOff && timelapse\.run\?\.running && \(\s+<ScreenOffCover/.test(cam) && /if \(!timelapse\.run\?\.running\) setScreenOff\(false\)/.test(cam) && /setTlLumas\(\[\]\);\s+setScreenOff\(false\);\s+timelapse\.start\(plan\);/.test(cam), '검은 덮개는 찍는 중에만, 끝나면 풀리고, 새로 시작하면 밝기 기록을 비운다');
+  ok(/void setKeepAwake\(true\)/.test(hook) && /void setKeepAwake\(false\)/.test(hook) && /setScreenDim\(true\)/.test(hook) && /setScreenDim\(false\)/.test(hook) && /BATTERY_POLL_MS = 30_000/.test(hook), '찍는 동안 화면 켜 두기, 끝나면 되돌림, 어둡게 · 되돌림, 배터리 30초마다');
+  ok(/try \{ battery = require\('expo-battery'\); \} catch \{ battery = null; \}/.test(dev) && /try \{ awake = require\('expo-keep-awake'\); \} catch \{ awake = null; \}/.test(dev) && /try \{ bright = require\('expo-brightness'\); \} catch \{ bright = null; \}/.test(dev), '네이티브 부품이 없으면 조용히 건너뜀(안전한 require)');
+  ok(/strokeDasharray="3,3"/.test(extras) && /batteryLow\(battery\.level, battery\.charging\)/.test(extras) && /StyleSheet\.absoluteFillObject/.test(extras) && /accessibilityLabel=\{L3\(language, '화면 켜기\(촬영은 계속돼요\)'/.test(extras), '예측은 점선 · 실제는 실선, 배터리 부족 경고, 덮개는 화면 전체이고 눌러서 켠다');
 }
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
