@@ -135,3 +135,25 @@ export function graphLabel(peak: Pick<ScorePeak, 't'> | null, tzHours: number, l
 
 /** 표본 가운데 점수가 있는 것이 하나라도 있는가(없으면 그래프를 그리지 않습니다). */
 export const hasAnyScore = (points: readonly ScorePoint[]): boolean => points.some(p => p.score != null);
+
+export interface PeakWindow { fromMs: number; toMs: number; score: number }
+
+/**
+ * 가장 붉은 구간. 높은 때(점수 1 이상 표본의 최댓값, 같으면 먼저 온 시각)에서 양쪽으로 이웃 표본을 따라가며,
+ * 점수가 있고(null 아님) 최댓값 × 비율 이상인 동안 이어 붙인 구간입니다. 비율이 숫자가 아니거나 0 이하 · 1 초과이면 0.8.
+ */
+export function peakWindow(points: readonly ScorePoint[], frac: number = 0.8): PeakWindow | null {
+  const f = Number.isFinite(frac) && frac > 0 && frac <= 1 ? frac : 0.8;
+  let pi = -1;
+  for (let i = 0; i < points.length; i++) {
+    const s = points[i].score;
+    if (s != null && s >= PEAK_MIN_SCORE && (pi < 0 || s > (points[pi].score as number))) pi = i;
+  }
+  if (pi < 0) return null;
+  const top = points[pi].score as number;
+  const ok = (i: number) => { const s = points[i].score; return s != null && s >= top * f; };
+  let a = pi, b = pi;
+  while (a - 1 >= 0 && ok(a - 1)) a--;
+  while (b + 1 < points.length && ok(b + 1)) b++;
+  return { fromMs: points[a].t, toMs: points[b].t, score: top };
+}

@@ -12,6 +12,7 @@ import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../ut
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { findPresetTerrain } from '../utils/presetTerrains';
 import { scenePrediction } from '../utils/scenePrediction';
+import { canGlow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
 import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNative';
@@ -1107,6 +1108,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const remoteViewNowRef = useRef<() => { az: number; el: number; fov: number }>(() => ({ az: 0, el: 0, fov: 60 }));
   const remoteViewNow = useCallback(() => remoteViewNowRef.current(), []);
   const tzHours = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
+
+  // 타임랩스 시트의 "가장 붉음" 구간: 일몰 둘레 9시간을 하늘 화면과 같은 예측(`scenePrediction`)으로 10분마다 훑어 점수가 가장 높은 덩어리를 찾습니다.
+  // 시트가 열려 있고 일몰이 겨눠질 때만 셉니다. 받아 둔 예보 시각 밖의 표본은 비웁니다(없는 값을 짓지 않음).
+  const tlSunsetMs = goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null;
+  const tlPeak = useMemo(() => {
+    if (!timelapseOpen || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
+    const h = camWeatherData[0]?.hourly as any;
+    const times: number[] | undefined = h?.timeMs ?? h?.time?.map((x: string) => new Date(x).getTime());
+    const covered = (ms: number) => !!times?.length && ms >= times[0] && ms <= times[times.length - 1];
+    const win = scoreWindow(tlSunsetMs, 'sunset', tzHours);
+    const points = sampleScores(win, 10, (tm) => {
+      const sp = getSunPosition(tm, latitude, longitude);
+      const alt = sp.altitude;
+      if (!canGlow(alt)) return 0;
+      if (!covered(tm.getTime())) return null;
+      const obs = getInterpolatedWeather(camWeatherData, tm)[0];
+      return scenePrediction({ pathData: camWeatherData, time: tm, sunAltDeg: alt, sunAzDeg: sp.azimuth, obs, latitude, observerElevM: Number(cameraSimState.terrain?.observerElevation) || undefined })?.score ?? null;
+    });
+    return peakWindow(points);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timelapseOpen, tlSunsetMs, camWeatherData, latitude, longitude, tzHours]);
+
   const optics = useMemo(
     () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
     [W, stageLayoutH, measuredHfov, currentMagnification],
@@ -2945,6 +2968,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           }}
           nowMs={currentTime.getTime()}
           tzHours={tzHours}
+          peak={tlPeak}
           onPreview={playPreview}
           onStart={startTimelapse}
           onClose={() => setTimelapseOpen(false)}
