@@ -29,6 +29,8 @@ interface Props {
   tzHours: number;
   /** 가장 붉은 구간(일몰 둘레 점수가 높은 덩어리). 모르면 null(줄을 안 그림). */
   peak?: { fromMs: number; toMs: number } | null;
+  /** 낮은 구름(지평선 가림)이 두꺼운 구간(일몰 둘레). 모르면 null(줄을 안 그림). */
+  lowCloud?: { fromMs: number; toMs: number } | null;
   onPreview: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
   onStart: (plan: TimelapsePlan) => void;
   onClose: () => void;
@@ -51,7 +53,7 @@ const presetLabel = (k: PresetKind, l: Language): string => {
   return L3(l, '낮에서 밤으로 150분', 'Day to night 150 min', '昼から夜へ 150分');
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, peak = null, onPreview, onStart, onClose }) => {
+export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, peak = null, lowCloud = null, onPreview, onStart, onClose }) => {
   const [preset, setPreset] = useState<PresetKind>('sunset');
   const [videoSec, setVideoSec] = useState<number>(10);
   const [kind, setKind] = useState<TimelapseKind>('plain');
@@ -135,6 +137,9 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
                 ))}
               </View>
               <Text style={styles.summary}>{`${L3(language, '시작', 'Start', '開始')} ${clockLabel(startShown, tzHours)} · ${L3(language, '촬영', 'Shoot', '撮影')} ${totalMin}${L3(language, '분', ' min', '分')} · ${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}</Text>
+              {lowCloud && preset === 'sunset' ? (
+                <Text style={styles.lowCloudLine}>{`${L3(language, '낮은 구름 두꺼움', 'Low cloud thick', '低い雲が厚い')} ${windowLabel(lowCloud.fromMs, lowCloud.toMs, tzHours)}`}</Text>
+              ) : null}
               {peak && preset === 'sunset' ? (
                 <Text style={styles.peakLine}>{`${L3(language, '가장 붉을 때', 'Reddest', '最も赤い時')} ${windowLabel(peak.fromMs, peak.toMs, tzHours)}`}</Text>
               ) : null}
@@ -186,6 +191,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '700', color: DARK.text },
   card: { gap: 4, marginTop: 8, padding: 10, backgroundColor: DARK.fill, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.md },
   summary: { fontFamily: mono, fontSize: 12, color: DARK.text },
+  lowCloudLine: { fontFamily: mono, fontSize: 12, color: DARK.textDim },
   peakLine: { fontFamily: mono, fontSize: 12, color: DARK.glow },
   note: { fontSize: 11, color: DARK.textDim },
   actions: { flexDirection: 'row', gap: 8, marginTop: 10 },

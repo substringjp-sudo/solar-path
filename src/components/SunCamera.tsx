@@ -12,7 +12,7 @@ import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../ut
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { findPresetTerrain } from '../utils/presetTerrains';
 import { scenePrediction } from '../utils/scenePrediction';
-import { canGlow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
+import { canGlow, lowCloudWindow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
 import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNative';
@@ -1129,6 +1129,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return peakWindow(points);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timelapseOpen, tlSunsetMs, camWeatherData, latitude, longitude, tzHours]);
+
+  // 낮은 구름이 두꺼운 구간(일몰 ±90분): 같은 10분 표본에서 보간한 낮은 구름 %가 60 이상 이어진 가장 긴 구간. 예측을 부르지 않아 가볍습니다.
+  const tlLowCloud = useMemo(() => {
+    if (!timelapseOpen || !tlSunsetMs || !camWeatherData || camWeatherData.length === 0) return null;
+    const h = camWeatherData[0]?.hourly as any;
+    const times: number[] | undefined = h?.timeMs ?? h?.time?.map((x: string) => new Date(x).getTime());
+    const covered = (ms: number) => !!times?.length && ms >= times[0] && ms <= times[times.length - 1];
+    const points = sampleScores(scoreWindow(tlSunsetMs, 'sunset', tzHours), 10, (tm) => {
+      const ms = tm.getTime();
+      if (Math.abs(ms - tlSunsetMs) > 90 * 60_000 || !covered(ms)) return null;
+      const low = getInterpolatedWeather(camWeatherData, tm)[0]?.low;
+      return typeof low === 'number' ? low : null;
+    });
+    return lowCloudWindow(points);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timelapseOpen, tlSunsetMs, camWeatherData, tzHours]);
 
   const optics = useMemo(
     () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
@@ -2969,6 +2985,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           nowMs={currentTime.getTime()}
           tzHours={tzHours}
           peak={tlPeak}
+          lowCloud={tlLowCloud}
           onPreview={playPreview}
           onStart={startTimelapse}
           onClose={() => setTimelapseOpen(false)}

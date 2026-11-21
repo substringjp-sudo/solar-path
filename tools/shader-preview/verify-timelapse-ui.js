@@ -80,5 +80,10 @@ ok(/if \(previewOrigin\.current\) \{ onTimeChange\?\.\(previewOrigin\.current\);
 }
 ok(/setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);/.test(cam) && /\{`  \$\{previewClock\}`\}<\/Text>/.test(cam), '미리보기 줄에 "0:06 / 0:12" 읽음(시작에 0 으로, 재생 중 지난 초로 갱신, 줄 글 뒤에 붙임; 2026-11-21 추가)');
 
+{
+  const panel = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapsePanel.tsx'), 'utf8');
+  ok(/\{lowCloud && preset === 'sunset' \? \(\s*<Text style=\{styles\.lowCloudLine\}>/.test(panel) && /lowCloud=\{tlLowCloud\}/.test(cam) && /const tlLowCloud = useMemo\(\(\) => \{\s+if \(!timelapseOpen \|\| !tlSunsetMs/.test(cam) && /return lowCloudWindow\(points\);/.test(cam) && /Math\.abs\(ms - tlSunsetMs\) > 90 \* 60_000/.test(cam), '시트에 "낮은 구름 두꺼움" 줄(일몰 프리셋이고 구간을 알 때만), 카메라는 시트가 열렸을 때만 일몰 ±90분을 훑어 셈(2026-11-21 추가)');
+}
+
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
