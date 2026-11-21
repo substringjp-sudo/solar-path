@@ -68,5 +68,19 @@ ok(/recCard: \{[^}]*backgroundColor: DARK\.accentSoft[^}]*borderColor: DARK\.acc
 ok(/modeResultTag\(r\.key, language\)/.test(sheet) && /ICONS: Record<CaptureModeKey,/.test(sheet) && /샌드박스에서 이 장면 찍기로 오면 그 장면에 맞는 모드가 먼저 열려요\./.test(sheet), '줄: 아이콘 · 결과물 글, 맨 아래 안내');
 ok(/nowLabel=\{clockLabel\(currentTime\.getTime\(\), tzHours\)\}/.test(cam), '카메라가 nowLabel 을 넘긴다');
 
+console.log('\n[8] 노출 추천 칸 · 자동 시작(2026-11-21)');
+{
+  const cells = read('src', 'components', 'AstroCamera', 'ExposureCells.tsx');
+  const hookAt = cam.indexOf('const [autoStartAt, setAutoStartAt]');
+  const earlyAt = cam.indexOf('if (!visible) return null;');
+  ok(hookAt > 0 && earlyAt > 0 && hookAt < earlyAt, '자동 시작 훅은 `if (!visible) return null` 앞에 있다(훅 순서)');
+  ok(/if \(autoStartAt != null && autoStartDue\(autoStartAt, autoNowMs\)\) \{\s+setAutoStartAt\(null\);\s+handleCaptureRef\.current\(\);/.test(cam), '예약 시각이 되면 예약을 지우고 한 장 찍는다');
+  ok(/if \(!visible \|\| !cameraScene \|\| cameraTab !== 'sunset'\) return undefined;/.test(cam) && /setAutoStartAt\(null\);\s+\}, \[visible, cameraScene, cameraTab\]\)/.test(cam), '1초 시계는 사진 탭에서 장면이 있을 때만, 그 밖이면 예약을 지운다');
+  ok(/autoState\.kind === 'wait'\) setAutoStartAt\(autoStartAt == null \? cameraScene\.timeMs : null\);\s+else handleCapturePress\(\);/.test(cam) && /autoState\.kind !== 'far'/.test(cam), '장면 줄: 기다릴 때는 자동 시작 켜고 끄기, 지났으면 지금 시작, 2시간 넘으면 단추 없음');
+  ok(/<ExposureCells language=\{language\} advice=\{expoAdvice\} lensMm=\{lensInfoText\.mmText\} lensText=\{lensInfoText\.lensText\} \/>/.test(cam) && /\{cameraTab === 'sunset' && \(\s+<ExposureCells/.test(cam), '사진 탭에서만 추천 칸(렌즈 · ISO · 셔터 · WB)');
+  ok(/adviseExposure\(sunPos\.altitude\)/.test(cam) && /lensLine\(optics\.vFovDeg, W \/ Math\.max\(1, stageLayoutH\)\)/.test(cam), '해 고도로 노출 추천, 화각과 화면 비율로 렌즈 줄');
+  ok(/wbLabel\(advice\.wb, language\)/.test(cells) && /추천 · 맑은 하늘 기준 어림/.test(cells) && /삼각대 권장/.test(cells), '칸 글: WB 이름, "추천 · 맑은 하늘 기준 어림", 삼각대 권장 알림');
+}
+
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
