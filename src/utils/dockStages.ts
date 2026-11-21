@@ -47,3 +47,22 @@ export function dockHeights(screenH: number): DockHeights {
   const full = Math.round(Math.max(mid + STEP_MIN_GAP, 0.78 * H));
   return { min, mid, full };
 }
+
+/** 아래 막대 전체가 차지해도 되는 화면 비율(위쪽 머리줄 · 읽음 줄 자리를 남김). */
+export const DOCK_MAX_SCREEN_RATIO = 0.86;
+/** 고정부(칩 · 시간 자 · 셔터 · 모드 줄)의 대략 높이(px). 실제로는 화면에서 재서 넘깁니다. */
+export const DOCK_FIXED_PX = 380;
+
+/**
+ * 고정부 위에 얹는 펼친 영역의 높이(px). min 은 0. 펼침 몫(`dockHeights` 의 단계 − min)과 화면에 남은 자리(0.86 × 화면 − 고정부) 중 작은 값입니다.
+ * 자리가 없으면 단계 차이가 줄어 붙을 수 있습니다(min ≤ mid ≤ full 은 항상 지킵니다).
+ */
+export function dockExtraHeight(stage: DockStage, screenH: number, fixedH: number): number {
+  if (stage === 'min') return 0;
+  const H = Number.isFinite(screenH) && screenH > 0 ? screenH : 844;
+  const fixed = Number.isFinite(fixedH) && fixedH >= 0 ? fixedH : DOCK_FIXED_PX;
+  const h = dockHeights(H);
+  const share = h[stage] - h.min;
+  const room = Math.max(0, Math.floor(DOCK_MAX_SCREEN_RATIO * H - fixed));
+  return Math.min(share, room);
+}
