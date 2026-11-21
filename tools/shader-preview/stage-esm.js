@@ -78,6 +78,9 @@ const ENTRIES = [
   'src/utils/moonPosition.ts',
   // 월식(접촉 시각 · 크기) — verify-lunar-eclipse.js
   'src/utils/lunarEclipse.ts',
+  // 카메라 노출 추천 칸 · 자동 시작 카운트다운 — verify-exposure-advice.js
+  'src/utils/exposureAdvice.ts',
+  'src/utils/autoStart.ts',
   'src/utils/horizon.ts',
   // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
   'src/utils/terrainSun.ts',
