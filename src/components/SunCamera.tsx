@@ -84,8 +84,17 @@ import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
 import { clockLabel, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
 import { FrameAccumulator } from '../utils/frameComposite';
+import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
+import { useRunDevice } from '../hooks/useRunDevice';
+import { readSmallRgba } from '../utils/imageZones';
+import { lumaFromRgba, photoStops } from '../utils/runCurve';
+import { exposureStops } from '../utils/exposureCurve';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
+import { ExposureCells } from './AstroCamera/ExposureCells';
+import { adviseExposure } from '../utils/exposureAdvice';
+import { autoStartDue, autoStartState } from '../utils/autoStart';
+import { lensLine } from '../utils/lensInfo';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
@@ -523,9 +532,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     try { await MediaLibrary.saveToLibraryAsync(file); return true; }
     finally { FileSystem.deleteAsync(file, { idempotent: true }).catch(() => {}); }
   }, []);
+  // 촬영 중 카드의 "실제 밝기": 찍은 장마다 사진 평균 밝기(선형 0~1)를 재 둡니다(`runCurve`).
+  const [tlLumas, setTlLumas] = useState<Array<number | null>>([]);
+  const [screenOff, setScreenOff] = useState(false);
   const shootFrame = useCallback(async (index: number, isLast: boolean): Promise<boolean> => {
     if (!cameraRef.current) return false;
     const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, shutterSound: false });
+    {
+      const rgba = await readSmallRgba(photo.uri).catch(() => null);
+      const luma = rgba ? lumaFromRgba(rgba) : null;
+      setTlLumas(prev => { const n = prev.slice(); n[index] = luma; return n; });
+    }
     const { kind, stackSize } = tlKindRef.current;
     const p = shotPlan(kind, stackSize, index, isLast);
     let ok = true;
@@ -546,6 +563,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     tlAccRef.current = null;
   }, [saveComposite]);
   const timelapse = useTimelapseRun(shootFrame, endTimelapse);
+  // 찍는 동안 화면이 꺼지지 않게 하고 배터리를 읽습니다. "화면 끄고 계속"이면 화면을 어둡게(검은 덮개).
+  const runBattery = useRunDevice(!!timelapse.run?.running, screenOff);
+  useEffect(() => { if (!timelapse.run?.running) setScreenOff(false); }, [timelapse.run?.running]);
   const startTimelapse = useCallback(async (plan: TimelapsePlan) => {
     const granted = mediaPermission?.granted || (await requestMediaPermission()).granted;
     if (!granted) {
@@ -555,6 +575,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setViewMode('camera');
     tlKindRef.current = { kind: plan.kind, stackSize: plan.stackSize };
     tlAccRef.current = null;
+    setTlLumas([]);
+    setScreenOff(false);
     timelapse.start(plan);
   }, [mediaPermission, requestMediaPermission, timelapse, language]);
   // 미리보기: 3D 시뮬레이션이 구간을 영상 길이만큼 재생합니다. 끝나면 원래 시각으로 돌아옵니다.
@@ -1146,6 +1168,23 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [timelapseOpen, tlSunsetMs, camWeatherData, tzHours]);
 
   const tlSunAltAt = useCallback((ms: number) => getSunPosition(new Date(ms), latitude, longitude).altitude, [latitude, longitude]);
+
+  // 촬영 중 카드의 예측 곡선: 시작부터 마지막 장까지 실제 시각의 해 고도를 25 칸으로 나눠 맑은 하늘 밝기의 단 변화로(`exposureCurve`).
+  const runPred = useMemo(() => {
+    const r = timelapse.run;
+    if (!r) return [] as Array<number | null>;
+    const span = Math.max(0, (r.plan.frames - 1) * r.plan.intervalS * 1000);
+    const alts: number[] = [];
+    for (let i = 0; i <= 24; i++) alts.push(getSunPosition(new Date(r.startMs + (span * i) / 24), latitude, longitude).altitude);
+    return exposureStops(alts);
+  }, [timelapse.run?.startMs, timelapse.run?.plan.frames, timelapse.run?.plan.intervalS, latitude, longitude]);
+  const runActual = useMemo(() => {
+    const r = timelapse.run;
+    if (!r) return [];
+    const stops = photoStops(tlLumas);
+    const last = Math.max(1, r.plan.frames - 1);
+    return stops.map((st, i) => ({ f: i / last, stops: st }));
+  }, [tlLumas, timelapse.run?.plan.frames]);
 
   const optics = useMemo(
     () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
@@ -2147,6 +2186,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }, [visible]);
 
+  // 장면 줄의 "자동 시작": 장면 시각(앞으로의 실제 시각)이 되면 한 장 찍습니다(사진 탭에서만, 앱이 켜져 있는 동안).
+  const [autoStartAt, setAutoStartAt] = useState<number | null>(null);
+  const [autoNowMs, setAutoNowMs] = useState(() => Date.now());
+  const handleCaptureRef = useRef(handleCapture);
+  handleCaptureRef.current = handleCapture;
+  useEffect(() => {
+    if (!visible || !cameraScene || cameraTab !== 'sunset') return undefined;
+    setAutoNowMs(Date.now());
+    const id = setInterval(() => setAutoNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [visible, cameraScene, cameraTab]);
+  useEffect(() => {
+    if (autoStartAt != null && autoStartDue(autoStartAt, autoNowMs)) {
+      setAutoStartAt(null);
+      handleCaptureRef.current();
+    }
+  }, [autoStartAt, autoNowMs]);
+  useEffect(() => { if (!visible || !cameraScene || cameraTab !== 'sunset') setAutoStartAt(null); }, [visible, cameraScene, cameraTab]);
+  const autoState = cameraScene && cameraTab === 'sunset' ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
+  const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
+  const lensInfoText = useMemo(() => lensLine(optics.vFovDeg, W / Math.max(1, stageLayoutH)), [optics.vFovDeg, W, stageLayoutH]);
+
   if (!visible) return null;
 
   if (!cameraPermission?.granted) {
@@ -2639,8 +2700,26 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       <Text style={styles.bannerText} numberOfLines={2}>
                         {`${L3(language, '장면', 'Scene', 'シーン')} · ${cameraScene.name} · ${sceneSummary(cameraScene, { nowMs: Date.now(), tzHours, lang: language })}`}
                       </Text>
+                      {autoState && autoState.kind !== 'far' && (
+                        <Pressable
+                          onPress={() => {
+                            if (autoState.kind === 'wait') setAutoStartAt(autoStartAt == null ? cameraScene.timeMs : null);
+                            else handleCapturePress();
+                          }}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: autoStartAt != null }}
+                          accessibilityLabel={autoState.kind === 'wait' ? L3(language, '자동 시작 켜고 끄기', 'Toggle auto start', '自動開始の切替') : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
+                          hitSlop={8}
+                        >
+                          <Text style={[styles.bannerText, { color: color.accent }]}>
+                            {autoState.kind === 'wait'
+                              ? `${autoStartAt != null ? L3(language, '자동 시작 중', 'Auto', '自動中') : L3(language, '자동 시작', 'Auto start', '自動開始')} ${autoState.text}`
+                              : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
+                          </Text>
+                        </Pressable>
+                      )}
                       <Pressable
-                        onPress={() => { Vibration.cancel(); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
+                        onPress={() => { Vibration.cancel(); setAutoStartAt(null); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
                         accessibilityRole="button"
                         accessibilityLabel={L3(language, '장면 지우기', 'Clear scene', 'シーンを消す')}
                         hitSlop={8}
@@ -2684,6 +2763,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         <View style={styles.tlCell}><Text style={styles.tlCellLabel}>{L3(language, '남은 시간', 'Left', '残り')}</Text><Text style={styles.tlCellValue}>{`${Math.floor(timelapse.progress.remainingS / 60)}:${String(timelapse.progress.remainingS % 60).padStart(2, '0')}`}</Text></View>
                         <View style={styles.tlCell}><Text style={styles.tlCellLabel}>{L3(language, '앨범', 'Album', 'アルバム')}</Text><Text style={styles.tlCellValue}>{String(savedSoFar(timelapse.run.plan, timelapse.run.taken))}</Text></View>
                       </View>
+                      <RunExtras
+                        language={language}
+                        pred={runPred}
+                        actual={runActual}
+                        battery={runBattery}
+                        running={timelapse.run.running}
+                        onScreenOff={() => setScreenOff(true)}
+                      />
                       <Text style={styles.tlNote} numberOfLines={2}>
                         {timelapse.run.error
                           ? L3(language, `타임랩스가 멈췄어요 · ${timelapse.run.taken}장 찍음`, `Timelapse stopped · ${timelapse.run.taken} shots`, `タイムラプス停止 · ${timelapse.run.taken}枚撮影`)
@@ -2831,6 +2918,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
             {/* 하단 슬림 컨트롤 덱 — 컴팩트 줌 알약 + 1단 셔터 도킹 */}
             <View style={styles.bottomDeck}>
+              {cameraTab === 'sunset' && (
+                <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} />
+              )}
               <View style={styles.zoomPillBar} accessibilityRole="radiogroup">
                 {[1, 2, 3, 5].map((mag) => {
                   const sel = Math.abs(currentMagnification - mag) < 0.25;
@@ -3001,6 +3091,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           }}
         />
       </View>
+      {screenOff && timelapse.run?.running && (
+        <ScreenOffCover language={language} taken={timelapse.run.taken} frames={timelapse.run.plan.frames} onWake={() => setScreenOff(false)} />
+      )}
     </View>
   );
 };
