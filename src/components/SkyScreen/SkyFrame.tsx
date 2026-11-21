@@ -59,13 +59,15 @@ interface Props {
   onShoot: () => void;
   /** 오른쪽 아래: 장면 저장 */
   onSaveScene?: () => void;
+  /** 왼쪽 아래 썸네일: 가장 최근 저장한 장면 열기(없으면 누를 수 없음) */
+  onOpenLatestScene?: () => void;
   /** 달력 창 열기("날짜" 펼침 안의 "달력") */
   onOpenCalendar?: () => void;
 }
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, onShoot, onSaveScene, onOpenCalendar,
+  readout, simBody, sandbox, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | null>(null);
@@ -171,7 +173,7 @@ export const SkyFrame: React.FC<Props> = ({
           onNow={onNow}
         />
         <View testID="shutter-row" style={styles.shutterRow}>
-          <View testID="thumb" style={styles.thumb} />
+          <Pressable testID="thumb" accessibilityRole="button" accessibilityLabel={L3(language, '저장한 장면 열기', 'Open saved scene', '保存したシーンを開く')} disabled={!onOpenLatestScene} onPress={onOpenLatestScene} style={[styles.thumb, !onOpenLatestScene && { opacity: 0.5 }]} />
           <Pressable testID="shutter" accessibilityRole="button" accessibilityLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')} onPress={onShoot} style={styles.shutterRing}>
             <View style={styles.shutter} />
           </Pressable>
