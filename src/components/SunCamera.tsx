@@ -62,6 +62,7 @@ import {
   type AstroCaptureRunResult,
 } from '../utils/astroCapturePipeline';
 import {
+  astroChipLabel,
   computeAstroSimExposureParams,
   createDefaultAstroSettings,
   evaluateDirectionGuide,
@@ -71,7 +72,8 @@ import {
   type DirectionGuideState,
   type DirectionTarget,
 } from '../utils/astroCameraUi';
-import { AstroControlsOverlay, AstroForecastBanner } from './AstroCamera/AstroControlsOverlay';
+import { AstroForecastBanner } from './AstroCamera/AstroForecastBanner';
+import { AstroSettingsPanel } from './AstroCamera/AstroSettingsPanel';
 import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/AstroCaptureNightOverlay';
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
@@ -489,7 +491,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
     supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
   });
-  const [astroDrawerOpen, setAstroDrawerOpen] = useState(false);
   const [astroNightPhase, setAstroNightPhase] = useState<AstroNightPhase | null>(null);
   const [astroCountdownSec, setAstroCountdownSec] = useState(0);
   const [astroProgress, setAstroProgress] = useState<AstroCaptureProgress | null>(null);
@@ -2849,29 +2850,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   </View>
                 )}
 
-                {cameraTab === 'astro' && (
-                  <View style={[styles.stageBottomControls, { bottom: dockInset + space.sm }]} pointerEvents="box-none">
-                    {cameraTab === 'astro' && (
-                      <AstroControlsOverlay
-                        inline
-                        settings={astroSettings}
-                        onChange={setAstroSettings}
-                        summary={astroShotSummary}
-                        caps={astroCaps}
-                        simParams={astroSimParams}
-                        showPrediction={viewMode !== 'camera'}
-                        isSimRendering={isLongExpRendering}
-                        onRefreshPrediction={() => {
-                          if (viewMode !== 'sim') setViewMode('sim');
-                          else setLongExpRefreshTick(v => v + 1);
-                        }}
-                        drawerOpen={astroDrawerOpen}
-                        onToggleDrawer={() => setAstroDrawerOpen(v => !v)}
-                        language={language}
-                      />
-                    )}
-                  </View>
-                )}
               </View>
             </View>
 
@@ -2887,10 +2865,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   onPress: () => setMagnification(mag),
                 })),
                 cameraTab === 'astro'
-                  ? { id: 'astro', label: L3(language, '설정', 'Settings', '設定'), active: astroDrawerOpen, onPress: () => setAstroDrawerOpen(v => !v) }
+                  ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
                   : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
               ]}
-              panels={cameraTab === 'astro' ? undefined : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
+              panels={cameraTab === 'astro' ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> } : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
               ruler={viewMode !== 'camera' && onTimeChange ? {
                 timeMs: currentTime.getTime(),
                 tz: tzHours,
@@ -3032,28 +3010,6 @@ const styles = StyleSheet.create({
   // ── 전체 화면 카메라(2026-10-25) ──
   liveRoot: { flex: 1, backgroundColor: '#000' },
   stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
-  bottomDeck: {
-    backgroundColor: color.panel,
-    borderTopWidth: 1,
-    borderColor: color.border,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingTop: space.sm,
-    paddingHorizontal: space.md,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 12,
-    gap: space.xs + 2,
-  },
-  deckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.xs,
-  },
-  deckRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
   deckFlipBtn: {
     width: 34,
     height: 32,
@@ -3064,40 +3020,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dock: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center',
-    paddingHorizontal: space.xs, paddingTop: space.xs,
-  },
-  dockSideLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-    gap: space.sm,
-    paddingRight: space.md,
-  },
-  dockSideRight: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
-    paddingLeft: space.md,
-  },
-  dockBtn: { width: DOCK_BTN_W, height: DOCK_BTN_H, marginTop: (SHUTTER - DOCK_BTN_H) / 2, alignItems: 'center', gap: space.xs },
-  dockIcon: {
-    width: TOUCH, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
-    backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-  },
-  dockIconFrozen: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
-  dockLabel: { ...type.label, color: color.text },
-  shutter: {
-    width: SHUTTER, height: SHUTTER, borderRadius: SHUTTER / 2, borderWidth: 3, borderColor: color.accent,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: color.accent, alignItems: 'center', justifyContent: 'center' },
   topRow: {
     position: 'absolute',
     left: space.md,
@@ -3291,39 +3213,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
-  stageBottomControls: {
-    position: 'absolute',
-    left: space.md,
-    right: space.md,
-    bottom: space.sm,
-    gap: space.xs,
-  },
-  timeSliderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space.sm,
-    backgroundColor: color.overlay,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-  },
-  timeSliderWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  timeTrackBg: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: color.borderStrong,
-    overflow: 'hidden',
-  },
-  timeTrackFill: {
-    height: '100%',
-    borderRadius: 2,
-    backgroundColor: color.accent,
-  },
   longExpBadge: {
     height: 24,
     flexDirection: 'row',
@@ -3359,25 +3248,6 @@ const styles = StyleSheet.create({
     color: color.text,
     fontWeight: '700',
   },
-  timeDisplayBtn: {
-    height: 26,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  timeDisplayBtnActive: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
-  timeDisplayText: {
-    ...type.label,
-    fontSize: 11,
-    color: color.text,
-  },
   microText: { ...type.micro, color: color.textDim },
   statusCol: { position: 'absolute', left: space.md, right: TOUCH + space.md * 2, gap: space.xs, alignItems: 'flex-start' },
   badge: {
@@ -3407,7 +3277,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center',
   },
   zoomBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
-  zoomText: { ...type.label, fontSize: 11, color: color.text },
 
   container: {
     flex: 1,
@@ -3854,18 +3723,4 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
   },
   alignPopoverText: { fontSize: 12, fontWeight: '700', color: color.text },
-  zoomPillBar: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    padding: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(11, 18, 32, 0.72)',
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: 6,
-  },
-  zoomPillBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  zoomPillBtnOn: { backgroundColor: 'rgba(255, 255, 255, 0.16)' },
 });

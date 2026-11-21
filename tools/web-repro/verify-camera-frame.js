@@ -12,7 +12,9 @@
  *     한 번 더 누르면 sim(자 유지), 또 누르면 camera(자 사라짐).
  *  5. 셔터 · 오른쪽 칩: 셔터를 누르면 shutter 1, 오른쪽 둥근 칩(방향 고정)을 누르면 lock 1.
  *  6. 모드 줄: "천체" 를 누르면 picks 끝 = astro. (모드 줄이 하는 일은 `verify-mode-strip` 이 잼.)
- *  7. 천체 탭(`tab: astro`): 셔터 안쪽 색이 달빛 색 rgb(203, 213, 225), 칩 "설정" 을 누르면 drawer 1(기존 천체 설정 열기 호출), 모드 줄의 선택은 "천체".
+ *  7. 천체 탭(`tab: astro`): 셔터 안쪽 색이 달빛 색 rgb(203, 213, 225), 모드 줄의 선택은 "천체". 칩 줄의 천체 칩 글이 `astroChipLabel`(기본 설정 "별 궤적 · 8분 · ISO 1600 · …장")이고 누르면 **설정 패널**(`astro-panel`)이 펼쳐진다(2026-11-21: 예전 "설정" 칩 → 서랍 여닫기를 대신함).
+ *     **긴 패널은 처음부터 전체 단계로 열리고(`openStage: 'full'`), 패널은 펼친 영역이 정해 준 최대 높이 안에 있다**(고정부와 겹치지 않고, 넘치면 안쪽에서 스크롤 — 처음에는 패널이 고정부 쪽으로 삐져나가 겹침 판정이 잡아냈다).
+ *     패널 안: 합성 방식 칩 "별 추적" 을 누르면 astro.mode = tracked 이고 rejectCloudyFrames 가 참(별 궤적으로 돌아가면 거짓) · 총 노출 칩 "10분" → durationSec 600 이고 칩 글에 "10분" · ISO 칩 3200 → iso 3200 · 타이머 칩을 누르면 3 → 5 · "구름 프레임 제외" 칩이 켜짐/꺼짐으로 바뀜 · "−1s" 를 누르면 manualSubExposureSec 이 숫자가 되고(수동) "NPF 자동" 칩이 "수동" 으로 바뀜. 패널의 모든 단추는 40 px 이상(칩은 hitSlop 포함).
  *  8. 막대 높이 알림: `onDockHeight` 가 고정부 높이 + 손잡이 줄 28 을 알린다 — 값이 `dock-fixed` 의 잰 높이 + 28 과 ±1 px 로 같다. (막대 위에 떠 있는 것을 올리는 데 씀.)
  *  9. 겹침: 언어 ko · en · ja × 화면 390 × 844 · 360 × 740 × 상태 { 사진 · 카메라 접힘, 사진 · 노출 펼침, 사진 · 겹침(자 보임) 접힘, 사진 · 3D 접힘, 천체 · 카메라 접힘 } 에서 `findOverlaps` 가 빈 목록(칩 줄과 칩 · 자 왼쪽 · 시각 숫자 · 지금 · 자 · 셔터 줄 · 둥근 칩 · 셔터 · 모드 줄 · 펼친 칸). 모든 요소는 화면 안.
  *  10. 글자색 · 재질: 화면의 모든 글자는 계산된 색이 rgb(241, 245, 249)(하늘색 글자 없음, 단 하네스가 단 "카메라 …" 안내 글 제외). 칩 줄의 유리 칠은 흐림 22 px(`backdrop-filter`).
@@ -136,9 +138,38 @@ const C = Date.UTC(2026, 10, 21, 8, 4), HOUR = 3600000;
     const { ctx, p } = await open({ tab: 'astro', sky: 'night' });
     const bg = await p.locator('[data-testid="shutter"] > div').first().evaluate(e => getComputedStyle(e).backgroundColor);
     ok(bg === 'rgb(203, 213, 225)', `셔터 안쪽 달빛 색 ${bg}`);
+    const chipTxt = await p.locator('[data-testid="chip-astro"]').innerText();
+    ok(chipTxt.includes('별 궤적') && chipTxt.includes('8분') && chipTxt.includes('ISO 1600'), `천체 칩 글: ${chipTxt.replace(/\n+/g, ' ')}`);
     await tap(p, 'chip-astro');
-    const s = await st(p);
-    ok(s.drawer === 1, `"설정" → 기존 천체 설정 열기 호출 ${s.drawer}`);
+    ok(await has(p, 'astro-panel') && (await attr(p, 'chip-astro', 'aria-expanded')) === 'true', '천체 칩을 누르면 설정 패널이 펼쳐진다');
+    await tap(p, 'astro-mode-tracked');
+    let s = await st(p);
+    ok(s.astro.mode === 'tracked' && s.astro.rejectCloudyFrames === true, `합성 방식 별 추적: mode ${s.astro.mode}, 구름 제외 ${s.astro.rejectCloudyFrames}`);
+    await tap(p, 'astro-mode-trails');
+    s = await st(p);
+    ok(s.astro.mode === 'trails' && s.astro.rejectCloudyFrames === false, '별 궤적으로 돌아가면 구름 제외가 꺼진다');
+    await tap(p, 'astro-dur-600');
+    s = await st(p);
+    ok(s.astro.durationSec === 600 && (await p.locator('[data-testid="chip-astro"]').innerText()).includes('10분'), `총 노출 10분: ${s.astro.durationSec}, 막대의 천체 칩도 10분`);
+    await tap(p, 'astro-iso-3200');
+    s = await st(p);
+    ok(s.astro.iso === 3200, `ISO ${s.astro.iso}`);
+    const before = s.astro.countdownDelaySec;
+    await tap(p, 'astro-timer');
+    s = await st(p);
+    ok(before === 3 && s.astro.countdownDelaySec === 5, `타이머 ${before} → ${s.astro.countdownDelaySec}`);
+    await tap(p, 'astro-clouds');
+    const c1 = (await st(p)).astro.rejectCloudyFrames;
+    await tap(p, 'astro-clouds');
+    const c2 = (await st(p)).astro.rejectCloudyFrames;
+    ok(c1 === true && c2 === false, `구름 프레임 제외 토글 ${c1} → ${c2}`);
+    await tap(p, 'astro-sub-minus');
+    s = await st(p);
+    const subTxt = await p.locator('[data-testid="astro-sub-auto"]').innerText();
+    ok(typeof s.astro.manualSubExposureSec === 'number' && subTxt.includes('수동'), `서브셔터 수동 전환: ${s.astro.manualSubExposureSec}, 칩 "${subTxt}"`);
+    const small = await p.locator('[data-testid="astro-panel"] [role="button"]').evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return { id: e.getAttribute('data-testid'), w: r.width + 8, h: r.height + 12 }; }).filter(r => r.w < 40 || r.h < 40));
+    ok(small.length === 0, `패널의 단추는 모두 40 px 이상(hitSlop 포함, 작은 것 ${J(small)})`);
+    await shot(p, '7-astro-panel');
     const sel = await p.locator('[data-testid="mode-astro"]').first().getAttribute('aria-selected');
     ok(sel === 'true' || (await body(p)).includes('천체'), `모드 줄의 선택은 천체(aria-selected ${sel})`);
     await ctx.close();
@@ -154,13 +185,14 @@ const C = Date.UTC(2026, 10, 21, 8, 4), HOUR = 3600000;
 
   console.log('\n[9] 겹침');
   {
-    const parents = { 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', 'view-toggle': 'shutter-row', lock: 'shutter-row', shutter: 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock' };
+    const parents = { 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'astro-panel': 'panel-astro', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', 'view-toggle': 'shutter-row', lock: 'shutter-row', shutter: 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock' };
     const states = [
       ['photo-camera', {}, []],
       ['photo-exposure', {}, ['chip-exposure']],
       ['photo-blend', {}, ['view-toggle']],
       ['photo-sim', {}, ['view-toggle', 'view-toggle']],
       ['astro-camera', { tab: 'astro', sky: 'night' }, []],
+      ['astro-panel', { tab: 'astro', sky: 'night' }, ['chip-astro']],
     ];
     let bad = [], outside = [], n = 0;
     for (const vp of [{ width: 390, height: 844 }, { width: 360, height: 740 }])
@@ -175,12 +207,12 @@ const C = Date.UTC(2026, 10, 21, 8, 4), HOUR = 3600000;
               if (id === 'camframe-root' || id === 'dock' || (id.startsWith('mode-') && id !== 'mode-strip')) return;
               const r = e.getBoundingClientRect();
               if (r.width === 0 || r.height === 0) return;
-              out.push({ id, rect: { x: r.x, y: r.y, w: r.width, h: r.height }, parent: parents[id] || (id.startsWith('chip-') ? 'chips-row' : id.startsWith('panel-') ? 'dock-expanded' : undefined) });
+              out.push({ id, rect: { x: r.x, y: r.y, w: r.width, h: r.height }, parent: parents[id] || (id.startsWith('chip-') ? 'chips-row' : id.startsWith('panel-') ? 'dock-expanded' : id.startsWith('astro-') && id !== 'astro-panel' ? 'astro-panel' : undefined) });
             });
             return out;
           }, parents);
           const ex = items.find(i => i.id === 'dock-expanded');
-          const shown = items.filter(i => !(i.parent === 'dock-expanded') || (ex && ex.rect.h >= 1));
+          const shown = items.filter(i => !(i.parent === 'dock-expanded' || i.parent === 'astro-panel') || (ex && ex.rect.h >= 1));
           const real = O.findOverlaps(shown);
           if (real.length) bad.push(`${vp.width}x${vp.height} ${lang} ${name}: ${J(real).slice(0, 160)}`);
           for (const it of shown) if (it.rect.x < -0.5 || it.rect.x + it.rect.w > vp.width + 0.5) outside.push(`${vp.width} ${lang} ${name} ${it.id} x ${it.rect.x.toFixed(0)} w ${it.rect.w.toFixed(0)}`);

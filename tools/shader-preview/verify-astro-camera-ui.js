@@ -221,6 +221,26 @@ function parseHexRgb(hex) {
        '네이티브 모듈에 비파괴 중간 미리보기(적색 암적응 지원) 포함');
   }
 
+  console.log('\n[N1] 천체 설정 칩 · 타이머 · 시간 칩 (2026-11-21, 카메라 새 틀)');
+  {
+    // ## 재기 전에 정한 기준: 막대의 천체 칩 글은 "합성 방식 · 총 노출 · ISO · 서브셔터×장수"(예전 접힌 칩과 같은 내용), 타이머는 0 → 3 → 5 → 10 → 0,
+    // 시간 칩은 1 · 2 · 4 · 6 · 8 · 10 · 15 분(60 초 단위 슬라이더의 대표값).
+    const sm = (o = {}) => ({ clampedIso: 3200, subExposureSecUsed: 8, totalFrames: 60, ...o });
+    const st = (o = {}) => ({ mode: 'trails', durationSec: 480, ...o });
+    const lab = (a, b, l) => (UI.astroChipLabel ? UI.astroChipLabel(a, b, l) : 'none');
+    ok(lab(st(), sm(), 'ko') === '별 궤적 · 8분 · ISO 3200 · 8s×60장', '한국어 "별 궤적 · 8분 · ISO 3200 · 8s×60장"');
+    ok(lab(st({ mode: 'tracked' }), sm(), 'ko') === '별 추적 · 8분 · ISO 3200 · 8s×60장', '"별 추적"');
+    ok(lab(st(), sm(), 'en') === 'Trails · 8m · ISO 3200 · 8s×60f' && lab(st({ mode: 'tracked' }), sm({ clampedIso: 1600, subExposureSecUsed: 5, totalFrames: 12 }), 'en') === 'Track · 8m · ISO 1600 · 5s×12f', '영어 "Trails · 8m · ISO 3200 · 8s×60f"');
+    ok(lab(st(), sm(), 'ja') === '星軌跡 · 8分 · ISO 3200 · 8s×60枚', '일본어 "星軌跡 · 8分 · ISO 3200 · 8s×60枚"');
+    const nc = (v) => (UI.nextCountdown ? UI.nextCountdown(v) : 'none');
+    ok(nc(0) === 3 && nc(3) === 5 && nc(5) === 10 && nc(10) === 0 && nc(7) === 0, '타이머 0 → 3 → 5 → 10 → 0, 모르는 값은 0');
+    const cl = (v, l) => (UI.countdownLabel ? UI.countdownLabel(v, l) : 'none');
+    ok(cl(0, 'ko') === '즉시' && cl(0, 'en') === '0s' && cl(0, 'ja') === '即時' && cl(5, 'ko') === '5s' && cl(10, 'en') === '10s', '타이머 글: 즉시 · 0s · 即時 · 5s · 10s');
+    ok(JSON.stringify(UI.ASTRO_DURATION_CHIPS_SEC) === JSON.stringify([60, 120, 240, 360, 480, 600, 900]), '시간 칩 1 · 2 · 4 · 6 · 8 · 10 · 15 분');
+    const nd = (sec) => (UI.nearestDurationChip ? UI.nearestDurationChip(sec) : 'none');
+    ok(nd(480) === 480 && nd(540) === 480 && nd(570) === 600 && nd(30) === 60 && nd(5000) === 900 && nd(NaN) === 480, '가장 가까운 시간 칩: 480 → 480 · 540 → 480(같으면 작은 쪽) · 570 → 600 · 30 → 60 · 5000 → 900 · 숫자가 아니면 480');
+  }
+
   console.log(`\n결과: ${pass} PASS / ${fail} FAIL`);
   process.exit(fail > 0 ? 1 : 0);
 })();
