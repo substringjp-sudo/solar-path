@@ -477,7 +477,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 천체 모드 상태 · 야간 암적응 촬영 화면 · 천체 전용 결과
   const [cameraTab, setCameraTab] = useState<CameraTabMode>('sunset');
   // 새 화면 틀(실험, 설정의 "실험")이 켜져 있으면 셔터 아래에 모드 줄이 섭니다(docs/SANDBOX_MODE_PLAN.md 18 · 21절).
-  const uiFrameV2 = useCelestialStore(s => s.uiFrameV2);
   const [astroSettings, setAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
   const [astroCaps, setAstroCaps] = useState<AstroCameraCapabilities>({
     available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
@@ -516,8 +515,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   useEffect(() => {
     if (!visible || !cameraScene) return;
     setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
-    // 새 화면 틀(실험)에서는 시각과 상관없이 사진(일반)에서 시작하고, 보던 방향이 가이드가 됩니다(docs/SANDBOX_MODE_PLAN.md 18절).
-    const tab = useCelestialStore.getState().uiFrameV2 ? tabForMode('normal') : tabForMode(modeForScene(cameraScene));
+    // 시각과 상관없이 사진(일반)에서 시작하고, 보던 방향이 가이드가 됩니다(docs/SANDBOX_MODE_PLAN.md 18절).
+    const tab = tabForMode('normal');
     if (tab) setCameraTab(tab);
   }, [visible, cameraScene]);
   useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);
@@ -2596,7 +2595,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   >
                     {cameraTab === 'astro' ? <Moon size={12} color={color.moon} /> : <Sun size={12} color={color.sun} />}
                     <Text style={[styles.azBoxText, { color: cameraTab === 'astro' ? color.moon : color.sun }]} numberOfLines={1}>
-                      {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : (uiFrameV2 ? L3(language, '사진 ▾', 'Photo ▾', '写真 ▾') : L3(language, '노을 ▾', 'Sunset ▾', '夕焼け ▾'))}
+                      {cameraTab === 'astro' ? L3(language, '천체 ▾', 'Astro ▾', '天体 ▾') : L3(language, '사진 ▾', 'Photo ▾', '写真 ▾')}
                     </Text>
                     <Text
                       style={[styles.azBoxText, viewMode !== 'camera' && frozenView && { color: color.accent }]}
@@ -3041,9 +3040,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   })()}
                 </View>
               </View>
-              {/* 새 화면 틀(실험): 셔터 아래 모드 줄. 하늘 쪽(시뮬레이션 · 샌드박스)을 고르면 카메라를 닫고 돌아갑니다. */}
-              {uiFrameV2 && (
-                <ModeStrip
+              {/* 셔터 아래 모드 줄. 하늘 쪽(시뮬레이션 · 샌드박스)을 고르면 카메라를 닫고 돌아갑니다. */}
+              <ModeStrip
                   mode={timelapseOpen ? 'timelapse' : cameraTab === 'astro' ? 'astro' : 'photo'}
                   modes={CAMERA_STRIP_MODES}
                   language={language}
@@ -3053,7 +3051,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     if (key) pickMode(key);
                   }}
                 />
-              )}
             </View>
           </View>
         )}

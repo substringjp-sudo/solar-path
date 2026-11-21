@@ -12,6 +12,7 @@
  *  3. 자 왼쪽 날짜를 누르면(밀지 않고): 일주일 줄(7 칸, 날 19 20 21 22 23 24 25, 21 이 켜짐)이 펼쳐지고 "달력에서 고르기" 단추가 보임. 23 칸을 누르면 pick(date, C + 2일)와 23 이 켜짐. "달력에서 고르기"를 누르면 calendars 1. 날짜를 다시 누르면 접힌다(일주일 줄이 안 보임).
  *  4. 시간 자를 오른쪽으로 72 px 끌면 ev 에 start(time) 이 먼저, pick(time) 들이 이어지고 end(time) 이 마지막이며, 마지막 pick 은 C − 1시간, 시각 숫자 "16:04". "지금"을 누르면 nows 1 이고 "17:04" 로 돌아온다.
  *  5. 끝까지 펼침: 손잡이를 누르면 min → mid → full. mid 에서는 시뮬레이션 내용("점수와 다가오는 좋은 순간")이 안 보이고 full 에서 보인다. 다시 누르면 접히고 일주일 줄도 사라진다.
+    (끝까지 펼침의 덧붙임, 2026-11-21: 옛 화면의 peek 시트가 "펼칠 때 예보를 받는" 일을 맡던 것이 새 틀로 넘어왔으므로) `onSimBodyOpenChange` 는 시뮬레이션이 full 일 때만 참: 처음 [false], mid 에서도 false, full 에서 true, 다시 누르면 false. 샌드박스에서는 참이 되지 않는다.
  *  6. 샌드박스: 모드 줄 "샌드박스"를 누르면 switches 끝 = { sandbox, clear, null }, 하네스의 mode 가 sandbox, 칩이 "이동" "보기" "장면" "도구"(어제 · 오늘 · 내일 · 날짜 없음), 읽음 줄 "159° S · EL 13.0° · 눈 1.6 m", 펼침 없음.
  *     "이동"을 누르면 펼침이 열리고 그 칸 내용("이동 내용")이 보이며 "이동" 칩이 펼쳐짐. 이어서 "보기"를 누르면 내용이 "보기 내용"으로 바뀌고(이동 내용은 안 보임) 닫혔다 열리지 않고 그대로 펼쳐진 채다. "보기"를 다시 누르면 접히고(내용이 안 보임) 칩 aria-expanded 거짓. 펼친 채 모드 줄을 시뮬레이션으로 되돌리면 펼침이 접히고(내용 없음) 칩이 시뮬레이션 칩으로 바뀐다.
  *  7. 카메라 쪽: 샌드박스에서 모드 줄을 왼쪽으로 100 px 밀면 switches 끝 = { photo, set, { 159, 13 } }(보던 방향이 가이드)이고 하네스의 mode 는 그대로 sandbox(카메라는 하늘 화면이 아니라 밖에서 엶). 시뮬레이션에서 "천체"를 누르면 { photo, set, … }. 모드를 바꾸면 펼침은 접힌다.
@@ -136,8 +137,16 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
     await tap(p, 'dock-handle');
     const full = await body(p);
     ok(!mid.includes('점수와 다가오는 좋은 순간') && full.includes('점수와 다가오는 좋은 순간') && await vis(p, 'week-strip'), 'mid 에는 시뮬레이션 내용이 없고 full 에 있다');
+    {
+      const calls = await p.evaluate(() => (window).__frame.simOpen.slice());
+      ok(calls.length >= 2 && calls[0] === false && calls[calls.length - 1] === true && calls.indexOf(true) > 0, `본문 열림 알림: 처음 false(접힘) → full 에서 true(${JSON.stringify(calls)})`);
+    }
     await shot(p, '5-sim-full');
     await tap(p, 'dock-handle');
+    {
+      const calls = await p.evaluate(() => (window).__frame.simOpen.slice());
+      ok(calls[calls.length - 1] === false && calls.includes(true), `다시 접으면 false 로 알림(${JSON.stringify(calls)})`);
+    }
     ok(!(await vis(p, 'week-strip')) && !(await body(p)).includes('점수와 다가오는 좋은 순간'), '다시 누르면 접힘');
     await ctx.close();
   }
@@ -146,7 +155,17 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   console.log('\n[6] 샌드박스');
   {
     const { ctx, p } = await open();
+    await tap(p, 'dock-handle');
+    await tap(p, 'dock-handle');
+    {
+      const open1 = await p.evaluate(() => (window).__frame.simOpen.slice());
+      ok(open1[open1.length - 1] === true, '시뮬레이션을 full 로 펼쳐 둠(본문 열림 true)');
+    }
     await tap(p, 'mode-sandbox');
+    {
+      const open2 = await p.evaluate(() => (window).__frame.simOpen.slice());
+      ok(open2[open2.length - 1] === false, '샌드박스로 바꾸면 접히며 본문 열림 false(예보를 더 받지 않음)');
+    }
     let t = await body(p);
     ok(J(await lastSw(p)) === J({ mode: 'sandbox', guideOp: 'clear', guide: null }) && (await st(p)).mode === 'sandbox' && ['이동', '보기', '장면', '도구', '159° S · EL 13.0° · 눈 1.6 m'].every(w => t.includes(w)) && !t.includes('어제') && !t.includes('내일'), '샌드박스: clear, 칩 이동 · 보기 · 장면 · 도구, 읽음 줄');
     await tap(p, 'chip-move');

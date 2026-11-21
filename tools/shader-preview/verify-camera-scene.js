@@ -40,18 +40,18 @@ ok(part.length > 50 && !/cameraScene/.test(part), '저장하지 않는다(partia
 console.log('\n[2] 하늘 화면');
 const shoot = (sky.match(/const shootScene = \(\) => \{[\s\S]*?\n  \};\n/) || [''])[0];
 ok(/const sc = readScene\(''\);\s+if \(!sc\) return;\s+useCelestialStore\.getState\(\)\.setCameraScene\(sc\);\s+onCameraPress\?\.\(\);/.test(shoot), 'shootScene: 읽고(못 읽으면 그만) → 저장소에 넣고 → onCameraPress');
-ok((sky.match(/onShoot=\{shootScene\}/g) || []).length === 3 && (sky.match(/<SceneBar /g) || []).length === 3, 'SceneBar 세 곳(정보 패널 · 따로 뜬 줄 · 새 틀의 "장면" 칸) 모두 onShoot 을 건다(2026-11-21: 새 화면 틀이 세 번째를 더함)');
+ok((sky.match(/onShoot=\{shootScene\}/g) || []).length === 1 && (sky.match(/<SceneBar /g) || []).length === 1, 'SceneBar 는 새 틀의 "장면" 칸 한 곳만 남고 onShoot 을 건다(2026-11-21: 옛 화면의 정보 패널 · 따로 뜬 줄 두 곳은 옛 UI 와 함께 지움)');
 
 console.log('\n[3] 장면 줄');
 ok(/onShoot\?: \(\) => void;/.test(bar) && /\{onShoot && \(/.test(bar) && /L3\(language, '이 장면 찍기', 'Shoot', '撮る'\)/.test(bar), 'onShoot 선택 항목, 있을 때만 "이 장면 찍기" 단추');
 
 console.log('\n[5] 카메라 안 모드 줄(새 화면 틀, 2026-11-21)');
-ok(/\{uiFrameV2 && \(\s*<ModeStrip\s+mode=\{timelapseOpen \? 'timelapse' : cameraTab === 'astro' \? 'astro' : 'photo'\}\s+modes=\{CAMERA_STRIP_MODES\}/.test(cam), '스위치가 켜졌을 때만 모드 줄, 지금 모드는 타임랩스 · 천체 · 사진');
+ok(/<ModeStrip\s+mode=\{timelapseOpen \? 'timelapse' : cameraTab === 'astro' \? 'astro' : 'photo'\}\s+modes=\{CAMERA_STRIP_MODES\}/.test(cam) && !/uiFrameV2/.test(cam), '모드 줄은 늘 보이고(스위치는 2026-11-21 에 없앰), 지금 모드는 타임랩스 · 천체 · 사진');
 ok(/if \(m === 'simulation' \|\| m === 'sandbox'\) \{ useCelestialStore\.getState\(\)\.setExpertMode\(m === 'sandbox'\); onClose\(\); return; \}\s+const key = captureKeyFor\(m\);\s+if \(key\) pickMode\(key\);/.test(cam), '하늘 쪽을 고르면 전문가 모드를 맞추고 카메라를 닫고, 카메라 쪽은 기존 pickMode 로');
-ok(/const CAMERA_STRIP_MODES = modeList\(false\);/.test(cam) && /uiFrameV2 \? L3\(language, '사진 ▾'/.test(cam), '이벤트 없는 모드 목록, 새 틀에서는 위 알약이 "노을" 대신 "사진"');
+ok(/const CAMERA_STRIP_MODES = modeList\(false\);/.test(cam) && /: L3\(language, '사진 ▾', 'Photo ▾', '写真 ▾'\)/.test(cam) && !/노을 ▾/.test(cam), '이벤트 없는 모드 목록, 위 알약은 "노을" 대신 "사진"');
 
 console.log('\n[4] 카메라');
-ok(/useEffect\(\(\) => \{\s+if \(!visible \|\| !cameraScene\) return;\s+setLockedTarget\(\{ azDeg: cameraScene\.azDeg, elDeg: cameraScene\.elDeg \}\);\s+(?:\/\/[^\n]*\n\s+)?const tab = useCelestialStore\.getState\(\)\.uiFrameV2 \? tabForMode\('normal'\) : tabForMode\(modeForScene\(cameraScene\)\);\s+if \(tab\) setCameraTab\(tab\);\s+\}, \[visible, cameraScene\]\);/.test(cam), '장면의 방위 · 앙각으로 목표를 잡고 시각에 맞는 탭을 연다');
+ok(/useEffect\(\(\) => \{\s+if \(!visible \|\| !cameraScene\) return;\s+setLockedTarget\(\{ azDeg: cameraScene\.azDeg, elDeg: cameraScene\.elDeg \}\);\s+(?:\/\/[^\n]*\n\s+)?const tab = tabForMode\('normal'\);\s+if \(tab\) setCameraTab\(tab\);\s+\}, \[visible, cameraScene\]\);/.test(cam), '장면의 방위 · 앙각으로 목표를 잡고 사진(일반) 탭에서 시작한다(시각과 상관없이; 2026-11-21 에 옛 분기를 지움)');
 ok(/useEffect\(\(\) => \(\) => \{ useCelestialStore\.getState\(\)\.setCameraScene\(null\); \}, \[\]\);/.test(cam), '카메라가 사라질 때 장면을 지운다');
 ok(/\{cameraScene && \(/.test(cam) && /cameraScene\.name/.test(cam) && /sceneSummary\(cameraScene,/.test(cam) && /setLockedTarget\(null\); useCelestialStore\.getState\(\)\.setCameraScene\(null\);/.test(cam) && /'장면 지우기', 'Clear scene'/.test(cam), '장면 줄(이름 · 요약)과 "장면 지우기"(목표와 장면을 함께)');
 

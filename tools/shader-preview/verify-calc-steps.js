@@ -436,8 +436,8 @@ const RAD = Math.PI / 180;
        /getRenderState\?\.\(\)\?\.scene/.test(learn) && /layerWindsFrom\(obs\)/.test(cloudMemo) && /new Date\(st\.t\)/.test(cloudMemo) &&
        /cloudSceneUsable\(scene\.st\.t, atMs\)/.test(learn) &&
        /구름을 그리지 않았어요/.test(why) && /LEARN_TOPICS\.map\(topic =>/.test(why) &&
-       /<CloudCaption[\s\S]*?onPress=\{\(\) => learnAt\(currentTime, isSunriseSide \? 'sunrise' : 'sunset', 'why', 'cloud'\)\}/.test(sky),
-       '(i) 앱 연결: 만들기 길이 cloud 입력이 없으면 null, 학습 페이지가 장면 상태와 그 그림의 시각 층별 바람으로 입력을 만들고 고른 칸의 시각과 다르면 알리며, 구름 한 줄을 누르면 학습의 구름 모양으로 간다');
+       /<GlassChip label=\{cloudCaption\} onPress=\{\(\) => learnAt\(currentTime, isSunriseSide \? 'sunrise' : 'sunset', 'why', 'cloud'\)\}/.test(sky),
+       '(i) 앱 연결: 만들기 길이 cloud 입력이 없으면 null, 학습 페이지가 장면 상태와 그 그림의 시각 층별 바람으로 입력을 만들고 고른 칸의 시각과 다르면 알리며, 구름 한 줄(새 틀의 유리 칩; 옛 CloudCaption 은 2026-11-21 에 지움)을 누르면 학습의 구름 모양으로 간다');
     ok(/<ScrollView horizontal showsHorizontalScrollIndicator=\{false\}[^>]*>\s*\{LEARN_SECTIONS\.map/.test(learn),
        '(i) 구역 칩 줄이 가로로 밀린다(칩 다섯이 390 폭에서 잘리지 않게; 옛 주제 칩 줄바꿈과 같은 뜻)');
   }

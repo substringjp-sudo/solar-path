@@ -1,7 +1,7 @@
 /**
  * SkyFrameRepro — 하늘 화면의 새 틀(`SkyScreen/SkyFrame`)을 가짜 내용으로 웹 하네스에서 눌러 보는 장면(2026-11-21).
  * 주소 # 뒤 JSON: { skyframe: 1, w, h, lang, mode: 'simulation' | 'sandbox', sky: 'haze' | 'night' }.
- * 일어난 일은 window.__frame 에 남습니다: { mode, timeMs, ev: [{ e: 'start' | 'pick' | 'end', kind, ms? }], switches, shoots, saves, nows, calendars }.
+ * 일어난 일은 window.__frame 에 남습니다: { mode, timeMs, ev: [{ e: 'start' | 'pick' | 'end', kind, ms? }], switches, shoots, saves, nows, calendars, simOpen: [시뮬레이션 본문이 열림/닫힘으로 바뀐 기록] }.
  * 판정: tools/web-repro/verify-sky-frame.js
  */
 import React from 'react';
@@ -20,7 +20,7 @@ export function SkyFrameRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
   const C = Date.UTC(2026, 10, 21, 8, 4);
   const [mode, setMode] = React.useState<FrameMode>(Q.mode ?? 'simulation');
   const [timeMs, setTimeMs] = React.useState(C);
-  const log = React.useRef<any>({ ev: [], switches: [], shoots: 0, saves: 0, nows: 0, calendars: 0 });
+  const log = React.useRef<any>({ ev: [], switches: [], shoots: 0, saves: 0, nows: 0, calendars: 0, simOpen: [] as boolean[] });
   // 눌러도 다시 그려지지 않는 일(셔터 · 저장 · 달력)도 읽을 수 있게, 같은 객체를 매번 갱신해 둡니다.
   log.current.mode = mode; log.current.timeMs = timeMs;
   (globalThis as any).__frame = log.current;
@@ -52,6 +52,7 @@ export function SkyFrameRepro({ W, H, Q }: { W: number; H: number; Q: any }) {
         onShoot={() => { log.current.shoots++; }}
         onSaveScene={() => { log.current.saves++; }}
         onOpenCalendar={() => { log.current.calendars++; }}
+        onSimBodyOpenChange={(o: boolean) => { log.current.simOpen.push(o); }}
       />
     </View>
   );

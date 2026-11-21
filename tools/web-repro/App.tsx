@@ -16,10 +16,8 @@ import { VOLUMETRIC_TERRAIN_ALBEDO } from '../../src/components/SkyScene3D/Terra
 import { setTerrainLook } from '../../src/components/SkyScene3D/terrainLook';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
-import { CloudCaption } from '../../src/components/SkyScreen/CloudCaption';
 import { PredictionCard } from '../../src/components/SunsetSimulation/PredictionCard';
-import { cloudSummary, skyDirection } from '../../src/utils/skyWords';
-import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
+import { skyDirection } from '../../src/utils/skyWords';
 import { ScoreGraph } from '../../src/components/SkyScreen/ScoreGraph';
 import { scoreWindow, sampleScores } from '../../src/utils/scoreSeries';
 import { sunPosition } from '../../src/utils/solarPosition';
@@ -121,9 +119,8 @@ function GlobeRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
-/** bar:1 — 하단 날짜·시간 막대만(§143). t·now·tz 로 시각·지금·시간대. 커밋 횟수·시각을 window.__bar 에 남깁니다. */
 /**
- * words:1 — 쉬운 말(2026-11-19): 판정 카드의 해 방향 머리 줄과 하늘 위 구름 한 줄. 실제 `predictSunset` 으로 카드를 그리고 구름 줄은 같은 운량에서 만듭니다.
+ * words:1 — 쉬운 말(2026-11-19): 판정 카드의 해 방향 머리 줄. 실제 `predictSunset` 으로 카드를 그립니다(하늘 위 구름 한 줄 `CloudCaption` 은 2026-11-21 에 옛 화면과 함께 없앴고 새 틀의 유리 칩이 이어받았습니다).
  *   low · mid · high 운량 %, az 해 방위(기본 245), lang · light.   예: {"words":1,"low":20,"mid":5,"high":70,"az":245}
  */
 function WordsRepro({ W }: { W: number }) {
@@ -135,40 +132,11 @@ function WordsRepro({ W }: { W: number }) {
     const path = [mk(lo, mi, hi, 0, 0), ...[30, 60, 100, 200].flatMap(d => [0, 90, 180, 270].map(a => mk(a === 0 ? 0 : lo, mi, hi, d, a)))];
     return predictSunset(path as any, T0, 0.5, 20000, 55, 37.5, 38, 325, Q.az ?? 245);
   }, []);
-  const line = cloudSummary({ low: lo, mid: mi, high: hi }, lang);
   return (
     <View style={{ width: W, backgroundColor: Q.light ? '#E9EEF4' : '#070A12' }}>
-      <View style={{ height: 150, backgroundColor: '#35557F' }}>{line ? <CloudCaption text={line} /> : null}</View>
       <View style={{ padding: 12 }}>
         <PredictionCard prediction={pred} isSunrise={false} peakTime={new Date('2026-11-21T17:11:00+09:00')} directionText={skyDirection(Q.az ?? 245, lang)} onWhy={() => {}} />
       </View>
-    </View>
-  );
-}
-
-function BarRepro({ W }: { W: number }) {
-  const [t, setT] = React.useState(new Date(Q.t ?? Date.now()));
-  const [sim, setSim] = React.useState(true);
-  React.useEffect(() => { useCelestialStore.setState({ timezoneOffsetHours: Q.tz ?? 9, timezoneLabel: 'GMT+9', language: Q.lang ?? 'ko' } as any); }, []);
-  (globalThis as any).__bar = (globalThis as any).__bar ?? { commits: 0, last: 0, events: [] as string[] };
-  const origNow = React.useRef(false);
-  if (!origNow.current && Q.now) { origNow.current = true; const real = Date.now; const off = new Date(Q.now).getTime() - real(); Date.now = () => real() + off; }
-  const day = (h: number, m: number) => new Date(Date.UTC(2026, 9, 16, h - 9, m));
-  return (
-    <View style={{ width: W, backgroundColor: '#0D1320', paddingVertical: 6 }}>
-      <DateTimeBar
-        currentTime={t}
-        onPick={(d, meta) => { const b = (globalThis as any).__bar; b.commits++; b.last = d.getTime(); b.events.push(`${meta?.scrub ?? 'step'}:${d.toISOString()}`); setT(d); setSim(true); }}
-        onSlidingStart={(k) => (globalThis as any).__bar.events.push('start:' + k)}
-        onSlidingComplete={(k) => (globalThis as any).__bar.events.push('end:' + k)}
-        isTimeMachineEnabled={sim}
-        onNow={() => setSim(false)}
-        onOpenDatePicker={() => (globalThis as any).__bar.events.push('picker')}
-        onCameraPress={() => {}}
-        events={{ sunrise: day(6, 41), sunset: day(17, 53), moonrise: day(13, 20), moonset: day(23, 40) }}
-        simple={!!Q.simple}
-        seasonPcts={[{ key: 'a', pct: 22, color: '#4ADE80' }, { key: 'b', pct: 47, color: '#FFA500' }, { key: 'c', pct: 72, color: '#F97316' }, { key: 'd', pct: 98, color: '#38BDF8' }]}
-      />
     </View>
   );
 }
@@ -528,7 +496,6 @@ export default function App() {
   }, []);
   const ringWx = React.useMemo(() => (ring && ring.length ? getInterpolatedWeather(ring as any, new Date(tNow ?? Date.now())) : null), [ring, tNow]);
   if (Q.graph) return <GraphRepro W={W} />;
-  if (Q.bar) return <BarRepro W={W} />;
   // glass:1 — 유리 부품(막대 · 시간 자 · 모드 줄) 모음. 일어난 일은 window.__glass.
   if (Q.glass) return <GlassRepro W={W} H={H} Q={Q} />;
   // skyframe:1 — 하늘 화면 새 틀(SkyFrame)을 가짜 내용으로. 일어난 일은 window.__frame.

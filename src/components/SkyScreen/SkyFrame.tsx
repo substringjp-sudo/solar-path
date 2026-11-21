@@ -63,14 +63,20 @@ interface Props {
   onOpenLatestScene?: () => void;
   /** 달력 창 열기("날짜" 펼침 안의 "달력") */
   onOpenCalendar?: () => void;
+  /** 시뮬레이션을 끝까지 펼쳐 `simBody` 가 보이는지가 바뀔 때(예보 카드는 펼칠 때 한 번 받습니다). */
+  onSimBodyOpenChange?: (open: boolean) => void;
 }
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar,
+  readout, simBody, sandbox, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | null>(null);
+  const simBodyOpen = mode === 'simulation' && stage === 'full';
+  const simBodyCb = React.useRef(onSimBodyOpenChange);
+  simBodyCb.current = onSimBodyOpenChange;
+  React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
   const modes = React.useMemo(() => modeList(false), []);
   const off = dayOffset(timeMs, nowMs, tz);
 

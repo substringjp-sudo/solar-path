@@ -75,10 +75,10 @@ const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), 'utf8');
   ok(/onPickTarget=\{\(t\) => \{ pendingSceneTargetRef\.current = null; setPicked\(t\); \}\}/.test(sky) && /onClear=\{\(\) => \{ pendingSceneTargetRef\.current = null; setPicked\(null\); \}\}/.test(sky), '대상을 새로 고르거나 지우면 되살리던 대상은 접는다');
 
   console.log('\n[5] 자리');
-  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !cleanView && picked && \([\s\S]*?sceneRow=\{frameV2 \? undefined : <SceneBar language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>\}/.test(sky), '고른 대상이 있으면 객체 정보 패널 안(sceneRow, 새 화면 틀에서는 막대의 "장면" 칸이 대신해 뺌)');
-  ok(/\{!isCameraOverlayActive && expertMode && !ascended && !cleanView && !picked && !sheetOpen && !frameV2 && sandboxTool === 'tools' && \(\s*<View style=\{overlayStyles\.sceneBar\} pointerEvents="box-none">\s*<SceneBar boxed language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>/.test(sky), '없으면 도구 열었을 때 하단 툴독 위에 따로 한 줄(boxed)');
+  ok(!/sceneRow/.test(sky) && !/sceneRow/.test(fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'SkyScreen', 'ObjectInfoPanel.tsx'), 'utf8')), '객체 정보 패널의 sceneRow 와 아래 따로 뜬 SceneBar 줄은 옛 UI 와 함께 지움(2026-11-21): 장면 저장 · 열기는 새 틀의 "장면" 칸이 맡는다');
+  ok(/scene: <SceneBar language=\{language\} scenes=\{savedScenes\} onSave=\{\(\) => setSceneSheetOpen\(true\)\} onOpen=\{openScene\} onAll=\{\(\) => setSceneSheetOpen\(true\)\} onShoot=\{shootScene\} \/>/.test(sky) && !/<SceneBar boxed/.test(sky), '새 틀의 "장면" 칸 안에 SceneBar(장면 저장 · 저장한 장면 · 이 장면 찍기)');
   ok(/sceneBar: \{ position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 \},/.test(sky), '그 자리는 bottom: 72 (하단 툴독 위)');
-  ok(/<SceneSheet\s+visible=\{sceneSheetOpen && \(expertMode \|\| frameV2\)\}/.test(sky) && /onOpen=\{openScene\}/.test(sky) && /renameSavedScene\(id, n\)/.test(sky) && /removeSavedScene\(id\)/.test(sky), '시트는 전문가 모드에서만, 열기 · 이름 바꾸기 · 지우기가 이어진다');
+  ok(/<SceneSheet\s+visible=\{sceneSheetOpen\}/.test(sky) && /onOpen=\{openScene\}/.test(sky) && /renameSavedScene\(id, n\)/.test(sky) && /removeSavedScene\(id\)/.test(sky), '시트는 "장면 저장"을 누르면 열리고(옛 화면의 전문가 모드 조건은 없앰), 열기 · 이름 바꾸기 · 지우기가 이어진다');
 
   console.log('\n[6] 시트');
   ok(/sceneSummary\(s, ctx\)/.test(sheet) && /sceneNote\(s, sunNoteAt\(s\.timeMs, s\.latitude, s\.longitude\), language\)/.test(sheet), '요약 · 대상 글은 순수 로직으로, 해 위치는 sunNoteAt');
