@@ -70,8 +70,22 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
     const t = await body(p);
     ok(['하늘', '데이터', '기록', '17:04', '지금', '일몰 17:17', '시뮬레이션', '샌드박스', '사진', '천체'].every(w => t.includes(w)) && !t.includes('타임랩스') && !/\b0[123]\b/.test(t.split('17:04')[0]), `글 확인(타임랩스는 줄 밖): ${t.replace(/\n+/g, ' ').slice(0, 90)}`);
     ok(!t.includes('어제') && !t.includes('내일') && t.includes('11.21 토'), '시뮬레이션: 칩 줄이 없고 자 왼쪽은 날짜("11.21 토")');
-    const tabBg = await p.locator('[data-testid="hdr-tabs"] [role="button"]').evaluateAll(els => els.map(e => getComputedStyle(e.firstElementChild || e).backgroundColor));
-    ok(tabBg.length === 3 && tabBg.slice(1).every(c => c === 'rgba(0, 0, 0, 0)'), `탭 단추 배경이 투명(켜진 것 빼고): ${tabBg.join(' | ')}`);
+    // 2026-11-21: 머리줄은 이제 실제 `AppHeader`(하늘 탭 = 유리)입니다. 탭은 role="tab", 켜진 탭의 하늘색 덧칠은 따로 깔린 막대(indicator)입니다.
+    const tabBg = await p.locator('[data-testid="hdr-tabs"] [role="tab"]').evaluateAll(els => els.map(e => getComputedStyle(e).backgroundColor));
+    ok(tabBg.length === 3 && tabBg.every(c => c === 'rgba(0, 0, 0, 0)'), `탭 단추 배경이 모두 투명(탭마다 따로 유리 칠 없음): ${tabBg.join(' | ')}`);
+    {
+      const sel = await p.locator('[data-testid="hdr-tabs"] [role="tab"]').evaluateAll(els => els.map(e => e.getAttribute('aria-selected')));
+      ok(J(sel) === J(['true', 'false', 'false']), `켜진 탭만 선택됨(aria-selected): ${J(sel)}`);
+      const tint = await p.locator('[data-testid="hdr-tabs"] div').evaluateAll(els => els.some(e => getComputedStyle(e).backgroundColor === 'rgba(56, 189, 248, 0.2)'));
+      ok(tint, '켜진 탭 뒤에 하늘색 덧칠 막대(0.20)');
+      const rs = await Promise.all(['hdr-tabs', 'hdr-place', 'hdr-settings'].map(id => rect(p, id)));
+      ok(rs.every(r => r.y >= 3.5 && r.y + r.h <= 44.5), `머리줄 요소가 모두 y 4 ~ 44 안(높이 48 의 위아래 여백 4): ${J(rs.map(r => [Math.round(r.y), Math.round(r.y + r.h)]))}`);
+      const placeTxt = await p.locator('[data-testid="hdr-place"]').innerText();
+      ok(placeTxt.includes('강남구'), `장소 이름이 보임: ${placeTxt}`);
+      const gapX = Math.round(rs[0].x + rs[0].w + 3);
+      const hit = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return !!e && !!e.closest('[data-testid="hdr-tabs"],[data-testid="hdr-place"],[data-testid="hdr-settings"]'); }, [gapX, 24]);
+      ok(!hit, `머리줄의 빈 곳(탭과 장소 사이)은 눌림이 하늘로 통과(box-none): x ${gapX}`);
+    }
     const handle = p.locator('[data-testid="dock-handle"]');
     ok((await handle.getAttribute('aria-label')) === '펼치기', '손잡이 이름 "펼치기"');
     const hr = await rect(p, 'dock-handle');
@@ -175,7 +189,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
   // ── 5 겹침
   console.log('\n[5] 겹침');
   {
-    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
+    const parents = { 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'hdr-tab-sky': 'hdr-tabs', 'hdr-tab-learn': 'hdr-tabs', 'hdr-tab-log': 'hdr-tabs', 'hdr-tabs': 'hdr', 'hdr-place': 'hdr', 'hdr-settings': 'hdr' };
     let bad = [], outside = [], n = 0;
     for (const vp of [{ width: 390, height: 844 }, { width: 360, height: 740 }])
       for (const lang of ['ko', 'en', 'ja'])
@@ -249,6 +263,33 @@ const C = Date.UTC(2026, 10, 21, 8, 4);
     ok(diff.every(d => d <= 12), `칩 안 화소 rgb(${rgb}) ≈ 계산 rgb(${want.map(Math.round)}) (비율 ${f.toFixed(2)}, 차 ${diff.map(Math.round)})`);
     void dockTop;
     await q.ctx.close();
+  }
+
+  // ── 8 머리줄: 탭 누름 · 학습/기록 탭의 불투명 머리줄 · 머리줄 뒤 하늘 화소(2026-11-21, 실제 `AppHeader`)
+  console.log('\n[8] 머리줄(실제 AppHeader)');
+  {
+    const q = await open();
+    await q.p.locator('[data-testid="hdr-tab-learn"]').click();
+    await q.p.locator('[data-testid="hdr-place"]').click();
+    await q.p.locator('[data-testid="hdr-settings"]').click();
+    const tabs = await q.p.evaluate(() => globalThis.__glass_tabs), hdr = await q.p.evaluate(() => globalThis.__glass_hdr);
+    ok(J(tabs) === J(['learn']) && J(hdr) === J(['place', 'settings']), `탭 · 장소 · 설정을 누르면 알림이 간다(탭 ${J(tabs)}, 단추 ${J(hdr)})`);
+    const info = await q.p.locator('[data-testid="hdr-tabs"]').evaluate(e => { const c = getComputedStyle(e); return { bf: c.backdropFilter || c.webkitBackdropFilter, color: getComputedStyle(e.querySelector('[role="tab"] div, [role="tab"]')).color }; });
+    ok(/blur\(22px\)/.test(info.bf), `하늘 탭의 머리줄은 흐림 유리(${info.bf})`);
+    // 머리줄 탭 묶음 안 한 점의 화소: 하늘 연무 → 위 막(y 에서의 알파) → 유리 칠. 글자 없는 곳(켜진 탭의 막대 오른쪽 끝 근처가 아니라 탭 묶음의 왼쪽 안쪽 4 px).
+    const tabsR = await rect(q.p, 'hdr-tabs');
+    const png = await q.p.screenshot();
+    const probe = { x: Math.round(tabsR.x + tabsR.w - 6), y: Math.round(tabsR.y + tabsR.h / 2) };
+    const rgb = await q.p.evaluate(async ({ b64, x, y }) => { const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode(); const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const c = cv.getContext('2d'); c.drawImage(img, 0, 0); const d = c.getImageData(x, y, 1, 1).data; return [d[0], d[1], d[2]]; }, { b64: png.toString('base64'), x: probe.x, y: probe.y });
+    // 이 하네스의 하늘 그림은 위쪽이 #b8c0d6 에서 시작하는 그라데이션이라 연무가 아닙니다 — 기준은 같은 점의 막 · 칠 없는 바탕을 직접 읽어 계산하지 않고, 유리 칠이 바탕보다 어둡다는 것만 봅니다.
+    ok(rgb.every(v => v < 200), `머리줄 유리 위 화소 rgb(${rgb})는 어둡게 칠해졌다(밝은 하늘 #b8c0d6 위에서도 200 미만)`);
+    await q.ctx.close();
+    const l = await open({ tab: 'learn' });
+    const hasGlass = await l.p.locator('[data-testid="hdr-tabs"]').count();
+    const learnSel = await l.p.locator('[data-testid="hdr-tab-learn"]').getAttribute('aria-selected');
+    const bf = await l.p.locator('[data-testid="hdr-tab-learn"]').evaluate(e => { let n = e; while (n && n !== document.body) { const c = getComputedStyle(n); if (c.backdropFilter && c.backdropFilter !== 'none') return c.backdropFilter; n = n.parentElement; } return 'none'; });
+    ok(hasGlass === 0 && learnSel === 'true' && bf === 'none', `학습 탭의 머리줄은 불투명 테마 상자(유리 없음 ${hasGlass === 0}, 선택 ${learnSel}, 흐림 ${bf})`);
+    await l.ctx.close();
   }
 
   await b.close(); server.close();

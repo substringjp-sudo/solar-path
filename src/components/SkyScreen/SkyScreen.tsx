@@ -15,6 +15,7 @@ import { StyleSheet, View, Text, ActivityIndicator, Platform, Switch } from 'rea
 import { SlidersHorizontal, Sun, Sunset, Moon, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
+import { HEADER_HEIGHT, belowHeader } from '../../utils/headerLayout';
 /** 시간 자 · 날짜 줄을 끄는 종류(시간 자가 새 틀의 `SlideKind` 와 같은 값). */
 type ScrubKind = 'date' | 'time';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -1149,6 +1150,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           disableGestures={isCameraOverlayActive}
           hideHudOverlay={isCameraOverlayActive}
           hideCompassBar
+          topInset={HEADER_HEIGHT}
           registerPrimary
         />
 
@@ -1397,16 +1399,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 const overlayStyles = StyleSheet.create({
   sceneOverlayButtons: {
     position: 'absolute',
-    top: 12,
+    top: belowHeader(12),
     right: 12,
     gap: 8,
     zIndex: 20,
     alignItems: 'flex-end',
   },
-  sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
+  sandboxPanel: { position: 'absolute', left: 12, top: belowHeader(108), zIndex: 20 },
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 고른 대상 정보는 위(읽음 줄 아래)에 둡니다.
-  objectPanelTop: { position: 'absolute', left: 12, right: 12, top: 64, zIndex: 22 },
+  objectPanelTop: { position: 'absolute', left: 12, right: 12, top: belowHeader(64), zIndex: 22 },
   // 고른 대상이 없을 때의 장면 저장 줄: 도구 열었을 때 하단 툴독 위에 배치
   sceneBar: { position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 },
   sandboxDock: {
@@ -1427,7 +1429,7 @@ const overlayStyles = StyleSheet.create({
     alignItems: 'center',
   },
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 알림 줄은 위(읽음 줄 아래)로 올립니다.
-  bannerTop: { bottom: undefined, top: 56 },
+  bannerTop: { bottom: undefined, top: belowHeader(56) },
   buildBanner: {
     position: 'absolute',
     left: 14,
@@ -1516,7 +1518,7 @@ const overlayStyles = StyleSheet.create({
   },
   trackingBadge: {
     position: 'absolute',
-    top: 12,
+    top: belowHeader(12),
     left: 12,
     flexDirection: 'row',
     alignItems: 'center',

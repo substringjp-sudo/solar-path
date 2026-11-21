@@ -22,6 +22,8 @@ interface ViewfinderOverlayProps {
   adjusting?: boolean;
   /** 샌드박스: 값이 있으면(화면 비율 w/h) 렌즈 정보 배지를 늘 보입니다(utils/lensInfo.ts). */
   lensAspect?: number;
+  /** 위에 떠 있는 것(앱 머리줄)이 가리는 높이(px). 위쪽 렌즈 배지 · 방위 눈금을 그만큼 내립니다. 기본 0. */
+  topInset?: number;
 }
 
 export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
@@ -31,6 +33,7 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
   theme,
   adjusting = false,
   lensAspect,
+  topInset = 0,
 }) => {
   const normAz = ((cameraAzimuth % 360) + 360) % 360;
   const roundedAz = Math.round(normAz);
@@ -231,13 +234,13 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
   return (
     <View style={styles.container} pointerEvents="none">
       {lens && (
-        <View style={styles.lensBadge}>
+        <View style={[styles.lensBadge, { top: 52 + topInset }]}>
           <Text style={styles.lensText}>FOV {fovText}°  {lens.mmText}</Text>
           <Text style={styles.lensSub}>{lens.lensText}</Text>
         </View>
       )}
       {/* ── 방위 눈금 한 줄 (읽기 — 늘 보임) ─────────────────────────────── */}
-      <View style={styles.topRulerContainer}>
+      <View style={[styles.topRulerContainer, { top: 6 + topInset }]}>
         <View style={styles.topCenterIndicator}>
           <Text style={styles.topHeaderText}>{roundedAz}° {dirLabel}</Text>
           <View style={styles.topPointer} />

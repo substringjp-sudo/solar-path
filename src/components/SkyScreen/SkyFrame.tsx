@@ -16,6 +16,7 @@ import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface, glassTextShadow } from '../glass/GlassSurface';
 import { ModeStrip } from '../glass/ModeStrip';
 import { Scrim } from '../glass/Scrim';
+import { belowHeader } from '../../utils/headerLayout';
 import { TimeRuler } from '../glass/TimeRuler';
 import { color as DARK } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
@@ -202,7 +203,8 @@ export const SkyFrame: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  readout: { position: 'absolute', left: 10, right: 10, top: 12, alignItems: 'center' },
+  // 머리줄이 하늘 위에 떠 있으므로 그 아래에서 시작합니다(`utils/headerLayout`).
+  readout: { position: 'absolute', left: 10, right: 10, top: belowHeader(12), alignItems: 'center' },
   chips: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
   simWrap: { flex: 1 },
   week: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 8 },
