@@ -132,6 +132,11 @@ const ENTRIES = [
   'src/utils/modeStrip.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
+  // 머리줄 탭 이름 — verify-tab-labels.js
+  'src/utils/tabLabels.ts',
+  // 접었다 펼치는 아래 막대의 단계 계산과 화면 요소 겹침 판정 — verify-dock-stages.js
+  'src/utils/dockStages.ts',
+  'src/utils/layoutOverlap.ts',
   // 03 기록의 종류 거르기 · 피드백 요약 — verify-record-compare.js
   'src/utils/recordCompare.ts',
   // 촬영 결과 비교(영역별 밝기 · 색 차이 줄, 나누는 위치, 그때 예보 한 줄) — verify-result-compare.js

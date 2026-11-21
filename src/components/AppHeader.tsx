@@ -34,14 +34,15 @@ import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
+import { tabLabel } from '../utils/tabLabels';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'learn' | 'log';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
-  { id: 'sky', code: '01', label: '01 SKY' },
-  { id: 'learn', code: '02', label: '02 LEARN' },
-  { id: 'log', code: '03', label: '03 LOG' },
+  { id: 'sky', code: '01', label: 'SKY' },
+  { id: 'learn', code: '02', label: 'DATA' },
+  { id: 'log', code: '03', label: 'LOG' },
 ];
 
 /**
@@ -143,10 +144,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     isActive && { fontWeight: '800' }
                   ]}
                 >
-                  {/* 번호는 실제 순서라 붙이고 이름은 언어를 따릅니다(디자인 시스템 · 말투). */}
-                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
-                    : tab.id === 'learn' ? L3(language, '학습', 'LEARN', '学習')
-                    : L3(language, '기록', 'LOG', '記録')}`}
+                  {/* 숫자 없이 이름만(2026-11-21): 하늘 · 데이터 · 기록 */}
+                  {tabLabel(tab.id, language)}
                 </Text>
               </PressScale>
             );
