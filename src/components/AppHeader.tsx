@@ -33,7 +33,7 @@ import { StyleSheet, View, Text, Animated, useWindowDimensions } from 'react-nat
 import { MapPin, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
-import { color, radius, mono, space, type, TOUCH } from '../theme/tokens';
+import { radius, mono, space, type, TOUCH } from '../theme/tokens';
 import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
 import { GlassSurface, glassTextShadow } from './glass/GlassSurface';

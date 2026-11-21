@@ -19,8 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Clock, Layers, Compass, Move, ChevronUp } from 'lucide-react-native';
-import { ScrubTrack } from './TimeBar/ScrubTrack';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -78,7 +77,6 @@ import { AstroCaptureNightOverlay, type AstroNightPhase } from './AstroCamera/As
 import { AstroResultView } from './AstroCamera/AstroResultView';
 import { DirectionGuideOverlay } from './AstroCamera/DirectionGuideOverlay';
 import { CaptureModeSheet } from './AstroCamera/CaptureModeSheet';
-import { ModeStrip } from './glass/ModeStrip';
 import { captureKeyFor, modeList } from '../utils/modeStrip';
 import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/TimelapsePanel';
 import { ResultCompare } from './ResultCompare';
@@ -231,24 +229,6 @@ const stampPhoto = async (
   }
 };
 
-const getAzimuthCardinal = (az: number): string => {
-  const norm = (az % 360 + 360) % 360;
-  if (norm >= 337.5 || norm < 22.5) return 'N';
-  if (norm >= 22.5 && norm < 67.5) return 'NE';
-  if (norm >= 67.5 && norm < 112.5) return 'E';
-  if (norm >= 112.5 && norm < 157.5) return 'SE';
-  if (norm >= 157.5 && norm < 202.5) return 'S';
-  if (norm >= 202.5 && norm < 247.5) return 'SW';
-  if (norm >= 247.5 && norm < 292.5) return 'W';
-  return 'NW';
-};
-
-
-/** 아래 도킹 단추(아이콘 칸 40 + 글자) 크기 · 셔터 지름 · 위 여백 — "예측 보기" 칸 자리 계산과 스타일이 함께 씁니다. */
-const DOCK_BTN_W = 64;
-const DOCK_BTN_H = 60;
-const DOCK_PAD_TOP = 16;
-const SHUTTER = 72;
 /** 노출 막대 길이(px) — 끌기 계산과 스타일이 같은 값. */
 const EXPOSURE_TRACK_H = 160;
 
@@ -416,7 +396,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       startExposure.current = initialVal;
       setExposure(initialVal);
     },
-    onPanResponderMove: (evt, gestureState) => {
+    onPanResponderMove: (_evt, gestureState) => {
       const delta = -(gestureState.dy / EXPOSURE_SLIDER_HEIGHT) * 2;
       const nextExposure = Math.max(-1, Math.min(1, startExposure.current + delta));
       setExposure(nextExposure);
@@ -795,15 +775,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     () => (camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []),
     [camWeatherData, currentTime]
   );
-  const currentPrediction = useMemo(() => scenePrediction({
-    pathData: camWeatherData ?? [],
-    time: currentTime,
-    sunAltDeg: sunPos.altitude,
-    sunAzDeg: sunPos.azimuth,
-    obs: camInterpolated[0],
-    latitude,
-    observerElevM: Number(cameraSimState.terrain?.observerElevation) || undefined,
-  }), [camWeatherData, currentTime, sunPos.altitude, sunPos.azimuth, camInterpolated, latitude, cameraSimState.terrain?.observerElevation]);
 
   // 적응형 보정 파라미터 계산 (실시간 업데이트)
   const currentEnhancement = useMemo(() => {
@@ -1388,7 +1359,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 천체 3D 시뮬 장노출 자동 프리뷰 (드래그/배율/설정/시각 변경 후 450ms 정지 시 렌더링) ──
   const [longExpPreviewUri, setLongExpPreviewUri] = useState<string | null>(null);
   const [isLongExpRendering, setIsLongExpRendering] = useState(false);
-  const [longExpRefreshTick, setLongExpRefreshTick] = useState(0);
   const longExpFileRef = useRef<string | null>(null);
   const longExpReqIdRef = useRef(0);
   const displayAzRef = useRef(displayAz);
@@ -1490,7 +1460,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     astroSimParams.starBoost,
     astroSimParams.shadowLift,
     longExpTimeKey,
-    longExpRefreshTick,
   ]);
 
   const handleToggleFreeze = useCallback(() => {
@@ -1519,15 +1488,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setViewMode('camera');
   }, [frozenView]);
 
-  const handleResumeLiveHeading = useCallback(() => {
-    setFrozenView(null);
-    if (viewModeRef.current !== 'camera') {
-      getPrimarySky()?.setCameraView?.(effectiveAz, effectivePitch, simVFovDeg, {
-        rollDeg: displayRoll,
-        centerOffsetYFrac,
-      });
-    }
-  }, [effectiveAz, effectivePitch, simVFovDeg, displayRoll, centerOffsetYFrac]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -2268,7 +2228,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   };
   const localNowMs = currentTime.getTime() + tzHours * 3_600_000;
   const dayStartUtcMs = Math.floor(localNowMs / 86_400_000) * 86_400_000 - tzHours * 3_600_000;
-  const timeSliderPct = Math.max(0, Math.min(100, ((currentTime.getTime() - dayStartUtcMs) / 86_400_000) * 100));
   if (!isInteracting || scrubDayStartRef.current === 0) scrubDayStartRef.current = dayStartUtcMs;
   // 위쪽 가운데 — "일몰까지 31분". 세 시간 넘게 남았으면 출몰 시각만.
   const countdown = (() => {
@@ -2288,12 +2247,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   })();
   // 카메라 자세 — 방위·앙각·기울기는 현재 표시 시선(고정 시 frozenView, 아니면 실시간 센서)
   const overlayAttitude: Attitude = { yawDeg: displayAz, pitchDeg: displayEl, rollDeg: displayRoll };
-  const headingTone = headingStatus?.seeded && headingStatus.trueNorth ? color.success : color.warning;
-  const headingWord = !headingStatus?.seeded
-    ? L3(language, '보정 중', 'Calibrating', '補正中')
-    : headingStatus.trueNorth
-      ? L3(language, '보정됨', 'Calibrated', '補正済み')
-      : L3(language, '자북 기준', 'Magnetic N', '磁北基準');
 
   const handleCapturePress = handleCapture;
   const isTransparentStage = viewMode !== 'camera';
@@ -2688,7 +2641,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
                 <View style={[styles.statusCol, { top: TOP_INSET + 38 + space.sm }]} pointerEvents="box-none">
                   {eclipseOn && eclipseEvent ? (
-                    <EclipseCard event={eclipseEvent} language={language} tzHours={tzHours} nowMs={eclipseTick} />
+                    <EclipseCard event={eclipseEvent} language={language} tzHours={tzHours} />
                   ) : null}
                   {viewMode !== 'camera' && (
                     <View style={styles.badge}>
@@ -3016,16 +2969,6 @@ const styles = StyleSheet.create({
   // ── 전체 화면 카메라(2026-10-25) ──
   liveRoot: { flex: 1, backgroundColor: '#000' },
   stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
-  deckFlipBtn: {
-    width: 34,
-    height: 32,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.fill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   topRow: {
     position: 'absolute',
     left: space.md,
@@ -3036,28 +2979,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 6,
   },
-  topRightGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 5,
-    flexShrink: 1,
-  },
-  countdown: {
-    height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, flexShrink: 1,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
-  },
-  tabGroup: {
-    height: 32, flexDirection: 'row', alignItems: 'center', gap: 2, padding: 2,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong, backgroundColor: color.fill,
-  },
-  tabPill: {
-    height: 26, paddingHorizontal: space.sm + 2, borderRadius: radius.xs,
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-  },
-  tabPillOn: { backgroundColor: color.glowSoft, borderWidth: 1, borderColor: color.sun },
-  tabPillAstroOn: { backgroundColor: 'rgba(165, 180, 252, 0.16)', borderWidth: 1, borderColor: color.moon },
-  tabPillText: { ...type.label, fontSize: 12, color: color.textDim },
   countdownInline: {
     height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
     borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
@@ -3065,22 +2986,8 @@ const styles = StyleSheet.create({
   countdownInlineLabel: { ...type.micro, color: color.textDim },
   countdownInlineVal: { ...type.label, color: color.text },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  countdownLabel: { ...type.body, color: color.textDim, flexShrink: 1 },
-  countdownValue: { ...type.display, color: color.text },
   modeAz: { minHeight: TOUCH, paddingHorizontal: 12, borderRadius: TOUCH / 2, flexDirection: 'row', alignItems: 'center', gap: 6 },
   modeAzText: { ...type.micro, fontSize: 11, lineHeight: 14, color: TEXT, includeFontPadding: false, ...glassTextShadow },
-  azBoxLive: {
-    borderColor: 'rgba(74, 222, 128, 0.45)',
-    backgroundColor: 'rgba(10, 28, 18, 0.78)',
-  },
-  badgeManual: {
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-  },
-  badgeLive: {
-    borderColor: 'rgba(74, 222, 128, 0.4)',
-    backgroundColor: 'rgba(10, 28, 18, 0.72)',
-  },
   manualFrameOverlay: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 1.5,
@@ -3121,111 +3028,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: color.success,
   },
-  modeSegment: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    backgroundColor: color.fill,
-    gap: 2,
-  },
-  modeSegBtn: {
-    height: 26,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeSegBtnOn: {
-    backgroundColor: color.accentSoft,
-    borderWidth: 1,
-    borderColor: color.accentLine,
-  },
-  modeSegText: {
-    ...type.label,
-    fontSize: 11,
-    color: color.textDim,
-  },
-  modeSegTextOn: {
-    color: color.accent,
-    fontWeight: '700',
-  },
-  dockGuideCta: {
-    height: 46,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    borderRadius: 23,
-    backgroundColor: color.accent,
-  },
-  dockGuideCtaText: {
-    ...type.label,
-    fontSize: 13,
-    lineHeight: 17,
-    color: color.onAccent,
-    fontWeight: '700',
-    includeFontPadding: false,
-  },
-  liveHeadingBtn: {
-    height: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 0,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.accentLine,
-    backgroundColor: color.overlay,
-  },
-  liveHeadingBtnText: {
-    ...type.label,
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: color.accent,
-    fontWeight: '700',
-    includeFontPadding: false,
-  },
-  longExpBadge: {
-    height: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: 'rgba(165, 180, 252, 0.38)',
-    backgroundColor: 'rgba(15, 23, 42, 0.82)',
-  },
-  timeBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    padding: 2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    backgroundColor: color.fill,
-  },
-  timeStepBtn: {
-    height: 26,
-    paddingHorizontal: 6,
-    borderRadius: radius.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.panelRaised,
-  },
-  timeStepText: {
-    ...type.micro,
-    fontSize: 10,
-    color: color.text,
-    fontWeight: '700',
-  },
   microText: { ...type.micro, color: color.textDim },
   statusCol: { position: 'absolute', left: space.md, right: TOUCH + space.md * 2, gap: space.xs, alignItems: 'flex-start' },
   badge: {
@@ -3252,13 +3054,6 @@ const styles = StyleSheet.create({
     position: 'absolute', width: 20, height: 20, marginBottom: -10, borderRadius: 10,
     borderWidth: 2, borderColor: color.sun, backgroundColor: color.panelRaised,
   },
-  zoomGroup: { flexDirection: 'row', gap: 4 },
-  zoomBtn: {
-    width: 38, height: 32, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
-    backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center',
-  },
-  zoomBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
-
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -3303,88 +3098,6 @@ const styles = StyleSheet.create({
     color: color.textDim,
     fontSize: 13,
   },
-  topHud: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 40,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  captureSubText: {
-    color: color.textDim,
-    fontSize: 13,
-  },
-  warningBanner: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 120 : 96,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(211, 47, 47, 0.85)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    zIndex: 150,
-  },
-  manualTuningPanel: {
-    position: 'absolute',
-    bottom: 230,
-    left: 40,
-    right: 40,
-    alignItems: 'center',
-    backgroundColor: color.scrim,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 0.5,
-    borderColor: color.borderStrong,
-  },
-  tuningTitle: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  tuningButtonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  tuningBtn: {
-    width: 42,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: color.borderStrong,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tuningBtnText: {
-    color: color.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  tuningValueContainer: {
-    minWidth: 40,
-    alignItems: 'center',
-  },
-  tuningValueText: {
-    color: color.sun,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  previewContainer: {
-    flex: 1,
-    backgroundColor: color.bg,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
-    justifyContent: 'space-between',
-    paddingBottom: 40,
-  },
   previewScrollContent: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 20,
@@ -3397,26 +3110,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
     letterSpacing: 0.5,
-  },
-  compareImagesRow: {
-    flexDirection: 'row',
-    gap: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  compareImageWrapper: {
-    flex: 1,
-    aspectRatio: 3 / 4,
-    borderRadius: 16,
-    backgroundColor: '#1E1E2A',
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: color.border,
-  },
-  compareImage: {
-    flex: 1,
-    resizeMode: 'cover',
   },
   simBufBadge: {
     position: 'absolute',
@@ -3449,18 +3142,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     fontSize: 9,
     textAlign: 'center',
-  },
-  compareImageLabel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: color.scrim,
-    color: color.text,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-    paddingVertical: 6,
   },
   weatherQrCard: {
     backgroundColor: 'rgba(15, 23, 42, 0.8)',
@@ -3620,45 +3301,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 18,
     textAlign: 'center',
-  },
-  zoomIndicatorContainer: {
-    position: 'absolute',
-    top: '15%',
-    alignSelf: 'center',
-    backgroundColor: color.scrim,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    zIndex: 200,
-  },
-  zoomIndicatorText: {
-    color: color.sun,
-    fontSize: 13,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  arLayerChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: 'rgba(22, 19, 26, 0.75)',
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-  },
-  arLayerChipActive: {
-    backgroundColor: 'rgba(255, 140, 0, 0.85)',
-    borderColor: '#FF8C00',
-  },
-  arLayerChipText: {
-    color: 'rgba(255, 255, 255, 0.65)',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  arLayerChipTextActive: {
-    color: color.text,
-    fontWeight: '800',
   },
   alignPopover: { position: 'absolute', right: space.md, borderRadius: radius.sm, padding: 6, gap: 4, zIndex: 40 },
   alignPopoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, minHeight: TOUCH, borderRadius: radius.xs },
