@@ -499,7 +499,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   useEffect(() => {
     if (!visible || !cameraScene) return;
     setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
-    const tab = tabForMode(modeForScene(cameraScene));
+    // 새 화면 틀(실험)에서는 시각과 상관없이 사진(일반)에서 시작하고, 보던 방향이 가이드가 됩니다(docs/SANDBOX_MODE_PLAN.md 18절).
+    const tab = useCelestialStore.getState().uiFrameV2 ? tabForMode('normal') : tabForMode(modeForScene(cameraScene));
     if (tab) setCameraTab(tab);
   }, [visible, cameraScene]);
   useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);

@@ -76,6 +76,8 @@ import { distanceM } from '../../utils/geoMove';
 import type { MoveMode } from '../../utils/joystickMotion';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { SceneBar } from './SceneBar';
+import { SkyFrame, LiveReadout } from './SkyFrame';
+import { GlassChip } from '../glass/GlassChip';
 import { SceneSheet, type SaveResult } from './SceneSheet';
 import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
@@ -141,6 +143,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 2026-11-19 초보자 화면 덜어내기(docs/SANDBOX_MODE_PLAN.md 2.4): 꺼짐이 기본, 켜면 지금까지의 모든 조작.
   const expertMode = useCelestialStore(s => s.expertMode);
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
+  // 새 화면 틀(실험, 설정의 "실험"): 켜면 아래 시트 · 시간 막대 · 샌드박스 조작부 대신 유리 막대(SkyFrame)가 서고, 그 안에 같은 조작부가 칩 · 펼침으로 들어갑니다.
+  const frameV2 = useCelestialStore(s => s.uiFrameV2);
   // 샌드박스 망원 배율(전문가 모드만) — 1 이면 지금까지처럼 지상 시야각 30~120°, 20 이면 1.5~6°(달 사진용).
   const [teleX, setTeleX] = useState(1);
   // 샌드박스 눈 높이(m)와 이동 모드(걷기 · 자전거 · 차 · 비행). 전문가 모드가 꺼지면 씬에는 눈 높이를 넘기지 않아 원래(1.6 m)로 돌아갑니다.
@@ -958,336 +962,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     ? cloudSummary(interpolatedWeather[0], language)
     : null;
 
-  return (
-    <View style={styles.container}>
-      {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
-      {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
-      <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
-      <View style={[styles.sceneWrapper, (isCameraOverlayActive || expertMode) && { bottom: 0 }]}>
-        <SkyScene3D
-          ref={sceneRef}
-          onAscendedChange={setAscended}
-          sim={simObj}
-          currentTime={currentTime}
-          sunAltitude={sunAltitude}
-          sunAzimuth={sunAzimuth}
-          prediction={prediction}
-          location={location}
-          interpolatedWeather={interpolatedWeather}
-          theme={OVERLAY_THEME}
-          layers={layers}
-          skySettings={skySettings}
-          telephotoX={expertMode ? teleX : 1}
-          showLensInfo={expertMode}
-          eyeHeightM={expertMode ? eyeH : undefined}
-          pickEnabled={expertMode && !isCameraOverlayActive}
-          onPickTarget={(t) => { pendingSceneTargetRef.current = null; setPicked(t); }}
-          pickedTarget={picked}
-          trackingTarget={trackingTarget}
-          onSelectTrackingTarget={setTrackingTarget}
-          fullScreen={true}
-          timeline={timelineValid ? timeline : null}
-          isActive={isActive}
-          isSliding={isSliding}
-          disableGestures={isCameraOverlayActive}
-          hideHudOverlay={isCameraOverlayActive}
-          hideCompassBar={isCameraOverlayActive}
-          registerPrimary
-        />
-
-        {/* 하늘 위 구름 한 줄(쉬운 말) — 초보자 화면만 */}
-        {cloudCaption && !isCameraOverlayActive && (
-          <CloudCaption
-            text={cloudCaption}
-            onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'cloud')}
-            accessibilityLabel={`${cloudCaption} — ${L3(language, '구름 모양 계산 과정 보기', 'See how the cloud shapes are decided', '雲の形の計算過程を見る')}`}
-          />
-        )}
-
-        {trackingTarget && (
-          <PressScale
-            style={overlayStyles.trackingBadge}
-            onPress={() => setTrackingTarget(null)}
-            activeOpacity={0.8}
-          >
-            <Target size={11} color={DARK.accent} style={{ marginRight: 4 }} />
-            <Text style={overlayStyles.trackingText}>
-              {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
-            </Text>
-            <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
-          </PressScale>
-        )}
-
-        {/* 샌드박스 구도 도구: 시선 읽음 · 진행 막대 · 필요 시 조이스틱/먼 건물 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && (
-          <View style={overlayStyles.sandboxPanel} pointerEvents="box-none">
-            <SandboxPanel
-              language={language}
-              activeTool={sandboxTool === 'move' ? 'move' : sandboxTool === 'tools' ? 'tools' : null}
-              far={{ status: farStatus, onLoad: loadFarBuildings }}
-              getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
-              getLoad={() => sceneRef.current?.getBuildingProgress?.() ?? null}
-              eyeHeightM={eyeH}
-              onEyeHeight={setEyeH}
-              mode={moveMode}
-              onMode={changeMoveMode}
-              drive={{
-                // 움직이는 동안 저장된 위치는 그대로 두고 장면의 눈만 옮깁니다. 손을 놓고 속도가 가라앉으면 그 자리를 새 위치로 한 번 저장하고(날씨 · 지형 · 건물은 그때 받습니다),
-                // 확정 없이 접으면 눈을 저장된 위치로 되돌립니다. 저장소에서 바로 읽어야 방금 확정한 위치가 옵니다.
-                getOrigin: () => {
-                  const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
-                  return { latitude: c.latitude, longitude: c.longitude };
-                },
-                setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
-                clearEye: () => sceneRef.current?.clearEyeLocation?.(),
-                commit: setSpot,
-                onGrab: glide.finish,
-              }}
-              awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
-              home={homeCoords}
-              onHome={() => {
-                if (!homeCoords) return;
-                // 움직이던 눈이 옛 자리로 번쩍 되돌아가지 않게, 눈을 먼저 그 자리로 옮기고 위치를 바꿉니다.
-                glide.cancel();
-                sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
-                setSpot(homeCoords);
-              }}
-            />
-          </View>
-        )}
-
-        {/* 고른 대상 정보 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && picked && (
-          <View style={overlayStyles.objectPanel} pointerEvents="box-none">
-            <ObjectInfoPanel
-              language={language}
-              target={picked}
-              sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
-              moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
-              moonDiskDeg={2 * moonSemidiameterDeg(moonPos.distance)}
-              onCalc={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'score')}
-              observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
-              getSkyline={() => sceneRef.current?.getSkyline?.() ?? null}
-              onAlign={(hit) => {
-                // 그 시각으로 가서 시선을 대상에 맞춥니다. 화각은 원반이 보일 만큼 좁히고, 시야 중심은 위로 올려
-                // (패널이 아래쪽을 덮으므로) 대상과 그 곁의 해·달이 패널 위에 보이게 합니다.
-                setCurrentTime(new Date(hit.timeMs));
-                alignedViewRef.current = true;
-                alignedBodyRef.current = hit.body;
-                sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
-              }}
-              onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
-              onGo={() => {
-                const pt = targetPointOf(picked);
-                if (pt) glide.start({ latitude: pt.latitude, longitude: pt.longitude });
-              }}
-              sceneRow={<SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />}
-              onClear={() => { pendingSceneTargetRef.current = null; setPicked(null); }}
-            />
-          </View>
-        )}
-
-        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (도구 열렸을 때만 표시해 하늘 확보) */}
-        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && !picked && !sheetOpen && sandboxTool === 'tools' && (
-          <View style={overlayStyles.sceneBar} pointerEvents="box-none">
-            <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />
-          </View>
-        )}
-        <SceneSheet
-          visible={sceneSheetOpen && expertMode}
-          language={language}
-          scenes={savedScenes}
-          draft={sceneSheetOpen ? readScene('') : null}
-          nowMs={Date.now()}
-          tzHours={tz}
-          onSave={saveScene}
-          onOpen={openScene}
-          onRename={(id, n) => useCelestialStore.getState().renameSavedScene(id, n)}
-          onRemove={(id) => useCelestialStore.getState().removeSavedScene(id)}
-          onClose={() => setSceneSheetOpen(false)}
-        />
-
-        {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
-        {!isCameraOverlayActive && (
-        <View style={overlayStyles.sceneOverlayButtons}>
-          {/* 전문가 모드 — 꺼짐이면 아래 보기 조작(레이어 · 구/지도)과 시트의 상세가 숨습니다. 길게 누르면 개발자 튜닝 패널. */}
-          <OverlayButton
-            active={expertMode}
-            onPress={() => {
-              const next = !expertMode;
-              setExpertMode(next);
-              if (!next) { setCleanView(false); setSandboxTool(null); }
-            }}
-            onLongPress={() => setDevPanelOpen(v => !v)}
-            accessibilityLabel={L3(language, '전문가 모드', 'Expert mode', 'エキスパートモード')}
-            style={overlayStyles.expertBtn}
-          >
-            <Text style={[overlayStyles.expertBtnText, expertMode && { color: DARK.accent }]}>
-              {L3(language, '전문가 모드', 'Expert', 'エキスパート')}
-            </Text>
-          </OverlayButton>
-
-          {expertMode && !ascended && (
-            <OverlayButton
-              active={cleanView}
-              onPress={() => setCleanView(v => !v)}
-              accessibilityLabel={L3(language, 'UI 숨기기(순수 화면 보기)', 'Hide HUD (Clean view)', 'HUDを隠す')}
-            >
-              {cleanView ? <EyeOff size={16} color={DARK.accent} /> : <Eye size={16} color={DARK.text} />}
-            </OverlayButton>
-          )}
-
-          {/* 3D 요소 표시 설정 모달 — 도구 모드 열렸을 때만 표시 */}
-          {expertMode && !cleanView && sandboxTool === 'tools' && (
-          <OverlayButton
-            onPress={() => setLayerModalVisible(true)}
-            accessibilityLabel={t('layerTitle', language)}
-          >
-            <SlidersHorizontal size={16} color={DARK.text} />
-          </OverlayButton>
-          )}
-
-          {/* 구/지도 — 도구 모드 열렸을 때 표시 */}
-          {expertMode && !cleanView && !ascended && sandboxTool === 'tools' && (
-            <OverlayButton
-              onPress={() => sceneRef.current?.flyToMap()}
-              accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
-            >
-              <Globe size={16} color={DARK.text} />
-            </OverlayButton>
-          )}
-
-          {/* 눈 높이 · 줌 세로 막대 — 전문가 모드, 지상에서만 */}
-          {expertMode && !cleanView && !ascended && (
-            <DialPair
-              language={language}
-              eyeHeightM={eyeH}
-              onEyeHeight={setEyeH}
-              zoomX={teleX}
-              onZoom={setTeleX}
-            />
-          )}
-
-          {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
-          {isDevPanelOpen && (
-            <OverlayButton active onPress={() => setDevPanelOpen(false)}>
-              <SlidersVertical size={14} color={DARK.accent} />
-            </OverlayButton>
-          )}
-        </View>
-        )}
-
-        {/* 2026-11-18 예보 대신 맑은 하늘 대체 자료(요청 한도 429 등)를 쓰는 중 — 예전에는 아무 표시 없이 구름 0 % 로 그려
-              실제로 구름이 많은 날도 맑게 보였음(사용자 보고, 서울 11/19 일출). 알리고 뒤에서 다시 받습니다. */}
-        {!weatherError && !isWeatherLoading && usingFallbackSky && (
-          <View style={overlayStyles.buildBanner} pointerEvents="none">
-            <Text style={overlayStyles.buildLabel} numberOfLines={1}>
-              {L3(language, '구름 예보를 받지 못해 맑은 하늘로 보여 주는 중', 'No cloud forecast yet — showing a clear sky', '雲予報を取得できず晴天で表示中')}
-            </Text>
-            <Text style={overlayStyles.buildHint} numberOfLines={1}>
-              {L3(language, '예보 서버 요청 한도에 걸렸어요. 잠시 뒤 자동으로 다시 받아요', 'Forecast server rate limit — retrying automatically', '予報サーバーの制限中です。自動で再取得します')}
-            </Text>
-          </View>
-        )}
-
-        {/* 날씨 수신 배너 (터치 통과). 2026-11-18 하늘 사전 계산 진행은 팝업 대신 시간 막대 아래 선으로 보입니다(DateTimeBar). */}
-        {!weatherError && isWeatherLoading && (() => {
-          const pct = isWeatherLoading
-            ? 15
-            : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));
-          const label = isWeatherLoading
-            ? L3(language, '기상 데이터 수신 중…', 'Fetching weather data…', '気象データを受信中…')
-            : L3(
-                language,
-                `오늘의 하늘 준비 중 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-                `Preparing day sky · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-                `1日の空を準備中 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-              );
-          const hint = isWeatherLoading
-            ? L3(
-                language,
-                '선택한 날짜·장소의 360° 구름 예보를 불러오고 있습니다',
-                'Loading 360° cloud forecast for selected date & place',
-                '選択した日時・場所の360°雲予報を読み込んでいます',
-              )
-            : L3(
-                language,
-                '백그라운드에서 시간대별 하늘을 미리 계산하고 있습니다',
-                'Precomputing hourly sky in the background',
-                'バックグラウンドで時間帯別の空を計算しています',
-              );
-          return (
-            <View style={overlayStyles.buildBanner} pointerEvents="none">
-              <Text style={overlayStyles.buildLabel} numberOfLines={1}>{label}</Text>
-              <View style={overlayStyles.progressTrack}>
-                <View style={[overlayStyles.progressFill, { width: `${pct}%` }]} />
-              </View>
-              <Text style={overlayStyles.buildHint} numberOfLines={1}>{hint}</Text>
-            </View>
-          );
-        })()}
-
-        {/* 날씨 수신 실패 배너 및 재시도 버튼 */}
-        {weatherError && (
-          <Reveal style={overlayStyles.weatherErrorBanner}>
-            <View style={overlayStyles.weatherErrorHeader}>
-              <CloudOff size={15} color="#F87171" />
-              <View style={{ flex: 1, marginLeft: 8 }}>
-                <Text style={overlayStyles.weatherErrorTitle}>
-                  {t('weatherLoadFailed', language)}
-                </Text>
-                <Text style={overlayStyles.weatherErrorDesc} numberOfLines={1}>
-                  {weatherError}
-                </Text>
-              </View>
-              <PressScale
-                style={overlayStyles.weatherRetryButton}
-                onPress={() => loadWeather(true)}
-                disabled={isWeatherLoading}
-                activeOpacity={0.7}
-              >
-                {isWeatherLoading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <View style={overlayStyles.weatherRetryContent}>
-                    <RefreshCw size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
-                    <Text style={overlayStyles.weatherRetryText}>
-                      {t('retry', language)}
-                    </Text>
-                  </View>
-                )}
-              </PressScale>
-            </View>
-          </Reveal>
-        )}
-      </View>
-
-      {/* ── peek 시트: 기본 모드에서만 표시 (전문가 모드는 풀스크린 3D 확보) ── */}
-      {!isCameraOverlayActive && !expertMode && (
-      <PeekSheet
-        theme={theme}
-        maxHeight={stageH || undefined}
-        onOpenChange={setSheetOpen}
-        summary={
-          <View style={styles.summaryRow}>
-            {glow ? (
-              <>
-                <VerdictMeter quality={glow.prediction.quality} />
-                <Text style={[styles.summaryVerdict, { color: verdictColor(glow.prediction.quality, dataColor, color) }]}>
-                  {verdictWord(glow.prediction.quality, language)}
-                </Text>
-                <Text style={[styles.summaryScore, { color: theme.text }]}>{Math.round(glow.score)}</Text>
-                <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
-                <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('peakGlow', language)}</Text>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>{localHHMM(glow.time, tz)}</Text>
-              </>
-            ) : (
-              <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('verdictNeedsWeather', language)}</Text>
-            )}
-          </View>
-        }
-      >
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetScroll}>
+  // 시트 안 내용(점수 · 그래프 · 알림 · 다가오는 좋은 순간 · 수치): 지금 시트와 새 틀의 끝까지 펼친 시뮬레이션이 같은 것을 씁니다.
+  const sheetContent = (
+    <>
           {(glow?.prediction ?? prediction) && (
             <PredictionCard
               prediction={(glow?.prediction ?? prediction)!}
@@ -1394,13 +1071,415 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </View>
           </View>
           )}
+    </>
+  );
+
+  // 샌드박스 조작부(눈 높이 · 이동 · 먼 건물 · 내 위치): 지금 위 왼쪽 패널과 새 틀의 "이동" 칸이 같은 것을 씁니다.
+  const sandboxPanelEl = (
+    <SandboxPanel
+              language={language}
+              activeTool={frameV2 ? 'move' : (sandboxTool === 'move' ? 'move' : sandboxTool === 'tools' ? 'tools' : null)}
+              far={{ status: farStatus, onLoad: loadFarBuildings }}
+              getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
+              getLoad={() => sceneRef.current?.getBuildingProgress?.() ?? null}
+              eyeHeightM={eyeH}
+              onEyeHeight={setEyeH}
+              mode={moveMode}
+              onMode={changeMoveMode}
+              drive={{
+                // 움직이는 동안 저장된 위치는 그대로 두고 장면의 눈만 옮깁니다. 손을 놓고 속도가 가라앉으면 그 자리를 새 위치로 한 번 저장하고(날씨 · 지형 · 건물은 그때 받습니다),
+                // 확정 없이 접으면 눈을 저장된 위치로 되돌립니다. 저장소에서 바로 읽어야 방금 확정한 위치가 옵니다.
+                getOrigin: () => {
+                  const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
+                  return { latitude: c.latitude, longitude: c.longitude };
+                },
+                setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
+                clearEye: () => sceneRef.current?.clearEyeLocation?.(),
+                commit: setSpot,
+                onGrab: glide.finish,
+              }}
+              awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
+              home={homeCoords}
+              onHome={() => {
+                if (!homeCoords) return;
+                // 움직이던 눈이 옛 자리로 번쩍 되돌아가지 않게, 눈을 먼저 그 자리로 옮기고 위치를 바꿉니다.
+                glide.cancel();
+                sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
+                setSpot(homeCoords);
+              }}
+            />
+  );
+
+  // ── 새 화면 틀(SkyFrame) 연결 ────────────────────────────────────────────────
+  const frameGetView = useCallback(() => {
+    const v = sceneRef.current?.getRenderState?.()?.view;
+    return v ? { azDeg: v.az, elDeg: v.el } : null;
+  }, []);
+  const frameSandbox = {
+    move: sandboxPanelEl,
+    view: (
+      <View style={{ alignItems: 'center' }}>
+        <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
+      </View>
+    ),
+    scene: <SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />,
+    tools: (
+      <View style={{ gap: 8, alignItems: 'flex-start' }}>
+        <GlassChip label={t('layerTitle', language)} onPress={() => setLayerModalVisible(true)} />
+        {!ascended && <GlassChip label={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')} onPress={() => sceneRef.current?.flyToMap()} />}
+      </View>
+    ),
+  };
+
+  return (
+    <View style={styles.container}>
+      {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
+      {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
+      <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
+      <View style={[styles.sceneWrapper, (isCameraOverlayActive || frameV2 || expertMode) && { bottom: 0 }]}>
+        <SkyScene3D
+          ref={sceneRef}
+          onAscendedChange={setAscended}
+          sim={simObj}
+          currentTime={currentTime}
+          sunAltitude={sunAltitude}
+          sunAzimuth={sunAzimuth}
+          prediction={prediction}
+          location={location}
+          interpolatedWeather={interpolatedWeather}
+          theme={OVERLAY_THEME}
+          layers={layers}
+          skySettings={skySettings}
+          telephotoX={expertMode ? teleX : 1}
+          showLensInfo={expertMode}
+          eyeHeightM={expertMode ? eyeH : undefined}
+          pickEnabled={expertMode && !isCameraOverlayActive}
+          onPickTarget={(t) => { pendingSceneTargetRef.current = null; setPicked(t); }}
+          pickedTarget={picked}
+          trackingTarget={trackingTarget}
+          onSelectTrackingTarget={setTrackingTarget}
+          fullScreen={true}
+          timeline={timelineValid ? timeline : null}
+          isActive={isActive}
+          isSliding={isSliding}
+          disableGestures={isCameraOverlayActive}
+          hideHudOverlay={isCameraOverlayActive}
+          hideCompassBar={isCameraOverlayActive || frameV2}
+          registerPrimary
+        />
+
+        {/* 하늘 위 구름 한 줄(쉬운 말) — 초보자 화면만 */}
+        {cloudCaption && !isCameraOverlayActive && !frameV2 && (
+          <CloudCaption
+            text={cloudCaption}
+            onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'cloud')}
+            accessibilityLabel={`${cloudCaption} — ${L3(language, '구름 모양 계산 과정 보기', 'See how the cloud shapes are decided', '雲の形の計算過程を見る')}`}
+          />
+        )}
+
+        {trackingTarget && (
+          <PressScale
+            style={overlayStyles.trackingBadge}
+            onPress={() => setTrackingTarget(null)}
+            activeOpacity={0.8}
+          >
+            <Target size={11} color={DARK.accent} style={{ marginRight: 4 }} />
+            <Text style={overlayStyles.trackingText}>
+              {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
+            </Text>
+            <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
+          </PressScale>
+        )}
+
+        {/* 샌드박스 구도 도구: 눈 높이 · 위치 이동 · 내 위치 아님 (전문가 모드, 지상에서만) */}
+        {!isCameraOverlayActive && expertMode && !ascended && !frameV2 && !cleanView && (
+          <View style={overlayStyles.sandboxPanel} pointerEvents="box-none">
+            {sandboxPanelEl}
+          </View>
+        )}
+
+        {/* 고른 대상 정보 (전문가 모드, 지상에서만) */}
+        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && picked && (
+          <View style={frameV2 ? overlayStyles.objectPanelTop : overlayStyles.objectPanel} pointerEvents="box-none">
+            <ObjectInfoPanel
+              language={language}
+              target={picked}
+              sun={{ azDeg: sunAzimuth, altDeg: sunAltitude }}
+              moon={{ azDeg: moonAzimuth, altDeg: moonAltitude }}
+              moonDiskDeg={2 * moonSemidiameterDeg(moonPos.distance)}
+              onCalc={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'score')}
+              observer={{ latitude, longitude, fromMs: currentTime.getTime() }}
+              getSkyline={() => sceneRef.current?.getSkyline?.() ?? null}
+              onAlign={(hit) => {
+                // 그 시각으로 가서 시선을 대상에 맞춥니다. 화각은 원반이 보일 만큼 좁히고, 시야 중심은 위로 올려
+                // (패널이 아래쪽을 덮으므로) 대상과 그 곁의 해·달이 패널 위에 보이게 합니다.
+                setCurrentTime(new Date(hit.timeMs));
+                alignedViewRef.current = true;
+                alignedBodyRef.current = hit.body;
+                sceneRef.current?.setCameraView?.(picked.azDeg, picked.elDeg, 14, { centerOffsetYFrac: ALIGN_VIEW_OFFSET_Y });
+              }}
+              onSnap={(top) => setPicked(p => (p ? snapBuildingTarget(p, top) : p))}
+              onGo={() => {
+                const pt = targetPointOf(picked);
+                if (pt) glide.start({ latitude: pt.latitude, longitude: pt.longitude });
+              }}
+              sceneRow={frameV2 ? undefined : <SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />}
+              onClear={() => { pendingSceneTargetRef.current = null; setPicked(null); }}
+            />
+          </View>
+        )}
+
+        {/* 고른 대상이 없을 때의 "장면 저장 · 저장한 장면" 줄 (도구 열었을 때만 표시) */}
+        {!isCameraOverlayActive && expertMode && !ascended && !cleanView && !picked && !sheetOpen && !frameV2 && sandboxTool === 'tools' && (
+          <View style={overlayStyles.sceneBar} pointerEvents="box-none">
+            <SceneBar boxed language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />
+          </View>
+        )}
+        <SceneSheet
+          visible={sceneSheetOpen && (expertMode || frameV2)}
+          language={language}
+          scenes={savedScenes}
+          draft={sceneSheetOpen ? readScene('') : null}
+          nowMs={Date.now()}
+          tzHours={tz}
+          onSave={saveScene}
+          onOpen={openScene}
+          onRename={(id, n) => useCelestialStore.getState().renameSavedScene(id, n)}
+          onRemove={(id) => useCelestialStore.getState().removeSavedScene(id)}
+          onClose={() => setSceneSheetOpen(false)}
+        />
+
+        {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
+        {!isCameraOverlayActive && (
+        <View style={overlayStyles.sceneOverlayButtons}>
+          {/* 전문가 모드 — 꺼짐이면 아래 보기 조작(레이어 · 구/지도)과 시트의 상세가 숨습니다. 길게 누르면 개발자 튜닝 패널. */}
+          {!frameV2 && (
+          <OverlayButton
+            active={expertMode}
+            onPress={() => {
+              const next = !expertMode;
+              setExpertMode(next);
+              if (!next) { setCleanView(false); setSandboxTool(null); }
+            }}
+            onLongPress={() => setDevPanelOpen(v => !v)}
+            accessibilityLabel={L3(language, '전문가 모드', 'Expert mode', 'エキスパートモード')}
+            style={overlayStyles.expertBtn}
+          >
+            <Text style={[overlayStyles.expertBtnText, expertMode && { color: DARK.accent }]}>
+              {L3(language, '전문가 모드', 'Expert', 'エキスパート')}
+            </Text>
+          </OverlayButton>
+          )}
+
+          {!frameV2 && expertMode && !ascended && (
+            <OverlayButton
+              active={cleanView}
+              onPress={() => setCleanView(v => !v)}
+              accessibilityLabel={L3(language, 'UI 숨기기(순수 화면 보기)', 'Hide HUD (Clean view)', 'HUDを隠す')}
+            >
+              {cleanView ? <EyeOff size={16} color={DARK.accent} /> : <Eye size={16} color={DARK.text} />}
+            </OverlayButton>
+          )}
+
+          {/* 3D 요소 표시 설정 모달 */}
+          {expertMode && !cleanView && (frameV2 || sandboxTool === 'tools') && (
+          <OverlayButton
+            onPress={() => setLayerModalVisible(true)}
+            accessibilityLabel={t('layerTitle', language)}
+          >
+            <SlidersHorizontal size={16} color={DARK.text} />
+          </OverlayButton>
+          )}
+
+          {/* 구/지도 — 두 손가락 줌아웃의 누르기 대안(디자인 2단). 지도에서는 "착륙"으로 돌아옵니다. */}
+          {expertMode && !cleanView && !ascended && (frameV2 || sandboxTool === 'tools') && (
+            <OverlayButton
+              onPress={() => sceneRef.current?.flyToMap()}
+              accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
+            >
+              <Globe size={16} color={DARK.text} />
+            </OverlayButton>
+          )}
+
+          {/* 눈 높이 · 줌 세로 막대 — 전문가 모드, 지상에서만(예전의 망원 단추 다섯 개를 줌 막대가 이어받습니다) */}
+          {expertMode && !cleanView && !ascended && !frameV2 && (
+            <DialPair
+              language={language}
+              eyeHeightM={eyeH}
+              onEyeHeight={setEyeH}
+              zoomX={teleX}
+              onZoom={setTeleX}
+            />
+          )}
+
+          {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
+          {isDevPanelOpen && (
+            <OverlayButton active onPress={() => setDevPanelOpen(false)}>
+              <SlidersVertical size={14} color={DARK.accent} />
+            </OverlayButton>
+          )}
+        </View>
+        )}
+
+        {/* 2026-11-18 예보 대신 맑은 하늘 대체 자료(요청 한도 429 등)를 쓰는 중 — 예전에는 아무 표시 없이 구름 0 % 로 그려
+              실제로 구름이 많은 날도 맑게 보였음(사용자 보고, 서울 11/19 일출). 알리고 뒤에서 다시 받습니다. */}
+        {!weatherError && !isWeatherLoading && usingFallbackSky && (
+          <View style={[overlayStyles.buildBanner, frameV2 && overlayStyles.bannerTop]} pointerEvents="none">
+            <Text style={overlayStyles.buildLabel} numberOfLines={1}>
+              {L3(language, '구름 예보를 받지 못해 맑은 하늘로 보여 주는 중', 'No cloud forecast yet — showing a clear sky', '雲予報を取得できず晴天で表示中')}
+            </Text>
+            <Text style={overlayStyles.buildHint} numberOfLines={1}>
+              {L3(language, '예보 서버 요청 한도에 걸렸어요. 잠시 뒤 자동으로 다시 받아요', 'Forecast server rate limit — retrying automatically', '予報サーバーの制限中です。自動で再取得します')}
+            </Text>
+          </View>
+        )}
+
+        {/* 날씨 수신 배너 (터치 통과). 2026-11-18 하늘 사전 계산 진행은 팝업 대신 시간 막대 아래 선으로 보입니다(DateTimeBar). */}
+        {!weatherError && isWeatherLoading && (() => {
+          const pct = isWeatherLoading
+            ? 15
+            : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));
+          const label = isWeatherLoading
+            ? L3(language, '기상 데이터 수신 중…', 'Fetching weather data…', '気象データを受信中…')
+            : L3(
+                language,
+                `오늘의 하늘 준비 중 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                `Preparing day sky · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                `1日の空を準備中 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+              );
+          const hint = isWeatherLoading
+            ? L3(
+                language,
+                '선택한 날짜·장소의 360° 구름 예보를 불러오고 있습니다',
+                'Loading 360° cloud forecast for selected date & place',
+                '選択した日時・場所の360°雲予報を読み込んでいます',
+              )
+            : L3(
+                language,
+                '백그라운드에서 시간대별 하늘을 미리 계산하고 있습니다',
+                'Precomputing hourly sky in the background',
+                'バックグラウンドで時間帯別の空を計算しています',
+              );
+          return (
+            <View style={[overlayStyles.buildBanner, frameV2 && overlayStyles.bannerTop]} pointerEvents="none">
+              <Text style={overlayStyles.buildLabel} numberOfLines={1}>{label}</Text>
+              <View style={overlayStyles.progressTrack}>
+                <View style={[overlayStyles.progressFill, { width: `${pct}%` }]} />
+              </View>
+              <Text style={overlayStyles.buildHint} numberOfLines={1}>{hint}</Text>
+            </View>
+          );
+        })()}
+
+        {/* 날씨 수신 실패 배너 및 재시도 버튼 */}
+        {weatherError && (
+          <Reveal style={[overlayStyles.weatherErrorBanner, frameV2 && overlayStyles.bannerTop]}>
+            <View style={overlayStyles.weatherErrorHeader}>
+              <CloudOff size={15} color="#F87171" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={overlayStyles.weatherErrorTitle}>
+                  {t('weatherLoadFailed', language)}
+                </Text>
+                <Text style={overlayStyles.weatherErrorDesc} numberOfLines={1}>
+                  {weatherError}
+                </Text>
+              </View>
+              <PressScale
+                style={overlayStyles.weatherRetryButton}
+                onPress={() => loadWeather(true)}
+                disabled={isWeatherLoading}
+                activeOpacity={0.7}
+              >
+                {isWeatherLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <View style={overlayStyles.weatherRetryContent}>
+                    <RefreshCw size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    <Text style={overlayStyles.weatherRetryText}>
+                      {t('retry', language)}
+                    </Text>
+                  </View>
+                )}
+              </PressScale>
+            </View>
+          </Reveal>
+        )}
+      </View>
+
+      {/* ── peek 시트: 기본 모드에서만 표시 (전문가 모드·새 틀에서는 숨김) ── */}
+      {!isCameraOverlayActive && !frameV2 && !expertMode && (
+      <PeekSheet
+        theme={theme}
+        maxHeight={stageH || undefined}
+        onOpenChange={setSheetOpen}
+        summary={
+          <View style={styles.summaryRow}>
+            {glow ? (
+              <>
+                <VerdictMeter quality={glow.prediction.quality} />
+                <Text style={[styles.summaryVerdict, { color: verdictColor(glow.prediction.quality, dataColor, color) }]}>
+                  {verdictWord(glow.prediction.quality, language)}
+                </Text>
+                <Text style={[styles.summaryScore, { color: theme.text }]}>{Math.round(glow.score)}</Text>
+                <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
+                <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('peakGlow', language)}</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>{localHHMM(glow.time, tz)}</Text>
+              </>
+            ) : (
+              <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('verdictNeedsWeather', language)}</Text>
+            )}
+          </View>
+        }
+      >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetScroll}>
+          {sheetContent}
         </ScrollView>
       </PeekSheet>
+      )}
+
+      {/* ── 새 화면 틀(실험): 시간 자 · 칩 · 셔터 · 모드 줄이 한 막대에 ─────────── */}
+      {!isCameraOverlayActive && frameV2 && (
+        <SkyFrame
+          language={language}
+          tz={tz}
+          nowMs={Date.now()}
+          timeMs={currentTime.getTime()}
+          onSlideStart={handleBarSlidingStart}
+          onPick={(ms, kind) => handleBarPick(new Date(ms), { scrub: kind })}
+          onSlideEnd={handleBarSlidingComplete}
+          onNow={() => setTimeMachineEnabled?.(false)}
+          sunsetMs={events?.sunset ? events.sunset.getTime() : null}
+          sunsetLabel={`${L3(language, '일몰', 'Sunset', '日没')} ${sunsetText}`}
+          mode={expertMode ? 'sandbox' : 'simulation'}
+          onSwitch={(sw) => {
+            if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
+            // 카메라 쪽: 사진에 내려 열고, 보던 방향이 촬영 가이드가 됩니다(저장하지 않는 지금 장면을 그대로 넘김).
+            const sc = readScene('');
+            if (sc) useCelestialStore.getState().setCameraScene(sc);
+            onCameraPress?.();
+          }}
+          getView={frameGetView}
+          readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el } : null; }} eyeHeightM={expertMode ? eyeH : undefined} />}
+          simBody={(
+            <>
+              {cloudCaption ? (
+                <View style={{ alignItems: 'flex-start' }}>
+                  <GlassChip label={cloudCaption} onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'why', 'cloud')} accessibilityLabel={`${cloudCaption} — ${L3(language, '구름 모양 계산 과정 보기', 'See how the cloud shapes are decided', '雲の形の計算過程を見る')}`} />
+                </View>
+              ) : null}
+              {sheetContent}
+            </>
+          )}
+          sandbox={frameSandbox}
+          onShoot={() => { if (readScene('')) shootScene(); else onCameraPress?.(); }}
+          onSaveScene={() => setSceneSheetOpen(true)}
+          onOpenCalendar={onOpenDatePicker}
+        />
       )}
       </View>
 
       {/* ── 날짜 + 시간 막대: 기본 모드는 상시, 전문가 모드는 [시각] 토글 시만 표시 ── */}
-      {!isCameraOverlayActive && (!expertMode || (!cleanView && sandboxTool === 'time')) && (
+      {!isCameraOverlayActive && !frameV2 && (!expertMode || (!cleanView && sandboxTool === 'time')) && (
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
         <DateTimeBar
           currentTime={currentTime}
@@ -1421,7 +1500,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       )}
 
       {/* ── 전문가(샌드박스) 단일 하단 툴독: [시각] [이동] [장면] [도구] [촬영] ── */}
-      {!isCameraOverlayActive && expertMode && !ascended && !cleanView && (
+      {!isCameraOverlayActive && !frameV2 && expertMode && !ascended && !cleanView && (
         <View style={overlayStyles.sandboxDock}>
           <OverlayButton
             active={sandboxTool === 'time'}
@@ -1516,6 +1595,8 @@ const overlayStyles = StyleSheet.create({
   },
   sandboxPanel: { position: 'absolute', left: 12, top: 108, zIndex: 20 },
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
+  // 새 화면 틀: 아래는 유리 막대가 쓰므로 고른 대상 정보는 위(읽음 줄 아래)에 둡니다.
+  objectPanelTop: { position: 'absolute', left: 12, right: 12, top: 64, zIndex: 22 },
   // 고른 대상이 없을 때의 장면 저장 줄: 도구 열었을 때 하단 툴독 위에 배치
   sceneBar: { position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 },
   sandboxDock: {
@@ -1535,6 +1616,8 @@ const overlayStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // 새 화면 틀: 아래는 유리 막대가 쓰므로 알림 줄은 위(읽음 줄 아래)로 올립니다.
+  bannerTop: { bottom: undefined, top: 56 },
   buildBanner: {
     position: 'absolute',
     left: 14,
