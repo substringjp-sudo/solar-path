@@ -1146,6 +1146,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timelapseOpen, tlSunsetMs, camWeatherData, tzHours]);
 
+  const tlSunAltAt = useCallback((ms: number) => getSunPosition(new Date(ms), latitude, longitude).altitude, [latitude, longitude]);
+
   const optics = useMemo(
     () => previewOptics(W, stageLayoutH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
     [W, stageLayoutH, measuredHfov, currentMagnification],
@@ -2986,6 +2988,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           tzHours={tzHours}
           peak={tlPeak}
           lowCloud={tlLowCloud}
+          sunAltAt={tlSunAltAt}
           onPreview={playPreview}
           onStart={startTimelapse}
           onClose={() => setTimelapseOpen(false)}

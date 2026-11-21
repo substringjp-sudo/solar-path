@@ -8,9 +8,11 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { X } from 'lucide-react-native';
+import Svg, { Polyline } from 'react-native-svg';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
+import { exposureLine, exposureStops, exposureSummary } from '../../utils/exposureCurve';
 import { clockLabel, planTimelapse, presetWindow, windowLabel, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
 
 export const VIDEO_SEC_CHOICES = [5, 10, 20, 30] as const;
@@ -31,6 +33,8 @@ interface Props {
   peak?: { fromMs: number; toMs: number } | null;
   /** 낮은 구름(지평선 가림)이 두꺼운 구간(일몰 둘레). 모르면 null(줄을 안 그림). */
   lowCloud?: { fromMs: number; toMs: number } | null;
+  /** 시각(ms) → 그때 해 고도(°). 있으면 구간의 "예측 노출 곡선"(맑은 하늘 기준 어림)을 그립니다. */
+  sunAltAt?: ((ms: number) => number) | null;
   onPreview: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
   onStart: (plan: TimelapsePlan) => void;
   onClose: () => void;
@@ -53,7 +57,7 @@ const presetLabel = (k: PresetKind, l: Language): string => {
   return L3(l, '낮에서 밤으로 150분', 'Day to night 150 min', '昼から夜へ 150分');
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, peak = null, lowCloud = null, onPreview, onStart, onClose }) => {
+export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose }) => {
   const [preset, setPreset] = useState<PresetKind>('sunset');
   const [videoSec, setVideoSec] = useState<number>(10);
   const [kind, setKind] = useState<TimelapseKind>('plain');
@@ -62,6 +66,15 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
   const win = useMemo(() => (eventMs !== null ? presetWindow(preset, eventMs) : null), [preset, eventMs]);
   const totalMin = win?.totalMin ?? presetWindow(preset, 0)!.totalMin;
   const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30, kind, stackSize }), [totalMin, videoSec, kind, stackSize]);
+  // 예측 노출 곡선: 구간을 25 칸으로 나눈 해 고도 → 첫 장면 대비 단 수(맑은 하늘 기준 어림, 구름 · 지형 반영 안 함)
+  const expo = useMemo(() => {
+    if (!win || !sunAltAt) return null;
+    const alts: number[] = [];
+    for (let i = 0; i <= 24; i++) alts.push(sunAltAt(win.startMs + ((win.endMs - win.startMs) * i) / 24));
+    const stops = exposureStops(alts);
+    const sum = exposureSummary(stops);
+    return sum ? { line: exposureLine(stops, 120, 24), total: sum.total } : null;
+  }, [win, sunAltAt]);
   const preview = () => {
     const startMs = win ? win.startMs : nowMs;
     const endMs = win ? win.endMs : nowMs + totalMin * 60000;
@@ -137,6 +150,14 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
                 ))}
               </View>
               <Text style={styles.summary}>{`${L3(language, '시작', 'Start', '開始')} ${clockLabel(startShown, tzHours)} · ${L3(language, '촬영', 'Shoot', '撮影')} ${totalMin}${L3(language, '분', ' min', '分')} · ${L3(language, '저장 약', 'About', '保存 約')} ${plan.estimateMB} MB`}</Text>
+              {expo && expo.line ? (
+                <View style={styles.expoRow}>
+                  <Svg width={120} height={24} accessibilityLabel={L3(language, '예측 노출 곡선', 'Predicted exposure curve', '予測露出カーブ')}>
+                    <Polyline points={expo.line} fill="none" stroke={DARK.accent} strokeWidth={2} />
+                  </Svg>
+                  <Text style={styles.expoText}>{`${L3(language, '밝기', 'Light', '明るさ')} ${expo.total > 0 ? '+' : '−'}${Math.abs(expo.total).toFixed(1)}${L3(language, '단', ' stops', '段')} · ${L3(language, '맑은 하늘 기준 어림', 'clear-sky estimate', '快晴の目安')}`}</Text>
+                </View>
+              ) : null}
               {lowCloud && preset === 'sunset' ? (
                 <Text style={styles.lowCloudLine}>{`${L3(language, '낮은 구름 두꺼움', 'Low cloud thick', '低い雲が厚い')} ${windowLabel(lowCloud.fromMs, lowCloud.toMs, tzHours)}`}</Text>
               ) : null}
@@ -191,6 +212,8 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '700', color: DARK.text },
   card: { gap: 4, marginTop: 8, padding: 10, backgroundColor: DARK.fill, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.md },
   summary: { fontFamily: mono, fontSize: 12, color: DARK.text },
+  expoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  expoText: { flex: 1, fontFamily: mono, fontSize: 11, color: DARK.textDim },
   lowCloudLine: { fontFamily: mono, fontSize: 12, color: DARK.textDim },
   peakLine: { fontFamily: mono, fontSize: 12, color: DARK.glow },
   note: { fontSize: 11, color: DARK.textDim },

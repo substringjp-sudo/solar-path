@@ -85,5 +85,10 @@ ok(/setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /set
   ok(/\{lowCloud && preset === 'sunset' \? \(\s*<Text style=\{styles\.lowCloudLine\}>/.test(panel) && /lowCloud=\{tlLowCloud\}/.test(cam) && /const tlLowCloud = useMemo\(\(\) => \{\s+if \(!timelapseOpen \|\| !tlSunsetMs/.test(cam) && /return lowCloudWindow\(points\);/.test(cam) && /Math\.abs\(ms - tlSunsetMs\) > 90 \* 60_000/.test(cam), '시트에 "낮은 구름 두꺼움" 줄(일몰 프리셋이고 구간을 알 때만), 카메라는 시트가 열렸을 때만 일몰 ±90분을 훑어 셈(2026-11-21 추가)');
 }
 
+{
+  const panel = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapsePanel.tsx'), 'utf8');
+  ok(/exposureStops\(alts\)/.test(panel) && /\{expo && expo\.line \? \(/.test(panel) && /<Polyline points=\{expo\.line\}/.test(panel) && /맑은 하늘 기준 어림/.test(panel) && /sunAltAt=\{tlSunAltAt\}/.test(cam) && /const tlSunAltAt = useCallback\(\(ms: number\) => getSunPosition\(new Date\(ms\), latitude, longitude\)\.altitude/.test(cam), '시트에 예측 노출 곡선(구간 25 칸의 해 고도 → 단 수, "맑은 하늘 기준 어림"), 카메라가 해 고도 함수를 넘김(2026-11-21 추가)');
+}
+
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
 process.exit(fail ? 1 : 0);
