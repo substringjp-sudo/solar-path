@@ -91,6 +91,10 @@ import { lumaFromRgba, photoStops } from '../utils/runCurve';
 import { exposureStops } from '../utils/exposureCurve';
 import { modeForScene, modeLabel, recommendMode, tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
+import { ExposureCells } from './AstroCamera/ExposureCells';
+import { adviseExposure } from '../utils/exposureAdvice';
+import { autoStartDue, autoStartState } from '../utils/autoStart';
+import { lensLine } from '../utils/lensInfo';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
@@ -2183,6 +2187,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }, [visible]);
 
+  // 장면 줄의 "자동 시작": 장면 시각(앞으로의 실제 시각)이 되면 한 장 찍습니다(사진 탭에서만, 앱이 켜져 있는 동안).
+  const [autoStartAt, setAutoStartAt] = useState<number | null>(null);
+  const [autoNowMs, setAutoNowMs] = useState(() => Date.now());
+  const handleCaptureRef = useRef(handleCapture);
+  handleCaptureRef.current = handleCapture;
+  useEffect(() => {
+    if (!visible || !cameraScene || cameraTab !== 'sunset') return undefined;
+    setAutoNowMs(Date.now());
+    const id = setInterval(() => setAutoNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [visible, cameraScene, cameraTab]);
+  useEffect(() => {
+    if (autoStartAt != null && autoStartDue(autoStartAt, autoNowMs)) {
+      setAutoStartAt(null);
+      handleCaptureRef.current();
+    }
+  }, [autoStartAt, autoNowMs]);
+  useEffect(() => { if (!visible || !cameraScene || cameraTab !== 'sunset') setAutoStartAt(null); }, [visible, cameraScene, cameraTab]);
+  const autoState = cameraScene && cameraTab === 'sunset' ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
+  const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
+  const lensInfoText = useMemo(() => lensLine(optics.vFovDeg, W / Math.max(1, stageLayoutH)), [optics.vFovDeg, W, stageLayoutH]);
+
   if (!visible) return null;
 
   if (!cameraPermission?.granted) {
@@ -2675,8 +2701,26 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       <Text style={styles.bannerText} numberOfLines={2}>
                         {`${L3(language, '장면', 'Scene', 'シーン')} · ${cameraScene.name} · ${sceneSummary(cameraScene, { nowMs: Date.now(), tzHours, lang: language })}`}
                       </Text>
+                      {autoState && autoState.kind !== 'far' && (
+                        <Pressable
+                          onPress={() => {
+                            if (autoState.kind === 'wait') setAutoStartAt(autoStartAt == null ? cameraScene.timeMs : null);
+                            else handleCapturePress();
+                          }}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: autoStartAt != null }}
+                          accessibilityLabel={autoState.kind === 'wait' ? L3(language, '자동 시작 켜고 끄기', 'Toggle auto start', '自動開始の切替') : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
+                          hitSlop={8}
+                        >
+                          <Text style={[styles.bannerText, { color: color.accent }]}>
+                            {autoState.kind === 'wait'
+                              ? `${autoStartAt != null ? L3(language, '자동 시작 중', 'Auto', '自動中') : L3(language, '자동 시작', 'Auto start', '自動開始')} ${autoState.text}`
+                              : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
+                          </Text>
+                        </Pressable>
+                      )}
                       <Pressable
-                        onPress={() => { Vibration.cancel(); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
+                        onPress={() => { Vibration.cancel(); setAutoStartAt(null); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
                         accessibilityRole="button"
                         accessibilityLabel={L3(language, '장면 지우기', 'Clear scene', 'シーンを消す')}
                         hitSlop={8}
@@ -2875,6 +2919,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
             {/* 하단 슬림 컨트롤 덱 — 컴팩트 줌 알약 + 1단 셔터 도킹 */}
             <View style={styles.bottomDeck}>
+              {cameraTab === 'sunset' && (
+                <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} />
+              )}
               <View style={styles.zoomPillBar} accessibilityRole="radiogroup">
                 {[1, 2, 3, 5].map((mag) => {
                   const sel = Math.abs(currentMagnification - mag) < 0.25;
