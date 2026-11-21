@@ -19,7 +19,6 @@ interface Props {
   event: EclipseEvent;
   language: Language;
   tzHours: number;
-  nowMs: number;
 }
 
 const adviceText = (key: EclipseStageKey): string => {
@@ -29,7 +28,7 @@ const adviceText = (key: EclipseStageKey): string => {
     : `ISO ${x.bright.iso} · ${x.bright.shutterText} ~ ISO ${x.dark.iso} · ${x.dark.shutterText}`;
 };
 
-export const EclipseCard: React.FC<Props> = ({ event, language, tzHours, nowMs }) => {
+export const EclipseCard: React.FC<Props> = ({ event, language, tzHours }) => {
   const [open, setOpen] = useState(false);
   const { eclipse, plan, now } = event;
   const T = (ms: number) => clockLabel(ms, tzHours);

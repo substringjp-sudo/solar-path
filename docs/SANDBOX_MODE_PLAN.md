@@ -934,3 +934,10 @@ UI 는 빽빽하고 불친절해도 됩니다. 숫자와 조작을 한 화면에
 - **고친 것**: 카메라 상태 줄(`statusCol`)이 `pointerEvents="none"` 이라 안의 눌림(장면 배너의 "자동 시작 · 지금 시작 · 지우기"와 이 카드의 시간표)이 막혀 있었습니다. 빈 곳만 통과하는 `box-none` 으로 바꿨습니다(자동 시작 단추가 눌리지 않았을 가능성이 높습니다 — 실기기에서 확인).
 - 판정: 웹 `verify-eclipse-card.js`(24: 뉴욕 · 도쿄 손계산, 12 조합 겹침, ko · en · ja), 소스 `verify-eclipse-wiring.js`(10), `verify-eclipse-event.js`(12). 웹 변이 5개 · 연결 변이 8개 중 7개를 잡았고 1개는 동치 변이(시트 기본값)로 기록했습니다. 처음 돌렸을 때 달이 이미 뜬 뒤에는 "달이 … 에 떠요" 줄이 사라지는 차이를 판정이 잡아 컴포넌트를 기준에 맞췄습니다. SunCamera 는 웹 하네스로 못 띄워 연결은 소스 읽기로만 확인했습니다.
 - **실기기에서 볼 것**: 카드가 카메라 위 줄 아래에서 방위 눈금 · 다른 배너와 겹치지 않는지, 매초 갱신이 부드러운지, 개기 노출 값(문헌 어림)이 실제 월식에서 맞는지, 이벤트 모드 켜진 채 셔터(천체 탭)로 찍기.
+
+## 23-7. 카메라 옛 코드 정리 (2026-11-21)
+
+새 틀로 옮기며 안 쓰게 된 것을 지웠습니다(동작 변화 없음).
+- `SunCamera`: 안 쓰는 import(`Clock` · `Move` · `ChevronUp` · `ScrubTrack` · `ModeStrip`), 상수(`DOCK_*` · `SHUTTER`), 함수(`getAzimuthCardinal` · `handleResumeLiveHeading`), 계산(`currentPrediction` · `timeSliderPct` · `headingTone/Word`), 늘 0 이던 `longExpRefreshTick`, 쓰는 곳이 없는 스타일 50개(옛 줌 알약 · 모드 알약 · 보정 패널 · 시간 막대 · 비교 이미지 등). 줄 수 약 360 줄 감소.
+- `AppHeader` 안 쓰는 `color` import, `EclipseCard` 안 쓰는 `nowMs` 속성.
+- 확인: tsc 0, `--noUnusedLocals` 로 SunCamera · AppHeader · EclipseCard 에 남은 것 없음, 지워진 이름을 참조하는 `styles.*` 없음, SunCamera 를 읽는 소스 판정 12개 통과. 남은 안 쓰는 코드는 SkyScene3D · App · SettingsModal 등 다른 파일에 있고 이번 범위 밖입니다.

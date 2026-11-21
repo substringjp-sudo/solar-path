@@ -22,7 +22,7 @@ export function EclipseCardRepro({ W, H, Q }: { W: number; H: number; Q: any }) 
   return (
     <View testID="eclipse-root" style={[{ width: W, height: H, position: 'relative', overflow: 'hidden', backgroundColor: '#222' }, { backgroundImage: SKY[Q.sky ?? 'haze'] } as any]}>
       <View style={{ position: 'absolute', left: 12, right: 12, top: 60 }}>
-        {ev ? <EclipseCard event={ev} language={lang} tzHours={Q.tz ?? -4} nowMs={nowMs} /> : null}
+        {ev ? <EclipseCard event={ev} language={lang} tzHours={Q.tz ?? -4} /> : null}
       </View>
     </View>
   );
