@@ -25,6 +25,8 @@ interface Props {
   language: Lang;
   onChange: (ms: number) => void;
   onCommit?: (ms: number) => void;
+  /** 끌기를 시작할 때(바깥이 "시각을 끄는 중" 표시를 켤 때). */
+  onDragStart?: () => void;
   /** 자 위에 뜨는 일몰 표시(없으면 안 그림) */
   sunsetMs?: number | null;
   sunsetLabel?: string;
@@ -39,18 +41,18 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, sunsetMs = null, sunsetLabel, dateText, onDatePress, onNow }) => {
+export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, dateText, onDatePress, onNow }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
-  const propsRef = useRef({ timeMs, onChange, onCommit });
-  propsRef.current = { timeMs, onChange, onCommit };
+  const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart });
+  propsRef.current = { timeMs, onChange, onCommit, onDragStart };
 
   const pan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { startRef.current = propsRef.current.timeMs; lastRef.current = startRef.current; },
+    onPanResponderGrant: () => { startRef.current = propsRef.current.timeMs; lastRef.current = startRef.current; propsRef.current.onDragStart?.(); },
     onPanResponderMove: (_, g) => {
       const ms = dragTimeMs(startRef.current, g.dx);
       if (ms !== lastRef.current) { lastRef.current = ms; propsRef.current.onChange(ms); }
