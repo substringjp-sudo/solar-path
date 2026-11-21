@@ -111,3 +111,28 @@ export function weekStrip(selectedMs: number, nowMs: number, tz: number, lang: L
     return { offset, ms, day: d.getUTCDate(), weekday: WEEKDAYS[lang][d.getUTCDay()], selected: offset === selOff };
   });
 }
+
+export interface RulerBandSeg { x0: number; x1: number; alpha: number }
+export interface ScoreSample { t: number; score: number | null }
+
+/**
+ * 자 위 노을 점수 띠. 이웃한 두 표본이 모두 점수가 있을 때만 그 사이 한 칸(알파 = 평균 점수 / 100)을 만들고, 0 ~ 폭으로 자릅니다.
+ * 없는 값(null)은 메우지 않아 띠가 거기서 끊깁니다.
+ */
+export function rulerBand(samples: readonly ScoreSample[], centerMs: number, width: number = RULER_WIDTH, pxPerHour: number = PX_PER_HOUR): RulerBandSeg[] {
+  if (![centerMs, width, pxPerHour].every(Number.isFinite) || pxPerHour <= 0) return [];
+  if (samples.length < 2 || samples.some(s => !Number.isFinite(s.t))) return [];
+  const sorted = [...samples].sort((a, b) => a.t - b.t);
+  const xOf = (t: number): number => width / 2 + ((t - centerMs) / HOUR_MS) * pxPerHour;
+  const out: RulerBandSeg[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const a = sorted[i - 1], b = sorted[i];
+    if (a.score == null || b.score == null) continue;
+    const avg = (a.score + b.score) / 2;
+    if (!(avg > 0)) continue;
+    const x0 = Math.max(0, xOf(a.t)), x1 = Math.min(width, xOf(b.t));
+    if (x1 <= x0) continue;
+    out.push({ x0, x1, alpha: Math.min(1, avg / 100) });
+  }
+  return out;
+}

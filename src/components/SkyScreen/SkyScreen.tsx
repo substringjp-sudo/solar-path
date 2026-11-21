@@ -1127,6 +1127,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       <View style={{ gap: 8, alignItems: 'flex-start' }}>
         <GlassChip label={t('layerTitle', language)} onPress={() => setLayerModalVisible(true)} />
         {!ascended && <GlassChip label={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')} onPress={() => sceneRef.current?.flyToMap()} />}
+        <GlassChip
+          label={L3(language, '태양 따라가기', 'Track the sun', '太陽を追う')}
+          active={trackingTarget === 'sun'}
+          onPress={() => setTrackingTarget(prev => (prev === 'sun' ? null : 'sun'))}
+        />
+        <GlassChip label={L3(language, '개발자 튜닝', 'Dev tuning', '開発者調整')} active={isDevPanelOpen} onPress={() => setDevPanelOpen(v => !v)} />
       </View>
     ),
   };
@@ -1450,6 +1456,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onNow={() => setTimeMachineEnabled?.(false)}
           sunsetMs={events?.sunset ? events.sunset.getTime() : null}
           sunsetLabel={`${L3(language, '일몰', 'Sunset', '日没')} ${sunsetText}`}
+          scoreSamples={scoreGraph ? scoreGraph.points : null}
           mode={expertMode ? 'sandbox' : 'simulation'}
           onSwitch={(sw) => {
             if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
@@ -1473,6 +1480,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           sandbox={frameSandbox}
           onShoot={() => { if (readScene('')) shootScene(); else onCameraPress?.(); }}
           onSaveScene={() => setSceneSheetOpen(true)}
+          onOpenLatestScene={savedScenes.length > 0 ? () => openScene(savedScenes[0]) : undefined}
           onOpenCalendar={onOpenDatePicker}
         />
       )}
