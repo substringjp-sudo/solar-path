@@ -77,7 +77,7 @@ console.log('\n[8] 노출 추천 칸 · 자동 시작(2026-11-21)');
   ok(/if \(autoStartAt != null && autoStartDue\(autoStartAt, autoNowMs\)\) \{\s+setAutoStartAt\(null\);\s+handleCaptureRef\.current\(\);/.test(cam), '예약 시각이 되면 예약을 지우고 한 장 찍는다');
   ok(/if \(!visible \|\| !cameraScene \|\| cameraTab !== 'sunset'\) return undefined;/.test(cam) && /setAutoStartAt\(null\);\s+\}, \[visible, cameraScene, cameraTab\]\)/.test(cam), '1초 시계는 사진 탭에서 장면이 있을 때만, 그 밖이면 예약을 지운다');
   ok(/autoState\.kind === 'wait'\) setAutoStartAt\(autoStartAt == null \? cameraScene\.timeMs : null\);\s+else handleCapturePress\(\);/.test(cam) && /autoState\.kind !== 'far'/.test(cam), '장면 줄: 기다릴 때는 자동 시작 켜고 끄기, 지났으면 지금 시작, 2시간 넘으면 단추 없음');
-  ok(/panels=\{cameraTab === 'astro' \? undefined : \{ exposure: <ExposureCells language=\{language\} advice=\{expoAdvice\} lensMm=\{lensInfoText\.mmText\} lensText=\{lensInfoText\.lensText\} \/> \}\}/.test(cam) && /\{ id: 'exposure', label: L3\(language, '노출', 'Exposure', '露出'\), expands: true \}/.test(cam), '사진 탭에서만 "노출" 칩이 추천 칸(렌즈 · ISO · 셔터 · WB)을 펼친다(2026-11-21: 새 틀의 패널로 옮김)');
+  ok(/: \{ exposure: <ExposureCells language=\{language\} advice=\{expoAdvice\} lensMm=\{lensInfoText\.mmText\} lensText=\{lensInfoText\.lensText\} \/> \}\}/.test(cam) && /\{ id: 'exposure', label: L3\(language, '노출', 'Exposure', '露出'\), expands: true \}/.test(cam), '사진 탭에서만 "노출" 칩이 추천 칸(렌즈 · ISO · 셔터 · WB)을 펼친다(2026-11-21: 새 틀의 패널로 옮김)');
   ok(/adviseExposure\(sunPos\.altitude\)/.test(cam) && /lensLine\(optics\.vFovDeg, W \/ Math\.max\(1, stageLayoutH\)\)/.test(cam), '해 고도로 노출 추천, 화각과 화면 비율로 렌즈 줄');
   ok(/wbLabel\(advice\.wb, language\)/.test(cells) && /추천 · 맑은 하늘 기준 어림/.test(cells) && /삼각대 권장/.test(cells), '칸 글: WB 이름, "추천 · 맑은 하늘 기준 어림", 삼각대 권장 알림');
 }
@@ -89,8 +89,15 @@ console.log('\n[9] 카메라 새 틀(CameraFrame, 2026-11-21)');
   ok(/<CameraFrame\s+language=\{language\}/.test(cam) && !/styles\.bottomDeck/.test(cam.replace(/bottomDeck: \{[\s\S]*?\n  \},/, '')), '카메라 아래는 CameraFrame(옛 bottomDeck 은 쓰이지 않음)');
   ok(/ruler=\{viewMode !== 'camera' && onTimeChange \? \{\s+timeMs: currentTime\.getTime\(\),\s+tz: tzHours,/.test(cam) && /onChange: \(ms\) => onTimeChange\(new Date\(ms\)\),/.test(cam) && /showNow: isTimeMachineEnabled,\s+onNow: \(\) => onResetTime\?\.\(\),/.test(cam) && !/styles\.timeSliderRow\}>/.test(cam), '시간 자는 3D · 겹침일 때만(실제 카메라는 지금 시각), 옛 시간 슬라이더 줄은 지움, "지금" 은 기존 onResetTime');
   ok(/onPress=\{\(\) => setMagnification\(mag\)\}|onPress: \(\) => setMagnification\(mag\)/.test(cam) && /onPress=\{handleToggleFreeze\}/.test(cam) && /if \(cameraTab === 'astro'\) handleAstroStart\(\);\s+else handleCapturePress\(\);/.test(cam), '줌 · 방향 고정 · 셔터(천체는 handleAstroStart)가 기존 동작을 그대로 부른다');
-  ok(/const \[dockInset, setDockInset\] = useState\(150\);/.test(cam) && /onDockHeight=\{setDockInset\}/.test(cam) && /rulerY=\{stageLayoutH - dockInset - RULER_FROM_BOTTOM\}/.test(cam) && /\{cameraTab === 'astro' && \(\s+<View style=\{\[styles\.stageBottomControls, \{ bottom: dockInset \+ space\.sm \}\]\}/.test(cam), '카메라가 화면 전체를 채우므로 막대 위 요소(방위 눈금 · 천체 설정)는 막대 높이만큼 올린다');
+  ok(/const \[dockInset, setDockInset\] = useState\(150\);/.test(cam) && /onDockHeight=\{setDockInset\}/.test(cam) && /rulerY=\{stageLayoutH - dockInset - RULER_FROM_BOTTOM\}/.test(cam), '카메라가 화면 전체를 채우므로 막대 위 방위 눈금은 막대 높이만큼 올린다(천체 설정은 이제 막대 안 패널)');
   ok(/onFixedHeight\?: \(h: number\) => void;/.test(dock) && /onFixedHeight\?\.\(h \+ HANDLE_ROW_H\)/.test(dock) && /<DockSheet stage=\{stage\} onStageChange=\{setStage\} language=\{language\} expanded=\{expanded\} screenH=\{screenH\} onFixedHeight=\{onDockHeight\}>/.test(frame), '막대 높이 알림(고정부 + 손잡이 줄)이 DockSheet → CameraFrame → SunCamera 로 이어진다');
+}
+
+console.log('\n[10] 천체 탭: 설정 패널 · 예보 배너(2026-11-21)');
+{
+  ok(!/AstroControlsOverlay/.test(cam) && !/astroDrawerOpen/.test(cam) && !/stageBottomControls/.test(cam), '옛 천체 조작부(AstroControlsOverlay · 서랍 상태 · 막대 위 자리)를 지움');
+  ok(/\{ id: 'astro', label: astroChipLabel\(astroSettings, astroShotSummary, language\), mono: true, expands: true,/.test(cam) && /panels=\{cameraTab === 'astro' \? \{ astro: <AstroSettingsPanel settings=\{astroSettings\} onChange=\{setAstroSettings\} summary=\{astroShotSummary\} caps=\{astroCaps\} language=\{language\} \/> \}/.test(cam), '막대의 천체 칩(요약 글)이 설정 패널을 펼친다');
+  ok(/import \{ AstroForecastBanner \} from '\.\/AstroCamera\/AstroForecastBanner';/.test(cam) && /<AstroForecastBanner\s+analysis=\{astroAnalysis\}/.test(cam) && !fs.existsSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'AstroControlsOverlay.tsx')), '예보 배너는 유리 부품 파일로, 옛 파일은 없음');
 }
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);
