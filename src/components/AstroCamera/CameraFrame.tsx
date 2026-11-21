@@ -24,6 +24,8 @@ export interface CameraChipSpec {
   /** 눌렀을 때 `panels[id]` 를 펼칩니다. 아니면 `onPress` 만 부릅니다. */
   expands?: boolean;
   mono?: boolean;
+  /** 처음 눌러 펼칠 때의 단계(기본 mid). 긴 패널(천체 설정)은 'full'. */
+  openStage?: 'mid' | 'full';
   onPress?: () => void;
   accessibilityLabel?: string;
 }
@@ -82,15 +84,16 @@ export const CameraFrame: React.FC<Props> = ({
     if (!c.expands || !panels?.[c.id]) { c.onPress?.(); return; }
     if (active === c.id && stage !== 'min') { setStage('min'); return; }
     setActive(c.id);
-    if (stage === 'min') setStage('mid');
+    if (stage === 'min') setStage(c.openStage ?? 'mid');
     c.onPress?.();
   };
   const isOpen = (c: CameraChipSpec) => !!c.expands && active === c.id && stage !== 'min';
 
   const panel = active && stage !== 'min' ? panels?.[active] : null;
-  const expanded = panel ? (
-    <GlassSurface testID={`panel-${active}`} style={styles.panel}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{panel}</ScrollView>
+  // 패널은 펼친 영역이 정해 준 최대 높이 안에서 그려지고, 길면 안쪽에서 스크롤됩니다(막대의 고정부 쪽으로 삐져나오지 않게).
+  const expanded = panel ? (maxH: number) => (
+    <GlassSurface testID={`panel-${active}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
+      <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{panel}</ScrollView>
     </GlassSurface>
   ) : null;
 
@@ -152,6 +155,7 @@ export const cameraFrameLabel = (language: Language): string => L3(language, '�
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10 },
   panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
+  panelScroll: { flexShrink: 1 },
   panelContent: { padding: 12, gap: 8 },
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
   side: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },

@@ -96,8 +96,17 @@ console.log('\n[9] 카메라 새 틀(CameraFrame, 2026-11-21)');
 console.log('\n[10] 천체 탭: 설정 패널 · 예보 배너(2026-11-21)');
 {
   ok(!/AstroControlsOverlay/.test(cam) && !/astroDrawerOpen/.test(cam) && !/stageBottomControls/.test(cam), '옛 천체 조작부(AstroControlsOverlay · 서랍 상태 · 막대 위 자리)를 지움');
-  ok(/\{ id: 'astro', label: astroChipLabel\(astroSettings, astroShotSummary, language\), mono: true, expands: true,/.test(cam) && /panels=\{cameraTab === 'astro' \? \{ astro: <AstroSettingsPanel settings=\{astroSettings\} onChange=\{setAstroSettings\} summary=\{astroShotSummary\} caps=\{astroCaps\} language=\{language\} \/> \}/.test(cam), '막대의 천체 칩(요약 글)이 설정 패널을 펼친다');
+  ok(/\{ id: 'astro', label: astroChipLabel\(astroSettings, astroShotSummary, language\), mono: true, expands: true, openStage: 'full',/.test(cam) && /panels=\{cameraTab === 'astro' \? \{ astro: <AstroSettingsPanel settings=\{astroSettings\} onChange=\{setAstroSettings\} summary=\{astroShotSummary\} caps=\{astroCaps\} language=\{language\} \/> \}/.test(cam), '막대의 천체 칩(요약 글)이 설정 패널을 펼친다');
   ok(/import \{ AstroForecastBanner \} from '\.\/AstroCamera\/AstroForecastBanner';/.test(cam) && /<AstroForecastBanner\s+analysis=\{astroAnalysis\}/.test(cam) && !fs.existsSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'AstroControlsOverlay.tsx')), '예보 배너는 유리 부품 파일로, 옛 파일은 없음');
+}
+
+console.log('\n[11] 긴 패널은 펼친 영역 안에서(2026-11-21)');
+{
+  const frame = read('src', 'components', 'AstroCamera', 'CameraFrame.tsx');
+  const dock = read('src', 'components', 'glass', 'DockSheet.tsx');
+  ok(/expanded\?: React\.ReactNode \| \(\(maxH: number\) => React\.ReactNode\);/.test(dock) && /\{typeof expanded === 'function' \? expanded\(rawExtra\) : expanded\}/.test(dock), 'DockSheet 의 펼친 영역은 함수로 줄 수 있고 단계의 최대 높이(내용 높이가 아님 — 내용이 늘어도 막히지 않음)를 받는다');
+  ok(/const expanded = panel \? \(maxH: number\) => \(/.test(frame) && /\{ maxHeight: Math\.max\(96, maxH - 8\) \}/.test(frame) && /panelScroll: \{ flexShrink: 1 \}/.test(frame) && /setStage\(c\.openStage \?\? 'mid'\)/.test(frame), '패널은 그 최대 높이 안에 그려지고 안쪽에서 스크롤, 칩이 처음 펼칠 단계(openStage)를 고른다');
+  ok(/openStage: 'full', accessibilityLabel: L3\(language, '천체 설정'/.test(cam), '천체 설정 칩은 처음부터 전체 단계로 연다(내용이 길어서)');
 }
 
 console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n모두 통과 — pass ${pass} / fail ${fail}`);

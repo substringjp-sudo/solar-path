@@ -19,8 +19,11 @@ interface Props {
   stage: DockStage;
   onStageChange: (s: DockStage) => void;
   language: Lang;
-  /** 펼친 영역(min 에서는 보이지 않음). 높이는 이 부품이 정합니다. */
-  expanded?: React.ReactNode;
+  /**
+   * 펼친 영역(min 에서는 보이지 않음). 높이는 이 부품이 정합니다. 함수로 주면 이 단계에서 쓸 수 있는 **최대 높이**(px)를 받아 그 안에 맞춰 그립니다
+   * (긴 패널이 안쪽에서 스크롤되게 하려는 것 — 내용 높이로 줄인 값이 아니라 단계의 최대값이라, 내용이 늘어도 막히지 않습니다).
+   */
+  expanded?: React.ReactNode | ((maxH: number) => React.ReactNode);
   /** 고정부: 칩 · 시간 자 · 셔터 · 모드 줄 */
   children: React.ReactNode;
   /** 화면 높이를 직접 넘길 때(하네스). 기본은 창 높이. */
@@ -130,7 +133,7 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
             if (h !== contentH) setContentH(h);
           }}
         >
-          {expanded}
+          {typeof expanded === 'function' ? expanded(rawExtra) : expanded}
         </View>
       </Animated.View>
       <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => { const h = Math.round(e.nativeEvent.layout.height); setFixedH(h); onFixedHeight?.(h + HANDLE_ROW_H); }} style={styles.fixed}>

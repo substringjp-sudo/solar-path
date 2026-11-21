@@ -42,7 +42,7 @@ export function CameraFrameRepro({ W, H, Q }: { W: number; H: number; Q: any }) 
   const chips: CameraChipSpec[] = [
     ...[1, 2, 3, 5].map(m => ({ id: `zoom-${m}`, label: `${m}×`, mono: true, active: Math.abs(zoom - m) < 0.25, onPress: () => setZoom(m) })),
     ...(tab === 'astro'
-      ? [{ id: 'astro', label: astroChipLabel(astro, summary, lang), mono: true, expands: true }]
+      ? [{ id: 'astro', label: astroChipLabel(astro, summary, lang), mono: true, expands: true, openStage: 'full' as const }]
       : [{ id: 'exposure', label: lang === 'en' ? 'Exposure' : '노출', expands: true }]),
   ];
   const panels = tab === 'photo' ? { exposure: <ExposureCells language={lang} advice={advice} lensMm="≈ 24 mm" lensText="1x" /> } : { astro: <AstroSettingsPanel settings={astro} onChange={setAstro} summary={summary} caps={caps} language={lang} /> };

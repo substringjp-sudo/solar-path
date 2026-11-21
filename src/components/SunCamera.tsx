@@ -2865,7 +2865,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   onPress: () => setMagnification(mag),
                 })),
                 cameraTab === 'astro'
-                  ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
+                  ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
                   : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
               ]}
               panels={cameraTab === 'astro' ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> } : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }}
