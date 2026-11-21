@@ -12,7 +12,6 @@ import { curvatureDropM } from './earth';
 import { groundXZ, type HeightSampler } from './demPick';
 
 const RAD = Math.PI / 180;
-const drop = curvatureDropM;
 
 /** 땅이 하나도 없다는 뜻의 앙각(°). */
 export const NO_TERRAIN = -90;
@@ -38,11 +37,12 @@ export const normAz = (a: number) => ((a % 360) + 360) % 360;
 export function buildHorizonProfile(
   sample: HeightSampler,
   eyeM: number,
-  opts: { azStepDeg?: number; distStepM?: number; maxDistM?: number } = {},
+  opts: { azStepDeg?: number; distStepM?: number; maxDistM?: number; refractionK?: number } = {},
 ): HorizonProfile {
   const azStepDeg = opts.azStepDeg ?? 1;
   const distStepM = opts.distStepM ?? 250;
   const maxDistM = opts.maxDistM ?? 15000;
+  const refrK = opts.refractionK;
   const nAz = Math.round(360 / azStepDeg);
   const nDist = Math.ceil(maxDistM / distStepM);
   const cum = new Float32Array(nAz * nDist).fill(NO_TERRAIN);
@@ -57,7 +57,7 @@ export function buildHorizonProfile(
       const [e, s] = groundXZ(az, d);
       const h = sample(e, s);
       if (h != null) {
-        const ang = Math.atan2(h - eyeM - drop(d), d) / RAD;
+        const ang = Math.atan2(h - eyeM - curvatureDropM(d, refrK), d) / RAD;
         if (ang > m) m = ang;
       }
       d += Math.min(maxStep, Math.max(6, d * 0.012));

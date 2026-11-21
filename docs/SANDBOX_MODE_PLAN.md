@@ -796,7 +796,7 @@ UI 는 빽빽하고 불친절해도 됩니다. 숫자와 조작을 한 화면에
 | 13 | 월식 | 계산만 있음(2026-11-21, `lunarEclipse.ts`: `lunarEclipseAt` · `nextLunarEclipse`, 접촉 시각 · 본/반그림자 크기, NASA 월식 목록 5개 식 + 스치는 식으로 판정). 없음: 이벤트 모드 화면(단계별 시간표 · 노출), 모드 줄의 "이벤트" 켜기(관측지에서 달이 떠 있는 식만), 다가오는 순간 카드 |
 | 16 | 모드 고르기 | 이번에 모양을 맞춤(손잡이, 머리줄의 "지금 16:42", 권하는 카드, 아이콘 · 결과물 글 줄, 아래 안내). 목업의 "MP4" 칸은 사실대로 "사진 묶음" |
 | 17 | 03 기록 | 들어감(종류 칩 · 요약 · 반반 칸) |
-| 18 | 설정 | 순서는 맞음. 없음: "날씨에 따른 정밀 굴절"(기능 자체가 없음) |
+| 18 | 설정 | 순서는 맞음. "날씨에 따른 정밀 굴절"은 계산 식만 있음(2026-11-21, 23-8절). 없음: 날씨 자료의 기온 단면 받기, 지형 · 건물 · 해수면에 k 넘기기, 설정 스위치 |
 | 21, 22 | 학습 | 들어감 |
 | 밝게 줄 | 밝은 모드 | 색 값은 같음. 화면별 확인 전 |
 
@@ -941,3 +941,13 @@ UI 는 빽빽하고 불친절해도 됩니다. 숫자와 조작을 한 화면에
 - `SunCamera`: 안 쓰는 import(`Clock` · `Move` · `ChevronUp` · `ScrubTrack` · `ModeStrip`), 상수(`DOCK_*` · `SHUTTER`), 함수(`getAzimuthCardinal` · `handleResumeLiveHeading`), 계산(`currentPrediction` · `timeSliderPct` · `headingTone/Word`), 늘 0 이던 `longExpRefreshTick`, 쓰는 곳이 없는 스타일 50개(옛 줌 알약 · 모드 알약 · 보정 패널 · 시간 막대 · 비교 이미지 등). 줄 수 약 360 줄 감소.
 - `AppHeader` 안 쓰는 `color` import, `EclipseCard` 안 쓰는 `nowMs` 속성.
 - 확인: tsc 0, `--noUnusedLocals` 로 SunCamera · AppHeader · EclipseCard 에 남은 것 없음, 지워진 이름을 참조하는 `styles.*` 없음, SunCamera 를 읽는 소스 판정 12개 통과. 남은 안 쓰는 코드는 SkyScene3D · App · SettingsModal 등 다른 파일에 있고 이번 범위 밖입니다.
+
+## 23-8. 날씨에 따른 굴절 계수 — 계산 바탕만 (2026-11-21)
+
+6.1 의 "날씨에 따른 정밀 굴절" 중 **계산 식과 k 를 넘기는 길**만 들어갔습니다. 설정에 스위치는 **아직 없습니다**(눌러도 달라질 것이 없는 스위치를 두지 않으려고).
+
+- **`utils/refractionK.ts`**: `k = 503 · (P / T²) · (0.0343 + dT/dh)`(측지학 식). 표준 대기에서 0.1706, 역전층 0.333, 지표가 뜨거운 날 0.026. 극단 입력은 [−0.2, 0.6] 으로 자르고 틀린 입력은 기본 1/7. 두 높이의 기온에서 감률을 구하는 `lapseRate` 도 있습니다.
+- **`earth.ts`**: `effectiveRadiusM(k)` 와 `curvatureDropM(d, k?)` · `seaHorizonDipDeg(h, k?)` · `seaHorizonDistM(h, k?)` 가 선택 인자 k 를 받습니다. 안 주면 지금까지와 똑같은 7/6 R 입니다. `horizon.ts` 의 `buildHorizonProfile` 도 `{ refractionK }` 옵션을 받습니다.
+- **앱의 동작은 그대로**입니다(아무도 k 를 넘기지 않음). 판정: `verify-refraction-k.js`(16, 식 손계산 · 낙차 40 km · 수평선 · 고원 스카이라인), 변이 11개 모두 포착. 기존 지형 · 건물 · 먼 건물 판정 6개도 통과.
+- **남은 일(순서대로)**: ① 기온 단면 받기 — 지금 앱은 `temperature_2m` 만 받고, 감률에는 높이별 기온(예: Open-Meteo 의 `temperature_80m` · `120m` · `180m`)과 `surface_pressure` 가 더 필요해 **캐시 키와 요청이 바뀝니다**. ② 지형 · 건물 · 해수면 메시(GLSL 에 7/6 R 이 박혀 있음)와 `TERRAIN_CURVATURE_MODEL` 저장 자료(k 가 다르면 다시 받음)에 k 넘기기. ③ 설정 "계산 → 날씨에 따른 정밀 굴절"(기본 끔, 배터리 문구). 해와 달 자체의 굴절(`refractionDeg`)은 이미 별도 식이라 이 k 와 무관합니다.
+- 알아 둘 점: 표준 대기 식 값(0.1706)이 앱 기본 1/7(0.1429)보다 큽니다. 기본을 바꾸지는 않았고, 정밀 모드가 켜지면 날씨에 따라 0.03 ~ 0.33 사이에서 달라집니다.
