@@ -50,6 +50,7 @@ import { Onboarding } from '../../src/components/Onboarding/Onboarding';
 import { distanceM } from '../../src/utils/geoMove';
 import { GlassRepro } from './GlassRepro';
 import { SkyFrameRepro } from './SkyFrameRepro';
+import { TimelapseGlassRepro } from './TimelapseGlassRepro';
 import { CameraFrameRepro } from './CameraFrameRepro';
 
 const Q = (() => {
@@ -501,6 +502,8 @@ export default function App() {
   if (Q.glass) return <GlassRepro W={W} H={H} Q={Q} />;
   // skyframe:1 — 하늘 화면 새 틀(SkyFrame)을 가짜 내용으로. 일어난 일은 window.__frame.
   if (Q.skyframe) return <SkyFrameRepro W={W} H={H} Q={Q} />;
+  // tlglass:1 — 타임랩스 설정 시트와 촬영 중 카드(유리). 일어난 일은 window.__tl.
+  if (Q.tlglass) return <TimelapseGlassRepro W={W} H={H} Q={Q} />;
   // camframe:1 — 카메라 새 틀(CameraFrame)을 가짜 카메라 위에. 일어난 일은 window.__cam.
   if (Q.camframe) return <CameraFrameRepro W={W} H={H} Q={Q} />;
   // pick:1 — 탭으로 지형 고르기(샌드박스). 결과를 window.__picked 에 남기고 정보 패널을 띄웁니다.

@@ -1,5 +1,5 @@
 /**
- * TimelapsePanel.tsx — **타임랩스 설정 시트**(docs/SANDBOX_MODE_PLAN.md 8.3.1 · 목업 9). 아래에서 올라오는 어두운 시트입니다.
+ * TimelapsePanel.tsx — **타임랩스 설정 시트**(docs/SANDBOX_MODE_PLAN.md 8.3.1 · 목업 9). 아래에서 올라오는 **유리 시트**입니다(2026-11-21: 흐림 유리 + 글자 #F1F, 칩은 유리 칩).
  *
  * 구간 칩(일몰 60분 · 일출 60분 · 낮에서 밤으로 150분)과 영상 길이 칩(5 · 10 · 20 · 30초)을 고르면 한 줄 요약("12초마다 301장 · 영상 10초 · 360배속")과 저장 공간 어림이 보입니다.
  * "미리보기"는 3D 시뮬레이션이 그 구간을 영상 길이만큼 재생합니다(촬영 없이). "지금 시작"은 지금부터 그 총 시간 동안 간격마다 사진을 찍어 앨범에 저장합니다.
@@ -9,8 +9,10 @@ import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import Svg, { Polyline } from 'react-native-svg';
-import { OverlayButton } from '../ui';
-import { color as DARK, mono, radius } from '../../theme/tokens';
+import { GlassChip } from '../glass/GlassChip';
+import { GlassSurface, glassTextShadow } from '../glass/GlassSurface';
+import { TEXT } from '../../theme/glassTokens';
+import { mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
 import { exposureLine, exposureStops, exposureSummary } from '../../utils/exposureCurve';
 import { clockLabel, planTimelapse, presetWindow, windowLabel, type PresetKind, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
@@ -91,56 +93,38 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
     { label: L3(language, '영상', 'Video', '動画'), value: `${Math.round(plan.videoSec)} s` },
     { label: L3(language, '저장', 'Saved', '保存'), value: String(plan.savedFrames) },
   ];
+  const chipsOf = <T extends string | number>(items: readonly T[], isOn: (v: T) => boolean, set: (v: T) => void, label: (v: T) => string, id: (v: T) => string) => (
+    <View style={styles.chips}>
+      {items.map(v => (
+        <GlassChip key={String(v)} testID={id(v)} label={label(v)} active={isOn(v)} onPress={() => set(v)} accessibilityLabel={label(v)} />
+      ))}
+    </View>
+  );
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.fill}>
         <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} />
-        <View style={styles.sheet}>
+        {/* 유리 시트(2026-11-21): 카메라가 비치는 흐림 유리 위에 글자는 모두 #F1F5F9. 켜진 칩은 하늘색 덧칠. */}
+        <GlassSurface testID="tl-sheet" style={styles.sheet}>
           <View style={styles.header}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title}>{L3(language, '타임랩스', 'Timelapse', 'タイムラプス')}</Text>
               <Text style={styles.subtitle}>{`${kindLabel(kind, language)} · ${subtitle}`}</Text>
             </View>
-            <OverlayButton onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} style={styles.closeBtn}>
-              <X size={16} color={DARK.text} />
-            </OverlayButton>
+            <GlassChip testID="tl-close" label="" icon={<X size={18} color={TEXT} />} onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} style={styles.closeBtn} />
           </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
             <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
-            <View style={styles.chips}>
-              {KINDS.map(k => (
-                <OverlayButton key={k} active={kind === k} onPress={() => setKind(k)} accessibilityLabel={kindLabel(k, language)} style={styles.chip}>
-                  <Text style={[styles.chipText, kind === k && { color: DARK.accent }]}>{kindLabel(k, language)}</Text>
-                </OverlayButton>
-              ))}
-            </View>
+            {chipsOf(KINDS, v => kind === v, setKind, v => kindLabel(v, language), v => `tl-kind-${v}`)}
             <Text style={styles.note}>{kindDesc(kind, language)}</Text>
-            {kind === 'stacked' ? (
-              <View style={styles.chips}>
-                {STACK_CHOICES.map(n => (
-                  <OverlayButton key={n} active={stackSize === n} onPress={() => setStackSize(n)} accessibilityLabel={`${n}${L3(language, '장씩 합성', ' per frame', '枚ずつ')}`} style={styles.chip}>
-                    <Text style={[styles.chipText, stackSize === n && { color: DARK.accent }]}>{`${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`}</Text>
-                  </OverlayButton>
-                ))}
-              </View>
-            ) : null}
+            {kind === 'stacked'
+              ? chipsOf(STACK_CHOICES, v => stackSize === v, setStackSize, n => `${n}${L3(language, '장씩', ' per frame', '枚ずつ')}`, n => `tl-stack-${n}`)
+              : null}
             <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
-            <View style={styles.chips}>
-              {PRESETS.map(k => (
-                <OverlayButton key={k} active={preset === k} onPress={() => setPreset(k)} accessibilityLabel={presetLabel(k, language)} style={styles.chip}>
-                  <Text style={[styles.chipText, preset === k && { color: DARK.accent }]}>{presetLabel(k, language)}</Text>
-                </OverlayButton>
-              ))}
-            </View>
+            {chipsOf(PRESETS, v => preset === v, setPreset, v => presetLabel(v, language), v => `tl-preset-${v}`)}
             <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '영상 길이', 'VIDEO LENGTH', '動画の長さ')}</Text>
-            <View style={styles.chips}>
-              {VIDEO_SEC_CHOICES.map(v => (
-                <OverlayButton key={v} active={videoSec === v} onPress={() => setVideoSec(v)} accessibilityLabel={`${v}${L3(language, '초', ' s', '秒')}`} style={styles.chip}>
-                  <Text style={[styles.chipText, videoSec === v && { color: DARK.accent }]}>{`${v}${L3(language, '초', ' s', '秒')}`}</Text>
-                </OverlayButton>
-              ))}
-            </View>
-            <View style={styles.card}>
+            {chipsOf(VIDEO_SEC_CHOICES, v => videoSec === v, setVideoSec, v => `${v}${L3(language, '초', ' s', '秒')}`, v => `tl-video-${v}`)}
+            <View testID="tl-card" style={styles.card}>
               <View style={styles.cellRow}>
                 {cells.map(c => (
                   <View key={c.label} style={styles.cell}>
@@ -153,7 +137,7 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
               {expo && expo.line ? (
                 <View style={styles.expoRow}>
                   <Svg width={120} height={24} accessibilityLabel={L3(language, '예측 노출 곡선', 'Predicted exposure curve', '予測露出カーブ')}>
-                    <Polyline points={expo.line} fill="none" stroke={DARK.accent} strokeWidth={2} />
+                    <Polyline points={expo.line} fill="none" stroke={TEXT} strokeWidth={2} />
                   </Svg>
                   <Text style={styles.expoText}>{`${L3(language, '밝기', 'Light', '明るさ')} ${expo.total > 0 ? '+' : '−'}${Math.abs(expo.total).toFixed(1)}${L3(language, '단', ' stops', '段')} · ${L3(language, '맑은 하늘 기준 어림', 'clear-sky estimate', '快晴の目安')}`}</Text>
                 </View>
@@ -175,15 +159,11 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
               <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
             </View>
             <View style={styles.actions}>
-              <OverlayButton onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn}>
-                <Text style={styles.btnText}>{L3(language, '미리보기', 'Preview', 'プレビュー')}</Text>
-              </OverlayButton>
-              <OverlayButton onPress={start} accessibilityLabel={L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn}>
-                <Text style={[styles.btnText, { color: DARK.accent }]}>{L3(language, '지금 시작', 'Start now', '今すぐ開始')}</Text>
-              </OverlayButton>
+              <GlassChip testID="tl-preview" label={L3(language, '미리보기', 'Preview', 'プレビュー')} onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn} />
+              <GlassChip testID="tl-start" label={L3(language, '지금 시작', 'Start now', '今すぐ開始')} active onPress={start} accessibilityLabel={L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn} />
             </View>
           </ScrollView>
-        </View>
+        </GlassSurface>
       </View>
     </Modal>
   );
@@ -191,33 +171,27 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, language, events, now
 
 const styles = StyleSheet.create({
   fill: { flex: 1, justifyContent: 'flex-end' },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: DARK.scrim },
-  sheet: {
-    maxHeight: '80%', backgroundColor: DARK.panel, borderColor: DARK.border, borderWidth: 1,
-    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 12,
-  },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 },
-  title: { fontSize: 16, fontWeight: '800', color: DARK.text },
-  subtitle: { fontFamily: mono, fontSize: 11, color: DARK.textDim },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: { maxHeight: '80%', borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+  title: { fontSize: 16, fontWeight: '800', color: TEXT, ...glassTextShadow },
+  subtitle: { fontFamily: mono, fontSize: 11, color: TEXT, ...glassTextShadow },
   cellRow: { flexDirection: 'row', gap: 4 },
-  cell: { flex: 1, minWidth: 0, backgroundColor: DARK.fill, padding: 6, borderRadius: radius.xs },
-  cellLabel: { fontFamily: mono, fontSize: 9, color: DARK.textMute },
-  cellValue: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: DARK.text },
-  closeBtn: { width: 32, height: 32 },
+  cell: { flex: 1, minWidth: 0, backgroundColor: 'rgba(255,255,255,0.08)', padding: 6, borderRadius: radius.sm },
+  cellLabel: { fontFamily: mono, fontSize: 10, color: TEXT, ...glassTextShadow },
+  cellValue: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: TEXT, ...glassTextShadow },
+  closeBtn: { width: 44, minHeight: 44, borderRadius: 22, paddingHorizontal: 0 },
   scroll: { flexGrow: 0 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 24, gap: 6 },
-  label: { fontFamily: mono, fontSize: 9, letterSpacing: 0.8, color: DARK.textMute },
+  label: { fontFamily: mono, fontSize: 10, letterSpacing: 0.8, color: TEXT, ...glassTextShadow },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { width: 'auto', height: 32, paddingHorizontal: 10 },
-  chipText: { fontSize: 12, fontWeight: '700', color: DARK.text },
-  card: { gap: 4, marginTop: 8, padding: 10, backgroundColor: DARK.fill, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.md },
-  summary: { fontFamily: mono, fontSize: 12, color: DARK.text },
+  card: { gap: 4, marginTop: 8, padding: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: radius.md },
+  summary: { fontFamily: mono, fontSize: 12, color: TEXT, ...glassTextShadow },
   expoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
-  expoText: { flex: 1, fontFamily: mono, fontSize: 11, color: DARK.textDim },
-  lowCloudLine: { fontFamily: mono, fontSize: 12, color: DARK.textDim },
-  peakLine: { fontFamily: mono, fontSize: 12, color: DARK.glow },
-  note: { fontSize: 11, color: DARK.textDim },
+  expoText: { flex: 1, fontFamily: mono, fontSize: 11, color: TEXT, ...glassTextShadow },
+  lowCloudLine: { fontFamily: mono, fontSize: 12, color: TEXT, ...glassTextShadow },
+  peakLine: { fontFamily: mono, fontSize: 12, color: TEXT, ...glassTextShadow },
+  note: { fontSize: 11, color: TEXT, ...glassTextShadow },
   actions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  btn: { flex: 1, height: 38 },
-  btnText: { fontSize: 13, fontWeight: '800', color: DARK.text },
+  btn: { flex: 1, minHeight: 44, borderRadius: 22 },
 });
