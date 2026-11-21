@@ -21,6 +21,9 @@
  *  6. 일주일 줄(`weekStrip(고른 시각, 지금, 시간대, 언어)`): 지금 기준 −2일 ~ +4일 7 칸 { offset, ms, day, weekday, selected }. 지금 11-21 · 고른 것 C: day = 19 20 21 22 23 24 25, 한국어 요일 목 금 토 일 월 화 수, 영어 Thu Fri Sat Sun Mon Tue Wed, 일본어 木 金 土 日 月 火 水, selected 는 offset 0(셋째 칸)만 참.
  *     지금이 같은 날 09:00 이어도(지금의 시각이 다름) 각 칸의 ms 는 고른 시각(17:04)을 따른다: 셋째 칸 ms = C.
  *     각 칸의 ms 는 고른 시각의 현지 시각을 그대로 두고 날짜만 그 칸으로 옮긴 값(칸을 누르면 그 시각으로 간다): 첫 칸 = C − 2일, 마지막 칸 = C + 4일. 고른 것이 11-23 이면 selected 는 offset 2(다섯째 칸).
+ *  7. 가장자리로 갈수록 작고 투명하게(2026-11-21, 기기에서 보신 사용자 요청 "가운데에서 가장자리는 갈수록 작고 투명하게"): `rulerFade(x, 폭 = 390)` → { scale, opacity }. d = |x − 폭/2| / (폭/2) 를 0 ~ 1 로 자른 값. scale = 1 − 0.45 · d, opacity = 1 − 0.8 · d².
+ *     x 195 → { 1, 1 }, x 0 또는 390 → { 0.55, 0.2 }, x 97.5(d = 0.5) → { 0.775, 0.8 }, x 292.5 도 같다(좌우 대칭), x −18 · 408 은 d 가 1 을 넘으므로 가장자리 값 { 0.55, 0.2 }. 폭 200 에서 x 100 → { 1, 1 }, x 150(d 0.5) → { 0.775, 0.8 }. 숫자가 아니면 { 1, 1 }.
+ *  8. 날짜 위아래 밀기(`daySwipeSteps(dy)`): 위로 밀면(dy 음수) 다음 날들, 아래로 밀면 이전 날들. 20 px 마다 하루, 소수는 버림(0 쪽으로), 한 번에 최대 7 일. dy −19 → 0, −20 → 1, −30 → 1, −40 → 2, 30 → −1, 100 → −5, −1000 → 7, 1000 → −7, 숫자가 아니면 0. (결과 0 은 −0 이 아니라 0.) (처음 24 px 로 정했다가 웹 하네스에서 30 px 밀어도 한 칸도 안 가는 것을 보고 20 px 로 고침: 끌기를 잡은 자리부터 거리를 재서 처음 10 px 남짓이 빠지기 때문이다.)
  *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-time-ruler.js
  */
@@ -83,6 +86,15 @@ const C = KST(2026, 11, 21, 17, 4);
   ok(Wn[2].ms === C && Wn[0].ms === R.shiftDays(C, -2) && Wn[2].selected, '지금의 시각이 달라도 칸의 시각은 고른 시각을 따른다');
   const W2 = R.weekStrip(R.shiftDays(C, 2), C, 9, 'ko');
   ok(J(W2.map(w => w.selected)) === J([false, false, false, false, true, false, false]), '고른 것이 11-23 이면 다섯째 칸');
+
+  console.log('\n[7~8] 가장자리 흐림 · 날짜 밀기');
+  const F = (x, w) => (typeof R.rulerFade === 'function' ? R.rulerFade(x, w) : null);
+  const fd = (f, sc, op) => !!f && near(f.scale, sc) && near(f.opacity, op);
+  ok(fd(F(195), 1, 1) && fd(F(0), 0.55, 0.2) && fd(F(390), 0.55, 0.2) && fd(F(97.5), 0.775, 0.8) && fd(F(292.5), 0.775, 0.8), '가운데 1 · 1, 가장자리 0.55 · 0.2, 중간 0.775 · 0.8, 좌우 대칭');
+  ok(fd(F(-18), 0.55, 0.2) && fd(F(408), 0.55, 0.2) && fd(F(100, 200), 1, 1) && fd(F(150, 200), 0.775, 0.8) && fd(F(NaN), 1, 1), '밖은 가장자리 값, 폭을 바꿀 수 있다, 숫자가 아니면 1 · 1');
+  const SW = (dy) => (typeof R.daySwipeSteps === 'function' ? R.daySwipeSteps(dy) : null);
+  ok(SW(-19) === 0 && SW(-20) === 1 && SW(-30) === 1 && SW(-40) === 2 && SW(30) === -1 && SW(100) === -5, '20 px 마다 하루(위 +, 아래 −), 소수 버림');
+  ok(SW(-1000) === 7 && SW(1000) === -7 && SW(NaN) === 0 && Object.is(SW(5), 0) && Object.is(SW(-5), 0), '최대 7 일, 숫자가 아니면 0, 0 은 −0 이 아니다');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n통과 — pass ${pass}`);
   process.exit(fail ? 1 : 0);

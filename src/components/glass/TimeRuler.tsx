@@ -10,7 +10,7 @@ import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 're
 import { ChevronDown } from 'lucide-react-native';
 import { color as DARK, mono } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
-import { dateLabel, dragTimeMs, markerX, PX_PER_HOUR, rulerBand, rulerTicks, RULER_WIDTH, timeText, type ScoreSample } from '../../utils/timeRuler';
+import { dateLabel, dragTimeMs, daySwipeSteps, markerX, PX_PER_HOUR, rulerBand, rulerFade, rulerTicks, RULER_WIDTH, timeText, type ScoreSample } from '../../utils/timeRuler';
 import { L3 } from '../../utils/i18n';
 import { GlassChip } from './GlassChip';
 import { glassTextShadow } from './GlassSurface';
@@ -35,6 +35,8 @@ interface Props {
   /** 날짜 단추 글을 직접 정할 때(칩 줄에 어제 · 오늘 · 내일이 이미 있으면 날짜 자체를 보여 같은 것이 두 번 안 보이게). 없으면 오늘 · 어제 · 내일 글. */
   dateText?: string;
   onDatePress?: () => void;
+  /** 날짜 단추를 위아래로 밀었을 때 옮길 날 수(위로 + · 아래로 −, 20 px 마다 하루). 없으면 밀기를 받지 않음. */
+  onDayShift?: (days: number) => void;
   onNow?: () => void;
 }
 
@@ -43,7 +45,7 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onNow }) => {
+export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, onNow }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
@@ -63,6 +65,16 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
     onPanResponderTerminate: () => { markDragEnd(); propsRef.current.onCommit?.(lastRef.current); },
   }), []);
 
+  const dayRef = useRef(onDayShift);
+  dayRef.current = onDayShift;
+  const dayPan = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, g) => !!dayRef.current && Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderRelease: (_, g) => { markDragEnd(); const n = daySwipeSteps(g.dy); if (n !== 0) dayRef.current?.(n); },
+    onPanResponderTerminate: () => markDragEnd(),
+  }), []);
+
   const ticks = rulerTicks(timeMs, tz, width, PX_PER_HOUR);
   const mx = sunsetMs == null ? null : markerX(timeMs, sunsetMs, width, PX_PER_HOUR);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
@@ -72,6 +84,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   return (
     <View style={styles.wrap} onLayout={(e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width) || RULER_WIDTH)}>
       <View style={styles.top}>
+        <View testID="ruler-date-swipe" {...dayPan.panHandlers}>
         <GlassChip
           testID="ruler-date"
           label={dateText ?? dateLabel(timeMs, nowMs, tz, language)}
@@ -80,6 +93,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
           accessibilityLabel={L3(language, '날짜 고르기', 'Pick date', '日付を選ぶ')}
           expanded={false}
         />
+        </View>
         <Text testID="ruler-digits" style={[styles.digits, glassTextShadow]}>{text}</Text>
         <GlassChip testID="ruler-now" label={L3(language, '지금', 'Now', '今')} onPress={onNow} />
       </View>
@@ -95,15 +109,17 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
         style={styles.track}
       >
         {band.map((b, i) => (
-          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { left: b.x0, width: b.x1 - b.x0, opacity: b.alpha }]} />
+          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { left: b.x0, width: b.x1 - b.x0, opacity: b.alpha * rulerFade((b.x0 + b.x1) / 2, width).opacity }]} />
         ))}
-        {ticks.map(t => (
-          <View key={t.ms} pointerEvents="none" style={[styles.tick, { left: t.x - 1, height: TICK_H[t.kind], backgroundColor: `rgba(241,245,249,${TICK_A[t.kind]})` }]} />
-        ))}
-        {ticks.filter(t => t.label).map(t => (
-          <Text key={`l${t.ms}`} pointerEvents="none" style={[styles.tickLabel, { left: t.x - 20 }, glassTextShadow]}>{t.label}</Text>
-        ))}
-        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { left: mx - 5 }]} /> : null}
+        {ticks.map(t => {
+          const f = rulerFade(t.x, width);
+          return <View key={t.ms} pointerEvents="none" style={[styles.tick, { left: t.x - 1, height: TICK_H[t.kind] * f.scale, backgroundColor: `rgba(241,245,249,${TICK_A[t.kind] * f.opacity})` }]} />;
+        })}
+        {ticks.filter(t => t.label).map(t => {
+          const f = rulerFade(t.x, width);
+          return <Text key={`l${t.ms}`} pointerEvents="none" style={[styles.tickLabel, { left: t.x - 20, opacity: f.opacity, transform: [{ scale: f.scale }] }, glassTextShadow]}>{t.label}</Text>;
+        })}
+        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { left: mx - 5, opacity: rulerFade(mx, width).opacity }]} /> : null}
         {mx !== null && sunsetLabel ? <Text pointerEvents="none" style={[styles.sunsetLabel, { left: mx + 8 }, glassTextShadow]}>{sunsetLabel}</Text> : null}
         <View pointerEvents="none" style={[styles.pin, { left: width / 2 - 1.5 }]} />
       </View>
@@ -114,12 +130,12 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
 const styles = StyleSheet.create({
   wrap: { alignSelf: 'stretch' },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 2 },
-  digits: { fontFamily: mono, fontSize: 22, fontWeight: '800', color: TEXT },
+  digits: { fontFamily: mono, fontSize: 19, fontWeight: '800', color: TEXT },
   track: { height: RULER_H, overflow: 'hidden' },
   tick: { position: 'absolute', bottom: 18, width: 2, borderRadius: 1 },
-  tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 11, color: TEXT },
+  tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 10, color: TEXT },
   band: { position: 'absolute', bottom: 38, height: 3, borderRadius: 2, backgroundColor: DARK.glow },
   pin: { position: 'absolute', top: 2, bottom: 16, width: 3, borderRadius: 2, backgroundColor: DARK.accent },
   sunset: { position: 'absolute', bottom: 34, width: 10, height: 10, borderRadius: 5, backgroundColor: DARK.sun },
-  sunsetLabel: { position: 'absolute', top: 0, fontSize: 11, fontWeight: '700', color: TEXT },
+  sunsetLabel: { position: 'absolute', top: 0, fontSize: 10, fontWeight: '700', color: TEXT },
 });

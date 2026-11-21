@@ -79,6 +79,6 @@ export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) =>
 const styles = StyleSheet.create({
   strip: { height: H, alignSelf: 'stretch', overflow: 'hidden' },
   item: { position: 'absolute', top: 0, width: ITEM_W, height: H, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 13, letterSpacing: 0.3, color: TEXT },
+  label: { fontSize: 11, letterSpacing: 0.3, color: TEXT },
   dot: { position: 'absolute', bottom: 3, width: 4, height: 4, borderRadius: 2, backgroundColor: DARK.accent },
 });

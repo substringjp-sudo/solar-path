@@ -5,10 +5,11 @@
  * ## ⚠ 재기 전에 정한 기준 (2026-11-21, 구현보다 먼저 박았습니다)
  * 하네스: 390 × 844, 밝은 하늘, 한국어, 시각 C = 2026-11-21 17:04 KST(+9), 지금도 C. 일어난 일은 `window.__frame` = { mode, timeMs, ev: [{ e: 'start' | 'pick' | 'end', kind, ms? }], switches, shoots, saves, nows, calendars }. 하루 = 86400000 ms.
  *
- *  1. 처음(시뮬레이션): 칩 "어제" "오늘" "내일" "날짜", "오늘" 칩이 켜짐(aria-pressed 참)이고 다른 둘은 거짓, 읽음 줄 "159° S · 해 EL 13.0°", 자 왼쪽 단추 "11.21 토", 시각 숫자 "17:04", 펼친 내용(일주일 줄 · 시뮬레이션 내용)은 안 보임.
+ *  (2026-11-21 기기에서 보신 사용자 의견 반영: 날짜가 칩 줄과 시간 자 왼쪽 두 곳에 있어 시뮬레이션의 칩 줄을 없애고, 자 왼쪽 날짜를 위아래로 밀면 바로 다른 날로 간다. 눈금은 가장자리로 갈수록 작고 투명하다. 글자는 줄였다.)
+ *  1. 처음(시뮬레이션): 칩 줄이 없고(어제 · 오늘 · 내일 · 날짜 글이 없다), 읽음 줄 "159° S · 해 EL 13.0°", 자 왼쪽 단추 "11.21 토", 시각 숫자 "17:04", 펼친 내용(일주일 줄 · 시뮬레이션 내용)은 안 보임. 눈금 글자 "17:00"(가운데 근처)은 불투명도 0.99 이상, "15:00"(x 46.2, d 0.763)은 0.534 ± 0.02, "19:00"(x 334.2, d 0.714)은 0.592 ± 0.02(`rulerFade`).
  *     자 위 점수 띠(2026-11-21 추가): 하네스가 표본 19 개(10분 간격, 앞뒤 90분, 점수 100 − |i − 12| · 10, i = 5 만 null)를 주면 띠 칸이 14 개(이웃 쌍 18 개에서 null 이 낀 두 쌍과 평균이 0 이하인 앞쪽 두 쌍(−20·−10, −10·0)을 뺌 — 처음 16 개로 손계산했다가 점수가 음수인 앞쪽 쌍을 놓친 실수라 컴퓨터로 세어 바로잡음), 칸 폭 12 px, 알파는 0 보다 크고 1 이하이며 가장 진한 칸(평균 95)이 0.95.
- *  2. 날짜 칩(펼치지 않고 바로 옮김): "어제" → ev 가 start(date) · pick(date, C − 1일) · end(date) 순서, 자 왼쪽 "11.20 금", 시각 숫자는 그대로 "17:04", "어제" 칩만 켜짐. 이어서 "내일" → pick(date, C + 1일)(어제에서 이틀 건너 내일로 감), "오늘" → pick(date, C).
- *  3. "날짜" 칩: 누르면 일주일 줄(7 칸, 날 19 20 21 22 23 24 25, 21 이 켜짐)이 펼쳐지고 "날짜" 칩이 펼쳐짐(aria-expanded 참), "달력에서 고르기" 단추가 보임. 23 칸을 누르면 pick(date, C + 2일)와 23 이 켜짐. "달력에서 고르기"를 누르면 calendars 1. "날짜" 를 다시 누르면 접힌다(일주일 줄이 안 보임, aria-expanded 거짓).
+ *  2. 날짜 밀기(자 왼쪽 단추를 위아래로): 위로 40 px(잡은 자리부터 재서 실제 약 30 px) 밀면 ev 가 start(date) · pick(date, C + 1일) · end(date) 순서, 자 왼쪽 "11.22 일", 시각 숫자는 그대로 "17:04". 이어서 아래로 55 px(−2일, 실제로는 잡은 자리부터 재서 조금 모자라므로 80 px 를 쓴다) 밀면 C − 1일 "11.20 금". 20 px 만 밀면 안 바뀐다(문턱 24 px 미만, 잡은 자리부터 재는 몫을 감안해 15 px).
+ *  3. 자 왼쪽 날짜를 누르면(밀지 않고): 일주일 줄(7 칸, 날 19 20 21 22 23 24 25, 21 이 켜짐)이 펼쳐지고 "달력에서 고르기" 단추가 보임. 23 칸을 누르면 pick(date, C + 2일)와 23 이 켜짐. "달력에서 고르기"를 누르면 calendars 1. 날짜를 다시 누르면 접힌다(일주일 줄이 안 보임).
  *  4. 시간 자를 오른쪽으로 72 px 끌면 ev 에 start(time) 이 먼저, pick(time) 들이 이어지고 end(time) 이 마지막이며, 마지막 pick 은 C − 1시간, 시각 숫자 "16:04". "지금"을 누르면 nows 1 이고 "17:04" 로 돌아온다.
  *  5. 끝까지 펼침: 손잡이를 누르면 min → mid → full. mid 에서는 시뮬레이션 내용("점수와 다가오는 좋은 순간")이 안 보이고 full 에서 보인다. 다시 누르면 접히고 일주일 줄도 사라진다.
  *  6. 샌드박스: 모드 줄 "샌드박스"를 누르면 switches 끝 = { sandbox, clear, null }, 하네스의 mode 가 sandbox, 칩이 "이동" "보기" "장면" "도구"(어제 · 오늘 · 내일 · 날짜 없음), 읽음 줄 "159° S · EL 13.0° · 눈 1.6 m", 펼침 없음.
@@ -50,6 +51,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   const body = (p) => p.locator('body').innerText();
   const rect = async (p, id) => { const l = p.locator(`[data-testid="${id}"]`).first(); if (!(await l.count())) return null; return await l.evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }); };
   // 펼친 영역이 접혀 있으면(높이 0, 안쪽은 overflow 로 잘림) 그 안 요소는 DOM 에 있어도 보이지 않는다.
+  const vis0 = async (p, id) => { const r = await rect(p, id); return !!r && r.w > 0 && r.h > 0; };
   const vis = async (p, id) => { const r = await rect(p, id); if (!r || r.w <= 0 || r.h <= 0) return false; const ex = await rect(p, 'dock-expanded'); return !!ex && ex.h >= 1 && r.y >= ex.y - 1 && r.y + r.h <= ex.y + ex.h + 1; };
   const attr = (p, id, a) => p.locator(`[data-testid="${id}"]`).first().getAttribute(a);
   const shot = async (p, name) => { if (shots) await p.screenshot({ path: path.join(shots, name + '.png') }); };
@@ -65,29 +67,32 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   {
     const { ctx, p } = await open();
     const t = await body(p);
-    ok(['어제', '오늘', '내일', '날짜', '159° S · 해 EL 13.0°', '11.21 토', '17:04'].every(w => t.includes(w)) && !t.includes('이동'), '칩 · 읽음 줄 · 자 왼쪽 날짜 · 시각');
+    ok(['159° S · 해 EL 13.0°', '11.21 토', '17:04'].every(w => t.includes(w)) && !t.includes('어제') && !t.includes('내일') && !t.includes('날짜') && !(await vis0(p, 'chips-row')), '칩 줄 없음 · 읽음 줄 · 자 왼쪽 날짜 · 시각');
     const bands = await p.locator('[data-testid="ruler-band"]').evaluateAll(els => els.map(e => ({ w: e.getBoundingClientRect().width, o: parseFloat(getComputedStyle(e).opacity) })));
-    ok(bands.length === 14 && bands.every(b => Math.abs(b.w - 12) < 0.6 && b.o > 0 && b.o <= 1) && Math.max(...bands.map(b => b.o)) >= 0.949, `점수 띠: 표본 19 개 중 null 하나가 양옆 두 칸을 끊고 평균이 0 이하인 두 칸이 빠져 14 칸, 칸마다 폭 12 px, 알파 0 ~ 1 (${bands.length} 칸)`);
-    ok((await attr(p, 'chip-today', 'aria-pressed')) === 'true' && (await attr(p, 'chip-yesterday', 'aria-pressed')) === 'false' && (await attr(p, 'chip-tomorrow', 'aria-pressed')) === 'false', '"오늘" 칩만 켜짐');
+    ok(bands.length === 14 && bands.every(b => Math.abs(b.w - 12) < 0.6 && b.o > 0 && b.o <= 1), `점수 띠 ${bands.length} 칸(표본 19 개에서 null 이 낀 두 쌍과 평균 0 이하 두 쌍을 뺀 14), 칸 폭 12 px, 알파 0 ~ 1`);
+    const lop = async (txt) => p.locator(`text="${txt}"`).first().evaluate(e => parseFloat(getComputedStyle(e).opacity));
+    const o17 = await lop('17:00'), o15 = await lop('15:00'), o19 = await lop('19:00');
+    ok(o17 >= 0.99 && Math.abs(o15 - 0.534) <= 0.02 && Math.abs(o19 - 0.592) <= 0.02, `가장자리 흐림: 17:00 ${o17.toFixed(3)} · 15:00 ${o15.toFixed(3)} (0.534) · 19:00 ${o19.toFixed(3)} (0.592)`);
     ok(!(await vis(p, 'week-strip')) && !t.includes('점수와 다가오는 좋은 순간'), '펼친 내용 안 보임');
     await shot(p, '1-sim');
     await ctx.close();
   }
 
-  // ── 2 날짜 칩
-  console.log('\n[2] 날짜 칩');
+  // ── 2 날짜 밀기
+  console.log('\n[2] 날짜 밀기');
   {
     const { ctx, p } = await open();
-    await tap(p, 'chip-yesterday');
+    const dateBox = async () => center(await rect(p, 'ruler-date'));
+    await drag(p, await dateBox(), 0, -40, 8);
     let s = await st(p);
-    ok(J(s.ev.map(e => e.e + ':' + e.kind)) === J(['start:date', 'pick:date', 'end:date']) && s.ev[1].ms === C - DAY, `어제: ev ${s.ev.map(e => e.e)} · ms = C − 1일`);
-    ok((await body(p)).includes('11.20 금') && (await digits(p)) === '17:04' && (await attr(p, 'chip-yesterday', 'aria-pressed')) === 'true' && (await attr(p, 'chip-today', 'aria-pressed')) === 'false', '자 왼쪽 "11.20 금", 시각 그대로, "어제"만 켜짐');
-    await tap(p, 'chip-tomorrow');
+    ok(J(s.ev.map(e => e.e + ':' + e.kind)) === J(['start:date', 'pick:date', 'end:date']) && s.ev[1].ms === C + DAY, `위로 40 px: ev ${s.ev.map(e => e.e)} · ms = C + 1일`);
+    ok((await body(p)).includes('11.22 일') && (await digits(p)) === '17:04', '자 왼쪽 "11.22 일", 시각 그대로');
+    await drag(p, await dateBox(), 0, 65, 8);
     s = await st(p);
-    ok(s.ev[s.ev.length - 2].ms === C + DAY && s.timeMs === C + DAY, '어제에서 내일 → C + 1일');
-    await tap(p, 'chip-today');
-    s = await st(p);
-    ok(s.ev[s.ev.length - 2].ms === C && s.timeMs === C, '오늘 → C');
+    ok(s.timeMs === C - DAY && (await body(p)).includes('11.20 금'), `아래로 65 px(실제 약 50 px = 2 일): "11.20 금" (${new Date(s.timeMs).toISOString()})`);
+    const n0 = (await st(p)).ev.length;
+    await drag(p, await dateBox(), 0, 15, 4);
+    { const s2 = await st(p); ok(s2.ev.length === n0 && !(await vis(p, 'week-strip')), `15 px 만 밀면 안 바뀌고 펼침도 안 열린다 (ev ${n0} → ${s2.ev.length})`); }
     await ctx.close();
   }
 
@@ -95,17 +100,17 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   console.log('\n[3] 날짜 펼침');
   {
     const { ctx, p } = await open();
-    await tap(p, 'chip-date');
+    await tap(p, 'ruler-date');
     const days = await p.locator('[data-testid^="week-"]').evaluateAll(els => els.map(e => e.getAttribute('data-testid').replace('week-', '')).filter(x => /^\d+$/.test(x)));
-    ok(J(days) === J(['19', '20', '21', '22', '23', '24', '25']) && (await attr(p, 'week-21', 'aria-pressed')) === 'true' && (await attr(p, 'chip-date', 'aria-expanded')) === 'true' && (await vis(p, 'calendar')), `일주일 줄 ${days}, 21 켜짐, "날짜" 펼쳐짐, 달력 단추`);
+    ok(J(days) === J(['19', '20', '21', '22', '23', '24', '25']) && (await attr(p, 'week-21', 'aria-pressed')) === 'true' && (await vis(p, 'calendar')), `일주일 줄 ${days}, 21 켜짐, 달력 단추`);
     await tap(p, 'week-23');
     let s = await st(p);
     ok(s.ev[s.ev.length - 2].ms === C + 2 * DAY && (await attr(p, 'week-23', 'aria-pressed')) === 'true', '23 칸 → C + 2일, 23 켜짐');
     await tap(p, 'calendar');
     ok((await st(p)).calendars === 1, '달력에서 고르기 → calendars 1');
     await shot(p, '3-week');
-    await tap(p, 'chip-date');
-    ok(!(await vis(p, 'week-strip')) && (await attr(p, 'chip-date', 'aria-expanded')) === 'false', '"날짜" 다시 → 접힘');
+    await tap(p, 'ruler-date');
+    ok(!(await vis(p, 'week-strip')), '날짜 다시 누르면 접힘');
     await ctx.close();
   }
 
@@ -158,7 +163,7 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
     ok((await body(p)).includes('도구 내용'), '"도구" → 도구 내용');
     await drag(p, center(await rect(p, 'mode-strip')), 100);
     t = await body(p);
-    ok((await st(p)).mode === 'simulation' && !t.includes('도구 내용') && t.includes('어제') && !(await vis(p, 'panel-tools')), `오른쪽으로 밀어 시뮬레이션: 펼침 접힘, 칩이 시뮬레이션 칩 (${(await st(p)).mode})`);
+    ok((await st(p)).mode === 'simulation' && !t.includes('도구 내용') && !(await vis0(p, 'chips-row')) && !(await vis(p, 'panel-tools')), `오른쪽으로 밀어 시뮬레이션: 펼침 접힘, 칩 줄이 사라짐 (${(await st(p)).mode})`);
     await ctx.close();
   }
 
@@ -185,11 +190,11 @@ const C = Date.UTC(2026, 10, 21, 8, 4), DAY = 86400000;
   // ── 9 겹침
   console.log('\n[9] 겹침');
   {
-    const parents = { 'chips-row': 'dock-fixed', 'ruler-date': 'dock-fixed', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'week-strip': 'dock-expanded', calendar: 'dock-expanded', 'sim-body': 'dock-expanded' };
+    const parents = { 'chips-row': 'dock-fixed', 'ruler-date-swipe': 'dock-fixed', 'ruler-date': 'ruler-date-swipe', 'ruler-digits': 'dock-fixed', 'ruler-now': 'dock-fixed', 'ruler-track': 'dock-fixed', 'ruler-band': 'ruler-track', 'shutter-row': 'dock-fixed', 'mode-strip': 'dock-fixed', thumb: 'shutter-row', shutter: 'shutter-row', 'scene-save': 'shutter-row', 'dock-handle': 'dock', 'dock-expanded': 'dock', 'dock-fixed': 'dock', 'week-strip': 'dock-expanded', calendar: 'dock-expanded', 'sim-body': 'dock-expanded' };
     const states = [
       ['sim-min', []],
-      ['sim-week', ['chip-date']],
-      ['sim-full', ['chip-date', 'dock-handle']],
+      ['sim-week', ['ruler-date']],
+      ['sim-full', ['ruler-date', 'dock-handle']],
       ['sbx-move', ['mode-sandbox', 'chip-move']],
       ['sbx-view', ['mode-sandbox', 'chip-view']],
       ['sbx-scene', ['mode-sandbox', 'chip-scene']],

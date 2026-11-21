@@ -56,7 +56,7 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
 const styles = StyleSheet.create({
   pill: { minHeight: CHIP_MIN_H, paddingHorizontal: 14, borderRadius: CHIP_MIN_H / 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   icon: { alignItems: 'center', justifyContent: 'center' },
-  text: { fontSize: 13, fontWeight: '700' },
+  text: { fontSize: 11, fontWeight: '700' },
   mono: { fontFamily: monoFont },
   pressed: { opacity: 0.7 },
   flatActive: { backgroundColor: `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})` },
