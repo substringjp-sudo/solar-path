@@ -269,7 +269,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} onScroll={onScroll} scrollEventThrottle={64}>
         <View style={styles.head}>
-          <Text style={styles.pageTitle} accessibilityRole="header">{L3(language, '학습', 'Learn', '学習')}</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">{L3(language, '데이터', 'Data', 'データ')}</Text>
           <Text style={styles.sub}>
             {[place, L3(language, '데이터의 근거와 결과가 나온 과정', 'The data behind it and how results are made', 'データの根拠と結果が出るまで')].filter(Boolean).join(' · ')}
           </Text>
