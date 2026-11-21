@@ -134,6 +134,8 @@ const ENTRIES = [
   'src/theme/glassTokens.ts',
   // 시간 자(끌어서 시각 바꾸기 · 눈금 · 날짜 줄) — verify-time-ruler.js
   'src/utils/timeRuler.ts',
+  // 타임랩스 예측 노출 곡선(해 고도 → 맑은 하늘 밝기 → 단 변화) — verify-exposure-curve.js
+  'src/utils/exposureCurve.ts',
   // 타임랩스 계획(간격 · 총 시간 · 영상 길이) — verify-timelapse-plan.js
   'src/utils/timelapsePlan.ts',
   // 머리줄 탭 이름 — verify-tab-labels.js
