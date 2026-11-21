@@ -63,13 +63,14 @@ ok(/'간격', 'Interval', '間隔'/.test(panel) && /'찍는 장', 'Shots', '撮�
 ok(/tzHours=\{tzHours\}/.test(cam), '카메라가 tzHours 를 넘긴다');
 
 console.log('\n[2c] 목업 12 모양');
-ok(/timelapse\.run\.running \? \(\s+<View style=\{styles\.recRow\}><View style=\{styles\.recDot\} \/><Text style=\{styles\.recText\}>REC<\/Text><\/View>\s+\) : null/.test(cam) && /recDot: \{[^}]*backgroundColor: color\.danger/.test(cam), '촬영 중에만 빨간 REC 점(끝나면 사라진다)');
+const card = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'AstroCamera', 'TimelapseRunCard.tsx'), 'utf8');
+ok(/\{running \? <View style=\{styles\.rec\}><View style=\{styles\.recDot\} \/><Text style=\{styles\.recText\}>REC<\/Text><\/View> : null\}/.test(card) && /recDot: \{[^}]*backgroundColor: color\.danger/.test(card), '촬영 중에만 빨간 REC 점(끝나면 사라진다; 2026-11-21 유리 카드 TimelapseRunCard 로 옮김)');
 ok(/'시작', 'started', '開始'/.test(cam) && /clockLabel\(timelapse\.run\.startMs, tzHours\)/.test(cam) && /clockLabel\(Date\.now\(\), tzHours\)/.test(cam), '부제 "HH:mm 시작 · 지금 HH:mm"');
-ok(/'찍은 장', 'Shots', '撮影'/.test(cam) && /'남은 시간', 'Left', '残り'/.test(cam) && /'앨범', 'Album', 'アルバム'/.test(cam), '값 칸: 찍은 장 · 남은 시간 · 앨범');
+ok(/'찍은 장', 'Shots', '撮影'/.test(card) && /'남은 시간', 'Left', '残り'/.test(card) && /'앨범', 'Album', 'アルバム'/.test(card), '값 칸: 찍은 장 · 남은 시간 · 앨범(TimelapseRunCard)');
 
 console.log('\n[5] 촬영 중 줄');
-ok(/timelapse\.run\.taken\}\/\$\{timelapse\.run\.plan\.frames\}/.test(cam) && /timelapse\.progress\.remainingS \/ 60/.test(cam) && /'화면을 켜 두세요'/.test(cam) && /onPress=\{timelapse\.run\.running \? timelapse\.stop : timelapse\.dismiss\}/.test(cam), '장수 / 전체 · 남은 분:초 · 화면 안내 · 마치기(끝나면 닫기)');
-ok(/timelapse\.run\.error/.test(cam) && /타임랩스가 멈췄어요/.test(cam) && /타임랩스 끝/.test(cam), '연속 실패로 멈춤과 끝남을 알린다');
+ok(/taken=\{timelapse\.run\.taken\}\s+frames=\{timelapse\.run\.plan\.frames\}/.test(cam) && /remaining=\{`\$\{Math\.floor\(timelapse\.progress\.remainingS \/ 60\)\}:/.test(cam) && /'화면을 켜 두세요'/.test(card) && /onFinish=\{timelapse\.stop\}\s+onDismiss=\{timelapse\.dismiss\}/.test(cam) && /running\s+\? <GlassChip testID="tl-finish"/.test(card) && /testID="tl-dismiss"/.test(card), '장수 / 전체 · 남은 분:초 · 화면 안내 · 마치기(끝나면 닫기)');
+ok(/error=\{timelapse\.run\.error\}/.test(cam) && /타임랩스가 멈췄어요/.test(card) && /타임랩스 끝/.test(card), '연속 실패로 멈춤과 끝남을 알린다(TimelapseRunCard)');
 
 console.log('\n[6] 미리보기');
 ok(/setViewMode\('sim'\);\s+setPreviewing\(true\);\s+setPreviewClock\(videoClock\(0, plan\.targetVideoSec\)\);/.test(cam) && /onTimeChange\(new Date\(previewTimeAt\(startMs, endMs, plan\.targetVideoSec, elapsed\)\)\);\s+setPreviewClock\(videoClock\(elapsed, plan\.targetVideoSec\)\);\s+if \(elapsed >= plan\.targetVideoSec\) stopPreview\(\);/.test(cam), '3D 시뮬레이션으로 바꾸고 구간을 영상 길이만큼 흘린다');

@@ -8,7 +8,10 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Polyline } from 'react-native-svg';
 import { MoonStar } from 'lucide-react-native';
-import { color, mono } from '../../theme/tokens';
+import { mono } from '../../theme/tokens';
+import { GlassChip } from '../glass/GlassChip';
+import { glassTextShadow } from '../glass/GlassSurface';
+import { TEXT } from '../../theme/glassTokens';
 import { L3, type Language } from '../../utils/i18n';
 import { batteryLine, batteryLow, curvePaths, type ActualPoint } from '../../utils/runCurve';
 import type { BatteryStatus } from '../../utils/runDevice';
@@ -35,20 +38,19 @@ export const RunExtras: React.FC<Props> = ({ language, pred, actual, battery, ru
       {paths.pred ? (
         <View style={styles.curveRow}>
           <Svg width={W} height={H} accessibilityLabel={L3(language, '예측 대 실제 밝기 곡선', 'Predicted vs actual brightness', '予測と実際の明るさ')}>
-            <Polyline points={paths.pred} fill="none" stroke={color.textDim} strokeWidth={1.5} strokeDasharray="3,3" />
-            {paths.actual ? <Polyline points={paths.actual} fill="none" stroke={color.accent} strokeWidth={2} /> : null}
+            <Polyline points={paths.pred} fill="none" stroke={TEXT} strokeWidth={1.5} strokeDasharray="3,3" />
+            {paths.actual ? <Polyline points={paths.actual} fill="none" stroke={TEXT} strokeWidth={2.5} /> : null}
           </Svg>
           <Text style={styles.legend} numberOfLines={2}>
             {L3(language, '점선 예측 · 실선 실제(사진 평균 밝기). 맑은 하늘 기준 어림', 'Dashed: predicted · solid: photos (mean brightness). Clear-sky estimate', '点線: 予測 · 実線: 写真の平均の明るさ。快晴の目安')}
           </Text>
         </View>
       ) : null}
-      {line ? <Text style={[styles.battery, low && { color: color.warning }]}>{low ? `${line} · ${L3(language, '배터리가 부족해요', 'Battery low', '電池残量わずか')}` : line}</Text> : null}
+      {line ? <Text testID="run-battery" style={[styles.battery, low && styles.batteryLow]}>{low ? `⚠ ${line} · ${L3(language, '배터리가 부족해요', 'Battery low', '電池残量わずか')}` : line}</Text> : null}
       {running ? (
-        <Pressable onPress={onScreenOff} accessibilityRole="button" accessibilityLabel={L3(language, '화면 끄고 계속 찍기', 'Turn the screen off and keep shooting', '画面を消して撮影を続ける')} style={styles.offBtn} hitSlop={6}>
-          <MoonStar size={14} color={color.text} />
-          <Text style={styles.offText}>{L3(language, '화면 끄고 계속', 'Screen off, keep going', '画面を消して続行')}</Text>
-        </Pressable>
+        <View style={styles.offWrap}>
+          <GlassChip testID="run-screen-off" label={L3(language, '화면 끄고 계속', 'Screen off, keep going', '画面を消して続行')} icon={<MoonStar size={14} color={TEXT} />} onPress={onScreenOff} accessibilityLabel={L3(language, '화면 끄고 계속 찍기', 'Turn the screen off and keep shooting', '画面を消して撮影を続ける')} />
+        </View>
       ) : null}
     </View>
   );
@@ -67,10 +69,10 @@ export const ScreenOffCover: React.FC<CoverProps> = ({ language, taken, frames, 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
   curveRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legend: { flex: 1, minWidth: 0, fontFamily: mono, fontSize: 10, color: color.textDim },
-  battery: { fontFamily: mono, fontSize: 11, color: color.textDim },
-  offBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: color.border, minHeight: 32 },
-  offText: { fontFamily: mono, fontSize: 12, color: color.text },
+  legend: { flex: 1, minWidth: 0, fontFamily: mono, fontSize: 10, color: TEXT, ...glassTextShadow },
+  battery: { fontFamily: mono, fontSize: 11, color: TEXT, ...glassTextShadow },
+  batteryLow: { fontWeight: '800' },
+  offWrap: { alignSelf: 'flex-start' },
   cover: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', zIndex: 1000, elevation: 1000 },
   coverText: { fontFamily: mono, fontSize: 18, color: '#3A3F4A' },
   coverHint: { marginTop: 8, fontFamily: mono, fontSize: 11, color: '#2A2F38' },

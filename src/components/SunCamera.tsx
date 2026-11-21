@@ -85,6 +85,9 @@ import { useTimelapseRun } from '../hooks/useTimelapseRun';
 import { clockLabel, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
 import { FrameAccumulator } from '../utils/frameComposite';
 import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
+import { TimelapseRunCard } from './AstroCamera/TimelapseRunCard';
+import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
+import { TEXT } from '../theme/glassTokens';
 import { useRunDevice } from '../hooks/useRunDevice';
 import { readSmallRgba } from '../utils/imageZones';
 import { lumaFromRgba, photoStops } from '../utils/runCurve';
@@ -2729,40 +2732,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                   )}
                   {previewing && (
-                    <View style={styles.banner}>
-                      <Text style={styles.bannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}{`  ${previewClock}`}</Text>
+                    <GlassSurface testID="tl-preview-banner" style={styles.glassBanner}>
+                      <Text style={styles.glassBannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}{`  ${previewClock}`}</Text>
                       <Pressable onPress={stopPreview} accessibilityRole="button" accessibilityLabel={L3(language, '미리보기 멈추기', 'Stop preview', 'プレビューを止める')} hitSlop={8}>
-                        <X size={14} color={color.text} />
+                        <X size={16} color={TEXT} />
                       </Pressable>
-                    </View>
+                    </GlassSurface>
                   )}
                   {timelapse.run && timelapse.progress && (
-                    // 목업 12: 제목 · 시작 · 지금 · REC, 값 칸(찍은 장 · 남은 시간 · 앨범), 마치기. 끝나거나 멈추면 REC 는 사라지고 결과 글이 보입니다.
-                    <View style={styles.tlCard} accessibilityRole="summary">
-                      <View style={styles.tlHead}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={styles.tlTitle}>{`${L3(language, '타임랩스', 'Timelapse', 'タイムラプス')} · ${timelapseKindLabel(timelapse.run.plan.kind, language)}`}</Text>
-                          <Text style={styles.tlSub}>{`${clockLabel(timelapse.run.startMs, tzHours)} ${L3(language, '시작', 'started', '開始')} · ${L3(language, '지금', 'now', '今')} ${clockLabel(Date.now(), tzHours)}`}</Text>
-                        </View>
-                        {timelapse.run.running ? (
-                          <View style={styles.recRow}><View style={styles.recDot} /><Text style={styles.recText}>REC</Text></View>
-                        ) : null}
-                        <Pressable
-                          onPress={timelapse.run.running ? timelapse.stop : timelapse.dismiss}
-                          accessibilityRole="button"
-                          accessibilityLabel={timelapse.run.running ? L3(language, '마치기', 'Finish', '終了') : L3(language, '닫기', 'Dismiss', '閉じる')}
-                          hitSlop={8}
-                        >
-                          {timelapse.run.running
-                            ? <Text style={styles.bannerText}>{L3(language, '마치기', 'Finish', '終了')}</Text>
-                            : <X size={14} color={color.text} />}
-                        </Pressable>
-                      </View>
-                      <View style={styles.tlCells}>
-                        <View style={styles.tlCell}><Text style={styles.tlCellLabel}>{L3(language, '찍은 장', 'Shots', '撮影')}</Text><Text style={styles.tlCellValue}>{`${timelapse.run.taken}/${timelapse.run.plan.frames}`}</Text></View>
-                        <View style={styles.tlCell}><Text style={styles.tlCellLabel}>{L3(language, '남은 시간', 'Left', '残り')}</Text><Text style={styles.tlCellValue}>{`${Math.floor(timelapse.progress.remainingS / 60)}:${String(timelapse.progress.remainingS % 60).padStart(2, '0')}`}</Text></View>
-                        <View style={styles.tlCell}><Text style={styles.tlCellLabel}>{L3(language, '앨범', 'Album', 'アルバム')}</Text><Text style={styles.tlCellValue}>{String(savedSoFar(timelapse.run.plan, timelapse.run.taken))}</Text></View>
-                      </View>
+                    // 목업 12(유리 카드, 2026-11-21): 제목 · 시작 · 지금 · REC, 값 칸(찍은 장 · 남은 시간 · 앨범), 밝기 곡선 · 배터리 · 화면 끄고 계속, 마치기. 끝나거나 멈추면 REC 는 사라지고 결과 글이 보입니다.
+                    <TimelapseRunCard
+                      language={language}
+                      title={`${L3(language, '타임랩스', 'Timelapse', 'タイムラプス')} · ${timelapseKindLabel(timelapse.run.plan.kind, language)}`}
+                      subtitle={`${clockLabel(timelapse.run.startMs, tzHours)} ${L3(language, '시작', 'started', '開始')} · ${L3(language, '지금', 'now', '今')} ${clockLabel(Date.now(), tzHours)}`}
+                      running={timelapse.run.running}
+                      error={timelapse.run.error}
+                      taken={timelapse.run.taken}
+                      frames={timelapse.run.plan.frames}
+                      remaining={`${Math.floor(timelapse.progress.remainingS / 60)}:${String(timelapse.progress.remainingS % 60).padStart(2, '0')}`}
+                      saved={savedSoFar(timelapse.run.plan, timelapse.run.taken)}
+                      onFinish={timelapse.stop}
+                      onDismiss={timelapse.dismiss}
+                    >
                       <RunExtras
                         language={language}
                         pred={runPred}
@@ -2771,14 +2762,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         running={timelapse.run.running}
                         onScreenOff={() => setScreenOff(true)}
                       />
-                      <Text style={styles.tlNote} numberOfLines={2}>
-                        {timelapse.run.error
-                          ? L3(language, `타임랩스가 멈췄어요 · ${timelapse.run.taken}장 찍음`, `Timelapse stopped · ${timelapse.run.taken} shots`, `タイムラプス停止 · ${timelapse.run.taken}枚撮影`)
-                          : timelapse.run.running
-                            ? L3(language, '화면을 켜 두세요', 'Keep the screen on', '画面をつけたままに')
-                            : L3(language, `타임랩스 끝 · ${savedSoFar(timelapse.run.plan, timelapse.run.taken)}장 앨범에 저장`, `Timelapse done · ${savedSoFar(timelapse.run.plan, timelapse.run.taken)} saved to album`, `タイムラプス終了 · ${savedSoFar(timelapse.run.plan, timelapse.run.taken)}枚をアルバムに保存`)}
-                      </Text>
-                    </View>
+                    </TimelapseRunCard>
                   )}
                   {hasInterference && viewMode !== 'sim' && (
                     <View style={styles.banner}>
@@ -3467,6 +3451,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
   },
   bannerText: { ...type.label, color: color.text },
+  // 타임랩스 미리보기 띠(유리, 2026-11-21)
+  glassBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: space.sm, paddingVertical: space.xs + 2, borderRadius: radius.md },
+  glassBannerText: { ...type.label, color: TEXT, flexShrink: 1, ...glassTextShadow },
   exposure: {
     position: 'absolute', right: space.md, width: TOUCH, paddingVertical: space.sm, gap: space.sm, alignItems: 'center',
     borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
@@ -3645,18 +3632,6 @@ const styles = StyleSheet.create({
     flex: 1,
     resizeMode: 'cover',
   },
-  tlCard: { alignSelf: 'stretch', gap: 6, padding: 10, borderRadius: 8, backgroundColor: 'rgba(10,15,26,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
-  tlHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tlTitle: { color: color.text, fontSize: 13, fontWeight: '700' },
-  tlSub: { color: color.textDim, fontSize: 11, fontFamily: 'monospace' },
-  recRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.danger },
-  recText: { color: color.danger, fontSize: 13, fontWeight: '700', fontFamily: 'monospace' },
-  tlCells: { flexDirection: 'row', gap: 4 },
-  tlCell: { flex: 1, minWidth: 0, padding: 6, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.04)' },
-  tlCellLabel: { color: color.textMute, fontSize: 9, fontFamily: 'monospace' },
-  tlCellValue: { color: color.text, fontSize: 13, fontWeight: '700', fontFamily: 'monospace' },
-  tlNote: { color: color.textDim, fontSize: 11 },
   simBufBadge: {
     position: 'absolute',
     top: 4,
