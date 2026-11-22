@@ -305,7 +305,6 @@ export function useCelestialApp() {
   }, [isAppReady, initialTab, width, initializePendingUploads]);
 
   const setActiveTab = (tab: AppTab) => {
-    if (tab === activeTab) return;
     setActiveTabState(tab as any);
     animateContent(tab);
   };

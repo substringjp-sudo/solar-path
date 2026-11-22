@@ -2435,15 +2435,45 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   // GLView 컨텍스트 초기화
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
-    // GL 컨텍스트를 **다시** 받는 경우(앱을 내렸다 올렸을 때 등): 옛 렌더러의 DEM 패치는
-    // 죽은 컨텍스트의 렌더 타깃이라 새 씬에서는 빈 높이장입니다. 버리고 다시 받습니다.
-    // 예전에는 "이미 받은 자리" 로 기억돼 새 지형 메시가 끝내 숨은 채였습니다(§100).
+    // GL 컨텍스트를 **다시** 받는 경우(앱을 내렸다 올렸을 때, SurfaceTexture 재생성 등):
+    // 1) 이전 컨텍스트 루프를 즉시 중단하고
+    // 2) 옛 렌더러에 묶여 있던 DEM 패치(demPatchRef)·볼륨 하늘(volRef)·구름 그림자·튜닝 캐시를 모두 비워
+    //    새 GL 컨텍스트에서 높이장과 볼륨 하늘이 정상 재생성되게 합니다.
+    //    (demPatchRef 나 volRef 가 남으면 loadDemForRef 가 blockCovers 조기 반환으로 새 terrainField 에 패치를
+    //     안 꽂아 평면 원반만 남고, volRef 는 죽은 컨텍스트의 텍스처를 반환해 하늘이 검게 됩니다.)
+    if (glRef.current && (glRef.current as any).__contextLostRef) {
+      (glRef.current as any).__contextLostRef(true);
+    }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = 0;
+    }
+    isLoopRunningRef.current = false;
     if (rendererRef.current) clearDemCache(rendererRef.current);
+    demPatchRef.current = null;
+    demMaskPatchRef.current = null;
     demLoadedKeyRef.current = null;
     demLoadingKeyRef.current = null;
     urbanLoadedKeyRef.current = null;
     buildingLoadedKeyRef.current = null;
     buildingRetryCountRef.current = 0;
+    cloudShadowTexRef.current = null;
+    cloudShadowKeyRef.current = '';
+    prewarmCancelRef.current?.();
+    prewarmedDayKeyRef.current = '';
+    ++volBuildSeqRef.current;
+    volRef.current = null;
+    volBusyRef.current = false;
+    volFailedRef.current = null;
+    volHasSceneRef.current = false;
+    volPendingRef.current = false;
+    volKeyRef.current = '';
+    volQualityRef.current = '';
+    volSizeRef.current = '';
+    volViewRef.current = '';
+    lastAppliedTuningRef.current = null;
+    lastCityLightValRef.current = -1;
+    lastVolCityLightRef.current = -1;
     glRef.current = gl;
     if (layoutSizeRef.current.w > 0 && gl.drawingBufferWidth > 0) {
       glScaleRef.current = gl.drawingBufferWidth / layoutSizeRef.current.w;
@@ -4807,6 +4837,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   return (
     <View
+      collapsable={false}
       style={[
         styles.container,
         fullScreen ? { flex: 1, width: '100%', height: '100%' } : { width: SCENE_WIDTH, height: SCENE_HEIGHT },
@@ -4825,7 +4856,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     >
       {/* 지도가 3D 위로 겹쳐 오르는 동안 3D 는 불투명 그대로(둘 다 반투명이면 가운데가 어두워짐).
              지도가 다 덮으면(넘기는 점) 숨기고 렌더 루프도 쉽니다. */}
-      <Animated.View style={[styles.glView, { opacity: glOpacityAnim }]} pointerEvents={zoomProgressState < P_HANDOFF ? 'auto' : 'none'}>
+      <Animated.View collapsable={false} style={[styles.glView, { opacity: glOpacityAnim }]} pointerEvents={zoomProgressState < P_HANDOFF ? 'auto' : 'none'}>
         <GLView
           style={styles.glView}
           onContextCreate={onContextCreate}

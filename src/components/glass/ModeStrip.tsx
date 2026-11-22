@@ -91,6 +91,19 @@ export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) =>
       const next = dragMode(ref.current.modes, ref.current.mode, g.dx, g.vx * 1000);
       if (next !== ref.current.mode) {
         ref.current.onPick(next);
+        // 탭이나 오버레이 전환(예: 데이터 ↔ 시뮬레이션, 시뮬레이션 → 카메라)처럼 이 인스턴스의 mode prop 자체가
+        // 바뀌지 않는 경우에도 다음 프레임에 dragAnim 을 0 으로 되돌려 줄이 밀린 채로 굳지 않게 합니다.
+        requestAnimationFrame(() => {
+          if (dragValRef.current !== 0) {
+            dragValRef.current = 0;
+            Animated.timing(dragAnim, {
+              toValue: 0,
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }).start();
+          }
+        });
       } else {
         dragValRef.current = 0;
         Animated.timing(dragAnim, {

@@ -2016,9 +2016,14 @@ export async function createVolumetricScene(
     (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((refBaseCd * CD_TO_RENDER * ramp) / g);
     (au.get('farCityUp')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((refBaseCd * glowScale * CD_TO_RENDER * ramp) / g);
     (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER * ramp) / g);
-    // 지표면·건물 외벽은 천정 하늘 휘도(artCd)가 아니라 지면 가로등·외벽 조도를 받으므로
-    // 낮은 지형 알베도(0.06)에서도 야간 톤매핑 노출 아래 시인되도록 지면 조도 환산 계수(28.0)를 곱합니다.
-    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(((0.55 * artCd + 0.45 * baseCd) * 28.0 * CD_TO_RENDER * cloudBounce * ramp * cityTerrainExpScale) / g);
+    // 지표면·건물 외벽의 도시 간접광은 해 −12° 문턱에서 갑자기 켜지지 않고 해가 지는 동안(+2° → −6°)
+    // 창문·가로등과 함께 자연스럽게 밝아지도록, 현재 노출 대비 야간 기준 노출 비로 환산합니다.
+    const sunsetT = Math.max(0, Math.min(1, (2.0 - lastTrueSunAlt) / 8.0));
+    const sunsetFade = sunsetT * sunsetT * (3 - 2 * sunsetT);
+    const nightExpBase = autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(adaptCd, 0.0012));
+    const curExpBase = Math.max(1e-4, baseExposureFor(lastSunAltForLight, p));
+    const terrainIrrScale = ((nightExpBase / MOON_FULL) * sunsetFade) / curExpBase;
+    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((0.55 * artCd + 0.45 * baseCd) * 28.0 * CD_TO_RENDER * cloudBounce * cityTerrainExpScale * terrainIrrScale);
     au.get('cityAirOn')!.value = glowScale > 1e-4 ? 1 : 0;
   };
   /**
@@ -2051,19 +2056,22 @@ export async function createVolumetricScene(
     return R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
   };
   let exposureScale = 1;
-  const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
-    const scale = Math.max(0.1, Math.min(8, exposureScale));
-    if (p.exposure != null) return p.exposure * scale;
+  const baseExposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
+    if (p.exposure != null) return p.exposure;
     const cityA = cityState?.adaptCd ?? 0;
     if (moonGain > 0) {
       const La = MOONLIT_CLOUD_CD * (moonGain / MOON_FULL) + cityA;
-      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La) * scale;
+      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
     }
     const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
-    if (!cityState || (cityField == null && cityA <= 1e-5) || lastTrueSunAlt >= -12) return base * scale;
+    if (!cityState || (cityField == null && cityA <= 1e-5) || lastTrueSunAlt >= -12) return base;
     // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
     // 어두운 교외에서도 cityA → 0 으로 노출이 무한 폭등하지 않게 야간 암순응 바닥(0.0012 cd/m²)을 둡니다.
-    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012)) * scale;
+    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012));
+  };
+  const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
+    const scale = Math.max(0.1, Math.min(8, exposureScale));
+    return baseExposureFor(lightAlt, p) * scale;
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.

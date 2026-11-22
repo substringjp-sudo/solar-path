@@ -87,8 +87,10 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   const startX = useRef(0);
   const activeTabRef = useRef(activeTab);
   const activeIndexRef = useRef(activeIndex);
+  const setActiveTabRef = useRef(setActiveTab);
   activeTabRef.current = activeTab;
   activeIndexRef.current = activeIndex;
+  setActiveTabRef.current = setActiveTab;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -137,7 +139,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         }
 
         if (target && target !== activeTabRef.current) {
-          setActiveTab(target);
+          setActiveTabRef.current(target);
         } else {
           springTo(contentTranslateX, startX.current, 'page').start();
         }
@@ -155,26 +157,30 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
       <LearnScreen
         isActive={activeTab === 'learn' && !isSuspended}
         setCurrentTime={setCurrentTime}
-        onOpenSky={() => setActiveTab('sky')}
+        onOpenSky={() => setActiveTabRef.current('sky')}
         entry={learnEntry}
       />
     ),
-    [activeTab, isSuspended, setCurrentTime, setActiveTab, learnEntry],
+    [activeTab, isSuspended, setCurrentTime, learnEntry],
   );
 
   return (
-    <View style={styles.container} {...panResponder.panHandlers}>
+    <View collapsable={false} style={styles.container} {...panResponder.panHandlers}>
+      {/* React Native Android(Fabric)에서 GLView 상위 View 의 pointerEvents 가 'auto' ↔ 'none' 으로 바뀌고
+          collapsable={false} 가 없으면 View Flattening 상태가 바뀌며 네이티브 ViewGroup 에서 TextureView(GLView)가
+          removeView → addView 되어 SurfaceTexture 와 GLContext 가 파괴·재생성됩니다.
+          가로 트랙과 양쪽 페이지 모두 collapsable={false} 로 고정하고 sky 페이지의 pointerEvents 는 고정합니다. */}
       <Animated.View
+        collapsable={false}
         style={[
           styles.track,
           { width: width * TAB_ORDER.length, transform: [{ translateX: contentTranslateX }] },
         ]}
       >
         <View
+          collapsable={false}
           pointerEvents={activeTab === 'learn' ? 'auto' : 'none'}
-          renderToHardwareTextureAndroid
-          shouldRasterizeIOS
-          style={[styles.page, { width, paddingTop: contentInsetTop('learn') }]}
+          style={[styles.page, { width, backgroundColor: theme.bg, paddingTop: contentInsetTop('learn') }]}
         >
           {learnEl}
           <View style={styles.dataBottomBar}>
@@ -184,20 +190,18 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               language={language}
               onPick={(m) => {
                 if (m === 'data') return;
-                if (m === 'simulation') { useCelestialStore.getState().setExpertMode(false); setActiveTab('sky'); return; }
-                if (m === 'sandbox') { useCelestialStore.getState().setExpertMode(true); setActiveTab('sky'); return; }
+                if (m === 'simulation') { useCelestialStore.getState().setExpertMode(false); setActiveTabRef.current('sky'); return; }
+                if (m === 'sandbox') { useCelestialStore.getState().setExpertMode(true); setActiveTabRef.current('sky'); return; }
                 useCelestialStore.getState().setCameraScene(null);
                 useCelestialStore.getState().setCameraHandoff(null);
-                setActiveTab('sky');
+                setActiveTabRef.current('sky');
                 onCameraPress?.();
               }}
             />
           </View>
         </View>
         <View
-          pointerEvents={activeTab === 'sky' ? 'auto' : 'none'}
-          renderToHardwareTextureAndroid
-          shouldRasterizeIOS
+          collapsable={false}
           style={[styles.page, { width, paddingTop: contentInsetTop('sky') }]}
         >
           <SkyScreen
@@ -213,7 +217,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             isActive={activeTab === 'sky' && !isSuspended}
             isCameraOverlayActive={isCameraOverlayActive}
             onOpenLearn={openLearn}
-            onOpenData={() => setActiveTab('learn')}
+            onOpenData={() => setActiveTabRef.current('learn')}
           />
         </View>
       </Animated.View>
@@ -231,7 +235,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   page: {
-    flex: 1,
+    height: '100%',
+    flexShrink: 0,
   },
   dataBottomBar: {
     position: 'absolute',
