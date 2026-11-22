@@ -19,7 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Layers, Compass } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Layers, Compass, Timer } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -2770,11 +2770,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               shutterInner={
                 isCapturing ? (
                   <ActivityIndicator size="small" color={color.onAccent} />
+                ) : timelapseMode ? (
+                  <Timer size={22} color={color.onAccent} />
                 ) : cameraTab === 'astro' ? (
                   <Moon size={22} color={color.onAccent} />
-                ) : (
-                  <Camera size={22} color={color.onAccent} />
-                )
+                ) : null
               }
               onShutter={() => {
                 Vibration.cancel();

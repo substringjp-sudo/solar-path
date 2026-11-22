@@ -695,12 +695,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const urbanLoadedKeyRef = useRef<string | null>(null);
+  const urbanCenterRef = useRef<{ lat: number; lng: number } | null>(null);
+  const noiseOriginRef = useRef<{ lat: number; lng: number } | null>(null);
+  const bandCenterRef = useRef<{ lat: number; lng: number; bandAngles: unknown } | null>(null);
+  const volSceneOriginRef = useRef<{ latitude: number; longitude: number } | null>(null);
   // 도시·포장 지도가 바뀔 때마다 올립니다. 지형 빛 판 캐시 키에 넣어, 지도가 늦게 와도 다시 그립니다.
   const urbanSerialRef = useRef(0);
   // DEM 패치·건물 패치가 바뀔 때마다 올립니다. 건물/지형 빛 판 캐시 키에 넣어, 패치가 늦게 와도 건물 외벽이 누락되지 않게 합니다.
   const demSerialRef = useRef(0);
   // 건물 덮개(지도). DEM 과 지도 중 늦게 온 쪽이 건물 자리 고도 깎기를 겁니다(demBuildingFlatten.ts).
-  const bldCoverRef = useRef<{ key: string; cover: BuildingCover } | null>(null);
+  const bldCoverRef = useRef<{ key: string; lat: number; lng: number; cover: BuildingCover } | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
   /** 먼 건물(샌드박스): 가까운 건물 병합 기하·읽은 먼 타일·그 위치 키·진행 중 읽기. 먼 건물은 위치가 바뀌면 비웁니다. */
   const nearBuildingDataRef = useRef<BuildingMeshData | null>(null);
@@ -2984,15 +2988,32 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           -lookDist * Math.cos(elevRad) * Math.cos(azRad)
         );
 
-        // 지형 및 해수면에 상공 관측 고도 전달
+        // 지형 및 해수면에 상공 관측 고도 및 눈 이동 오프셋 전달
+        const curEye = eyeCoords();
         if (terrainFieldRef.current) {
           updateTerrainFieldEye(terrainFieldRef.current, camera);
           terrainFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
+          if (curEye) {
+            if (
+              !noiseOriginRef.current ||
+              Math.hypot(
+                localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, curEye.latitude, curEye.longitude).eastM,
+                localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, curEye.latitude, curEye.longitude).northM,
+              ) > 10_000
+            ) {
+              noiseOriginRef.current = { lat: curEye.latitude, lng: curEye.longitude };
+            }
+            const nOff = localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, curEye.latitude, curEye.longitude);
+            terrainFieldRef.current.setNoiseEyeOffset?.(nOff.eastM, -nOff.northM);
+          }
+          const uc = urbanCenterRef.current;
+          const uOff = curEye && uc ? localOffsetM({ latitude: uc.lat, longitude: uc.lng }, curEye.latitude, curEye.longitude) : { eastM: 0, northM: 0 };
+          terrainFieldRef.current.setUrbanEyeOffset?.(uOff.eastM, -uOff.northM);
+          seaPlaneRef.current?.setWaterMaskEyeOffset?.(uOff.eastM, -uOff.northM);
         }
         if (buildingFieldRef.current) {
           const bc = bldCenterRef.current;
-          const bldFresh = buildingLoadedKeyRef.current === `${bc.lat.toFixed(3)},${bc.lng.toFixed(3)}`;
-          const curEye = eyeCoords();
+          const bldFresh = buildingLoadedKeyRef.current !== null;
           const bOff = curEye ? localOffsetM({ latitude: bc.lat, longitude: bc.lng }, curEye.latitude, curEye.longitude) : { eastM: 0, northM: 0 };
           buildingFieldRef.current.setEyeOffset(bOff.eastM, -bOff.northM);
           const bldInRange = Math.hypot(bOff.eastM, bOff.northM) < 2500;
@@ -3186,6 +3207,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volKeyRef.current = key;
                 volPendingRef.current = false;
                 vol.setScene(built.input);
+                volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
                 volumetricStats.weatherMs = vol.weatherMs();
                 volHasSceneRef.current = true;
@@ -3209,6 +3231,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 const isFirstCloudScene = !volHasSceneRef.current;
                 if (isFirstCloudScene) {
                   vol.setScene({ ...built.input, layers: [], macro: undefined });
+                  volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                   volHasSceneRef.current = true;
                   volViewRef.current = '';
                   lastVolDateSyncRef.current.targetMs = null;
@@ -3229,6 +3252,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   volumetricStats.weatherMs = vol.weatherMs();
                   if (applied) {
                     volHasSceneRef.current = true;
+                    volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                     lastVolContMinRef.current = null;
                     setVolumetricStatus({ summary: built.summary });
                     const g = built.genus;
@@ -3409,8 +3433,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                // 연속 이동: 구름 · 대기 카메라도 눈의 가로 자리로(장면은 관측 위치 기준이라 눈이 가면 구름이 시차로 움직임).
-                const volHere = location?.coords;
+                // 연속 이동: 구름 · 대기 카메라도 실제 구워진 구름 씬 원점 기준 눈의 가로 자리로(커밋 직후에도 0으로 튀지 않게).
+                const volHere = volSceneOriginRef.current ?? location?.coords;
                 const volEyeOff = curEyeForKey && volHere ? localOffsetM(volHere, curEyeForKey.latitude, curEyeForKey.longitude) : { eastM: 0, northM: 0 };
                 vol.setEyeOffset?.(volEyeOff.northM, volEyeOff.eastM);
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, volRollDeg, volOffY);
@@ -4277,6 +4301,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene || !sim?.terrain?.bandAngles) return;
+    const lat = location?.coords?.latitude ?? 37.5;
+    const lng = location?.coords?.longitude ?? 127.0;
+    const prevBand = bandCenterRef.current;
+    if (
+      prevBand &&
+      prevBand.bandAngles === sim.terrain.bandAngles &&
+      terrainBandsRef.current &&
+      waterMaskHandleRef.current
+    ) {
+      const off = localOffsetM({ latitude: prevBand.lat, longitude: prevBand.lng }, lat, lng);
+      if (Math.hypot(off.eastM, off.northM) < 500) return;
+    }
+    bandCenterRef.current = { lat, lng, bandAngles: sim.terrain.bandAngles };
 
     if (terrainBandsRef.current) {
       scene.remove(terrainBandsRef.current.group);
@@ -4297,9 +4334,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainBandsRef.current = bands;
 
     // 2D 수역 마스크(해안선·만·반도 + 강·호수)와 바다 수평선 각도 갱신
-    const lat = location?.coords?.latitude ?? 37.5;
-    const lng = location?.coords?.longitude ?? 127.0;
-
     waterMaskHandleRef.current?.dispose();
     const waterHandle = createWaterMask2DTexture({
       latitude: lat,
@@ -4345,14 +4379,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const applyEye = () => {
     const e = eyeCoords();
     if (!e) return;
+    if (
+      !noiseOriginRef.current ||
+      Math.hypot(
+        localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, e.latitude, e.longitude).eastM,
+        localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, e.latitude, e.longitude).northM,
+      ) > 10_000
+    ) {
+      noiseOriginRef.current = { lat: e.latitude, lng: e.longitude };
+    }
+    const nOff = localOffsetM({ latitude: noiseOriginRef.current.lat, longitude: noiseOriginRef.current.lng }, e.latitude, e.longitude);
+    const uc = urbanCenterRef.current;
+    const uOff = uc ? localOffsetM({ latitude: uc.lat, longitude: uc.lng }, e.latitude, e.longitude) : { eastM: 0, northM: 0 };
     terrainFieldRef.current?.setObserver(e.latitude, e.longitude);
+    terrainFieldRef.current?.setNoiseEyeOffset?.(nOff.eastM, -nOff.northM);
+    terrainFieldRef.current?.setUrbanEyeOffset?.(uOff.eastM, -uOff.northM);
     seaPlaneRef.current?.setObserver(e.latitude, e.longitude);
+    seaPlaneRef.current?.setWaterMaskEyeOffset?.(uOff.eastM, -uOff.northM);
     buildingFieldRef.current?.setObserver(e.latitude, e.longitude);
     const bc = bldCenterRef.current;
     const bOff = localOffsetM({ latitude: bc.lat, longitude: bc.lng }, e.latitude, e.longitude);
     buildingFieldRef.current?.setEyeOffset(bOff.eastM, -bOff.northM);
     skylineCacheRef.current = null;
-    sceneDirtyRef.current = true;
     requestRender(2);
   };
 
@@ -4404,7 +4452,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
       demPatchRef.current = patch;
       demMaskPatchRef.current = maskPatch;
-      if (bldCoverRef.current?.key === key) flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
+      if (
+        bldCoverRef.current &&
+        blockCovers(patch, bldCoverRef.current.lat, bldCoverRef.current.lng, denseRadiusM(patch), 0)
+      ) {
+        moveObserver(patch, bldCoverRef.current.lat, bldCoverRef.current.lng);
+        flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
+        moveObserver(patch, lat, lng);
+      }
       // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
       // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
       //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
@@ -4470,22 +4525,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const bldLat = location?.coords?.latitude ?? 37.5665;
   const bldLng = location?.coords?.longitude ?? 126.9780;
-  bldCenterRef.current = { lat: bldLat, lng: bldLng };
+  if (buildingLoadedKeyRef.current === null) {
+    bldCenterRef.current = { lat: bldLat, lng: bldLng };
+  }
   useEffect(() => {
     if (!terrainFieldRef.current) return;
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
     if (urbanLoadedKeyRef.current === key) return;
+    if (urbanCenterRef.current) {
+      const uOff = localOffsetM({ latitude: urbanCenterRef.current.lat, longitude: urbanCenterRef.current.lng }, bldLat, bldLng);
+      if (Math.hypot(uOff.eastM, uOff.northM) < 400) return;
+    }
 
     const controller = new AbortController();
     fetchUrbanMask(bldLat, bldLng, { signal: controller.signal })
       .then((mask) => {
         if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
         urbanLoadedKeyRef.current = key;
+        urbanCenterRef.current = { lat: bldLat, lng: bldLng };
         terrainFieldRef.current.setUrbanMask(mask);
         buildingFieldRef.current?.setLamps(mask.lamps);
         seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
+        applyEye();
         // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
         if (mask.bld) {
           // 2026-11-19 물 덮개(강·호수 자리를 평평한 수면 고도로)와 건물 발자국(건물마다 바닥을 한 높이로)도 함께
@@ -4499,10 +4562,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             footprints: mask.footprints,
             pave: mask.pave,
           };
-          bldCoverRef.current = { key, cover };
+          bldCoverRef.current = { key, lat: bldLat, lng: bldLng, cover };
           const patch = demPatchRef.current, renderer = rendererRef.current;
-          if (patch && renderer && demLoadedKeyRef.current === key) {
-            // 건물 발자국은 커밋된 위치 기준입니다 — 눈이 떨어져 있어도 그 기준으로 깎고, 끝나면 눈 자리로 되돌립니다.
+          if (patch && renderer && blockCovers(patch, bldLat, bldLng, denseRadiusM(patch), 0)) {
+            // 건물 발자국은 마스크 중심 위치 기준입니다 — 눈이 떨어져 있어도 그 기준으로 깎고, 끝나면 눈 자리로 되돌립니다.
             moveObserver(patch, bldLat, bldLng);
             if (flattenDemForBuildings(renderer, patch, cover)) {
               const maskPatch = demMaskPatchRef.current;
@@ -4541,16 +4604,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (!buildingFieldRef.current) return;
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
-    if (buildingLoadedKeyRef.current === key && buildingFieldRef.current.hasGeometry()) {
+    const bldDistM = buildingLoadedKeyRef.current !== null
+      ? Math.hypot(
+          localOffsetM({ latitude: bldCenterRef.current.lat, longitude: bldCenterRef.current.lng }, bldLat, bldLng).eastM,
+          localOffsetM({ latitude: bldCenterRef.current.lat, longitude: bldCenterRef.current.lng }, bldLat, bldLng).northM,
+        )
+      : Infinity;
+    if ((buildingLoadedKeyRef.current === key || bldDistM < 350) && buildingFieldRef.current.hasGeometry()) {
       buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
       if (demPatchRef.current) {
         buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
-        demSerialRef.current += 1;
       }
       buildingFieldRef.current.setVisible(true);
-      volSettleRef.current = Math.max(volSettleRef.current, 18);
-      sceneDirtyRef.current = true;
-      requestRender(6);
+      applyEye();
+      requestRender(4);
       return;
     }
 
@@ -4565,6 +4632,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (controller.signal.aborted || !buildingFieldRef.current) return;
         buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
         buildingLoadedKeyRef.current = key;
+        bldCenterRef.current = { lat: bldLat, lng: bldLng };
         buildingRetryCountRef.current = 0;
         if (demPatchRef.current) {
           buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
@@ -4576,6 +4644,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         mergedBuildingRef.current = merged;
         buildingFieldRef.current.setBuildings(merged);
         buildingFieldRef.current.setVisible(true);
+        applyEye();
         demSerialRef.current += 1;
         volSettleRef.current = Math.max(volSettleRef.current, 18);
         if (__DEV__) {

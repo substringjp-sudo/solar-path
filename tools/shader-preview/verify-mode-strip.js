@@ -104,12 +104,12 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   ok(T('photo', 'photo').guideOp === 'keep' && T('simulation', 'simulation').guideOp === 'keep', '같은 모드는 keep');
 
   console.log('\n[11] 칩');
-  ok(J(M.chipsFor('simulation')) === J([]) && J(M.chipsFor('sandbox')) === J(['move', 'view', 'scene']) && ['photo', 'astro', 'timelapse', 'event'].every(k => M.chipsFor(k) === null), '시뮬레이션은 칩 없음, 샌드박스 칩(높이와 줌은 보기로), 카메라 쪽은 null');
+  ok(J(M.chipsFor('simulation')) === J([]) && J(M.chipsFor('sandbox')) === J(['scene']) && ['photo', 'astro', 'timelapse', 'event'].every(k => M.chipsFor(k) === null), '시뮬레이션은 칩 없음, 샌드박스 칩(이동·보기는 화면 상시 노출로 제외), 카메라 쪽은 null');
   const lab = (l) => M.chipsFor('sandbox').map(c => M.chipLabel(c, l));
   const labDay = (l) => ['yesterday', 'today', 'tomorrow', 'date'].map(c => M.chipLabel(c, l));
-  ok(J(lab('ko')) === J(['이동', '보기', '장면']) && J(labDay('ko')) === J(['어제', '오늘', '내일', '날짜']), '한국어 칩 이름');
-  ok(J(lab('en')) === J(['Move', 'View', 'Scenes']) && J(labDay('en')) === J(['Yesterday', 'Today', 'Tomorrow', 'Date']), '영어 칩 이름');
-  ok(J(lab('ja')) === J(['移動', '表示', 'シーン']) && J(labDay('ja')) === J(['昨日', '今日', '明日', '日付']), '일본어 칩 이름');
+  ok(J(lab('ko')) === J(['장면']) && J(labDay('ko')) === J(['어제', '오늘', '내일', '날짜']), '한국어 칩 이름');
+  ok(J(lab('en')) === J(['Scenes']) && J(labDay('en')) === J(['Yesterday', 'Today', 'Tomorrow', 'Date']), '영어 칩 이름');
+  ok(J(lab('ja')) === J(['シーン']) && J(labDay('ja')) === J(['昨日', '今日', '明日', '日付']), '일본어 칩 이름');
   ok(['ko', 'en', 'ja'].every(l => lab(l).every(s => s.length > 0 && s.length <= 12)) && M.chipsFor('simulation').length === 0 && M.chipsFor('sandbox').length <= 4, '줄마다 칩 4개 이하, 이름 12자 이하');
 
   console.log(fail ? `\n실패 있음 — pass ${pass} / fail ${fail}` : `\n통과 — pass ${pass}`);

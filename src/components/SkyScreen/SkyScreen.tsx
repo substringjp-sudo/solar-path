@@ -80,7 +80,7 @@ import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type 
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
 import { eyeForMode } from '../../utils/flightAssist';
 import { useGlide } from '../../hooks/useGlide';
-import { DialPair, MoveStick, ViewStick } from './SandboxDials';
+import { DialPair, MoveStick } from './SandboxDials';
 import { useJoystickDriver } from '../../hooks/useJoystickDriver';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
@@ -1326,18 +1326,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return () => setSkyHeaderActions(null);
   }, [setSkyHeaderActions, ascended]);
 
+  const [dockInset, setDockInset] = useState(210);
   // ── 새 화면 틀(SkyFrame) 연결 ────────────────────────────────────────────────
   const frameGetView = useCallback(() => {
     const v = sceneRef.current?.getRenderState?.()?.view;
     return v ? { azDeg: v.az, elDeg: v.el } : null;
   }, []);
   const frameSandbox = {
-    move: sandboxPanelEl,
-    view: (
-      <View style={{ alignItems: 'center' }}>
-        <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
-      </View>
-    ),
     shoot: (
       <SandboxShootPanel
         language={language}
@@ -1641,6 +1636,26 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         )}
       </View>
 
+      {/* 샌드박스 상시 오버레이: 좌측 하단 이동 조이스틱 · 우측 하단 높이/줌 슬라이더 */}
+      {!isCameraOverlayActive && expertMode && !ascended && (
+        <>
+          <View style={[overlayStyles.floatingJoystick, { bottom: dockInset + 12 }]}>
+            <MoveStick
+              language={language}
+              size={88}
+              relative
+              onStick={shutterMoveDriver.onStick}
+              onNudge={shutterMoveDriver.nudge}
+            />
+          </View>
+          <View style={[overlayStyles.floatingDials, { bottom: dockInset + 12 }]}>
+            <GlassSurface style={overlayStyles.floatingDialsSurface}>
+              <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
+            </GlassSurface>
+          </View>
+        </>
+      )}
+
       {/* ── 새 화면 틀(실험): 시간 자 · 칩 · 셔터 · 모드 줄이 한 막대에 ─────────── */}
       {!isCameraOverlayActive && (
         <SkyFrame
@@ -1690,8 +1705,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           )}
           sandbox={frameSandbox}
           collapseNonce={collapseNonce}
-          shutterMove={<MoveStick language={language} size={78} relative onStick={shutterMoveDriver.onStick} onNudge={shutterMoveDriver.nudge} />}
-          shutterView={<ViewStick language={language} size={78} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />}
+          onDockHeight={setDockInset}
           sunTracked={trackingTarget === 'sun'}
           onToggleTrackSun={() => setTrackingTarget(prev => (prev === 'sun' ? null : 'sun'))}
           onShoot={() => { if (readScene('')) shootScene(); else onCameraPress?.(); }}
@@ -1760,6 +1774,9 @@ const overlayStyles = StyleSheet.create({
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 알림 줄은 위(읽음 줄 아래)로 올립니다.
   bannerTop: { bottom: undefined, top: belowHeader(56) },
   previewBannerWrap: { position: 'absolute', left: 16, right: 16, top: belowHeader(38), alignItems: 'center', zIndex: 28 },
+  floatingJoystick: { position: 'absolute', left: 14, zIndex: 21 },
+  floatingDials: { position: 'absolute', right: 14, zIndex: 21 },
+  floatingDialsSurface: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 16 },
   previewBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   previewBannerText: { fontSize: 11, fontWeight: '600', color: '#F1F5F9' },
   buildBanner: {

@@ -386,10 +386,12 @@ uniform float uUrbanHalfM;
 uniform sampler2D uPaveTex;
 uniform float uPaveValid;
 uniform float uPaveHalfM;
+uniform vec2  uUrbanEyeOffset;
+uniform vec2  uNoiseEyeOffset;
 // 포장 지도(R 시멘트, G 아스팔트, B 고해상도 물)를 읽습니다. 범위 밖과 가장자리는 0 으로 줄입니다.
 vec2 paveRaw(vec2 g) {
   // (켜짐 값 없이 읽습니다. 지도가 없을 때 묶인 빈 텍스처는 0 입니다.)
-  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  vec2 pUv = (g + uUrbanEyeOffset + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
   if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return vec2(0.0);
   float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
   return texture2D(uPaveTex, pUv).rg * edge;
@@ -397,7 +399,7 @@ vec2 paveRaw(vec2 g) {
 // 2026-11-18 가로등 빛 웅덩이(포장 텍스처 A — R 시멘트, G 아스팔트, B 고해상도 물). 0..1.
 float paveLamp(vec2 g) {
   if (uPaveValid < 0.5) return 0.0;
-  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  vec2 pUv = (g + uUrbanEyeOffset + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
   if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return 0.0;
   return texture2D(uPaveTex, pUv).a;
 }
@@ -405,7 +407,7 @@ uniform float uLampGlow;
 uniform vec3  uLampColor;
 float waterHiRaw(vec2 g) {
   if (uPaveValid < 0.5) return 0.0;
-  vec2 pUv = (g + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
+  vec2 pUv = (g + uUrbanEyeOffset + uPaveHalfM) / max(1.0, 2.0 * uPaveHalfM);
   if (pUv.x <= 0.0 || pUv.x >= 1.0 || pUv.y <= 0.0 || pUv.y >= 1.0) return 0.0;
   float edge = 1.0 - smoothstep(0.85, 0.99, max(abs(pUv.x * 2.0 - 1.0), abs(pUv.y * 2.0 - 1.0)));
   return texture2D(uPaveTex, pUv).b * edge;
@@ -551,6 +553,7 @@ void main() {
   // 화면 화소 발자국(m): 2x2 쿼드 미분이 discard 경계에서 깨지지 않게 먼저 잽니다. 발밑(3mm)까지 풀리도록 하한을 낮춤.
   // ⚠ 두 경로 모두에서 선언합니다 — 포장 경계 샤프닝(pvSharp)이 원래 경로에서도 씁니다(볼륨 전용으로 두면 원래 경로 셰이더가 컴파일되지 않음).
   float pixG = max(0.003, 0.5 * length(fwidth(vGround)));
+  vec2 wGround = vGround + uNoiseEyeOffset;
   // 광역 외해 연결 마스크가 있으면 바다와 단절된 내륙 0m 이하 저지대는 잘라내지 않고 육지로 남깁니다.
   bool isSeaZone =
       uDemFarSeaValid > 0.5 ? (demFar_seaAt(vGround) > 0.5)
@@ -558,7 +561,7 @@ void main() {
     :                         true;
   float mvtWaterHere = -1.0;
   if (uUrbanValid > 0.5) {
-    vec2 wUv = (vGround + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
+    vec2 wUv = (vGround + uUrbanEyeOffset + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
     if (wUv.x > 0.02 && wUv.x < 0.98 && wUv.y > 0.02 && wUv.y < 0.98) {
       mvtWaterHere = texture2D(uUrbanTex, wUv).g;
     }
@@ -652,7 +655,7 @@ void main() {
     float L0 = 2.0 * texelM;                 // 자료가 아는 가장 짧은 파장
     float s0 = length(texGrad);              // 그 자리의 텍셀 규모 기울기
     float pixM = max(0.05, vDistM * 0.0015); // 화면 한 화소가 덮는 지상 거리
-    vec2 g = vGround;
+    vec2 g = wGround;
     vec2 add = vec2(0.0);
     float L = L0;
     for (int o = 0; o < 4; o++) {
@@ -706,9 +709,9 @@ void main() {
   vec2 nearWarp = vec2(0.0);
   {
     float pmm = max(0.05, vDistM * 0.0015);
-    vec2 wp = vGround;
+    vec2 wp = wGround;
     if (nearW > 0.001) {
-      nearWarp = vec2(tn_gnoise(vGround / 11.0 + 1.3), tn_gnoise(vGround / 11.0 + 7.9)) - 0.5;
+      nearWarp = vec2(tn_gnoise(wGround / 11.0 + 1.3), tn_gnoise(wGround / 11.0 + 7.9)) - 0.5;
       wp += nearWarp * (1.2 * nearW);
     }
     vec2 gm = vec2(0.0);
@@ -730,7 +733,7 @@ void main() {
       rot = TN_ROT * rot;
     }
     if (nearW > 0.001) {
-      vec2 nq = vGround + nearWarp * 0.55;
+      vec2 nq = wGround + nearWarp * 0.55;
       vec2 nq1 = TN_ROT * nq;
       vec2 nq2 = TN_ROT * nq1;
       float vis30 = smoothstep(1.0, 3.0, 0.30 / pixG);
@@ -873,7 +876,7 @@ void main() {
   float urbanRaw = clamp(uFarUrban * 0.65, 0.0, 1.0);
   float urbanMapW = 0.0;   // 토지이용 지도가 이 자리를 덮는 정도
   if (uUrbanValid > 0.5) {
-    vec2 uUv = (vGround + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
+    vec2 uUv = (vGround + uUrbanEyeOffset + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
     float inBox = step(0.0, uUv.x) * step(uUv.x, 1.0) * step(0.0, uUv.y) * step(uUv.y, 1.0);
     if (inBox > 0.5) {
       float edgeFade = 1.0 - smoothstep(0.82, 0.99, max(abs(uUv.x * 2.0 - 1.0), abs(uUv.y * 2.0 - 1.0)));
@@ -917,12 +920,12 @@ void main() {
   float mot = 0.0;
   {
     float Lc = 120.0, ampC = 0.35;
-    vec2 mg = vGround;
+    vec2 mg = wGround;
     for (int o = 0; o < 8; o++) {
       float vis = smoothstep(1.0, 3.0, Lc / pixG);
       if (o >= 6) vis *= nearW;
       if (vis > 0.001) {
-        float nVal = o < 3 ? tn_noise(vGround / Lc + 17.3 * float(o))
+        float nVal = o < 3 ? tn_noise(wGround / Lc + 17.3 * float(o))
                            : tn_gnoise(mg / Lc + vec2(17.3, 11.7) * float(o));
         mot += (nVal - 0.5) * ampC * vis;
       }
@@ -943,7 +946,7 @@ void main() {
   vec3 albL = alb;
   albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.03), paveAny) * mot;   // 도시 지반은 무채색 콘크리트 농담
   // 군락: 근거리에서는 Height-Based Blending 으로 큰 패치(46m·9.5m·23m) 경계를 자잘한 풀·자갈·틈새로 쪼갭니다.
-  vec2 patchG = vGround + nearWarp * (1.2 * nearW);
+  vec2 patchG = wGround + nearWarp * (1.2 * nearW);
   float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
                     + smoothstep(0.62, 0.68, tn_noise(patchG / 9.5 + 23.7)) * smoothstep(1.0, 3.0, 9.5 / pixG) * 0.7, 0.0, 1.0);
   float bare = smoothstep(0.62, 0.68, tn_noise(patchG / 23.0 + 51.3)) * smoothstep(1.0, 3.0, 23.0 / pixG);
@@ -1014,7 +1017,7 @@ void main() {
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
   float fill = (1.0 - cloudT) * uLookFill * clamp(fillGeo / fillFlat, 0.0, 2.0);
   // 젖은 면의 하늘 되비침: 갯벌(wet) 중 평평한 곳, 덩어리로 얼룩(고인 물 자리).
-  float sheen = wet * slopeFlat * mix(0.5, 1.0, tn_noise(vGround / 23.0 + 7.1)) * uLookSheen;
+  float sheen = wet * slopeFlat * mix(0.5, 1.0, tn_noise(wGround / 23.0 + 7.1)) * uLookSheen;
 
   vec3 natLitAlb = albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4)));
   float urbLumaScale = clamp(dot(albL, vec3(0.30, 0.59, 0.11)) / max(dot(uAlbedo, vec3(0.30, 0.59, 0.11)), 1e-4), 0.70, 1.30);
@@ -1276,6 +1279,10 @@ export interface TerrainFieldHandle {
   setObserver: (lat: number, lon: number) => void;
   /** 도시·거주지 토지이용(MVT) 마스크를 적용합니다. null 이면 끄고 uFarUrban 으로 물러납니다. */
   setUrbanMask: (mask: UrbanMaskResult | null) => void;
+  /** 도시·도로 마스크 중심 대비 눈 오프셋(동, 남 m)을 맞춥니다. */
+  setUrbanEyeOffset?: (eastM: number, southM: number) => void;
+  /** 절차적 지표 질감(풀·자갈·토양)의 기준점 대비 눈 오프셋(동, 남 m)을 맞춥니다. */
+  setNoiseEyeOffset?: (eastM: number, southM: number) => void;
   /** 현재 업로드된 MVT 도시/물 텍스처(G 채널 = 물)를 반환합니다. */
   waterMaskTex: () => THREE.Texture | null;
   /** 빛지도 등 거시 도시 밀도(0~1)를 전달해 원경(3km 밖) 및 로드 전 바닥 회색 톤을 조절합니다. */
@@ -1405,6 +1412,8 @@ export function createTerrainField(opts: {
       uPaveTex: { value: emptyUrbanTex },
       uPaveValid: { value: 0 },
       uPaveHalfM: { value: 1600 },
+      uUrbanEyeOffset: { value: new THREE.Vector2(0, 0) },
+      uNoiseEyeOffset: { value: new THREE.Vector2(0, 0) },
       uLampGlow: { value: 0 },
       // 가로등 빛(LED 4000 K 안팎, 약간 따뜻한 흰빛) × 바닥 웅덩이 가운데 밝기(화면 값).
       uLampColor: { value: new THREE.Vector3(0.30, 0.26, 0.20) },
@@ -1676,6 +1685,14 @@ export function createTerrainField(opts: {
       }
     },
     waterMaskTex: () => activeUrbanTex,
+    setUrbanEyeOffset: (eastM, southM) => {
+      const v = material.uniforms.uUrbanEyeOffset?.value as THREE.Vector2 | undefined;
+      if (v) v.set(Number.isFinite(eastM) ? eastM : 0, Number.isFinite(southM) ? southM : 0);
+    },
+    setNoiseEyeOffset: (eastM, southM) => {
+      const v = material.uniforms.uNoiseEyeOffset?.value as THREE.Vector2 | undefined;
+      if (v) v.set(Number.isFinite(eastM) ? eastM : 0, Number.isFinite(southM) ? southM : 0);
+    },
     setFarUrban: (farUrban) => {
       material.uniforms.uFarUrban.value = Math.max(0, Math.min(1, Number.isFinite(farUrban) ? farUrban : 0));
     },

@@ -9,10 +9,10 @@
  *  5. 모드 줄 (`ModeStrip` — 데이터 · 시뮬레이션 · 샌드박스 · 사진 · 천체 · 타임랩스)
  */
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { DockSheet } from './DockSheet';
 import { CHIP_MIN_H, GlassChip } from './GlassChip';
-import { ModeStrip } from './ModeStrip';
+import { getLastModeSlideDir, ModeStrip } from './ModeStrip';
 import { TimeRuler } from './TimeRuler';
 import { ZoomDialPill } from './ZoomDialPill';
 import { color as DARK } from '../../theme/tokens';
@@ -80,8 +80,6 @@ export interface BottomDockProps {
   leftAction: BottomDockSideAction;
   /** 셔터 줄 오른쪽 48×48 원형 유리 버튼 */
   rightAction: BottomDockSideAction;
-  /** 가운데 셔터 자리 대체 요소(샌드박스 이동/보기 조이스틱 등) */
-  centerOverride?: React.ReactNode;
   shutterLabel: string;
   shutterInner: React.ReactNode;
   shutterColor?: string;
@@ -106,7 +104,6 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   ruler,
   leftAction,
   rightAction,
-  centerOverride,
   shutterLabel,
   shutterInner,
   shutterColor,
@@ -116,6 +113,52 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   stripModes,
   onPickMode,
 }) => {
+  const SHUTTER_SLIDE_PX = 64;
+  const slideAnim = React.useRef(new Animated.Value(0)).current;
+  const [slideState, setSlideState] = React.useState<{ dir: -1 | 1; prevNode: React.ReactNode | null } | null>(null);
+  const prevSnapshotRef = React.useRef<{ mode: AppMode; node: React.ReactNode }>({ mode: stripMode, node: shutterInner });
+  const mountedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const startSlide = (dir: -1 | 1, prevNode: React.ReactNode | null) => {
+      setSlideState({ dir, prevNode });
+      slideAnim.setValue(0);
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setSlideState(null);
+      });
+    };
+
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      prevSnapshotRef.current = { mode: stripMode, node: shutterInner };
+      const dir = getLastModeSlideDir();
+      if (dir !== 0) startSlide(dir, null);
+      return;
+    }
+
+    const prevMode = prevSnapshotRef.current.mode;
+    if (prevMode !== stripMode) {
+      const prevIdx = stripModes.indexOf(prevMode);
+      const curIdx = stripModes.indexOf(stripMode);
+      const dir: -1 | 0 | 1 =
+        prevIdx >= 0 && curIdx >= 0 && prevIdx !== curIdx
+          ? (curIdx > prevIdx ? 1 : -1)
+          : getLastModeSlideDir();
+      const prevNode = prevSnapshotRef.current.node;
+      prevSnapshotRef.current = { mode: stripMode, node: shutterInner };
+      if (dir !== 0) startSlide(dir, prevNode);
+    }
+  }, [stripMode, stripModes, slideAnim]);
+
+  if (prevSnapshotRef.current.mode === stripMode) {
+    prevSnapshotRef.current.node = shutterInner;
+  }
+
   const off = dayOffset(ruler.timeMs, ruler.nowMs, ruler.tz);
   const handleDayShift = (deltaDays: number) => {
     const nextMs = shiftDays(ruler.timeMs, deltaDays);
@@ -196,22 +239,60 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           />
         </View>
 
-        {centerOverride ? (
-          centerOverride
-        ) : (
-          <Pressable
-            testID="shutter"
-            accessibilityRole="button"
-            accessibilityLabel={shutterLabel}
-            disabled={shutterBusy}
-            onPress={onShutter}
-            style={[styles.shutterRing, shutterBusy && styles.disabled]}
-          >
-            <View style={[styles.shutterInner, shutterColor ? { backgroundColor: shutterColor } : null]}>
+        <Pressable
+          testID="shutter"
+          accessibilityRole="button"
+          accessibilityLabel={shutterLabel}
+          disabled={shutterBusy}
+          onPress={onShutter}
+          style={[styles.shutterRing, shutterBusy && styles.disabled]}
+        >
+          <View style={[styles.shutterInner, shutterColor ? { backgroundColor: shutterColor } : null]}>
+            {slideState?.prevNode != null ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.shutterSlot,
+                  {
+                    transform: [{
+                      translateX: slideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -slideState.dir * SHUTTER_SLIDE_PX],
+                      }),
+                    }],
+                    opacity: slideAnim.interpolate({
+                      inputRange: [0, 0.7, 1],
+                      outputRange: [1, 0.2, 0],
+                    }),
+                  },
+                ]}
+              >
+                {slideState.prevNode}
+              </Animated.View>
+            ) : null}
+            <Animated.View
+              style={[
+                styles.shutterSlot,
+                slideState
+                  ? {
+                      transform: [{
+                        translateX: slideAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [slideState.dir * SHUTTER_SLIDE_PX, 0],
+                        }),
+                      }],
+                      opacity: slideAnim.interpolate({
+                        inputRange: [0, 0.3, 1],
+                        outputRange: [0, 0.85, 1],
+                      }),
+                    }
+                  : null,
+              ]}
+            >
               {shutterInner}
-            </View>
-          </Pressable>
-        )}
+            </Animated.View>
+          </View>
+        </Pressable>
 
         <View style={[styles.sideWrap, rightAction.disabled && styles.disabled]}>
           <GlassChip
@@ -273,6 +354,12 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 32,
     backgroundColor: DARK.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  shutterSlot: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },

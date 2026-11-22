@@ -121,12 +121,12 @@ export function switchMode(from: AppMode, target: AppMode, view: { azDeg?: numbe
   return { mode, guideOp: 'clear', guide: null };
 }
 
-export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'move' | 'view' | 'scene';
+export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'scene';
 
-/** 하늘 쪽 모드의 기초 칩. 시뮬레이션은 없음(날짜는 자 왼쪽 하나). 카메라 쪽은 칩이 따로라 null. 샌드박스는 높이와 줌을 "보기"로 합쳤습니다. */
+/** 하늘 쪽 모드의 기초 칩. 시뮬레이션은 없음(날짜는 자 왼쪽 하나). 카메라 쪽은 칩이 따로라 null. 샌드박스는 이동·보기가 화면 위에 상시 떠 있어 장면만 칩으로 둡니다. */
 export function chipsFor(m: AppMode): ChipId[] | null {
   if (m === 'data' || m === 'simulation') return []; // 날짜는 시간 자 왼쪽 하나(위아래로 밀면 다른 날)
-  if (m === 'sandbox') return ['move', 'view', 'scene'];
+  if (m === 'sandbox') return ['scene'];
   return null;
 }
 
@@ -136,8 +136,6 @@ export function chipLabel(c: ChipId, l: Lang): string {
     case 'today': return pick(l, '오늘', 'Today', '今日');
     case 'tomorrow': return pick(l, '내일', 'Tomorrow', '明日');
     case 'date': return pick(l, '날짜', 'Date', '日付');
-    case 'move': return pick(l, '이동', 'Move', '移動');
-    case 'view': return pick(l, '보기', 'View', '表示');
     default: return pick(l, '장면', 'Scenes', 'シーン');
   }
 }

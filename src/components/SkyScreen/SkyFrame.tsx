@@ -54,12 +54,11 @@ interface Props {
   /** 시뮬레이션을 끝까지 펼쳤을 때 보이는 내용 */
   simBody?: React.ReactNode;
   /** 샌드박스 칩별 펼친 내용 */
-  sandbox?: Partial<Record<'move' | 'view' | 'shoot' | 'scene', React.ReactNode>>;
+  sandbox?: Partial<Record<'shoot' | 'scene', React.ReactNode>>;
   /** 값이 증가하면 펼친 시트를 접습니다(미리보기 시작 등) */
   collapseNonce?: number;
-  /** 샌드박스 "이동" · "보기" 칩을 켰을 때 가운데 셔터 자리에 대신 놓을 조이스틱 */
-  shutterMove?: React.ReactNode;
-  shutterView?: React.ReactNode;
+  /** 하단 독 고정 높이 콜백 */
+  onDockHeight?: (h: number) => void;
   /** 태양 따라가기 칩 활성 여부 및 토글 */
   sunTracked?: boolean;
   onToggleTrackSun?: () => void;
@@ -77,22 +76,20 @@ interface Props {
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, collapseNonce = 0, shutterMove, shutterView, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
+  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | 'shoot' | null>(null);
-  const [shutterTool, setShutterTool] = React.useState<'move' | 'view' | null>(null);
   const simBodyOpen = mode === 'simulation' && stage !== 'min';
   const simBodyCb = React.useRef(onSimBodyOpenChange);
   simBodyCb.current = onSimBodyOpenChange;
   React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
-  React.useEffect(() => { if (mode !== 'sandbox') setShutterTool(null); }, [mode]);
   React.useEffect(() => { if (collapseNonce > 0) { setStage('min'); setActive(null); } }, [collapseNonce]);
   const modes = React.useMemo(() => modeList(false), []);
   const off = dayOffset(timeMs, nowMs, tz);
 
   const firstSandboxTab = React.useMemo(
-    () => (['shoot', 'scene', 'move', 'view'] as const).find(k => sandbox?.[k]) ?? null,
+    () => (['shoot', 'scene'] as const).find(k => sandbox?.[k]) ?? null,
     [sandbox],
   );
 
@@ -113,12 +110,6 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return jumpDay(-1);
     if (c === 'today') return jumpDay(0);
     if (c === 'tomorrow') return jumpDay(1);
-    if (c === 'move' || c === 'view') {
-      setShutterTool(prev => (prev === c ? null : c));
-      if (stage !== 'min') setStageSafe('min');
-      return;
-    }
-    setShutterTool(null);
     // 날짜 · 촬영 · 장면: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
     if (active === c && stage !== 'min') { setStageSafe('min'); return; }
     setActive(c);
@@ -136,14 +127,13 @@ export const SkyFrame: React.FC<Props> = ({
     if (c === 'yesterday') return off === -1;
     if (c === 'today') return off === 0;
     if (c === 'tomorrow') return off === 1;
-    if (c === 'move' || c === 'view') return shutterTool === c;
     return active === c && stage !== 'min';
   };
 
   let expanded: React.ReactNode | ((maxH: number) => React.ReactNode) = null;
   if (mode === 'sandbox') {
-    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'shoot' | 'scene'])
-      ? (active as 'move' | 'view' | 'shoot' | 'scene')
+    const sbTab = (active && active !== 'date' && sandbox?.[active as 'shoot' | 'scene'])
+      ? (active as 'shoot' | 'scene')
       : firstSandboxTab;
     if (sbTab && sandbox?.[sbTab]) {
       expanded = (maxH: number) => (
@@ -165,7 +155,7 @@ export const SkyFrame: React.FC<Props> = ({
   }
 
   const sandboxChipOrder: (ChipId | 'shoot')[] = sandbox?.shoot
-    ? ['move', 'view', 'shoot', 'scene']
+    ? ['shoot', 'scene']
     : chips;
 
   const dockChips: BottomDockChip[] = mode === 'simulation'
@@ -199,11 +189,6 @@ export const SkyFrame: React.FC<Props> = ({
       }));
 
   const effectiveShowNow = showNow ?? (Math.abs(timeMs - nowMs) > 60_000);
-  const centerOverride = mode === 'sandbox' && shutterTool === 'move' && shutterMove
-    ? shutterMove
-    : mode === 'sandbox' && shutterTool === 'view' && shutterView
-      ? shutterView
-      : undefined;
 
   return (
     <>
@@ -215,6 +200,7 @@ export const SkyFrame: React.FC<Props> = ({
         language={language}
         stage={stage}
         onStageChange={setStageSafe}
+        onDockHeight={onDockHeight}
         expanded={expanded}
         fitContent
         chips={dockChips}
@@ -250,7 +236,6 @@ export const SkyFrame: React.FC<Props> = ({
           accessibilityLabel: L3(language, '장면 저장', 'Save scene', 'シーン保存'),
           onPress: onSaveScene,
         }}
-        centerOverride={centerOverride}
         shutterLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')}
         shutterInner={<Camera size={22} color={DARK.onAccent} />}
         onShutter={onShoot}

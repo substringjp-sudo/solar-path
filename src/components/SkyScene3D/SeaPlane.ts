@@ -329,6 +329,7 @@ uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAY
 uniform sampler2D uWaterMaskTex;
 uniform float uWaterMaskValid;
 uniform float uWaterMaskHalfM;
+uniform vec2  uWaterMaskEyeOffset;
 #ifdef SEA_LIT_OUT
 layout(location = 1) out highp vec4 pc_fragColor1;
 layout(location = 2) out highp vec4 pc_fragColor2;
@@ -372,7 +373,7 @@ void main() {
     :                          1.0;
   if (vWater < 0.5 || seaZone < 0.5) discard;
   if (uWaterMaskValid > 0.5) {
-    vec2 wUv = (vGround.xz + uWaterMaskHalfM) / max(1.0, 2.0 * uWaterMaskHalfM);
+    vec2 wUv = (vGround.xz + uWaterMaskEyeOffset + uWaterMaskHalfM) / max(1.0, 2.0 * uWaterMaskHalfM);
     if (wUv.x > 0.02 && wUv.x < 0.98 && wUv.y > 0.02 && wUv.y < 0.98) {
       float mvtWater = texture2D(uWaterMaskTex, wUv).g;
       if (mvtWater < 0.25) discard;
@@ -556,6 +557,7 @@ export interface SeaPlaneHandle {
   /** 눈이 (lat, lon) 으로 옮겨 갔다고 알립니다(`TerrainFieldHandle.setObserver` 와 같음). */
   setObserver: (lat: number, lon: number) => void;
   setWaterMask: (tex: THREE.Texture | null, halfM?: number) => void;
+  setWaterMaskEyeOffset?: (eastM: number, southM: number) => void;
   dispose: () => void;
 }
 
@@ -612,6 +614,7 @@ export function createSeaPlane(opts: {
       uWaterMaskTex: { value: createOpenSkyShadowTexture() },
       uWaterMaskValid: { value: 0 },
       uWaterMaskHalfM: { value: 3200 },
+      uWaterMaskEyeOffset: { value: new THREE.Vector2(0, 0) },
       ...makeTerrainLookUniforms(),
       ...makeTuningUniforms(),
     },
@@ -681,6 +684,10 @@ export function createSeaPlane(opts: {
       material.uniforms.uWaterMaskTex.value = tex;
       material.uniforms.uWaterMaskHalfM.value = halfM;
       material.uniforms.uWaterMaskValid.value = 1;
+    },
+    setWaterMaskEyeOffset: (eastM, southM) => {
+      const v = material.uniforms.uWaterMaskEyeOffset?.value as THREE.Vector2 | undefined;
+      if (v) v.set(Number.isFinite(eastM) ? eastM : 0, Number.isFinite(southM) ? southM : 0);
     },
     dispose: () => {
       mesh.geometry.dispose();
