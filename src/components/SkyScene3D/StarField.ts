@@ -89,8 +89,8 @@ void main() {
   vColor = aColor;
 
   // 밝은 별일수록 크게. 등급 차이는 알파보다 크기로 읽히는 편이 자연스럽습니다.
-  // 행성은 한 단계 더 크게 그려 항성과 구분되게 합니다.
-  float size = (1.3 + 3.4 * pow(clamp(vis, 0.0, 1.0), 0.55)) * (1.0 + aKind * 0.55);
+  // 행성은 살짝만 더 크게 그려 항성과 구분하되, 달 원반(기본 화각 ~6.9dp)보다 확실히 작은 광점으로 유지합니다.
+  float size = (1.0 + 2.0 * pow(clamp(vis, 0.0, 1.0), 0.60)) * (1.0 + aKind * 0.15);
   gl_PointSize = size * uPixelRatio;
 
   gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
@@ -109,8 +109,8 @@ void main() {
   // 점을 원형으로 다듬고 가장자리를 부드럽게 (사각형 점은 바로 티가 납니다)
   vec2 d = gl_PointCoord - 0.5;
   float r = length(d) * 2.0;
-  // 중심은 포화시키고 바깥만 떨어뜨립니다 — 별은 작고 단단한 광점입니다.
-  float core = 1.0 - smoothstep(0.35, 1.0, r);
+  // 중심은 작고 단단하게 포화시키고 바깥만 부드럽게 떨어뜨립니다 — 별과 행성은 원반이 아닌 광점입니다.
+  float core = 1.0 - smoothstep(0.18, 0.85, r);
   // 밝은 별에 약한 헤일로를 더해 반짝이는 느낌을 냅니다
   float halo = pow(1.0 - clamp(r, 0.0, 1.0), 3.0);
 
