@@ -987,6 +987,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastAppliedTuningRef = useRef<unknown>(null);
   const locationRef = useRef(location);
   const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
+  const lastCityPatchRef = useRef<{ field: TerrainFieldHandle; patch: Float32Array | null } | null>(null);
   const cityExpCompRef = useRef<number>(1);
   const overrideStartBucketMsRef = useRef<number | null>(null);
   const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
@@ -4003,12 +4004,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const nightFade = nightT * nightT * (3 - 2 * nightT);
       const cloudBounce = 1.0 + 0.65 * Math.min(1, Math.max(0, overcast));
       const expComp = cityExpCompRef.current;
-      const cityTerrainGain = cityLightsOn ? 0.028 * (0.55 * skyGlow + 0.45 * localNorm) * cloudBounce * nightFade * expComp : 0;
+      const baseCityTerrainGain = cityLightsOn ? 0.028 * cloudBounce * nightFade * expComp : 0;
+      const hasCityPatch = Boolean(cityLightsOn && cityField && cityField.patch.length > 0);
+      const cityTerrainGain = hasCityPatch
+        ? baseCityTerrainGain * 0.35 * skyGlow
+        : baseCityTerrainGain * (0.55 * skyGlow + 0.45 * localNorm);
+      const cityPatchScale = hasCityPatch ? baseCityTerrainGain * 0.65 : 0;
       const cityWallGain = cityLightsOn ? 0.045 * skyGlow * cloudBounce * nightFade * expComp : 0;
 
       if (terrainFieldRef.current) {
-        const tu = terrainFieldRef.current.material.uniforms;
+        const tf = terrainFieldRef.current;
+        const nextPatch = cityField?.patch ?? null;
+        if (lastCityPatchRef.current?.field !== tf || lastCityPatchRef.current?.patch !== nextPatch) {
+          tf.setCityPatch(nextPatch, cityField?.n ?? 0, cityField?.halfKm ?? 0);
+          lastCityPatchRef.current = { field: tf, patch: nextPatch };
+        }
+        const tu = tf.material.uniforms;
         if (tu.uCityTerrainGain) tu.uCityTerrainGain.value = cityTerrainGain;
+        if (tu.uCityPatchScale) tu.uCityPatchScale.value = cityPatchScale;
         if (tu.uCityDirXZ?.value) (tu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
       }
       if (buildingFieldRef.current) {

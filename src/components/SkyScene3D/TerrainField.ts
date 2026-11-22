@@ -415,6 +415,10 @@ float waterHiRaw(vec2 g) {
 uniform float uFarUrban;
 uniform float uCityTerrainGain;
 uniform vec2  uCityDirXZ;
+uniform sampler2D uCityPatchTex;
+uniform float uCityPatchValid;
+uniform float uCityPatchHalfM;
+uniform float uCityPatchScale;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -1082,9 +1086,18 @@ void main() {
   }
 
   // ── 지역 빛지도 기반 야간 지형 간접 반사 (2900~3100K 도시광) ───────────
-  if (uCityTerrainGain > 1e-5) {
+  float cityPatchVal = 0.0;
+  if (uCityPatchValid > 0.5 && uCityPatchScale > 1e-5) {
+    vec2 cUv = vec2(vGround.x + uCityPatchHalfM, -vGround.y + uCityPatchHalfM) / max(1.0, 2.0 * uCityPatchHalfM);
+    if (cUv.x > 0.0 && cUv.x < 1.0 && cUv.y > 0.0 && cUv.y < 1.0) {
+      float edge = 1.0 - smoothstep(0.85, 1.0, max(abs(cUv.x * 2.0 - 1.0), abs(cUv.y * 2.0 - 1.0)));
+      cityPatchVal = texture2D(uCityPatchTex, cUv).r * 1.25 * edge;
+    }
+  }
+  float cityGainHere = uCityTerrainGain + uCityPatchScale * cityPatchVal;
+  if (cityGainHere > 1e-5) {
     float cSlope = 0.70 + 0.30 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
-    col += alb * vec3(1.00, 0.787, 0.573) * (uCityTerrainGain * cSlope);
+    col += alb * vec3(1.00, 0.787, 0.573) * (cityGainHere * cSlope);
   }
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────
@@ -1287,6 +1300,8 @@ export interface TerrainFieldHandle {
   waterMaskTex: () => THREE.Texture | null;
   /** 빛지도 등 거시 도시 밀도(0~1)를 전달해 원경(3km 밖) 및 로드 전 바닥 회색 톤을 조절합니다. */
   setFarUrban: (farUrban: number) => void;
+  /** 관측점 중심 ±halfKm 공간별 빛지도 격자(n×n)를 텍스처로 전달합니다. */
+  setCityPatch: (patch: Float32Array | null, n: number, halfKm: number) => void;
   /**
    * 해 방위의 지평선 능선을 굽습니다(SUN_SHADOW_BAKE_FRAG). 해 방위(uSunAzRad)·지형·눈높이가
    * 그대로면 아무것도 안 합니다 — 매 프레임 불러도 됩니다. 그리기 전에 부릅니다.
@@ -1334,6 +1349,7 @@ export function createTerrainField(opts: {
   const emptyUrbanTex = createEmptyUrbanTexture();
   let activeUrbanTex: THREE.DataTexture | null = null;
   let activePaveTex: THREE.DataTexture | null = null;
+  let activeCityPatchTex: THREE.DataTexture | null = null;
   // 성긴 패치는 **늘** 튀는 화소를 걷어냅니다. 저줌 Terrarium 타일의 R 채널
   // 결함이 8.96° 짜리 첨탑으로 서는 것을 막습니다(계획서 8.1절). 촘촘한
   // 패치에는 걸지 않습니다 — 진짜 능선이 깎입니다.
@@ -1397,6 +1413,10 @@ export function createTerrainField(opts: {
       uShadow: { value: 1.0 },
       uCityTerrainGain: { value: 0.0 },
       uCityDirXZ: { value: new THREE.Vector2(0, -1) },
+      uCityPatchTex: { value: emptyUrbanTex },
+      uCityPatchValid: { value: 0 },
+      uCityPatchHalfM: { value: 60000 },
+      uCityPatchScale: { value: 0.0 },
       uDemDespike: { value: opts.despike ? 1 : 0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
@@ -1696,6 +1716,34 @@ export function createTerrainField(opts: {
     setFarUrban: (farUrban) => {
       material.uniforms.uFarUrban.value = Math.max(0, Math.min(1, Number.isFinite(farUrban) ? farUrban : 0));
     },
+    setCityPatch: (patch, n, halfKm) => {
+      if (!patch || n <= 0 || patch.length < n * n || halfKm <= 0) {
+        material.uniforms.uCityPatchValid.value = 0;
+        material.uniforms.uCityPatchTex.value = emptyUrbanTex;
+        activeCityPatchTex?.dispose();
+        activeCityPatchTex = null;
+        return;
+      }
+      const rgba = new Uint8Array(n * n * 4);
+      for (let i = 0; i < n * n; i++) {
+        const q = Math.round(Math.max(0, Math.min(1, patch[i] / 1.25)) * 255);
+        rgba[i * 4] = q;
+        rgba[i * 4 + 1] = q;
+        rgba[i * 4 + 2] = q;
+        rgba[i * 4 + 3] = 255;
+      }
+      activeCityPatchTex?.dispose();
+      activeCityPatchTex = new THREE.DataTexture(rgba, n, n, THREE.RGBAFormat);
+      activeCityPatchTex.colorSpace = THREE.NoColorSpace;
+      activeCityPatchTex.minFilter = THREE.LinearFilter;
+      activeCityPatchTex.magFilter = THREE.LinearFilter;
+      activeCityPatchTex.wrapS = THREE.ClampToEdgeWrapping;
+      activeCityPatchTex.wrapT = THREE.ClampToEdgeWrapping;
+      activeCityPatchTex.needsUpdate = true;
+      material.uniforms.uCityPatchTex.value = activeCityPatchTex;
+      material.uniforms.uCityPatchHalfM.value = halfKm * 1000;
+      material.uniforms.uCityPatchValid.value = 1;
+    },
     dispose: () => {
       mesh.geometry.dispose();
       material.dispose();
@@ -1711,6 +1759,8 @@ export function createTerrainField(opts: {
       emptyUrbanTex.dispose();
       activeUrbanTex?.dispose();
       activeUrbanTex = null;
+      activeCityPatchTex?.dispose();
+      activeCityPatchTex = null;
       unbindLook();
       ambientBake.dispose();
     },
