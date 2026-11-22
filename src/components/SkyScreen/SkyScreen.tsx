@@ -107,6 +107,8 @@ interface SkyScreenProps {
   isCameraOverlayActive?: boolean;
   /** 점수 숫자 · 왜 그런가요 · 별 보기 카드 · 다가오는 좋은 순간 카드 · 구름 한 줄을 누르면 — 02 학습으로 가서 그 구역 · 주제 · 날로 맞춥니다(App 이 탭을 바꿉니다). */
   onOpenLearn?: (entry: Omit<LearnEntry, 'nonce'>) => void;
+  /** 하단 모드 줄에서 "데이터"를 고를 때 */
+  onOpenData?: () => void;
 }
 
 export interface EventItem {
@@ -132,6 +134,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   onOpenDatePicker,
   isCameraOverlayActive = false,
   onOpenLearn,
+  onOpenData,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   // 2026-11-19 초보자 화면 덜어내기(docs/SANDBOX_MODE_PLAN.md 2.4): 꺼짐이 기본, 켜면 지금까지의 모든 조작.
@@ -1348,6 +1351,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           scoreSamples={scoreGraph ? scoreGraph.points : null}
           mode={expertMode ? 'sandbox' : 'simulation'}
           onSwitch={(sw) => {
+            if (sw.mode === 'data') { onOpenData?.(); return; }
             if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
             // 모드 줄로 카메라에 들어가면 방향을 고정하지 않습니다(촬영 버튼을 누를 때만 고정).
             useCelestialStore.getState().setCameraScene(null);

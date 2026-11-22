@@ -130,6 +130,7 @@ interface SunCameraProps {
   goldenTimeInfo: GoldenTimeInfo;
   onViewModeChange?: (mode: CameraViewMode) => void;
   onSettingsPress?: () => void;
+  onOpenData?: () => void;
 }
 
 const stampPhoto = async (
@@ -245,6 +246,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   goldenTimeInfo,
   onViewModeChange,
   onSettingsPress,
+  onOpenData,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
   // 전체 화면 카메라 — 안드로이드에서는 App.tsx의 paddingTop(statusBarHeight)과 동일하게 알림바 아래부터 시작해
@@ -2945,6 +2947,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               stripMode={timelapseMode ? 'timelapse' : eclipseOn ? 'event' : cameraTab === 'astro' ? 'astro' : 'photo'}
               stripModes={eclipseBase ? CAMERA_STRIP_MODES_EVENT : CAMERA_STRIP_MODES}
               onPickMode={(m) => {
+                if (m === 'data') { onOpenData?.(); onClose(); return; }
                 if (m === 'simulation' || m === 'sandbox') { useCelestialStore.getState().setExpertMode(m === 'sandbox'); onClose(); return; }
                 const key = captureKeyFor(m);
                 if (key) pickMode(key);
@@ -2986,7 +2989,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: space.md,
     right: space.md,
-    height: 38,
+    height: TOUCH,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

@@ -28,21 +28,19 @@
  *
  * (옛 구조의 이력: docs/IA_REDESIGN.md — 카테고리 드롭다운 × 서브탭 → 평면 3탭 → 2탭 → 지금의 3탭.)
  */
-import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, Animated, useWindowDimensions } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, View, Text } from 'react-native';
 import { Globe, MapPin, Settings, SlidersHorizontal } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
-import { radius, mono, space, type, TOUCH } from '../theme/tokens';
+import { radius, space, type, TOUCH } from '../theme/tokens';
 import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
 import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
-import { GLASS, TEXT } from '../theme/glassTokens';
+import { TEXT } from '../theme/glassTokens';
 import { HEADER_HEIGHT, HEADER_PAD_BOTTOM, HEADER_PAD_TOP, HEADER_ROW, headerMaterial } from '../utils/headerLayout';
-import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
-import { tabLabel } from '../utils/tabLabels';
 
 /** 앱의 최상위 화면. 데이터(-1 왼쪽) · 하늘(메인). */
 export type AppTab = 'learn' | 'sky';
@@ -89,7 +87,6 @@ interface AppHeaderProps {
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
   activeTab,
-  setActiveTab,
   setSettingsVisible,
   setMapVisible,
 }) => {
@@ -105,91 +102,44 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     [location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName],
   );
 
-  // 탭이 셋이 되어 좁은 폭(360 미만)에서는 장소 이름을 접고 핀만 둡니다 — 이름은 읽기 라벨에 그대로 남습니다.
-  const showPlaceName = useWindowDimensions().width >= 360;
-
-  const activeIndex = useMemo(() => {
-    const i = TAB_ORDER.indexOf(activeTab);
-    return i >= 0 ? i : 0;
-  }, [activeTab]);
-
-  const indicatorAnim = useRef(new Animated.Value(activeIndex)).current;
-  useEffect(() => {
-    timeTo(indicatorAnim, activeIndex, 'base', 'enter', { useNativeDriver: false }).start();
-  }, [activeIndex, indicatorAnim]);
-
-  const indicatorLeft = indicatorAnim.interpolate({
-    inputRange: APP_TABS.map((_, i) => i),
-    outputRange: APP_TABS.map((_, i) => `${(i * 100) / APP_TABS.length}%`),
-  });
-
   const glass = headerMaterial(activeTab) === 'glass';
   const g = glass ? glassStyles : null;
-
-  const tabs = APP_TABS.map(tab => {
-    const isActive = activeTab === tab.id;
-    return (
-      <PressScale
-        key={tab.id}
-        testID={`hdr-tab-${tab.id}`}
-        onPress={() => setActiveTab(tab.id)}
-        style={styles.navButton}
-        activeOpacity={0.8}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: isActive }}
-        aria-selected={isActive}
-      >
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.navText,
-            glass ? [{ color: TEXT }, glassTextShadow] : { color: isActive ? color.accent : color.textMute },
-            isActive && { fontWeight: '600' },
-          ]}
-        >
-          {/* 숫자 없이 이름만: 데이터 · 하늘 */}
-          {tabLabel(tab.id, language)}
-        </Text>
-      </PressScale>
-    );
-  });
-  const indicator = (
-    <Animated.View
-      style={[
-        glass ? g!.navIndicator : styles.navIndicator,
-        { left: indicatorLeft, width: `${100 / APP_TABS.length}%` },
-      ]}
-    />
-  );
   const placeLabelText = `${L3(language, '위치 변경', 'Change location', '位置を変更')}${place ? ` — ${place}` : ''}`;
 
   return (
     <View style={styles.header} pointerEvents="box-none">
       <View style={styles.headerTop} pointerEvents="box-none">
         {glass ? (
-          <GlassSurface testID="hdr-tabs" style={g!.navToggle}>
-            {indicator}
-            {tabs}
-          </GlassSurface>
-        ) : (
-          <View style={styles.navToggle}>
-            {indicator}
-            {tabs}
-          </View>
-        )}
-
-        <View style={styles.rightButtons}>
-          {setMapVisible && (
+          setMapVisible ? (
             <PressScale
               testID="hdr-place"
               onPress={() => setMapVisible(true)}
-              style={glass ? g!.placeBtn : styles.placeBtn}
+              style={g!.placeBtn}
               accessibilityLabel={placeLabelText}
               accessibilityRole="button"
             >
-              {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
-              <MapPin size={13} color={glass ? TEXT : color.accent} />
-              {!!place && showPlaceName && <Text style={[styles.placeText, glass && [{ color: TEXT }, glassTextShadow]]} numberOfLines={1}>{place}</Text>}
+              <GlassSurface style={StyleSheet.absoluteFill} />
+              <MapPin size={12} color={TEXT} />
+              <Text style={[styles.placeText, { color: TEXT }, glassTextShadow]} numberOfLines={1}>
+                {place ?? L3(language, '위치', 'Place', '場所')}
+              </Text>
+            </PressScale>
+          ) : <View />
+        ) : (
+          <Text style={styles.dataTitle}>{L3(language, '데이터', 'Data', 'データ')}</Text>
+        )}
+
+        <View style={styles.rightButtons}>
+          {!glass && setMapVisible && (
+            <PressScale
+              testID="hdr-place"
+              onPress={() => setMapVisible(true)}
+              style={styles.placeBtn}
+              accessibilityLabel={placeLabelText}
+              accessibilityRole="button"
+            >
+              <MapPin size={12} color={color.accent} />
+              {!!place && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
             </PressScale>
           )}
 
@@ -236,13 +186,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   );
 };
 
-/** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다. */
-const GLASS_TINT = `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})`;
+/** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다 — 사진 상단 줄(`modeAz` · `GlassIconButton`)과 같은 크기 · 둥글기. */
 const glassStyles = StyleSheet.create({
-  navToggle: { flexDirection: 'row', height: HEADER_ROW, width: 120, borderRadius: HEADER_ROW / 2, position: 'relative' },
-  navIndicator: { position: 'absolute', top: 0, bottom: 0, borderRadius: HEADER_ROW / 2, backgroundColor: GLASS_TINT },
-  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: HEADER_ROW, minWidth: TOUCH, maxWidth: 118, paddingHorizontal: 10, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center' },
-  iconBtn: { width: TOUCH, height: HEADER_ROW, borderRadius: HEADER_ROW / 2, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TOUCH, maxWidth: 180, paddingHorizontal: 12, borderRadius: TOUCH / 2, overflow: 'hidden', justifyContent: 'center' },
+  iconBtn: { width: TOUCH, height: TOUCH, borderRadius: TOUCH / 2, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
 });
 
 const useStyles = makeStyles((color) => ({
@@ -259,65 +206,38 @@ const useStyles = makeStyles((color) => ({
     paddingHorizontal: space.md,
   },
   headerTop: {
+    height: TOUCH,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 6,
   },
-  /** 탭 · 아이콘 버튼 모두 높이 40(touch), 사진 상단 줄과 크기·배치를 맞춤. */
-  navToggle: {
-    flexDirection: 'row',
-    height: TOUCH,
-    width: 120,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.panel,
-    position: 'relative',
-  },
-  navIndicator: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    borderRadius: radius.xs,
-    backgroundColor: color.accentSoft,
-    borderBottomWidth: 2,
-    borderBottomColor: color.accent,
-  },
-  navButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.xs,
-    zIndex: 2,
-  },
-  navText: {
-    fontSize: 11,
-    fontFamily: mono,
-    fontWeight: '400',
-    letterSpacing: 0.3,
+  dataTitle: {
+    ...type.title,
+    fontSize: 16,
+    color: color.text,
   },
   rightButtons: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  /** 위치 버튼 — 지금 어느 하늘인지 이름으로 보여 줍니다(예전에는 핀 아이콘만). */
+  /** 위치 버튼 — 지금 어느 하늘인지 이름으로 보여 줍니다. */
   placeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     height: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 118,
-    paddingHorizontal: 10,
+    maxWidth: 148,
+    paddingHorizontal: 12,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.panel,
     justifyContent: 'center',
   },
-  placeText: { fontSize: 11, fontWeight: '500', color: color.text, flexShrink: 1 },
+  placeText: { fontSize: 11, lineHeight: 14, fontWeight: '500', includeFontPadding: false, color: color.text, flexShrink: 1 },
   iconBtn: {
     width: TOUCH,
     height: TOUCH,

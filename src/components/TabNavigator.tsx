@@ -20,6 +20,8 @@ import { TAB_ORDER, type AppTab } from './AppHeader';
 import { contentInsetTop } from '../utils/headerLayout';
 import type { LearnEntry } from '../utils/learnSections';
 import { springTo } from '../theme/motion';
+import { ModeStrip } from './glass/ModeStrip';
+import { modeList } from '../utils/modeStrip';
 
 interface TabNavigatorProps {
   activeTab: AppTab;
@@ -146,6 +148,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
     })
   ).current;
 
+  const language = useCelestialStore(s => s.language);
+  const learnModes = useMemo(() => modeList(false), []);
   const learnEl = useMemo(
     () => (
       <LearnScreen
@@ -173,6 +177,21 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           style={[styles.page, { width, paddingTop: contentInsetTop('learn') }]}
         >
           {learnEl}
+          <View style={styles.dataBottomBar}>
+            <ModeStrip
+              mode="data"
+              modes={learnModes}
+              language={language}
+              onPick={(m) => {
+                if (m === 'data') return;
+                if (m === 'simulation') { useCelestialStore.getState().setExpertMode(false); setActiveTab('sky'); return; }
+                if (m === 'sandbox') { useCelestialStore.getState().setExpertMode(true); setActiveTab('sky'); return; }
+                useCelestialStore.getState().setCameraScene(null);
+                setActiveTab('sky');
+                onCameraPress?.();
+              }}
+            />
+          </View>
         </View>
         <View
           pointerEvents={activeTab === 'sky' ? 'auto' : 'none'}
@@ -193,6 +212,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             isActive={activeTab === 'sky' && !isSuspended}
             isCameraOverlayActive={isCameraOverlayActive}
             onOpenLearn={openLearn}
+            onOpenData={() => setActiveTab('learn')}
           />
         </View>
       </Animated.View>
@@ -211,5 +231,14 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+  },
+  dataBottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 6,
+    paddingBottom: 6,
+    backgroundColor: 'rgba(12, 16, 26, 0.9)',
   },
 });

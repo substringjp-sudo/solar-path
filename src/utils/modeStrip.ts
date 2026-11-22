@@ -9,18 +9,18 @@
  */
 import type { CaptureModeKey } from './captureMode';
 
-export type AppMode = 'simulation' | 'sandbox' | 'photo' | 'astro' | 'timelapse' | 'event';
+export type AppMode = 'data' | 'simulation' | 'sandbox' | 'photo' | 'astro' | 'timelapse' | 'event';
 type Lang = 'ko' | 'en' | 'ja';
 
-const BASE_MODES: readonly AppMode[] = ['simulation', 'sandbox', 'photo', 'astro', 'timelapse'];
+const BASE_MODES: readonly AppMode[] = ['data', 'simulation', 'sandbox', 'photo', 'astro', 'timelapse'];
 
 /** 모드 줄에 놓일 모드들. 이벤트는 월식 같은 날에만 맨 끝에 붙습니다. */
 export function modeList(eventAvailable: boolean = false): AppMode[] {
   return eventAvailable === true ? [...BASE_MODES, 'event'] : [...BASE_MODES];
 }
 
-/** 카메라 쪽 모드인가(시뮬레이션과 샌드박스는 하늘 쪽). */
-export const isCamera = (m: AppMode): boolean => m !== 'simulation' && m !== 'sandbox';
+/** 카메라 쪽 모드인가(데이터 · 시뮬레이션 · 샌드박스는 비카메라). */
+export const isCamera = (m: AppMode): boolean => m !== 'data' && m !== 'simulation' && m !== 'sandbox';
 
 /** 기존 촬영 모드 키로 옮김. 하늘 쪽 모드는 null. */
 export function captureKeyFor(m: AppMode): CaptureModeKey | null {
@@ -37,6 +37,7 @@ const pick = (l: Lang, ko: string, en: string, ja: string): string => (l === 'en
 
 export function modeName(m: AppMode, l: Lang): string {
   switch (m) {
+    case 'data': return pick(l, '데이터', 'Data', 'データ');
     case 'simulation': return pick(l, '시뮬레이션', 'Simulation', 'シミュレーション');
     case 'sandbox': return pick(l, '샌드박스', 'Sandbox', 'サンドボックス');
     case 'photo': return pick(l, '사진', 'Photo', '写真');
@@ -124,7 +125,7 @@ export type ChipId = 'yesterday' | 'today' | 'tomorrow' | 'date' | 'move' | 'vie
 
 /** 하늘 쪽 모드의 기초 칩. 시뮬레이션은 없음(날짜는 자 왼쪽 하나). 카메라 쪽은 칩이 따로라 null. 샌드박스는 높이와 줌을 "보기"로 합쳤습니다. */
 export function chipsFor(m: AppMode): ChipId[] | null {
-  if (m === 'simulation') return []; // 날짜는 시간 자 왼쪽 하나(위아래로 밀면 다른 날)
+  if (m === 'data' || m === 'simulation') return []; // 날짜는 시간 자 왼쪽 하나(위아래로 밀면 다른 날)
   if (m === 'sandbox') return ['move', 'view', 'scene'];
   return null;
 }

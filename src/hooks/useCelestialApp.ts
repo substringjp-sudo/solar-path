@@ -293,8 +293,9 @@ export function useCelestialApp() {
   useEffect(() => {
     if (isAppReady && !hasInitializedTab.current) {
       hasInitializedTab.current = true;
-      // 저장·전달된 값이 옛 'map' · 'log' 이면 하늘로.
-      const startTab: AppTab = (TAB_ORDER as string[]).includes(initialTab) ? (initialTab as AppTab) : 'sky';
+      // 앱 진입 시 기본 페이지는 항상 시뮬레이션('sky', expertMode: false)으로 엽니다.
+      const startTab: AppTab = initialTab === 'learn' ? 'learn' : 'sky';
+      if (startTab === 'sky') useCelestialStore.getState().setExpertMode(false);
       setActiveTabState(startTab);
       const toIdx = tabOrder.indexOf(startTab);
       contentTranslateX.setValue(-Math.max(0, toIdx) * width);

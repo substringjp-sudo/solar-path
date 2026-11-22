@@ -47,32 +47,32 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
 
   const L5 = M.modeList(), L6 = M.modeList(true);
   console.log('\n[1~3] 목록 · 종류 · 이름');
-  ok(J(L5) === J(['simulation', 'sandbox', 'photo', 'astro', 'timelapse']) && J(M.modeList(false)) === J(L5), '기본 목록 다섯 개(이벤트 없음)');
+  ok(J(L5) === J(['data', 'simulation', 'sandbox', 'photo', 'astro', 'timelapse']) && J(M.modeList(false)) === J(L5), '기본 목록 여섯 개(데이터 · 시뮬 · 샌드박스 · 사진 · 천체 · 타임랩스)');
   ok(J(L6) === J([...L5, 'event']), '이벤트가 있으면 맨 끝에 하나 붙는다');
   ok(![...L5, ...L6].some(k => /sunset|normal|glow/i.test(k)), '노을 모드는 없다');
-  ok(!M.isCamera('simulation') && !M.isCamera('sandbox') && ['photo', 'astro', 'timelapse', 'event'].every(M.isCamera), 'isCamera');
-  ok(J(['simulation', 'sandbox', 'photo', 'astro', 'timelapse', 'event'].map(M.captureKeyFor)) === J([null, null, 'normal', 'astro', 'timelapse', 'event']), 'captureKeyFor');
+  ok(!M.isCamera('data') && !M.isCamera('simulation') && !M.isCamera('sandbox') && ['photo', 'astro', 'timelapse', 'event'].every(M.isCamera), 'isCamera');
+  ok(J(['data', 'simulation', 'sandbox', 'photo', 'astro', 'timelapse', 'event'].map(M.captureKeyFor)) === J([null, null, null, 'normal', 'astro', 'timelapse', 'event']), 'captureKeyFor');
   const names = (l) => L6.map(k => M.modeName(k, l));
-  ok(J(names('ko')) === J(['시뮬레이션', '샌드박스', '사진', '천체', '타임랩스', '이벤트']), '한국어 이름');
-  ok(J(names('en')) === J(['Simulation', 'Sandbox', 'Photo', 'Astro', 'Timelapse', 'Event']), '영어 이름');
-  ok(J(names('ja')) === J(['シミュレーション', 'サンドボックス', '写真', '天体', 'タイムラプス', 'イベント']), '일본어 이름');
+  ok(J(names('ko')) === J(['데이터', '시뮬레이션', '샌드박스', '사진', '천체', '타임랩스', '이벤트']), '한국어 이름');
+  ok(J(names('en')) === J(['Data', 'Simulation', 'Sandbox', 'Photo', 'Astro', 'Timelapse', 'Event']), '영어 이름');
+  ok(J(names('ja')) === J(['データ', 'シミュレーション', 'サンドボックス', '写真', '天体', 'タイムラプス', 'イベント']), '일본어 이름');
   ok(L6.every((k, i) => new Set(['ko', 'en', 'ja'].map(l => names(l)[i])).size === 3), '세 언어가 모드마다 다르다');
 
   console.log('\n[4] 칸 옮기기');
-  ok(M.stepBy(L5, 'simulation', 2) === 'photo' && M.stepBy(L5, 'photo', -1) === 'sandbox' && M.stepBy(L5, 'timelapse', 3) === 'timelapse' && M.stepBy(L5, 'simulation', -2) === 'simulation', '옮기고 양 끝에서 멈춘다(돌아가지 않는다)');
-  ok(M.stepBy(L5, 'nope', 1) === 'sandbox' && M.stepBy(L5, 'photo', NaN) === 'photo' && M.stepBy(L5, 'photo', 0) === 'photo', '지금이 목록에 없으면 첫 모드에서, 칸 수가 숫자가 아니면 0');
+  ok(M.stepBy(L5, 'simulation', 2) === 'photo' && M.stepBy(L5, 'photo', -1) === 'sandbox' && M.stepBy(L5, 'timelapse', 3) === 'timelapse' && M.stepBy(L5, 'simulation', -2) === 'data', '옮기고 양 끝에서 멈춘다(돌아가지 않는다)');
+  ok(M.stepBy(L5, 'nope', 1) === 'simulation' && M.stepBy(L5, 'photo', NaN) === 'photo' && M.stepBy(L5, 'photo', 0) === 'photo', '지금이 목록에 없으면 첫 모드에서, 칸 수가 숫자가 아니면 0');
 
   console.log('\n[5~6] 들어가는 규칙과 고르기');
   const Lg = M.landing;
   ok(Lg('simulation', 'astro') === 'photo' && Lg('sandbox', 'timelapse') === 'photo' && Lg('sandbox', 'photo') === 'photo', '시뮬레이션 · 샌드박스에서 카메라 쪽으로 가면 사진에 내린다');
-  ok(Lg('photo', 'astro') === 'astro' && Lg('astro', 'sandbox') === 'sandbox' && Lg('astro', 'timelapse') === 'timelapse' && Lg('simulation', 'sandbox') === 'sandbox', '그 밖에는 목표 그대로');
+  ok(Lg('photo', 'astro') === 'astro' && Lg('astro', 'sandbox') === 'sandbox' && Lg('astro', 'timelapse') === 'timelapse' && Lg('simulation', 'sandbox') === 'sandbox' && Lg('simulation', 'data') === 'data', '그 밖에는 목표 그대로');
   ok(M.pickMode(L5, 'simulation', 'astro') === 'photo' && M.pickMode(L5, 'photo', 'simulation') === 'simulation' && M.pickMode(L5, 'photo', 'event') === 'photo' && M.pickMode(L6, 'astro', 'event') === 'event', 'pickMode: 눌러서 고르기');
 
   console.log('\n[7] 밀기');
   const D = (cur, dx, vx, list = L5) => M.dragMode(list, cur, dx, vx);
   ok(D('simulation', -50, 0) === 'sandbox' && D('simulation', -200, 0) === 'photo' && D('sandbox', -50, 0) === 'photo' && D('sandbox', -200, 0) === 'photo', '시뮬레이션 · 샌드박스에서 밀기(두 칸이어도 사진에서 선다)');
   ok(D('photo', -50, 0) === 'astro' && D('photo', -200, 0) === 'timelapse' && D('astro', -200, 0) === 'timelapse', '사진에서 오른쪽 모드로, 끝에서 멈춘다');
-  ok(D('photo', 50, 0) === 'sandbox' && D('photo', 200, 0) === 'simulation' && D('simulation', 100, 0) === 'simulation', '반대로 밀기, 끝에서 멈춘다');
+  ok(D('photo', 50, 0) === 'sandbox' && D('photo', 200, 0) === 'simulation' && D('data', 100, 0) === 'data', '반대로 밀기, 끝에서 멈춘다');
   ok(D('photo', -39, -599) === 'photo' && D('photo', -39, -600) === 'astro' && D('photo', -39, 600) === 'sandbox' && D('photo', -50, 900) === 'astro', '경계 39/599 못 미침, 600 닿음, 거리가 40 이상이면 거리를 따른다');
   ok(D('photo', -159, 0) === 'astro' && D('photo', -160, 0) === 'timelapse' && D('photo', -10, -1799) === 'astro', '두 칸 경계: 159 한 칸, 160 두 칸, 속도 1799 한 칸');
   ok(D('photo', -10, -1800) === 'timelapse' && D('sandbox', -10, -1800) === 'photo' && D('photo', NaN, 0) === 'photo' && D('photo', 0, Infinity) === 'photo', '빠르면 두 칸, 숫자가 아니면 그대로');
@@ -80,10 +80,10 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
 
   console.log('\n[8] 줄 배치');
   const S0 = M.stripLayout(L5, 'simulation');
-  ok(J(S0.map(s => s.x)) === J([195, 279, 363, 447, 531]) && J(S0.map(s => s.opacity)) === J([1, 0.62, 0.34, 0.16, 0]) && J(S0.map(s => s.visible)) === J([true, true, true, true, false]), '가운데가 시뮬레이션: 자리 · 불투명도 · 숨김');
+  ok(J(S0.map(s => s.x)) === J([111, 195, 279, 363, 447, 531]) && J(S0.map(s => s.opacity)) === J([0.62, 1, 0.62, 0.34, 0.16, 0]) && J(S0.map(s => s.visible)) === J([true, true, true, true, true, false]), '가운데가 시뮬레이션: 데이터(왼) · 자리 · 불투명도 · 숨김');
   const S2 = M.stripLayout(L5, 'photo');
-  ok(J(S2.map(s => s.x)) === J([27, 111, 195, 279, 363]) && J(S2.map(s => s.opacity)) === J([0.34, 0.62, 1, 0.62, 0.34]) && S2.every(s => s.visible) && J(S2.map(s => s.mode)) === J(L5), '가운데가 사진');
-  ok(J(M.stripLayout(L5, 'nope').map(s => s.x)) === J([195, 279, 363, 447, 531]) && J(M.stripLayout(L5, 'photo', 400, 100).map(s => s.x)) === J([0, 100, 200, 300, 400]), '목록에 없으면 첫 모드, 폭 · 칸 폭을 바꿀 수 있다');
+  ok(J(S2.map(s => s.x)) === J([-57, 27, 111, 195, 279, 363]) && J(S2.map(s => s.opacity)) === J([0.16, 0.34, 0.62, 1, 0.62, 0.34]) && S2.every(s => s.visible) && J(S2.map(s => s.mode)) === J(L5), '가운데가 사진');
+  ok(J(M.stripLayout(L5, 'nope').map(s => s.x)) === J([195, 279, 363, 447, 531, 615]) && J(M.stripLayout(L5, 'photo', 400, 100).map(s => s.x)) === J([-100, 0, 100, 200, 300, 400]), '목록에 없으면 첫 모드, 폭 · 칸 폭을 바꿀 수 있다');
 
   console.log('\n[9] 가이드');
   const G = M.viewGuide;

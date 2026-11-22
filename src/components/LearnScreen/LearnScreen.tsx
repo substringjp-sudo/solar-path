@@ -344,7 +344,7 @@ const useStyles = makeStyles((color) => ({
   root: { flex: 1, backgroundColor: color.bg },
   chipBar: { borderBottomWidth: 1, borderBottomColor: color.border, backgroundColor: color.bg },
   chips: { paddingHorizontal: space.lg, paddingVertical: space.sm, gap: space.sm },
-  scroll: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xl * 2, gap: space.xl },
+  scroll: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xl * 3 + 20, gap: space.xl },
   head: { gap: space.xxs },
   pageTitle: { ...type.title, fontSize: 20, color: color.text },
   sub: { ...type.body, color: color.textDim },

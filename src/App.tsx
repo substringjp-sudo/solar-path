@@ -435,6 +435,7 @@ export default function App() {
           goldenTimeInfo={goldenTimeInfo!}
           onViewModeChange={setCameraViewMode}
           onSettingsPress={() => setSettingsVisible(true)}
+          onOpenData={() => { setActiveTab('learn'); setSunCameraVisible(false); }}
         />
       )}
 

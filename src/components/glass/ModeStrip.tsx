@@ -5,8 +5,8 @@
  *
  * 모드를 실제로 바꾸는 일(가이드 걸기 포함)은 바깥이 합니다(`onPick` 으로 받은 모드를 `switchMode` 에 넘김).
  */
-import React, { useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { color as DARK } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
 import { dragMode, modeName, pickMode, stripLayout, type AppMode } from '../../utils/modeStrip';
@@ -26,9 +26,54 @@ interface Props {
 const ITEM_W = 84;
 const H = 44;
 
+let lastGlobalMode: AppMode | null = null;
+let lastSlideDir: -1 | 0 | 1 = 0;
+
+/** 마지막 모드 이동 방향(+1: 오른쪽 모드, -1: 왼쪽 모드) — 상단 UI 연동 슬라이드에 사용 */
+export const getLastModeSlideDir = (): -1 | 0 | 1 => lastSlideDir;
+export const recordModeTransition = (from: AppMode | null, to: AppMode, list: readonly AppMode[]): -1 | 0 | 1 => {
+  if (!from || from === to) return 0;
+  const a = list.indexOf(from);
+  const b = list.indexOf(to);
+  if (a < 0 || b < 0 || a === b) return 0;
+  lastSlideDir = b > a ? 1 : -1;
+  return lastSlideDir;
+};
+
 export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) => {
   const [width, setWidth] = useState(390);
-  const [dragDx, setDragDx] = useState(0);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const dragAnim = useRef(new Animated.Value(0)).current;
+  const dragValRef = useRef(0);
+  const prevModeRef = useRef<AppMode | null>(lastGlobalMode);
+  const translateX = useMemo(() => Animated.add(slideAnim, dragAnim), [slideAnim, dragAnim]);
+
+  useEffect(() => {
+    const prev = prevModeRef.current;
+    prevModeRef.current = mode;
+    lastGlobalMode = mode;
+    if (prev && prev !== mode) {
+      const prevIdx = modes.indexOf(prev);
+      const curIdx = modes.indexOf(mode);
+      if (prevIdx >= 0 && curIdx >= 0 && prevIdx !== curIdx) {
+        recordModeTransition(prev, mode, modes);
+        const startOffset = (curIdx - prevIdx) * ITEM_W + dragValRef.current;
+        dragValRef.current = 0;
+        dragAnim.setValue(0);
+        slideAnim.setValue(startOffset);
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+        return;
+      }
+    }
+    dragValRef.current = 0;
+    dragAnim.setValue(0);
+  }, [mode, modes, slideAnim, dragAnim]);
+
   const ref = useRef({ mode, modes, onPick });
   ref.current = { mode, modes, onPick };
 
@@ -36,15 +81,37 @@ export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) =>
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
     onPanResponderTerminationRequest: () => false,
-    onPanResponderMove: (_, g) => setDragDx(Math.max(-ITEM_W * 1.5, Math.min(ITEM_W * 1.5, g.dx))),
+    onPanResponderMove: (_, g) => {
+      const clamped = Math.max(-ITEM_W * 1.5, Math.min(ITEM_W * 1.5, g.dx));
+      dragValRef.current = clamped;
+      dragAnim.setValue(clamped);
+    },
     onPanResponderRelease: (_, g) => {
       markDragEnd();
-      setDragDx(0);
       const next = dragMode(ref.current.modes, ref.current.mode, g.dx, g.vx * 1000);
-      if (next !== ref.current.mode) ref.current.onPick(next);
+      if (next !== ref.current.mode) {
+        ref.current.onPick(next);
+      } else {
+        dragValRef.current = 0;
+        Animated.timing(dragAnim, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      }
     },
-    onPanResponderTerminate: () => { markDragEnd(); setDragDx(0); },
-  }), []);
+    onPanResponderTerminate: () => {
+      markDragEnd();
+      dragValRef.current = 0;
+      Animated.timing(dragAnim, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    },
+  }), [dragAnim]);
 
   const items = stripLayout(modes, mode, width, ITEM_W);
   return (
@@ -56,21 +123,23 @@ export const ModeStrip: React.FC<Props> = ({ mode, modes, language, onPick }) =>
       onLayout={(e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width) || 390)}
       style={styles.strip}
     >
-      {items.filter(i => i.visible).map(i => {
-        const on = i.mode === mode;
-        return (
-          <Pressable
-            key={i.mode}
-            testID={`mode-${i.mode}`}
-            accessibilityRole="tab"
-            aria-selected={on}
-            onPress={() => { if (isRecentDrag()) return; const t = pickMode(modes, mode, i.mode); if (t !== mode) onPick(t); }}
-            style={[styles.item, { left: i.x - ITEM_W / 2 + dragDx, opacity: i.opacity }]}
-          >
-            <Text style={[styles.label, { fontWeight: on ? '600' : '400' }, glassTextShadow]}>{modeName(i.mode, language)}</Text>
-          </Pressable>
-        );
-      })}
+      <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
+        {items.map(i => {
+          const on = i.mode === mode;
+          return (
+            <Pressable
+              key={i.mode}
+              testID={`mode-${i.mode}`}
+              accessibilityRole="tab"
+              aria-selected={on}
+              onPress={() => { if (isRecentDrag()) return; const t = pickMode(modes, mode, i.mode); if (t !== mode) onPick(t); }}
+              style={[styles.item, { left: i.x - ITEM_W / 2, opacity: i.visible ? i.opacity : 0.12 }]}
+            >
+              <Text style={[styles.label, { fontWeight: on ? '600' : '400' }, glassTextShadow]}>{modeName(i.mode, language)}</Text>
+            </Pressable>
+          );
+        })}
+      </Animated.View>
       <View pointerEvents="none" style={[styles.dot, { left: width / 2 - 2 }]} />
     </View>
   );
