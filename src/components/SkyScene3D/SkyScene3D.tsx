@@ -29,6 +29,7 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { targetPointAt, type HeightSampler, type PickedTarget, type TargetPoint } from '../../utils/demPick';
+import { targetPointOf } from '../../utils/pickedTarget';
 import { pickTargetAt } from '../../utils/pickTarget';
 import { makeDemSampler } from '../../utils/demSampler';
 import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
@@ -799,7 +800,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const onPickTargetRef = useRef(onPickTarget);
   onPickTargetRef.current = onPickTarget;
   const pickedTargetRef = useRef<PickedTarget | null>(null);
-  pickedTargetRef.current = pickedTarget;
+  const pickedViewRef = useRef<{ azDeg: number; elDeg: number } | null>(null);
+  if (pickedTargetRef.current !== pickedTarget) {
+    pickedTargetRef.current = pickedTarget;
+    pickedViewRef.current = null;
+  }
   const tapStartMsRef = useRef(0);
   const doPickRef = useRef<(x: number, y: number) => void>(() => {});
   /** 눈 높이(m) — props.eyeHeightM. 지상 단계에서 자세의 고도를 덮어씁니다. */
@@ -2041,6 +2046,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     eyeHeightRef.current = h;
     cachedAtmosphereMsRef.current = 0;
     sceneDirtyRef.current = true;
+    reaimPickedTarget();
     lastViewMoveMsRef.current = Date.now();
     requestRender(6);
   }, [eyeHeightM, requestRender]);
@@ -2942,9 +2948,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const horizDist = Math.hypot(tPos.x, tPos.z);
             const targetElev = Math.atan2(tPos.y, horizDist) * (180 / Math.PI);
 
-            const horizonDeg = target === 'sun'
+            const horizonDeg = (target === 'sun' || target === 'moon')
               ? terrainHorizonDegAtAz(simRef.current?.terrain, targetAz)
               : 0;
+            if (target === 'moon' && targetElev < Math.max(0, horizonDeg) - 0.5) {
+              trackingTargetRef.current = null;
+              onSelectTrackingTargetRef.current?.(null);
+            } else {
             // 땅·산 능선 아래로 태양이 완전히 사라져 화면에 안 보이는 순간부터는 현재 방위·고도에서 정지합니다.
             const sunVisible = target !== 'sun' || isSunVisibleAboveHorizon(
               targetElev,
@@ -2970,6 +2980,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               cameraElevRef.current += elevDiff * 0.14;
               setCameraAzimuth(cameraAzRef.current);
               setCameraElevation(cameraElevRef.current);
+            }
             }
           }
         }
@@ -3715,8 +3726,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           // 샌드박스: 고른 대상 표시(고리) — 눈에서 그 방향으로 400 떨어진 점을 라벨과 같은 식으로 투영합니다.
           const pk = pickedTargetRef.current;
           if (pk && zoomProgressRef.current <= P_FOV_END + 0.05) {
-            const ce = Math.cos((pk.elDeg * Math.PI) / 180), se = Math.sin((pk.elDeg * Math.PI) / 180);
-            const a = (pk.azDeg * Math.PI) / 180;
+            const pkEl = pickedViewRef.current?.elDeg ?? pk.elDeg;
+            const pkAz = pickedViewRef.current?.azDeg ?? pk.azDeg;
+            const ce = Math.cos((pkEl * Math.PI) / 180), se = Math.sin((pkEl * Math.PI) / 180);
+            const a = (pkAz * Math.PI) / 180;
             const pv = new THREE.Vector3(Math.sin(a) * ce * 400, se * 400, -Math.cos(a) * ce * 400).add(camera.position);
             const pp = proj(pv);
             if (pp.visible) labs.push({ id: 'pick', name: '', x: pp.px, y: pp.py, color: '#38BDF8' });
@@ -4454,6 +4467,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   /** 눈의 현재 경위도: 조이스틱이 정한 것이 있으면 그것, 없으면 `location`. */
   const eyeCoords = (): { latitude: number; longitude: number } | null => eyeRef.current ?? locationRef.current?.coords ?? null;
+  /** 포커싱된 지형/건물이 있으면 이동 · 눈 높이 변경 후에도 화면 중앙에 오도록 카메라 방위 · 앙각을 맞춥니다. */
+  const reaimPickedTarget = () => {
+    const pk = pickedTargetRef.current;
+    if (!pk) { pickedViewRef.current = null; return; }
+    const pt = targetPointOf(pk);
+    if (!pt) return;
+    const f = groundFrame();
+    const here = eyeCoords();
+    if (!f || !here) return;
+    const ground = f.ground(0, 0) ?? simRef.current?.terrain?.observerElevation ?? 0;
+    const eye = ground + (eyeHeightRef.current ?? 1.6);
+    const o = localOffsetM(here, pt.latitude, pt.longitude);
+    const tp = targetPointAt(f.ground, eye, o.eastM, -o.northM, pt.elevM);
+    const nextEl = Math.max(-85, Math.min(85, tp.elDeg));
+    pickedViewRef.current = { azDeg: tp.azDeg, elDeg: nextEl };
+    cameraAzRef.current = tp.azDeg;
+    cameraElevRef.current = nextEl;
+    setCameraAzimuth(tp.azDeg);
+    setCameraElevation(nextEl);
+  };
   /**
    * 지형 · 바다 · 건물의 `uDemObs`(와 받아 둔 패치의 `observerU/V`)를 눈의 현재 자리로 맞춥니다. 받아 둔 블록 안에서는 가벼운 일이라 프레임마다 불러도 됩니다.
    * 땅 프로필(40 km, 샘플 십수만 번)은 눈 자리마다 달라지므로 비우고, 부르는 쪽(`getHorizonProfile`)이 필요할 때 다시 만듭니다.
@@ -4483,6 +4516,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const bOff = localOffsetM({ latitude: bc.lat, longitude: bc.lng }, e.latitude, e.longitude);
     buildingFieldRef.current?.setEyeOffset(bOff.eastM, -bOff.northM);
     skylineCacheRef.current = null;
+    reaimPickedTarget();
     requestRender(2);
   };
 
@@ -5074,9 +5108,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         return celestialLabels.map(lbl => {
           if (lbl.id === 'pick') {
             return (
-              <View key="pick" pointerEvents="none" style={[styles.pickRing, { left: lbl.x - 15, top: lbl.y - 15 }]}>
+              <TouchableOpacity
+                key="pick"
+                activeOpacity={0.75}
+                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                onPress={() => onPickTarget?.(null)}
+                style={[styles.pickRing, { left: lbl.x - 15, top: lbl.y - 15 }]}
+              >
                 <View style={styles.pickDot} />
-              </View>
+              </TouchableOpacity>
             );
           }
           const isTrackingThis = trackingTarget === lbl.id;

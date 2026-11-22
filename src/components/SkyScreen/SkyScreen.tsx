@@ -189,7 +189,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.9780;
-  useEffect(() => { setPicked(null); }, [latitude, longitude]);   // 자리가 바뀌면 고른 대상은 옛 자리 기준이라 지웁니다
+  const pickedRef = useRef<PickedTarget | null>(null);
+  pickedRef.current = picked;
+  useEffect(() => {
+    const cur = pickedRef.current;
+    if (!cur) return;
+    const pt = targetPointOf(cur);
+    if (!pt) { setPicked(null); return; }
+    const tp = sceneRef.current?.targetFromLatLon?.(pt.latitude, pt.longitude, pt.elevM);
+    if (!tp || tp.distM > 50_000) { setPicked(null); return; }
+    setPicked(rebuildPicked(cur.kind, cur.building, tp));
+  }, [latitude, longitude]);   // 자리 이동 후 고른 대상을 새 눈 기준으로 다시 계산(너무 멀어지면 해제)
 
   const currentDateStr = useMemo(
     () => `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`,
