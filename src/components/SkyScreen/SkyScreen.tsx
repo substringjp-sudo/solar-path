@@ -1770,6 +1770,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         })}
         skySettings={skySettings}
         onChangeSkySettings={(next) => setSkySettings(next)}
+        far={expertMode ? { status: farStatus, onLoad: loadFarBuildings } : undefined}
         theme={theme}
       />
     </View>

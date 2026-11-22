@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, Modal, ScrollView, Alert } from 'react-native';
 import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
+import type { FarStatus } from '../SkyScreen/SandboxPanel';
 import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, L3, type Language } from '../../utils/i18n';
@@ -24,8 +25,11 @@ interface LayerControlModalProps {
   onToggleLayer: (key: keyof LayerState) => void;
   skySettings: SkySettings;
   onChangeSkySettings: (next: Partial<SkySettings>) => void;
+  far?: { status: FarStatus | null; onLoad: () => void };
   theme: any;
 }
+
+const fmtMB = (b: number) => `${(b / 1048576).toFixed(b >= 10485760 ? 0 : 1)} MB`;
 
 const BRIGHT_MIN = 0.2;
 const BRIGHT_MAX = 2.0;
@@ -46,10 +50,12 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   onToggleLayer,
   skySettings,
   onChangeSkySettings,
+  far,
   theme,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(st => st.language);
+  const expertMode = useCelestialStore(st => st.expertMode);
   const location = useCelestialStore(st => st.location);
   const [detectedMag, setDetectedMag] = useState<number | null>(() => {
     const m = getCachedNightLights();
@@ -134,61 +140,108 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 {layerItems.map((item) => {
                   const isOn = layers[item.key];
                   return (
-                    <PressScale
-                      key={item.key}
-                      style={[
-                        styles.layerRow,
-                        {
-                          borderColor: isOn ? color.accentLine : borderColor,
-                          backgroundColor: isOn
-                            ? color.accentSoft
-                            : (isDark ? color.fill : 'rgba(0, 0, 0, 0.02)'),
-                        },
-                      ]}
-                      onPress={() => onToggleLayer(item.key)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.rowLeft}>
-                        <View style={[styles.iconChip, { backgroundColor: item.iconBg }]}>
-                          {item.icon}
-                        </View>
-                        <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
-                          {item.label}
-                        </Text>
-                        {item.key === 'buildings' && (
-                          <PressScale
-                            onPress={(e) => {
-                              e.stopPropagation?.();
-                              Alert.alert(
-                                item.label,
-                                L3(
-                                  language,
-                                  '대략적인 건물 분포를 확인하기 위한 참고용 기능입니다. 주요 건물 위주로 표시될 수 있으며, 실제 건물의 형태·높이와는 다를 수 있습니다.',
-                                  'This is a reference view for approximate building distribution. Only major buildings may appear, and shapes or heights may differ from reality.',
-                                  'おおよその建物分布を確認するための参考表示です。主要な建物のみ表示される場合があり、実際の建物の形や高さとは異なることがあります。',
-                                ),
-                              );
-                            }}
-                            hitSlop={8}
-                            style={{ marginLeft: 4, padding: 2 }}
-                          >
-                            <Info size={14} color={subTextColor} />
-                          </PressScale>
-                        )}
-                      </View>
-                      <View
+                    <React.Fragment key={item.key}>
+                      <PressScale
                         style={[
-                          styles.togglePill,
-                          isOn
-                            ? styles.toggleOn
-                            : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
+                          styles.layerRow,
+                          {
+                            borderColor: isOn ? color.accentLine : borderColor,
+                            backgroundColor: isOn
+                              ? color.accentSoft
+                              : (isDark ? color.fill : 'rgba(0, 0, 0, 0.02)'),
+                          },
                         ]}
+                        onPress={() => onToggleLayer(item.key)}
+                        activeOpacity={0.7}
                       >
-                        <Text style={[styles.toggleText, { color: isOn ? color.onAccent : subTextColor }]}>
-                          {isOn ? 'ON' : 'OFF'}
-                        </Text>
-                      </View>
-                    </PressScale>
+                        <View style={styles.rowLeft}>
+                          <View style={[styles.iconChip, { backgroundColor: item.iconBg }]}>
+                            {item.icon}
+                          </View>
+                          <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
+                            {item.label}
+                          </Text>
+                          {item.key === 'buildings' && (
+                            <PressScale
+                              onPress={(e) => {
+                                e.stopPropagation?.();
+                                Alert.alert(
+                                  item.label,
+                                  L3(
+                                    language,
+                                    '대략적인 건물 분포를 확인하기 위한 참고용 기능입니다. 주요 건물 위주로 표시될 수 있으며, 실제 건물의 형태·높이와는 다를 수 있습니다.',
+                                    'This is a reference view for approximate building distribution. Only major buildings may appear, and shapes or heights may differ from reality.',
+                                    'おおよその建物分布を確認するための参考表示です。主要な建物のみ表示される場合があり、実際の建物の形や高さとは異なることがあります。',
+                                  ),
+                                );
+                              }}
+                              hitSlop={8}
+                              style={{ marginLeft: 4, padding: 2 }}
+                            >
+                              <Info size={14} color={subTextColor} />
+                            </PressScale>
+                          )}
+                        </View>
+                        <View
+                          style={[
+                            styles.togglePill,
+                            isOn
+                              ? styles.toggleOn
+                              : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
+                          ]}
+                        >
+                          <Text style={[styles.toggleText, { color: isOn ? color.onAccent : subTextColor }]}>
+                            {isOn ? 'ON' : 'OFF'}
+                          </Text>
+                        </View>
+                      </PressScale>
+                      {item.key === 'buildings' && expertMode && far && (
+                        <View
+                          style={[
+                            styles.farCard,
+                            {
+                              borderColor,
+                              backgroundColor: isDark ? color.fill : 'rgba(0, 0, 0, 0.02)',
+                            },
+                          ]}
+                        >
+                          <View style={styles.farTopRow}>
+                            <Text style={[styles.farTitle, { color: textColor }]}>
+                              {L3(language, '먼 건물 (1~30 km)', 'Far buildings (1–30 km)', '遠くの建物 (1〜30 km)')}
+                            </Text>
+                            <PressScale
+                              onPress={far.status?.state === 'loading' ? undefined : far.onLoad}
+                              activeOpacity={0.7}
+                              style={[
+                                styles.farBtn,
+                                {
+                                  backgroundColor: far.status?.state === 'loading'
+                                    ? (isDark ? color.border : 'rgba(0, 0, 0, 0.08)')
+                                    : color.accent,
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.farBtnText, { color: far.status?.state === 'loading' ? subTextColor : color.onAccent }]}>
+                                {far.status?.state === 'loading'
+                                  ? L3(language, '받는 중…', 'Loading…', '読込中…')
+                                  : far.status?.state === 'done'
+                                    ? (far.status.truncated
+                                      ? L3(language, '더 불러오기', 'Load more', 'さらに読む')
+                                      : L3(language, '다시 받기', 'Reload', '再読込'))
+                                    : L3(language, '보는 방향 불러오기', 'Load view', '視線方向を読む')}
+                              </Text>
+                            </PressScale>
+                          </View>
+                          <Text style={[styles.farStatus, { color: subTextColor }]} numberOfLines={2}>
+                            {far.status?.state === 'loading' && `${far.status.tilesDone}/${far.status.tilesTotal}${L3(language, '장', ' tiles', '枚')} · ${fmtMB(far.status.bytes)}`}
+                            {far.status?.state === 'done' && `${L3(language, '건물', 'Buildings', '建物')} ${far.status.buildings ?? 0}${L3(language, '채', '', '棟')} · ${fmtMB(far.status.bytes)}${far.status.truncated ? ` · ${L3(language, '한도에서 멈춤 (다시 누르면 이어 받아요)', 'paused at limit (tap again to continue)', '上限で停止（もう一度押すと続きを読みます）')}` : ''}${far.status.failed ? ` · ${L3(language, `실패 ${far.status.failed}장`, `${far.status.failed} failed`, `失敗${far.status.failed}枚`)}` : ''}`}
+                            {far.status?.state === 'off' && L3(language, '지형을 아직 못 받았어요', 'Terrain is not loaded yet', '地形をまだ受信していません')}
+                            {far.status?.state === 'error' && L3(language, '받지 못했어요', 'Could not load', '読み込めませんでした')}
+                            {!far.status && L3(language, '샌드박스 전용 · 현재 보는 방향의 먼 랜드마크를 불러옵니다', 'Sandbox only · loads distant landmarks in the current view direction', 'サンドボックス専用・現在の視線方向の遠いランドマークを読み込みます')}
+                          </Text>
+                        </View>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </View>
@@ -396,5 +449,35 @@ const useStyles = makeStyles((color) => ({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: -0.2,
+  },
+  farCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 6,
+  },
+  farTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  farTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  farBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.md,
+  },
+  farBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  farStatus: {
+    fontSize: 11,
+    lineHeight: 15,
   },
 }));

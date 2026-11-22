@@ -33,8 +33,8 @@ import {
   type FarTilePlan,
 } from './farBuildings';
 
-/** 한 번 부를 때 받는 바이트 한도(압축 전 타일 크기 합). 도심 타일 0.4 MB 기준 약 30 장. */
-export const FAR_MAX_BYTES = 12 * 1024 * 1024;
+/** 한 번 부를 때 받는 바이트 한도(압축 전 타일 크기 합). 도심 타일 0.4 MB 기준 약 60 장. */
+export const FAR_MAX_BYTES = 24 * 1024 * 1024;
 /** 타일 하나에서 남기는 건물 수(보이는 각높이가 큰 순). */
 export const FAR_PER_TILE_CAP = 600;
 const CONCURRENCY = 4;

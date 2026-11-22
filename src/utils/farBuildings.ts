@@ -24,8 +24,8 @@ const drop = curvatureDropM;
 
 /** 이 안(눈 둘레)은 가까운 건물 읽기(`fetchNearbyBuildings`)가 맡습니다. */
 export const FAR_INNER_M = 1000;
-/** 먼 건물을 찾는 가장 먼 거리. 광역 DEM 패치(62 km)의 반지름 안쪽. */
-export const FAR_OUTER_M = 15000;
+/** 먼 건물을 찾는 가장 먼 거리. 광역 DEM 패치(62 km) 및 투영 상한(30 km)의 반지름 안쪽. */
+export const FAR_OUTER_M = 30000;
 /** 보이는 각높이가 이보다 작은 건물은 화면에서 한 줄에 못 미쳐 생략(10 km 에서 약 21 m). */
 export const FAR_MIN_VISIBLE_DEG = 0.12;
 /** 타일에 서 있을 수 있는 가장 높은 건물(m) — 이보다 낮은 것만 있다고 보고 타일을 거릅니다. 건물 높이 읽기의 상한과 같은 값이라야 높은 탑을 놓치지 않습니다. */
