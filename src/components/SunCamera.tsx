@@ -19,7 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Layers, Compass } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -81,7 +81,7 @@ import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/T
 import { ResultCompare } from './ResultCompare';
 import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
-import { clockLabel, planTimelapse, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
+import { clockLabel, planTimelapse, savedSoFar, shotPlan, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
 import { FrameAccumulator } from '../utils/frameComposite';
 import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
 import { TimelapseRunCard } from './AstroCamera/TimelapseRunCard';
@@ -608,33 +608,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setScreenOff(false);
     timelapse.start(plan);
   }, [mediaPermission, requestMediaPermission, timelapse, language]);
-  // 미리보기: 3D 시뮬레이션이 구간을 영상 길이만큼 재생합니다. 끝나면 원래 시각으로 돌아옵니다.
-  const [previewing, setPreviewing] = useState(false);
-  /** 미리보기 읽음 "0:06 / 0:12" (정수 초가 바뀔 때만 다시 그림). */
-  const [previewClock, setPreviewClock] = useState('0:00 / 0:00');
-  const previewTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const previewOrigin = useRef<Date | null>(null);
-  const stopPreview = useCallback(() => {
-    if (previewTimer.current) { clearInterval(previewTimer.current); previewTimer.current = null; }
-    if (previewOrigin.current) { onTimeChange?.(previewOrigin.current); previewOrigin.current = null; }
-    setPreviewing(false);
-  }, [onTimeChange]);
-  const playPreview = useCallback((plan: TimelapsePlan, startMs: number, endMs: number) => {
-    if (!onTimeChange) return;
-    if (previewTimer.current) clearInterval(previewTimer.current);
-    if (!previewOrigin.current) previewOrigin.current = currentTime;
-    setViewMode('sim');
-    setPreviewing(true);
-    setPreviewClock(videoClock(0, plan.targetVideoSec));
-    const t0 = Date.now();
-    previewTimer.current = setInterval(() => {
-      const elapsed = (Date.now() - t0) / 1000;
-      onTimeChange(new Date(previewTimeAt(startMs, endMs, plan.targetVideoSec, elapsed)));
-      setPreviewClock(videoClock(elapsed, plan.targetVideoSec));
-      if (elapsed >= plan.targetVideoSec) stopPreview();
-    }, 100);
-  }, [onTimeChange, currentTime, stopPreview]);
-  useEffect(() => () => { if (previewTimer.current) clearInterval(previewTimer.current); }, []);
   const pickMode = (key: CaptureModeKey) => {
     if (key === 'event') { setTimelapseMode(false); setEclipseOn(true); setCameraTab('astro'); return; }
     setEclipseOn(false);
@@ -651,8 +624,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       astroAbortRef.current = true;
       setViewMode('camera');
       setFrozenView(null);
-      setLongExpPreviewUri(null);
-      setIsLongExpRendering(false);
     }
   }, [visible]);
   useEffect(() => () => { astroAbortRef.current = true; Vibration.cancel(); }, []);
@@ -1390,112 +1361,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     cameraFacing,
   ]);
 
-  // ── 천체 3D 시뮬 장노출 자동 프리뷰 (드래그/배율/설정/시각 변경 후 450ms 정지 시 렌더링) ──
-  const [longExpPreviewUri, setLongExpPreviewUri] = useState<string | null>(null);
-  const [isLongExpRendering, setIsLongExpRendering] = useState(false);
-  const longExpFileRef = useRef<string | null>(null);
-  const longExpReqIdRef = useRef(0);
-  const displayAzRef = useRef(displayAz);
-  displayAzRef.current = displayAz;
-  const displayElRef = useRef(displayEl);
-  displayElRef.current = displayEl;
-  const longExpAzKey = frozenView ? Math.round(displayAz * 10) : Math.round(displayAz);
-  const longExpElKey = frozenView ? Math.round(displayEl * 10) : Math.round(displayEl);
-
-  const longExpTimeKey = isTimeMachineEnabled
-    ? Math.floor(currentTime.getTime() / 60_000)
-    : Math.floor(currentTime.getTime() / 300_000);
-
-  useEffect(() => {
-    // 조작 중이거나 천체+3D시뮬 모드가 아니면 이전 장노출 스틸을 즉시 걷어 60fps 3D가 보이게 합니다.
-    const shouldRender =
-      visible &&
-      cameraTab === 'astro' &&
-      viewMode === 'sim' &&
-      !isInteracting &&
-      astroNightPhase === null &&
-      !astroResult &&
-      !previewUri;
-
-    longExpReqIdRef.current += 1;
-    const reqId = longExpReqIdRef.current;
-
-    if (!shouldRender) {
-      setLongExpPreviewUri(null);
-      setIsLongExpRendering(false);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      const sky = getPrimarySky();
-      if (!sky || reqId !== longExpReqIdRef.current) return;
-      setIsLongExpRendering(true);
-      try {
-        const simMode =
-          astroSettings.mode === 'tracked'
-            ? (astroSettings.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
-            : 'trails';
-        const res = await sky.renderLongExposure(
-          {
-            az: displayAzRef.current,
-            el: displayElRef.current,
-            fov: simVFovDeg,
-            rollDeg: displayRoll,
-          },
-          {
-            mode: simMode,
-            startTimeMs: currentTime.getTime(),
-            durationSec: astroSettings.durationSec,
-            steps: astroSimParams.stepsForPreview,
-            exposureGain: astroSimParams.exposureGain,
-            starBoost: astroSimParams.starBoost,
-            shadowLift: astroSimParams.shadowLift,
-            settleFrames: 4,
-            requireReady: false,
-            waitMs: 3000,
-            format: 'jpeg',
-            compress: 0.85,
-          },
-        );
-        if (reqId !== longExpReqIdRef.current) return;
-        if (res.uri) {
-          const prev = longExpFileRef.current;
-          longExpFileRef.current = res.uri;
-          if (prev && prev !== res.uri) {
-            FileSystem.deleteAsync(prev, { idempotent: true }).catch(() => {});
-          }
-          setLongExpPreviewUri(res.uri);
-        }
-      } finally {
-        if (reqId === longExpReqIdRef.current) {
-          setIsLongExpRendering(false);
-        }
-      }
-    }, 450);
-
-    return () => clearTimeout(timer);
-  }, [
-    visible,
-    cameraTab,
-    viewMode,
-    isInteracting,
-    astroNightPhase,
-    astroResult,
-    previewUri,
-    longExpAzKey,
-    longExpElKey,
-    displayRoll,
-    simVFovDeg,
-    astroSettings.mode,
-    astroSettings.keepFixedGround,
-    astroSettings.durationSec,
-    astroSimParams.stepsForFinal,
-    astroSimParams.exposureGain,
-    astroSimParams.starBoost,
-    astroSimParams.shadowLift,
-    longExpTimeKey,
-  ]);
-
   const handleToggleFreeze = useCallback(() => {
     if (viewMode === 'camera') {
       if (lockedTarget) {
@@ -1513,14 +1378,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setFrozenView({ azDeg: effectiveAz, elDeg: effectivePitch, rollDeg: 0 });
     setLockedTarget(null);
   }, [viewMode, lockedTarget, frozenView, effectiveAz, effectivePitch]);
-
-  const handleGuideToFrozenView = useCallback(() => {
-    if (!frozenView) return;
-    setLockedTarget({ azDeg: frozenView.azDeg, elDeg: frozenView.elDeg });
-    setFrozenView(null);
-    setLongExpPreviewUri(null);
-    setViewMode('camera');
-  }, [frozenView]);
 
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
@@ -2593,17 +2450,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 </View>
               )}
-              {/* 천체 3D 시뮬레이션 정지 시 자동 장노출 프리뷰 — SkyScene3D와 동일한 전체 높이(rootH) 기준으로 배치해 잘림/들썩임 방지 */}
-              {cameraTab === 'astro' && viewMode === 'sim' && longExpPreviewUri && (
-                <Image
-                  source={{ uri: longExpPreviewUri }}
-                  style={{ position: 'absolute', top: 0, left: 0, width: W, height: rootH }}
-                  resizeMode="cover"
-                  fadeDuration={120}
-                />
-              )}
               {/* 소프트웨어 노출(밝기 부스트) — 카메라/겹쳐보기 그림에만 */}
-              {viewMode !== 'sim' && exposure !== 0 && (
+              {exposure !== 0 && (
                 <View
                   style={[
                     StyleSheet.absoluteFill,
@@ -2687,17 +2535,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   ) : null}
                   {topInfoExpanded && viewMode !== 'camera' && (
                     <View style={styles.badge}>
-                      {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering ? (
-                        <ActivityIndicator size="small" color={color.moon} style={{ transform: [{ scale: 0.7 }] }} />
-                      ) : (
-                        <Layers size={12} color={cameraTab === 'astro' ? color.moon : color.accent} />
-                      )}
+                      <Layers size={12} color={cameraTab === 'astro' ? color.moon : color.accent} />
                       <Text style={[styles.badgeText, cameraTab === 'astro' && { color: color.moon }]}>
-                        {cameraTab === 'astro' && viewMode === 'sim' && isLongExpRendering
-                          ? L3(language, '장노출 렌더링 중…', 'Rendering preview…', '露光計算中…')
-                          : viewMode === 'blend'
-                            ? L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')
-                            : L3(language, '3D 시뮬레이션', '3D Simulation', '3Dシミュレーション')}
+                        {L3(language, '카메라+3D 겹침', 'Camera + 3D Blend', 'カメラ+3D')}
                       </Text>
                       <Text style={styles.microText}>
                         {`FOV ${Math.round(optics.vFovDeg)}°`}
@@ -2752,14 +2592,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         <X size={14} color={color.text} />
                       </Pressable>
                     </View>
-                  )}
-                  {previewing && (
-                    <GlassSurface testID="tl-preview-banner" style={styles.glassBanner}>
-                      <Text style={styles.glassBannerText}>{L3(language, '타임랩스 미리보기 재생 중', 'Playing timelapse preview', 'タイムラプスのプレビュー再生中')}{`  ${previewClock}`}</Text>
-                      <Pressable onPress={stopPreview} accessibilityRole="button" accessibilityLabel={L3(language, '미리보기 멈추기', 'Stop preview', 'プレビューを止める')} hitSlop={8}>
-                        <X size={16} color={TEXT} />
-                      </Pressable>
-                    </GlassSurface>
                   )}
                   {timelapse.run && timelapse.progress && (
                     // 목업 12(유리 카드, 2026-11-21): 제목 · 시작 · 지금 · REC, 값 칸(찍은 장 · 남은 시간 · 앨범), 밝기 곡선 · 배터리 · 화면 끄고 계속, 마치기. 끝나거나 멈추면 REC 는 사라지고 결과 글이 보입니다.
@@ -2932,19 +2764,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 );
               })()}
-              shutterLabel={
-                viewMode === 'sim'
-                  ? frozenView
-                    ? L3(language, '이 각도로 실제 카메라 맞추기', 'Aim real camera to this angle', 'この角度に実カメラを合わせる')
-                    : L3(language, '실제 카메라로 전환', 'Switch to live camera', '実カメラへ切替')
-                  : L3(language, '셔터', 'Shutter', 'シャッター')
-              }
+              shutterLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
               shutterColor={cameraTab === 'astro' ? color.moon : undefined}
-              shutterBusy={isCapturing && viewMode !== 'sim'}
+              shutterBusy={isCapturing}
               shutterInner={
-                viewMode === 'sim' ? (
-                  frozenView ? <Crosshair size={22} color={color.onAccent} /> : <Camera size={22} color={color.onAccent} />
-                ) : isCapturing ? (
+                isCapturing ? (
                   <ActivityIndicator size="small" color={color.onAccent} />
                 ) : cameraTab === 'astro' ? (
                   <Moon size={22} color={color.onAccent} />
@@ -2954,11 +2778,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               }
               onShutter={() => {
                 Vibration.cancel();
-                if (viewMode === 'sim') {
-                  if (frozenView) handleGuideToFrozenView();
-                  else setViewMode('camera');
-                  return;
-                }
                 if (timelapseMode) { setCamStage(s => (s === 'min' ? 'full' : 'min')); return; }
                 if (cameraTab === 'astro') handleAstroStart();
                 else handleCapturePress();

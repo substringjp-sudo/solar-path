@@ -497,6 +497,10 @@ export interface SkyScene3DHandle {
     view: { az: number; el: number; fov: number; rollDeg?: number },
     opts: LongExposureSimOptions,
   ) => Promise<LongExposureSimResult>;
+  /** 타임랩스 미리보기용 실시간 누적 시작 / 스텝 / 종료 (궤적 · 별+구름 누적). */
+  beginLiveAccum?: (opts?: { lighten?: boolean; exposureGain?: number; shadowLift?: number; starBoost?: number }) => void;
+  stepLiveAccum?: (timeMs: number) => void;
+  endLiveAccum?: () => void;
   /**
    * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
@@ -935,9 +939,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 장노출 누적 패스 지시자 (animate 루프가 한 스텝씩 처리) */
   const accumDirectiveRef = useRef<{
     begin?: boolean;
-    captureStep?: { weight: number; fixedBase: boolean };
+    captureStep?: { weight: number; fixedBase: boolean; lighten?: boolean };
     pendingResolve?: { gain: number; shadowLift: number; fixedGround: boolean };
     onDone?: () => void;
+  } | null>(null);
+  const liveAccumRef = useRef<{
+    started: boolean;
+    lighten: boolean;
+    exposureGain: number;
+    shadowLift: number;
   } | null>(null);
   const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
@@ -1731,6 +1741,44 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const run = remoteChain.then(() => renderLongExposureOnce(view, opts));
       remoteChain = run.catch(() => undefined);
       return run;
+    };
+    h.beginLiveAccum = (opts) => {
+      liveAccumRef.current = {
+        started: false,
+        lighten: !!opts?.lighten,
+        exposureGain: opts?.exposureGain ?? 1.25,
+        shadowLift: opts?.shadowLift ?? 0.012,
+      };
+      starBoostOverrideRef.current = opts?.starBoost ?? 1.35;
+      hidePathsForExposureRef.current = true;
+      if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = false;
+      volRef.current?.setAccumulating?.(true);
+    };
+    h.stepLiveAccum = (timeMs) => {
+      const live = liveAccumRef.current;
+      if (!live) return;
+      const begin = !live.started;
+      live.started = true;
+      overrideSceneTimeMsRef.current = timeMs;
+      sceneDirtyRef.current = true;
+      accumDirectiveRef.current = {
+        begin,
+        captureStep: { weight: 1, fixedBase: false, lighten: live.lighten },
+        pendingResolve: { gain: live.exposureGain, shadowLift: live.shadowLift, fixedGround: false },
+      };
+      requestRender(1);
+    };
+    h.endLiveAccum = () => {
+      liveAccumRef.current = null;
+      accumDirectiveRef.current = null;
+      overrideSceneTimeMsRef.current = null;
+      starBoostOverrideRef.current = 1;
+      hidePathsForExposureRef.current = false;
+      if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.visible = layersRef.current.paths;
+      volRef.current?.setAccumulating?.(false);
+      composerRef.current?.endAccumulation();
+      sceneDirtyRef.current = true;
+      requestRender(3);
     };
     return h;
   }, [requestRender]);
@@ -3392,6 +3440,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               composerNow.renderAccumStep(threeRenderer, scene, camera, {
                 weight: accumDir.captureStep.weight,
                 captureAsFixedBase: accumDir.captureStep.fixedBase,
+                lighten: accumDir.captureStep.lighten,
               });
             }
             if (accumDir.pendingResolve) {
@@ -3402,6 +3451,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               });
             }
             accumDir.onDone?.();
+          } else if (liveAccumRef.current?.started) {
+            const live = liveAccumRef.current;
+            composerNow.resolveAccumulation(renderer as unknown as THREE.WebGLRenderer, {
+              exposureGain: live.exposureGain,
+              shadowLift: live.shadowLift,
+              useFixedGround: false,
+            });
           } else {
             renderer.setViewport(0, 0, dw, dh);
             renderer.setScissorTest(false);

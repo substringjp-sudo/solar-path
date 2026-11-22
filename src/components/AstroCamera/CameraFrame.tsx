@@ -205,8 +205,8 @@ export const cameraFrameLabel = (language: Language): string => L3(language, 'ì¹
 
 const styles = StyleSheet.create({
   chips: { minHeight: CHIP_MIN_H, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'nowrap', gap: 6, paddingHorizontal: 10 },
-  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
-  panelScroll: { flexShrink: 1 },
+  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16 },
+  panelScroll: { flexGrow: 0 },
   panelContent: { padding: 12, gap: 8 },
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
   side: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },

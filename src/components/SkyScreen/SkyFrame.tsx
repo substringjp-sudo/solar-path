@@ -148,7 +148,11 @@ export const SkyFrame: React.FC<Props> = ({
     if (sbTab && sandbox?.[sbTab]) {
       expanded = (maxH: number) => (
         <GlassSurface testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
-          <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
+          {sbTab === 'shoot' ? (
+            sandbox[sbTab]
+          ) : (
+            <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
+          )}
         </GlassSurface>
       );
     }
@@ -262,8 +266,8 @@ const styles = StyleSheet.create({
   // 머리줄이 하늘 위에 떠 있으므로 그 아래에서 시작합니다(`utils/headerLayout`).
   readout: { position: 'absolute', left: 10, right: 10, top: belowHeader(12), alignItems: 'center' },
   readoutText: { fontFamily: monoFont, fontSize: 11, fontWeight: '500', color: TEXT, letterSpacing: 0.3 },
-  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
-  panelScroll: { flexShrink: 1 },
+  panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16 },
+  panelScroll: { flexGrow: 0 },
   panelContent: { padding: 12, gap: 8 },
 });
 

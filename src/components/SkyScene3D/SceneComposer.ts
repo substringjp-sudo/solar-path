@@ -717,7 +717,7 @@ export interface SceneComposerHandle {
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     camera: THREE.Camera,
-    opts?: { weight?: number; captureAsFixedBase?: boolean },
+    opts?: { weight?: number; captureAsFixedBase?: boolean; lighten?: boolean },
   ) => void;
   /** 누적된 선형 밝기에 노출 게인·천체 톤매핑(+선택 고정 지형)을 적용해 화면에 출력합니다. */
   resolveAccumulation: (
@@ -1030,6 +1030,7 @@ export function createSceneComposer(
     uniform float uAlpha;
     uniform float uEncodePrev;
     uniform float uPackGroundMask;
+    uniform float uLighten;
     varying vec2 vUv;
     float decodeDistKm(vec4 c) {
       float t = (floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5)) / 65535.0;
@@ -1045,7 +1046,7 @@ export function createSceneComposer(
       }
       vec3 pLin = uEncodePrev > 0.5 ? pRaw : pow(max(pRaw, vec3(0.0)), vec3(2.2));
       vec3 cLin = pow(max(cRaw, vec3(0.0)), vec3(2.2));
-      vec3 outLin = mix(pLin, cLin, clamp(uAlpha, 0.0, 1.0));
+      vec3 outLin = uLighten > 0.5 ? max(pLin, cLin) : mix(pLin, cLin, clamp(uAlpha, 0.0, 1.0));
       vec3 enc = uEncodePrev > 0.5 ? outLin : pow(clamp(outLin, 0.0, 1.0), vec3(1.0 / 2.2));
       gl_FragColor = vec4(enc, 1.0);
     }
@@ -1101,6 +1102,7 @@ export function createSceneComposer(
       uAlpha: { value: 1 },
       uEncodePrev: { value: 0 },
       uPackGroundMask: { value: 0 },
+      uLighten: { value: 0 },
     },
     vertexShader: BLIT_VERT,
     fragmentShader: ACCUM_BLEND_FRAG,
@@ -1571,7 +1573,7 @@ export function createSceneComposer(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     camera: THREE.Camera,
-    opts?: { weight?: number; captureAsFixedBase?: boolean },
+    opts?: { weight?: number; captureAsFixedBase?: boolean; lighten?: boolean },
   ) => {
     ensureAccumTargets(renderer);
     const frameRt = rtAccumFrame!;
@@ -1607,6 +1609,7 @@ export function createSceneComposer(
     accumBlendMat.uniforms.uAlpha.value = alpha;
     accumBlendMat.uniforms.uEncodePrev.value = accumHalfFloat ? 1 : 0;
     accumBlendMat.uniforms.uPackGroundMask.value = 0;
+    accumBlendMat.uniforms.uLighten.value = opts?.lighten ? 1 : 0;
     blit(renderer, accumBlendQuad, frameRt.texture);
 
     accumPing = 1 - accumPing;

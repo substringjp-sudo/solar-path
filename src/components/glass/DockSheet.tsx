@@ -67,9 +67,11 @@ export const DockSheet: React.FC<Props> = ({
   const fullExtra = dockExtraHeight('full', H, fixedH + HANDLE_ROW_H);
 
   let extra = rawExtra;
-  if (stage !== 'min') {
-    if (fitContent && contentH > 0) {
-      extra = Math.min(fullExtra, contentH);
+  if (!expanded) {
+    extra = 0;
+  } else if (stage !== 'min') {
+    if (fitContent) {
+      extra = contentH > 0 ? Math.min(fullExtra, contentH) : fullExtra;
     } else {
       if (contentH > 0) extra = Math.min(extra, contentH);
       if (stage === 'mid' && midMaxH != null && midMaxH > 0) extra = Math.min(extra, midMaxH);
@@ -212,7 +214,7 @@ export const DockSheet: React.FC<Props> = ({
               pointerEvents={stage === 'min' ? 'none' : 'auto'}
             >
               <View
-                style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
+                style={[styles.expandedMeasure, { maxHeight: fullExtra > 0 ? fullExtra : undefined }]}
                 onLayout={(e: LayoutChangeEvent) => {
                   const h = Math.ceil(e.nativeEvent.layout.height);
                   if (h > 0 && Math.abs(h - contentH) > 1) setContentH(h);
@@ -244,6 +246,7 @@ const styles = StyleSheet.create({
   dock: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 40 },
   handleHit: { alignSelf: 'center', minHeight: HANDLE_ROW_H, minWidth: 80, alignItems: 'center', justifyContent: 'center' },
   handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.45)' },
-  expanded: { overflow: 'hidden' },
+  expanded: { overflow: 'hidden', position: 'relative' },
+  expandedMeasure: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   fixed: { paddingBottom: 6, gap: 10 },
 });
