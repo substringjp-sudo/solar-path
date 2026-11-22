@@ -3,17 +3,7 @@ import { StyleSheet, View, PanResponder } from 'react-native';
 import Svg, { Circle, Path, G, Defs, RadialGradient, LinearGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
-import {
-  ELEVATION_HIGHLANDS,
-  ELEVATION_PEAKS,
-  LAND_DESERT_FEATURES,
-  LAND_ICE_FEATURES,
-  LAND_RAINFOREST_FEATURES,
-  LAND_TAIGA_FEATURES,
-  OCEAN_ABYSSAL_FEATURES,
-  OCEAN_SHELF_FEATURES,
-  type BiomeFeature,
-} from '../../utils/earthBiomes';
+import { EarthGlobeGL } from './EarthGlobeGL';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint, getSubsolarPoint, getTerminatorSegments, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 import { subscribeScrubTime } from '../../utils/liveClock';
@@ -584,27 +574,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return geoPath(mapData as any);
   }, [mapData, geoPath]);
 
-  const earthGeoPaths = useMemo(() => {
-    if (morph < 0.4) return null;
-    const join = (list: readonly BiomeFeature[]): string => {
-      let d = '';
-      for (const f of list) {
-        const p = geoPath(f.geometry as any);
-        if (p) d += p;
-      }
-      return d;
-    };
-    return {
-      abyss: join(OCEAN_ABYSSAL_FEATURES),
-      shelf: join(OCEAN_SHELF_FEATURES),
-      rainforest: join(LAND_RAINFOREST_FEATURES),
-      desert: join(LAND_DESERT_FEATURES),
-      taiga: join(LAND_TAIGA_FEATURES),
-      ice: join(LAND_ICE_FEATURES),
-      highland: join(ELEVATION_HIGHLANDS),
-      peak: join(ELEVATION_PEAKS),
-    };
-  }, [morph, geoPath]);
+  const [glGlobeReady, setGlGlobeReady] = useState(false);
+  const showGlGlobe = morph >= 0.99 && isActive && theme.dark;
+  const useGlGlobe = showGlGlobe && glGlobeReady;
 
   const nightCirclePath = useMemo(() => {
     const lat_anti = -subsolar.latitude;
@@ -1132,6 +1104,19 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   return (
     <View style={styles.container}>
       <View style={[styles.canvasWrapper, { width: W, height: H }]} {...panResponder.panHandlers}>
+        {showGlGlobe && (
+          <EarthGlobeGL
+            width={W}
+            height={H}
+            cx={CX}
+            cy={CY}
+            radius={RADIUS}
+            rotate={rotate}
+            subsolar={subsolar}
+            opacity={1}
+            onReadyChange={setGlGlobeReady}
+          />
+        )}
         <Svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
           <Defs>
             <RadialGradient id="globeShadow" cx={spaceAtmosphere?.cxPct ?? '35%'} cy={spaceAtmosphere?.cyPct ?? '35%'} rx="75%" ry="75%">
@@ -1240,12 +1225,6 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="65%" stopColor="#FEF3C7" stopOpacity="0.35" />
               <Stop offset="100%" stopColor="#FFFBEB" stopOpacity="0" />
             </LinearGradient>
-            <ClipPath id="globeSphereClip">
-              {morph >= 1 ? <Circle cx={CX} cy={CY} r={RADIUS} /> : <Path d={spherePath} />}
-            </ClipPath>
-            <ClipPath id="globeLandClip">
-              {landPath ? <Path d={landPath} /> : <Rect x={0} y={0} width={0} height={0} />}
-            </ClipPath>
           </Defs>
 
           {spaceMilkyWay && spaceMilkyWay.length > 0 && (
@@ -1322,38 +1301,12 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           {spaceAtmosphere && morph >= 1 && (
             <Circle cx={CX} cy={CY} r={RADIUS * 1.034} fill="url(#earthAtmosOuter)" opacity={spaceAtmosphere.op} pointerEvents="none" />
           )}
-          {morph >= 1
-            ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
-            : <Path d={spherePath} fill="url(#globeShadow)" />}
-          {earthGeoPaths && (
-            <G clipPath="url(#globeSphereClip)" opacity={Math.min(1, (morph - 0.4) / 0.4)} pointerEvents="none">
-              {earthGeoPaths.abyss !== '' && (
-                <Path d={earthGeoPaths.abyss} fill={theme.dark ? '#03162D' : '#1e4268'} opacity={0.42} />
-              )}
-              {earthGeoPaths.shelf !== '' && (
-                <Path d={earthGeoPaths.shelf} fill={theme.dark ? '#1B7D9E' : '#4fa8c4'} opacity={0.36} />
-              )}
-              {landPath && morph >= 0.6 && (
-                <>
-                  <Path
-                    d={landPath}
-                    fill="none"
-                    stroke={theme.dark ? 'rgba(18, 92, 130, 0.28)' : 'rgba(56, 142, 180, 0.18)'}
-                    strokeWidth={11}
-                    strokeLinejoin="round"
-                  />
-                  <Path
-                    d={landPath}
-                    fill="none"
-                    stroke={theme.dark ? 'rgba(45, 212, 191, 0.22)' : 'rgba(20, 184, 166, 0.16)'}
-                    strokeWidth={4.5}
-                    strokeLinejoin="round"
-                  />
-                </>
-              )}
-            </G>
+          {!useGlGlobe && (
+            morph >= 1
+              ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
+              : <Path d={spherePath} fill="url(#globeShadow)" />
           )}
-          {spaceAtmosphere && morph >= 1 && spaceAtmosphere.glintOp > 0.01 && (
+          {!useGlGlobe && spaceAtmosphere && morph >= 1 && spaceAtmosphere.glintOp > 0.01 && (
             <Circle
               cx={CX}
               cy={CY}
@@ -1363,7 +1316,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               pointerEvents="none"
             />
           )}
-          {spaceAtmosphere && morph >= 1 && (
+          {!useGlGlobe && spaceAtmosphere && morph >= 1 && (
             <Circle
               cx={CX}
               cy={CY}
@@ -1375,50 +1328,12 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           )}
 
           {landPath && (
-            <>
-              <Path d={landPath} fill="url(#earthLandGrad)" />
-              {earthGeoPaths && (
-                <G clipPath="url(#globeLandClip)" opacity={Math.min(1, (morph - 0.4) / 0.4)} pointerEvents="none">
-                  {earthGeoPaths.rainforest !== '' && (
-                    <Path d={earthGeoPaths.rainforest} fill="#2D5E36" opacity={0.55} />
-                  )}
-                  {earthGeoPaths.desert !== '' && (
-                    <Path d={earthGeoPaths.desert} fill="#A6895B" opacity={0.62} />
-                  )}
-                  {earthGeoPaths.taiga !== '' && (
-                    <Path d={earthGeoPaths.taiga} fill="#375245" opacity={0.52} />
-                  )}
-                  {earthGeoPaths.ice !== '' && (
-                    <Path d={earthGeoPaths.ice} fill="#DCE7F2" opacity={0.85} />
-                  )}
-                  {earthGeoPaths.highland !== '' && (
-                    <>
-                      <G transform={`translate(${(-((spaceAtmosphere?.sunDirX ?? -0.5) * 1.4)).toFixed(2)} ${(-((spaceAtmosphere?.sunDirY ?? -0.5) * 1.4)).toFixed(2)})`}>
-                        <Path d={earthGeoPaths.highland} fill="#08111E" opacity={0.24} />
-                      </G>
-                      <G transform={`translate(${(((spaceAtmosphere?.sunDirX ?? -0.5) * 1.0)).toFixed(2)} ${(((spaceAtmosphere?.sunDirY ?? -0.5) * 1.0)).toFixed(2)})`}>
-                        <Path d={earthGeoPaths.highland} fill="#C6BA99" opacity={0.24} />
-                      </G>
-                      <Path d={earthGeoPaths.highland} fill="#7A715D" opacity={0.42} />
-                    </>
-                  )}
-                  {earthGeoPaths.peak !== '' && (
-                    <>
-                      <G transform={`translate(${(-((spaceAtmosphere?.sunDirX ?? -0.5) * 0.9)).toFixed(2)} ${(-((spaceAtmosphere?.sunDirY ?? -0.5) * 0.9)).toFixed(2)})`}>
-                        <Path d={earthGeoPaths.peak} fill="#091322" opacity={0.28} />
-                      </G>
-                      <Path d={earthGeoPaths.peak} fill="#E5EFF8" opacity={0.55} />
-                    </>
-                  )}
-                </G>
-              )}
-              <Path
-                d={landPath}
-                fill="none"
-                stroke={theme.dark ? 'rgba(167, 224, 198, 0.34)' : 'rgba(30, 80, 70, 0.25)'}
-                strokeWidth={0.65}
-              />
-            </>
+            <Path
+              d={landPath}
+              fill={useGlGlobe ? 'none' : 'url(#earthLandGrad)'}
+              stroke={theme.dark ? (useGlGlobe ? 'rgba(167, 224, 198, 0.22)' : 'rgba(167, 224, 198, 0.34)') : 'rgba(30, 80, 70, 0.25)'}
+              strokeWidth={useGlGlobe ? 0.5 : 0.65}
+            />
           )}
 
           {graticulePath && (
@@ -1455,7 +1370,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             <Path d={radarPaths.edge} fill="none" stroke="rgba(148, 163, 184, 0.45)" strokeWidth={1.2} strokeDasharray="5 6" />
           )}
 
-          {nightCirclePath && (
+          {!useGlGlobe && nightCirclePath && (
             <Path
               d={nightCirclePath}
               fill="rgba(3, 7, 18, 0.38)"
