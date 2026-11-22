@@ -1542,7 +1542,10 @@ export function createTerrainField(opts: {
       }
       // 해 **방위**가 0.0017° 움직이면 다시 굽습니다 — 한 화소라 값이 거의 들지 않습니다. 해 고도와는 무관합니다.
       const q = (x: number) => Math.round(x / 3e-5);
-      const key = `${patchSerial}|${q(u.uSunAzRad.value)}|${u.uEyeHeightM.value}`;
+      // 눈 자리(uDemObs)도 넣습니다 — 연속 이동으로 눈이 옮겨 가면 해 쪽 능선(그 자리에서 본 산 그림자 경계)을 다시 굽습니다. 약 10 m 마다.
+      const obs = u.uDemObs?.value as { x: number; y: number } | undefined;
+      const qo = (x: number) => Math.round(x / 0.0025);
+      const key = `${patchSerial}|${q(u.uSunAzRad.value)}|${u.uEyeHeightM.value}|${obs ? `${qo(obs.x)},${qo(obs.y)}` : ''}`;
       const qs = (x: number) => Math.round(x / 0.01);
       const moonActive = u.uMoonAltRad.value > 0 && (u.uMoonRadiance.value as THREE.Vector3).lengthSq() > 1e-8;
       const shadeKey = !skipShadeBake && u.uDemValid?.value > 0.5

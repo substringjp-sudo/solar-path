@@ -568,6 +568,11 @@ export interface VolumetricScene {
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
   /** offsetYFrac: 화면 중심을 세로로 옮긴 몫(three 카메라 setViewOffset 과 같은 값, −0.45~0.45). 하늘 화면 카메라와 맞춰야 구름·해/달 빛이 겹침. */
   setView(az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number, offsetYFrac?: number): void;
+  /**
+   * 눈이 장면 원점(관측 위치)에서 가로로 떨어진 거리(m, 북 · 동) — 연속 이동 조이스틱이 눈을 옮기는 동안 구름 · 대기 카메라도 같이 옮깁니다.
+   * 장면(구름 층)은 원점 기준 그대로라, 눈이 가면 구름이 그만큼 시차로 움직입니다. 값이 같으면 아무것도 안 합니다.
+   */
+  setEyeOffset?(northM: number, eastM: number): void;
   /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
   setDate(date: Date, driftSec?: number): void;
   /** 2D 베이스 타일 재생성 없이 연속 보간된 층 높이·두께·밀도·연무·거시 격자 키프레임을 부드럽게 갱신합니다. */
@@ -1863,7 +1868,7 @@ export async function createVolumetricScene(
       nue.extractBasis(north, up, east);
       const dir = north.clone().multiplyScalar(Math.cos(el) * Math.cos(az))
         .addScaledVector(up, Math.sin(el)).addScaledVector(east, Math.cos(el) * Math.sin(az));
-      camera.position.copy(position).addScaledVector(up, alt);
+      camera.position.copy(position).addScaledVector(up, alt).addScaledVector(north, eyeNorthM).addScaledVector(east, eyeEastM);
       // 직하향 탑다운(레이더 뷰)일 때 up 벡터가 dir과 평행해지는 짐벌락 방지 -> 지도 북쪽을 화면 위로 정렬
       if (Math.sin(el) < -0.98) {
         camera.up.copy(north);
@@ -1875,7 +1880,7 @@ export async function createVolumetricScene(
     } else {
       // 장면 좌표는 북·위·동(NUE).
       worldToECEF = nue;
-      camera.position.set(0, alt, 0);
+      camera.position.set(eyeNorthM, alt, eyeEastM);
       if (Math.sin(el) < -0.98) {
         camera.up.set(1, 0, 0); // 북쪽(X축)
       } else {
@@ -1883,7 +1888,7 @@ export async function createVolumetricScene(
       }
       const dirLocal = new Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
       applyRollToUp(dirLocal, p.rollDeg);
-      camera.lookAt(dirLocal.x, alt + dirLocal.y, dirLocal.z);
+      camera.lookAt(eyeNorthM + dirLocal.x, alt + dirLocal.y, eyeEastM + dirLocal.z);
     }
     aerial.worldToECEFMatrix.copy(worldToECEF);
     clouds.worldToECEFMatrix.copy(worldToECEF);
@@ -2581,6 +2586,8 @@ export async function createVolumetricScene(
   /** 파동 장 캐시 키 — tauTarget 은 굽기에 안 쓰므로 뺌(일사가 바뀌어도 다시 굽지 않음). */
   function waveKey(wp: WaveParams): string { return JSON.stringify({ ...wp, tauTarget: undefined }); }
   let viewOffsetYFrac = 0;
+  /** 눈의 가로 자리(m, 북 · 동) — `setEyeOffset`. */
+  let eyeNorthM = 0, eyeEastM = 0;
   const setView = (az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number, offsetYFrac?: number) => {
     if (offsetYFrac !== undefined && Number.isFinite(offsetYFrac)) viewOffsetYFrac = Math.max(-0.45, Math.min(0.45, offsetYFrac));
     if (!lastInput) return;
@@ -2841,6 +2848,12 @@ export async function createVolumetricScene(
       sceneToken++;
     },
     setView,
+    setEyeOffset: (northM: number, eastM: number) => {
+      const n = Number.isFinite(northM) ? northM : 0, e = Number.isFinite(eastM) ? eastM : 0;
+      if (n === eyeNorthM && e === eyeEastM) return;
+      eyeNorthM = n; eyeEastM = e;
+      if (lastInput) placeCamera(lastInput);
+    },
     setDate,
     updateContinuousScene,
     lastScene: () => last,
