@@ -3687,7 +3687,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
               }
               const illum = SunCalc.getMoonIllumination(frameDate).fraction;
-              if (moonAltDeg + 0.26 > Math.max(0, moonHoriz) && moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
+              const eyeOffsetLabelM = Math.max(0, (eyeHeightRef.current ?? 1.6) - 1.6);
+              const seaDipLabelDeg = seaHorizonDipDeg((simRef.current?.terrain?.observerElevation ?? 0) + eyeOffsetLabelM);
+              if (moonAltDeg + 0.26 > Math.max(-seaDipLabelDeg, moonHoriz) && moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
                 const p = projEye(mp);
                 if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
               }
@@ -3878,20 +3880,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     // ── 달빛 조명 연산 (공통) ────────────────────────────────────────────────
-    const moonPos = getMoonPositionPrecise(targetDate, lat, lng);
+    const obsElevForMoonM = atmosphere.observerElevM ?? ((simRef.current?.terrain?.observerElevation ?? 0) + Math.max(0, (eyeHeightRef.current ?? 1.6) - 1.6));
+    const seaDipDeg = seaHorizonDipDeg(obsElevForMoonM);
+    const moonPos = getMoonPositionPrecise(targetDate, lat, lng, obsElevForMoonM);
     const moonIllum = SunCalc.getMoonIllumination(targetDate);
     // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
     // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
     const mAltDegG = (moonPos.altitude * 180) / Math.PI;
     const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
-    const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
+    const mGain = moonLight(sunAltRef.current, mAltDegG + seaDipDeg, moonIllum.fraction, atmosphere).gain;
     let moonIrr: { r: number; g: number; b: number } | null = null;
     let moonBeamRadiance: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 };
     // moonPos.altitude 는 이미 겉보기(굴절 포함)입니다 — 달 원반(MoonMesh)과 같은 자리. 예전엔 여기서 굴절을 한 번 더 더했습니다.
     const moonApparentAltRad = moonPos.altitude;
     const moonAzRad = (mAzDegG * Math.PI) / 180;
 
-    if (mGain > 0 && mAltDegG > 0) {
+    if (mGain > 0 && mAltDegG > -seaDipDeg - 0.3) {
       const c = moonGroundCacheRef.current;
       if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
         let sr = 0, sg = 0, sb = 0, sw = 0;
@@ -3899,12 +3903,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const w = Math.sin((elev * Math.PI) / 180);
           for (let a = 0; a < 6; a++) {
             const az = (a * 360) / 6;
-            const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG, atmosphere);
+            const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG + seaDipDeg, atmosphere);
             sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
           }
         }
-        const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
-        const direct = Math.sin((mAltDegG * Math.PI) / 180) / Math.PI;
+        const beamM = beamAtAltitude(mAltDegG + seaDipDeg, 0, atmosphere);
+        const direct = Math.max(0, Math.sin(((mAltDegG + seaDipDeg) * Math.PI) / 180)) / Math.PI;
         moonGroundCacheRef.current = {
           alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
           sky: { r: sr / sw, g: sg / sw, b: sb / sw },
@@ -3919,7 +3923,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         g: (c2.sky.g + c2.beam.g * t) * mGain,
         b: (c2.sky.b + c2.beam.b * t) * mGain,
       };
-      const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
+      const beamM = beamAtAltitude(mAltDegG + seaDipDeg, 0, atmosphere);
       moonBeamRadiance = {
         r: beamM.r * mGain * t,
         g: beamM.g * mGain * t,
@@ -4071,6 +4075,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           moonBeamRadiance.r, moonBeamRadiance.g, moonBeamRadiance.b);
         u.uMoonAzRad.value = moonAzRad;
         u.uMoonAltRad.value = moonApparentAltRad;
+        if (u.uSeaDipRad) u.uSeaDipRad.value = (seaDipDeg * Math.PI) / 180;
         // Cox & Munk (1954) — **윤슬 폭을 정하는 것은 이 값 하나**입니다.
         // 옛 원반 물(updateGroundColors)과 같은 바람을 씁니다.
         u.uSlopeVar.value = 0.003 + 0.00512 * Math.max(0, layerWindsNow().low.speedKmh / 3.6);
@@ -4205,7 +4210,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000 ||
       Math.abs(baseMagLimit - cachedMoonBaseMagRef.current) > 1e-3
     ) {
-      const moonPos = getMoonPositionPrecise(targetDate, lat, lng);
+      const moonPos = getMoonPositionPrecise(targetDate, lat, lng, obsElevForMoonM);
       const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
       const illum = SunCalc.getMoonIllumination(targetDate).fraction;
       cachedMoonMagLimitRef.current = effectiveMagLimit(baseMagLimit, moonAltDeg, illum);

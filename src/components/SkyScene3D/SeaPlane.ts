@@ -306,6 +306,7 @@ uniform float uSunAltRad;
 uniform vec3  uMoonRadiance;
 uniform float uMoonAzRad;
 uniform float uMoonAltRad;
+uniform float uSeaDipRad;
 uniform vec3  uWaterAlbedo;
 uniform vec3  uBedAlbedo;     // 바닥(모래·펄) 알베도
 uniform float uFoamDepthM;
@@ -499,7 +500,7 @@ void main() {
     col += clamp(glitter, vec3(0.0), vec3(24.0)) / eyeAdapt;
 
     // 달빛 윤슬 (Moonlight Cox-Munk glitter)
-    float moonUp = max(0.0, sin(uMoonAltRad));
+    float moonUp = max(0.0, sin(uMoonAltRad + uSeaDipRad));
     if (moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
       vec3 Lm = vec3(cos(uMoonAltRad) * sin(uMoonAzRad), sin(uMoonAltRad),
                     -cos(uMoonAltRad) * cos(uMoonAzRad));
@@ -585,6 +586,7 @@ export function createSeaPlane(opts: {
       uMoonRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uMoonAzRad: { value: 0 },
       uMoonAltRad: { value: 0 },
+      uSeaDipRad: { value: 0 },
       uWaterAlbedo: { value: new THREE.Vector3(a.r, a.g, a.b) },
       // 서해안 갯벌·모래 바닥. 얕은 데서만 보입니다.
       uBedAlbedo: { value: new THREE.Vector3(0.26, 0.22, 0.17) },

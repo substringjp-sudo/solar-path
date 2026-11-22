@@ -730,9 +730,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const camWeatherRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [camWeatherRetryTick, setCamWeatherRetryTick] = useState(0);
   useEffect(() => () => { if (camWeatherRetryTimerRef.current) clearTimeout(camWeatherRetryTimerRef.current); }, []);
+  const prevCamDateStrRef = useRef(camDateStr);
+  const prevCamLocRef = useRef(`${latitude.toFixed(4)},${longitude.toFixed(4)}`);
   useEffect(() => {
+    const locKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+    const isDateChanged = prevCamDateStrRef.current !== camDateStr;
+    const isLocChanged = prevCamLocRef.current !== locKey;
+    prevCamDateStrRef.current = camDateStr;
+    prevCamLocRef.current = locKey;
     if (!visible || camExactWeather || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
     if (latitude === 0 && longitude === 0) return;
+    if (cameraTab === 'astro' && isDateChanged && !isLocChanged) return;
     const key = weatherCacheKey(latitude, longitude, camDateStr);
     if (camWeatherInflightRef.current === key) return;   // 이미 받는 중 (429 방지)
     const RETRY_MS = 60_000;
@@ -759,7 +767,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       .catch(err => { console.warn('[SunCamera] weather fetch failed:', err); fail(); })
       .finally(() => { if (camWeatherInflightRef.current === key) camWeatherInflightRef.current = ''; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, camExactWeather, latitude, longitude, camDateStr, camWeatherRetryTick]);
+  }, [visible, camExactWeather, latitude, longitude, camDateStr, camWeatherRetryTick, cameraTab]);
 
   // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
   const cameraSimState = useMemo(() => {

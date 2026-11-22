@@ -40,6 +40,8 @@ import {
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { cityLightField, CITY_REF_LOCAL, type CityLightField, type NightLights } from '../../utils/cityLightMap';
+import { getMoonPositionPrecise } from '../../utils/moonPosition';
+import { seaHorizonDipDeg } from '../../utils/earth';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getMoonDirectionECEF, getSunDirectionECEF } from '@takram/three-atmosphere';
 import { CloudLayer, CloudShape, CloudShapeDetail, CloudsEffect, Turbulence } from '@takram/three-clouds';
 import {
@@ -1919,13 +1921,26 @@ export async function createVolumetricScene(
     lastTrueSunAlt = sunAlt;
     moonGain = 0;
     if (opt.moonLight && sunAlt < -10) {
-      getMoonDirectionECEF(date, moonVec);
+      const obsElevM = lastInput ? Math.max(0, (lastInput.heightM ?? 0) + (lastInput.altitudeM ?? 2)) : 0;
+      if (lastInput) {
+        const mp = getMoonPositionPrecise(date, lastInput.lat, lastInput.lon, obsElevM);
+        const mAlt = mp.altitude;
+        const mAz = mp.azimuth + Math.PI;
+        moonVec.set(
+          Math.cos(mAlt) * Math.cos(mAz),
+          Math.sin(mAlt),
+          Math.cos(mAlt) * Math.sin(mAz),
+        ).transformDirection(curNue).normalize();
+      } else {
+        getMoonDirectionECEF(date, moonVec);
+      }
       const moonAlt = altOf(moonVec);
+      const horizonDipDeg = seaHorizonDipDeg(obsElevM);
       const elong = (Math.acos(Math.max(-1, Math.min(1, sun.dot(moonVec)))) * 180) / Math.PI;
       const a = 180 - elong;
       const gain = 2.5e-6 * Math.pow(10, -0.4 * (0.026 * a + 4e-9 * a ** 4));
       // 초승달(위상각 140° 넘음, 보름의 2 % 아래)이나 지평선 아래 달은 쓰지 않음.
-      if (moonAlt > -1 && a < 140) { sun.copy(moonVec); moonGain = gain; return moonAlt; }
+      if (moonAlt > -(horizonDipDeg + 0.8) && a < 140) { sun.copy(moonVec); moonGain = gain; return moonAlt; }
     }
     return sunAlt;
   };

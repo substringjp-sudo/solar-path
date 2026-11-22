@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { getMoonPosition, getSunPosition } from '../../utils/celestial';
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { beamAtAltitude, type AtmosphereParams } from '../../utils/atmosphere';
+import { seaHorizonDipDeg } from '../../utils/earth';
 
 /** 태양(0.267°)과 동일한 순수 각반지름 기준(실제 평균 각반지름 0.259°, 시직경 ~0.518°) */
 export const MOON_ANGULAR_RADIUS_DEG = 0.259;
@@ -246,7 +247,9 @@ export function updateMoonPosition(
     typeof fovDegOrOpts === 'object' ? fovDegOrOpts : optsMaybe;
   const fovDeg = typeof fovDegOrOpts === 'number' ? fovDegOrOpts : opts?.fovDeg;
 
-  const rawPos = getMoonPositionPrecise(date, lat, lng);
+  const elevM = opts?.atmosphere?.observerElevM ?? 0;
+  const horizonDipDeg = seaHorizonDipDeg(elevM);
+  const rawPos = getMoonPositionPrecise(date, lat, lng, elevM);
   const moonAltDeg = (rawPos.altitude * 180) / Math.PI;
   const moonAzDeg = (rawPos.azimuth * 180) / Math.PI + 180;
 
@@ -281,14 +284,14 @@ export function updateMoonPosition(
   // 대기 투과 색(월출/월몰 주황~고고도 은백) 및 낮/밤 지구조(Earthshine) 조절
   const brightCol = material.uniforms.uColorBright.value as THREE.Color;
   if (opts?.atmosphere) {
-    const beamM = beamAtAltitude(moonAltDeg, 0, opts.atmosphere);
+    const beamM = beamAtAltitude(moonAltDeg + horizonDipDeg, 0, opts.atmosphere);
     const mMax = Math.max(beamM.r, beamM.g, beamM.b, 1e-6);
     const tintR = beamM.r / mMax;
     const tintG = beamM.g / mMax;
     const tintB = beamM.b / mMax;
     const atten =
       Math.min(1, 0.34 + 0.66 * Math.pow(Math.min(1, mMax / 0.75), 0.5)) *
-      Math.min(1, Math.max(0, (moonAltDeg + 0.35) / 0.9));
+      Math.min(1, Math.max(0, (moonAltDeg + horizonDipDeg + 0.35) / 0.9));
     // 달 자체 고유 반사색(중성 은백)과 대기 투과 색 결합
     brightCol.setRGB(
       0.97 * (0.25 + 0.75 * tintR) * atten,

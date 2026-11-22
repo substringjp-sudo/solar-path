@@ -361,6 +361,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const weatherAbortControllerRef = useRef<AbortController | null>(null);
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
+  const [sandboxShootMode, setSandboxShootMode] = useState<SandboxShootMode>('photo');
+  const isAstroMode = expertMode && sandboxShootMode === 'astro';
+  const skippedAstroDateRef = useRef(false);
+  const prevIsAstroRef = useRef(isAstroMode);
   // 맑은 하늘 대체 자료(429 등)를 쓰는 중인지 — 알림을 띄우고 뒤에서 다시 받습니다(1·2·4·5 분 간격).
   const usingFallbackSky = Boolean((pathData as any)?.[0]?.isFallback);
   const fallbackRetryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; n: number }>({ timer: null, n: 0 });
@@ -567,7 +571,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   useEffect(() => {
     const st = fallbackRetryRef.current;
     if (st.timer) { clearTimeout(st.timer); st.timer = null; }
-    if (!usingFallbackSky) { st.n = 0; return; }
+    if (!usingFallbackSky || isAstroMode) { st.n = 0; return; }
     const waitMs = Math.min(300_000, 60_000 * 2 ** st.n);
     st.timer = setTimeout(() => {
       st.timer = null;
@@ -575,7 +579,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       loadWeather(false);
     }, waitMs);
     return () => { if (st.timer) { clearTimeout(st.timer); st.timer = null; } };
-  }, [usingFallbackSky, pathData, loadWeather]);
+  }, [usingFallbackSky, isAstroMode, pathData, loadWeather]);
 
   /** 하단 막대가 고른 시각. 날짜 손잡이를 끄는 중이면 위 정리를 먼저 하고 시각을 반영합니다. */
   const handleBarPick = useCallback((time: Date, meta?: { scrub?: ScrubKind }) => {
@@ -595,12 +599,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       clearTimeout(weatherDebounceTimerRef.current);
       weatherDebounceTimerRef.current = null;
     }
+    if (isAstroMode) {
+      skippedAstroDateRef.current = true;
+      return;
+    }
     // 스크롤을 떼고 250ms 뒤에 검증 및 로드 (기존 2초에서 대폭 단축하여 즉각 반응)
     weatherDebounceTimerRef.current = setTimeout(() => {
       weatherDebounceTimerRef.current = null;
       loadWeather(false);
     }, 250);
-  }, [updateSlidingState, loadWeather]);
+  }, [updateSlidingState, loadWeather, isAstroMode]);
 
   const handleBarSlidingComplete = useCallback((kind: ScrubKind) => {
     if (kind === 'date') handleDateSlidingComplete();
@@ -618,9 +626,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const latLonStr = `${latitude?.toFixed(4)},${longitude?.toFixed(4)}`;
     const isDateChanged = prevDateStrRef.current !== currentDateStr;
     const isLocChanged = prevLatLonRef.current !== latLonStr;
+    const wasAstroMode = prevIsAstroRef.current;
 
     prevDateStrRef.current = currentDateStr;
     prevLatLonRef.current = latLonStr;
+    prevIsAstroRef.current = isAstroMode;
 
     // 슬라이더 스크롤 중일 때는 즉시 로드하지 않고 타이머에 위임
     if (isDateSlidingRef.current || isTimeSlidingRef.current) {
@@ -652,7 +662,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       return;
     }
 
-    if (isDateChanged || isLocChanged) {
+    const resumedFromAstro = wasAstroMode && !isAstroMode && skippedAstroDateRef.current;
+
+    if (isDateChanged || isLocChanged || resumedFromAstro) {
       setWeatherRefreshError(null);
       // 캐시에 데이터가 있으면 즉시 교체
       const cached = weatherCacheList.find(c => 
@@ -662,20 +674,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         setPathData(prev => (prev === cached.data ? prev : (cached.data as CloudPathData[])));
       }
 
-      // 날짜나 위치가 변경된 경우: 기존 요청 중단 + 250ms 디바운스
       if (weatherAbortControllerRef.current) {
         weatherAbortControllerRef.current.abort();
         weatherAbortControllerRef.current = null;
         setIsWeatherLoading(false);
       }
-      if (weatherDebounceTimerRef.current) clearTimeout(weatherDebounceTimerRef.current);
+      if (weatherDebounceTimerRef.current) {
+        clearTimeout(weatherDebounceTimerRef.current);
+        weatherDebounceTimerRef.current = null;
+      }
+
+      // 천체 모드에서 날짜만 바뀐 경우 날씨 서버 요청을 건너뜁니다
+      if (isAstroMode && isDateChanged && !isLocChanged) {
+        skippedAstroDateRef.current = true;
+        return;
+      }
+
+      skippedAstroDateRef.current = false;
+      // 날짜나 위치가 변경된 경우: 250ms 디바운스
       weatherDebounceTimerRef.current = setTimeout(() => {
         weatherDebounceTimerRef.current = null;
         loadWeather(false);
       }, 250);
       return;
     }
-  }, [isCacheHydrated, latitude, longitude, currentDateStr, loadWeather, pathData.length, weatherCacheList]);
+  }, [isCacheHydrated, latitude, longitude, currentDateStr, isAstroMode, loadWeather, pathData.length, weatherCacheList]);
 
   useEffect(() => {
     return () => {
@@ -742,7 +765,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     );
   };
   // ── 샌드박스 촬영 미리보기 스튜디오 (사진 노출 · 천체 장노출 · 타임랩스 미리보기 → 카메라 전달) ──
-  const [sandboxShootMode, setSandboxShootMode] = useState<SandboxShootMode>('photo');
   const [sandboxExposure, setSandboxExposure] = useState<number>(0);
   const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
