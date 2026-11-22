@@ -10,6 +10,47 @@ import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
 import { morphRaw, morphClipAngle } from '../../utils/globeMorph';
+import { getStarCatalog, bvToLinearRGB } from '../../utils/starCatalog';
+import { getGMSTDeg } from '../../utils/celestialCoords';
+
+interface SpaceStarEntry {
+  raDeg: number;
+  sinDec: number;
+  cosDec: number;
+  r: number;
+  op: number;
+  color: string;
+  halo: boolean;
+}
+
+let cachedSpaceStars: SpaceStarEntry[] | null = null;
+function getSpaceStars(): SpaceStarEntry[] {
+  if (cachedSpaceStars) return cachedSpaceStars;
+  const cat = getStarCatalog();
+  const RAD = Math.PI / 180;
+  const list: SpaceStarEntry[] = [];
+  for (let i = 0; i < cat.count; i++) {
+    const mag = cat.magnitude[i];
+    if (mag > 4.1) continue;
+    const decRad = cat.decDeg[i] * RAD;
+    const [lr, lg, lb] = bvToLinearRGB(cat.colorIndex[i]);
+    const toSrgb = (c: number) => Math.round(Math.pow(Math.max(0, Math.min(1, c)), 1 / 2.2) * 255);
+    const cr = toSrgb(lr * 0.72 + 0.28);
+    const cg = toSrgb(lg * 0.72 + 0.28);
+    const cb = toSrgb(lb * 0.72 + 0.28);
+    list.push({
+      raDeg: cat.raHours[i] * 15,
+      sinDec: Math.sin(decRad),
+      cosDec: Math.cos(decRad),
+      r: Math.max(0.45, Math.min(1.85, 1.55 - mag * 0.27)),
+      op: Math.max(0.28, Math.min(0.95, 0.92 - (mag + 1.5) * 0.11)),
+      color: `rgb(${cr},${cg},${cb})`,
+      halo: mag < 1.1,
+    });
+  }
+  cachedSpaceStars = list;
+  return list;
+}
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -774,6 +815,75 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return { sun, moon };
   }, [morph, RADIUS, rotate, width, height, CX, CY, subsolar, sublunar]);
 
+  const gmstMin = Math.floor((selectedDate?.getTime() ?? Date.now()) / 60000);
+  const spaceStars = useMemo(() => {
+    if (morph < 0.9 || RADIUS <= 1) return null;
+    const morphFade = Math.min(1, (morph - 0.9) / 0.1);
+    const stars = getSpaceStars();
+    const gmstDeg = getGMSTDeg(new Date(gmstMin * 60000));
+    const cLat = -rotate[1];
+    const cLon = -rotate[0];
+    const RAD = Math.PI / 180;
+    const cosCLat = Math.cos(cLat * RAD);
+    const sinCLat = Math.sin(cLat * RAD);
+    const f = Math.max(width, height) * 0.9;
+    const earthOccR2 = morph >= 0.999 ? (RADIUS - 1.5) * (RADIUS - 1.5) : 0;
+    const sun = spaceBodies?.sun;
+    const out: Array<{ sx: number; sy: number; r: number; op: number; color: string; halo: boolean }> = [];
+    for (let i = 0; i < stars.length; i++) {
+      const st = stars[i];
+      const dLon = (st.raDeg - gmstDeg - cLon) * RAD;
+      const cosDLon = Math.cos(dLon);
+      const x = st.cosDec * Math.sin(dLon);
+      const y = cosCLat * st.sinDec - sinCLat * st.cosDec * cosDLon;
+      const z = sinCLat * st.sinDec + cosCLat * st.cosDec * cosDLon;
+      if (z >= -0.08) continue;
+      const invZ = 1 / -z;
+      const sx = CX + x * invZ * f;
+      const sy = CY - y * invZ * f;
+      if (sx < -4 || sx > width + 4 || sy < -4 || sy > height + 4) continue;
+      if (earthOccR2 > 0) {
+        const dxE = sx - CX;
+        const dyE = sy - CY;
+        if (dxE * dxE + dyE * dyE < earthOccR2) continue;
+      }
+      let glareFade = 1;
+      if (sun) {
+        const dSun = Math.hypot(sx - sun.sx, sy - sun.sy);
+        if (dSun < sun.sr * 7) {
+          glareFade = Math.max(0.08, (dSun - sun.sr * 1.2) / (sun.sr * 5.8));
+        }
+      }
+      out.push({ sx, sy, r: st.r, op: st.op * morphFade * glareFade, color: st.color, halo: st.halo });
+    }
+    return out;
+  }, [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies]);
+
+  const renderSpaceSun = (sun: { sx: number; sy: number; sr: number }) => {
+    const r = sun.sr;
+    const rayL = r * 5.2;
+    const rayS = r * 3.4;
+    const rayW = Math.max(0.8, r * 0.22);
+    const rayWs = Math.max(0.5, r * 0.14);
+    return (
+      <G pointerEvents="none" transform={`translate(${sun.sx} ${sun.sy})`}>
+        <Circle cx={0} cy={0} r={r * 8.5} fill="url(#spaceSunOuterCorona)" />
+        <Circle cx={0} cy={0} r={r * 3.1} fill="url(#spaceSunInnerCorona)" />
+        <G transform="rotate(12)">
+          <Path d={`M ${-rayL} 0 Q 0 ${-rayW} ${rayL} 0 Q 0 ${rayW} ${-rayL} 0 Z`} fill="#FFFBEB" opacity={0.22} />
+          <Path d={`M 0 ${-rayL} Q ${rayW} 0 0 ${rayL} Q ${-rayW} 0 0 ${-rayL} Z`} fill="#FFFBEB" opacity={0.22} />
+          <G transform="rotate(45)">
+            <Path d={`M ${-rayS} 0 Q 0 ${-rayWs} ${rayS} 0 Q 0 ${rayWs} ${-rayS} 0 Z`} fill="#FEF3C7" opacity={0.14} />
+            <Path d={`M 0 ${-rayS} Q ${rayWs} 0 0 ${rayS} Q ${-rayWs} 0 0 ${-rayS} Z`} fill="#FEF3C7" opacity={0.14} />
+          </G>
+        </G>
+        <Circle cx={0} cy={0} r={r * 1.07} fill="#FDBA74" opacity={0.45} />
+        <Circle cx={0} cy={0} r={r} fill="url(#spaceSunDisc)" />
+        <Circle cx={0} cy={0} r={r * 0.55} fill="#FFFFFF" opacity={0.65} />
+      </G>
+    );
+  };
+
   const MOON_R = 7;
   const moonMarker = useMemo(() => {
     if (!sublunar) return null;
@@ -840,10 +950,25 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="30%" stopColor={dataColor.sunrise} stopOpacity="0.8" />
               <Stop offset="100%" stopColor={dataColor.sunrise} stopOpacity="0" />
             </RadialGradient>
-            <RadialGradient id="spaceSunGlow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-              <Stop offset="35%" stopColor="#FEF08A" stopOpacity="0.95" />
+            <RadialGradient id="spaceSunOuterCorona" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FEF3C7" stopOpacity="0.28" />
+              <Stop offset="35%" stopColor="#FDE68A" stopOpacity="0.12" />
+              <Stop offset="70%" stopColor="#F59E0B" stopOpacity="0.03" />
               <Stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="spaceSunInnerCorona" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.98" />
+              <Stop offset="28%" stopColor="#FEF9C3" stopOpacity="0.82" />
+              <Stop offset="55%" stopColor="#FDE047" stopOpacity="0.34" />
+              <Stop offset="82%" stopColor="#F59E0B" stopOpacity="0.08" />
+              <Stop offset="100%" stopColor="#EA580C" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="spaceSunDisc" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="58%" stopColor="#FFFBEB" stopOpacity="1" />
+              <Stop offset="82%" stopColor="#FEF08A" stopOpacity="1" />
+              <Stop offset="94%" stopColor="#FBBF24" stopOpacity="1" />
+              <Stop offset="100%" stopColor="#F59E0B" stopOpacity="1" />
             </RadialGradient>
             <RadialGradient id="spaceMoonGlow" cx="50%" cy="50%" r="50%">
               <Stop offset="0%" stopColor="#E2E8F0" stopOpacity="0.32" />
@@ -851,12 +976,20 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </RadialGradient>
           </Defs>
 
-          {spaceBodies?.sun && !spaceBodies.sun.inFront && (
+          {spaceStars && spaceStars.length > 0 && (
             <G pointerEvents="none">
-              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr * 3.2} fill="url(#spaceSunGlow)" />
-              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
+              {spaceStars.map((st, i) => (
+                <React.Fragment key={`star-${i}`}>
+                  {st.halo && (
+                    <Circle cx={st.sx} cy={st.sy} r={st.r * 2.4} fill={st.color} opacity={st.op * 0.2} />
+                  )}
+                  <Circle cx={st.sx} cy={st.sy} r={st.r} fill={st.color} opacity={st.op} />
+                </React.Fragment>
+              ))}
             </G>
           )}
+
+          {spaceBodies?.sun && !spaceBodies.sun.inFront && renderSpaceSun(spaceBodies.sun)}
           {spaceBodies?.moon && !spaceBodies.moon.inFront && (() => {
             const m = spaceBodies.moon;
             const r = m.sr;
@@ -1111,12 +1244,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
           )}
-          {spaceBodies?.sun && spaceBodies.sun.inFront && (
-            <G pointerEvents="none">
-              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr * 3.2} fill="url(#spaceSunGlow)" />
-              <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
-            </G>
-          )}
+          {spaceBodies?.sun && spaceBodies.sun.inFront && renderSpaceSun(spaceBodies.sun)}
           {spaceBodies?.moon && spaceBodies.moon.inFront && (() => {
             const m = spaceBodies.moon;
             const r = m.sr;
