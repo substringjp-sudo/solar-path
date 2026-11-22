@@ -100,7 +100,14 @@ class AstroCameraModule : Module() {
     return cameraHandler!!
   }
 
-  private fun pickCameraId(manager: CameraManager, facing: String): Pair<String, CameraCharacteristics> {
+  private fun pickCameraId(
+    manager: CameraManager,
+    facing: String,
+    requestedId: String? = null,
+  ): Pair<String, CameraCharacteristics> {
+    if (!requestedId.isNullOrEmpty() && manager.cameraIdList.contains(requestedId)) {
+      return requestedId to manager.getCameraCharacteristics(requestedId)
+    }
     val wantLens = if (facing == "front") {
       CameraCharacteristics.LENS_FACING_FRONT
     } else {
@@ -197,10 +204,34 @@ class AstroCameraModule : Module() {
       ioScope.cancel()
     }
 
-    AsyncFunction("getCapabilitiesAsync") { facing: String? ->
+    AsyncFunction("getRearLensesAsync") {
       val ctx = appContextSafe()
       val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-      val (camId, ch) = pickCameraId(manager, facing ?: "back")
+      val seenFocalBuckets = HashSet<Int>()
+      val out = mutableListOf<Map<String, Any>>()
+      for (id in manager.cameraIdList) {
+        val ch = manager.getCameraCharacteristics(id)
+        if (ch.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
+        val focalMm = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble() ?: 4.5
+        val (focal35, hfov) = estimateFocal35AndHfov(ch)
+        val bucket = (focal35 * 2.0).toInt()
+        if (!seenFocalBuckets.add(bucket)) continue
+        out.add(
+          mapOf(
+            "cameraId" to id,
+            "focalLengthMm" to focalMm,
+            "focal35mm" to focal35,
+            "hfovDeg" to hfov,
+          )
+        )
+      }
+      out.sortedBy { (it["focal35mm"] as? Double) ?: 24.0 }
+    }
+
+    AsyncFunction("getCapabilitiesAsync") { facing: String?, cameraId: String? ->
+      val ctx = appContextSafe()
+      val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+      val (camId, ch) = pickCameraId(manager, facing ?: "back", cameraId)
 
       val hwLevel = ch.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL) ?: -1
       val rawCapable = supportsCapability(ch, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
@@ -250,11 +281,12 @@ class AstroCameraModule : Module() {
           frameCounter.set(0)
 
           val facing = (opts["facing"] as? String) ?: "back"
+          val requestedCameraId = opts["cameraId"] as? String
           val preferRaw = (opts["preferRaw"] as? Boolean) ?: true
           activeMaxLongEdge = ((opts["maxLongEdge"] as? Number)?.toInt() ?: 2048).coerceIn(640, 4096)
 
           val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-          val (camId, ch) = pickCameraId(manager, facing)
+          val (camId, ch) = pickCameraId(manager, facing, requestedCameraId)
           val cfgMap = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
           val rawCapable = supportsCapability(ch, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
           val rawSize = if (preferRaw && rawCapable) chooseSize(cfgMap?.getOutputSizes(ImageFormat.RAW_SENSOR), null) else null

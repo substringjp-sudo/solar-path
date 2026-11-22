@@ -226,59 +226,61 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       screenH={screenH}
       onFixedHeight={onDockHeight}
     >
-      <View
-        testID="chips-row"
-        style={styles.chipsRow}
-        onLayout={(e) => {
-          const w = e.nativeEvent.layout.width;
-          if (w > 0 && Math.abs(w - chipsW) > 4) setChipsW(w);
-        }}
-      >
-        {slideState ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.chipsSlideSlot,
-              styles.chipsRowInner,
-              {
-                transform: [{
-                  translateX: slideAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, -slideState.dir * chipsW],
-                  }),
-                }],
-                opacity: slideAnim.interpolate({
-                  inputRange: [0, 0.75, 1],
-                  outputRange: [1, 0.2, 0],
-                }),
-              },
-            ]}
-          >
-            {slideState.prevChips}
-          </Animated.View>
-        ) : null}
-        <Animated.View
-          style={[
-            styles.chipsRowInner,
-            slideState
-              ? {
+      {(zoomDial || chips.length > 0 || slideState) ? (
+        <View
+          testID="chips-row"
+          style={styles.chipsRow}
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0 && Math.abs(w - chipsW) > 4) setChipsW(w);
+          }}
+        >
+          {slideState ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.chipsSlideSlot,
+                styles.chipsRowInner,
+                {
                   transform: [{
                     translateX: slideAnim.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [slideState.dir * chipsW, 0],
+                      outputRange: [0, -slideState.dir * chipsW],
                     }),
                   }],
                   opacity: slideAnim.interpolate({
-                    inputRange: [0, 0.25, 1],
-                    outputRange: [0, 0.85, 1],
+                    inputRange: [0, 0.75, 1],
+                    outputRange: [1, 0.2, 0],
                   }),
-                }
-              : null,
-          ]}
-        >
-          {chipsContent}
-        </Animated.View>
-      </View>
+                },
+              ]}
+            >
+              {slideState.prevChips}
+            </Animated.View>
+          ) : null}
+          <Animated.View
+            style={[
+              styles.chipsRowInner,
+              slideState
+                ? {
+                    transform: [{
+                      translateX: slideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [slideState.dir * chipsW, 0],
+                      }),
+                    }],
+                    opacity: slideAnim.interpolate({
+                      inputRange: [0, 0.25, 1],
+                      outputRange: [0, 0.85, 1],
+                    }),
+                  }
+                : null,
+            ]}
+          >
+            {chipsContent}
+          </Animated.View>
+        </View>
+      ) : null}
 
       <TimeRuler
         timeMs={ruler.timeMs}

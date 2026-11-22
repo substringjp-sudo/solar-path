@@ -48,10 +48,12 @@ import { hapticShutter, hapticError } from '../utils/haptics';
 import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 import {
   getAstroCapabilitiesAsync,
+  getRearLensesAsync,
   isAstroCameraAvailable,
   renderAstroStackPreviewAsync,
   stopAstroSessionAsync,
   type AstroCameraCapabilities,
+  type RearLensInfo,
 } from '../../modules/astro-camera';
 import { analyzeAstroWindow, type AstroWindowAnalysis } from '../utils/astroForecast';
 import { buildSkyTimeline, type SkyTimeline } from '../utils/skyTimeline';
@@ -94,6 +96,7 @@ import { tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
+import { CameraLensZoomSection, type LensOption } from './AstroCamera/CameraLensZoomSection';
 import { Scrim } from './glass/Scrim';
 import { GlassChip } from './glass/GlassChip';
 import { TEXT } from '../theme/glassTokens';
@@ -479,6 +482,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
     supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
   });
+  const [rearLenses, setRearLenses] = useState<RearLensInfo[]>([]);
+  const [iosLenses, setIosLenses] = useState<string[]>([]);
+  const [selectedLensId, setSelectedLensId] = useState<string | null>(null);
   const [astroNightPhase, setAstroNightPhase] = useState<AstroNightPhase | null>(null);
   const [astroCountdownSec, setAstroCountdownSec] = useState(0);
   const [astroProgress, setAstroProgress] = useState<AstroCaptureProgress | null>(null);
@@ -1229,15 +1235,31 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible, viewMode, displayAz, displayEl, simVFovDeg, displayRoll, centerOffsetYFrac]);
 
+  // 기기 후면 렌즈 목록 인식 (Android Camera2 / iOS CameraView)
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    let cancelled = false;
+    getRearLensesAsync().then(list => {
+      if (cancelled) return;
+      setRearLenses(list);
+      setSelectedLensId(prev => {
+        if (prev && list.some(l => l.cameraId === prev)) return prev;
+        const wide = list.find(l => l.focal35mm >= 18 && l.focal35mm <= 32);
+        return (wide ?? list[0])?.cameraId ?? null;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [visible]);
+
   // 천체 모드 진입 시 Android Camera2 정적 성능(raw 지원 · 노출/ISO 범위 · 초점거리) 조회
   useEffect(() => {
     if (!visible || cameraTab !== 'astro') return;
     let cancelled = false;
-    getAstroCapabilitiesAsync('back').then(caps => {
+    getAstroCapabilitiesAsync('back', Platform.OS === 'android' ? (selectedLensId ?? undefined) : undefined).then(caps => {
       if (!cancelled) setAstroCaps(caps);
     });
     return () => { cancelled = true; };
-  }, [visible, cameraTab]);
+  }, [visible, cameraTab, selectedLensId]);
 
   // 천체 모드 30분 앞당김 구름 타임라인(3분 간격 11프레임) 계산 — 모드 전환 직후 인터랙션이 끝난 뒤 비동기로 실행
   useEffect(() => {
@@ -1805,6 +1827,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
       const runRes = await runAstroCaptureStack({
         mode: settingsSnap.mode,
+        cameraId: Platform.OS === 'android' ? (selectedLensId ?? undefined) : undefined,
         totalExposureSec: settingsSnap.durationSec,
         iso: summarySnap.clampedIso,
         subExposureSec: summarySnap.subExposureSecUsed,
@@ -2112,6 +2135,40 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const autoState = cameraScene ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
   const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
   const lensInfoText = useMemo(() => lensLine(optics.vFovDeg, W / Math.max(1, stageLayoutH)), [optics.vFovDeg, W, stageLayoutH]);
+  const lensOptions = useMemo<LensOption[]>(() => {
+    if (Platform.OS === 'ios') {
+      const labelFor = (id: string) => {
+        if (id === 'builtInUltraWideCamera') return L3(language, '초광각', 'Ultra Wide', '超広角');
+        if (id === 'builtInWideAngleCamera') return L3(language, '광각', 'Wide', '広角');
+        if (id === 'builtInTelephotoCamera') return L3(language, '망원', 'Tele', '望遠');
+        return id;
+      };
+      return iosLenses.map(id => ({ id, label: labelFor(id) }));
+    }
+    return rearLenses.map(l => {
+      const role = l.focal35mm < 18
+        ? L3(language, '초광각', 'Ultra Wide', '超広角')
+        : l.focal35mm <= 32
+          ? L3(language, '광각', 'Wide', '広角')
+          : L3(language, '망원', 'Tele', '望遠');
+      return { id: l.cameraId, label: role, sub: `${Math.round(l.focal35mm)}mm` };
+    });
+  }, [iosLenses, rearLenses, language]);
+  const activeLensId = useMemo(() => {
+    if (selectedLensId && lensOptions.some(l => l.id === selectedLensId)) return selectedLensId;
+    if (Platform.OS === 'ios' && lensOptions.some(l => l.id === 'builtInWideAngleCamera')) return 'builtInWideAngleCamera';
+    return lensOptions[0]?.id ?? null;
+  }, [selectedLensId, lensOptions]);
+  const lensZoomSection = (
+    <CameraLensZoomSection
+      language={language}
+      lenses={lensOptions}
+      selectedLensId={activeLensId}
+      onSelectLens={setSelectedLensId}
+      magnification={currentMagnification}
+      onChangeMagnification={setMagnification}
+    />
+  );
 
   const toggleTopInfo = useCallback(() => setTopInfoExpanded(v => !v), []);
   const toggleAlignMenu = useCallback(() => setAlignMenuOpen(v => !v), []);
@@ -2453,6 +2510,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     style={StyleSheet.absoluteFill}
                     facing={cameraFacing}
                     zoom={zoom}
+                    selectedLens={Platform.OS === 'ios' && activeLensId ? activeLensId : undefined}
+                    onAvailableLensesChanged={e => {
+                      const list = e?.lenses ?? [];
+                      setIosLenses(list);
+                      if (list.length > 0 && !selectedLensId) {
+                        setSelectedLensId(list.includes('builtInWideAngleCamera') ? 'builtInWideAngleCamera' : list[0]);
+                      }
+                    }}
                   />
                 </View>
               )}
@@ -2692,47 +2757,55 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
             </View>
 
-            {/* 카메라의 새 틀: 실시간 촬영 전용 — 1줄 칩(배율 슬라이더 · 노출/천체/타임랩스) · 셔터 줄(실사/겹침 토글 · 셔터 · 방향 고정) · 모드 줄 (시간 자 · 미리보기는 샌드박스 전담) */}
+            {/* 카메라의 새 틀: 실시간 촬영 전용 — 확장 막대(핸들 바) 하나로 해당 모드의 설정 패널(렌즈·배율 포함)을 여닫습니다 */}
             <CameraFrame
               language={language}
-              zoomDial={{
-                magnification: currentMagnification,
-                onChange: setMagnification,
-              }}
-              chips={[
-                timelapseMode
-                  ? { id: 'timelapse', label: tlSummaryLabel || L3(language, '노을 · 1시간 · 10초 · 12s', 'Sunset · 1h · 10s · 12s', '夕焼け · 1時間 · 10秒 · 12s'), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定') }
-                  : cameraTab === 'astro'
-                    ? { id: 'astro', label: astroChipLabel(astroSettings, astroShotSummary, language), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '천체 설정', 'Astro settings', '天体設定') }
-                    : { id: 'exposure', label: L3(language, '노출', 'Exposure', '露出'), expands: true },
-              ]}
+              zoomDial={null}
+              chips={[]}
               panels={
                 timelapseMode
                   ? {
                       timelapse: (
-                        <TimelapsePanel
-                          inline
-                          visible
-                          language={language}
-                          events={{
-                            sunrise: goldenTimeInfo.type === 'sunrise' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
-                            sunset: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
-                          }}
-                          nowMs={currentTime.getTime()}
-                          tzHours={tzHours}
-                          peak={tlPeak}
-                          lowCloud={tlLowCloud}
-                          sunAltAt={tlSunAltAt}
-                          initialPlan={handoffTlPlan}
-                          onPlanChange={(p) => { activeTlPlanRef.current = p; }}
-                          onClose={() => setCamStage('min')}
-                          onSummaryChange={setTlSummaryLabel}
-                        />
+                        <>
+                          {lensZoomSection}
+                          <TimelapsePanel
+                            inline
+                            visible
+                            language={language}
+                            events={{
+                              sunrise: goldenTimeInfo.type === 'sunrise' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+                              sunset: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
+                            }}
+                            nowMs={currentTime.getTime()}
+                            tzHours={tzHours}
+                            peak={tlPeak}
+                            lowCloud={tlLowCloud}
+                            sunAltAt={tlSunAltAt}
+                            initialPlan={handoffTlPlan}
+                            onPlanChange={(p) => { activeTlPlanRef.current = p; }}
+                            onClose={() => setCamStage('min')}
+                            onSummaryChange={setTlSummaryLabel}
+                          />
+                        </>
                       ),
                     }
                   : cameraTab === 'astro'
-                    ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> }
-                    : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }
+                    ? {
+                        astro: (
+                          <>
+                            {lensZoomSection}
+                            <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} />
+                          </>
+                        ),
+                      }
+                    : {
+                        exposure: (
+                          <>
+                            {lensZoomSection}
+                            <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} />
+                          </>
+                        ),
+                      }
               }
               ruler={null}
               left={

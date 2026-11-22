@@ -43,6 +43,7 @@ export type AstroCaptureMode = 'tracked' | 'trails';
 
 export interface AstroCapturePlanInput {
   mode: AstroCaptureMode;
+  cameraId?: string;
   totalExposureSec: number;
   iso?: number;
   /** 사용자 지정 1장 셔터(초). 없으면 NPF 점상 상한 + 기기 허용치로 자동 선택. */
@@ -151,7 +152,7 @@ export async function runAstroCaptureStack(
     throw new Error('네이티브 AstroCamera 모듈이 포함되지 않은 빌드입니다.');
   }
 
-  const caps = await getAstroCapabilitiesAsync('back');
+  const caps = await getAstroCapabilitiesAsync('back', input.cameraId);
   if (!caps.available) {
     throw new Error('Android Camera2 장치를 찾을 수 없습니다.');
   }
@@ -190,6 +191,7 @@ export async function runAstroCaptureStack(
     let session = await withAbortAndTimeout(
       startAstroSessionAsync({
         facing: 'back',
+        cameraId: input.cameraId,
         preferRaw: input.preferRaw ?? true,
       }),
       10000,

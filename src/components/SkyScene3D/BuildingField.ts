@@ -142,6 +142,12 @@ varying float vElevSin;
 void main() {
   vec2 g = vec2(position.x, position.z) - uBldEyeOffset;
   float d = max(length(g), 0.1);
+  // 85 m 이내의 아주 가까운 가로등은 3D 가로등 형태(lampMesh3D)가 전담하므로 점 스프라이트를 그리지 않음
+  if (d < 85.0) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    return;
+  }
   float r = bf_ringRadius(d);
   float h = bf_groundElev(g) + position.y;
   float eyeElevM = bf_groundAtEye() + uEyeHeightM;
@@ -150,7 +156,7 @@ void main() {
   vElevSin = p.y / max(length(p), 0.001);
   vec4 wp = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
-  gl_PointSize = clamp(uLampPx * 240.0 / d, 3.5 * uLampPx, 20.0 * uLampPx);
+  gl_PointSize = clamp(uLampPx * 200.0 / d, 3.0 * uLampPx, 10.0 * uLampPx);
 }
 `;
 const LAMP_FRAG = /* glsl */ `
@@ -163,26 +169,111 @@ uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 void main() {
+  if (vDistM < 85.0 || uLampGlow <= 0.001) discard;
   vec2 q = gl_PointCoord * 2.0 - 1.0;
-  if (dot(q, q) > 1.0 || uLampGlow <= 0.001) discard;
-  // 위쪽 전구 헤드(갓으로 위쪽 빛 차단) + 아래로 퍼지는 호박색 빛 원뿔과 기둥 줄기
+  if (dot(q, q) > 1.0) discard;
+  // 지평선 위 하늘과 겹쳐 별과 혼동되는 것을 원천 차단 (지평선 아래 도로만 은은히 표시)
+  float skyGuard = 1.0 - smoothstep(-0.004, 0.016, vElevSin);
+  if (skyGuard <= 0.002) discard;
   vec2 bulb = vec2(q.x * 0.85, (q.y + 0.42) * 1.35);
   float r2 = dot(bulb, bulb);
   float hood = smoothstep(-0.22, 0.04, q.y + 0.42);
   float core = exp(-r2 * 22.0) * hood;
   float halo = exp(-r2 * 5.2) * mix(0.2, 1.0, hood);
-  float dy = max(0.0, q.y + 0.38);
-  float coneW = 0.14 + dy * 0.56;
-  float cone = step(0.0, q.y + 0.38) * exp(-(q.x * q.x) / max(coneW * coneW * 0.35, 1e-4)) * (1.0 - smoothstep(0.0, 1.35, dy)) * 0.55;
-  float pole = step(0.0, q.y + 0.38) * exp(-(q.x * q.x) / 0.0045) * (1.0 - smoothstep(0.0, 1.38, dy)) * 0.35;
-  float intensity = core + halo + cone + pole;
+  float intensity = core + halo * 0.7;
   if (intensity <= 0.003) discard;
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
-  float fade = 1.0 - smoothstep(1350.0, 1580.0, vDistM);
-  // 중·원거리 언덕 위 가로등이 지평선 위 밤하늘 별자리에 섞이지 않도록 앙각 감쇠
-  float skyGuard = 1.0 - smoothstep(110.0, 320.0, vDistM) * smoothstep(0.01, 0.055, vElevSin);
-  vec3 col = vec3(1.00, 0.93, 0.78) * core + vec3(1.00, 0.56, 0.16) * (halo + cone + pole);
+  float nearIn = smoothstep(85.0, 110.0, vDistM);
+  float fade = (1.0 - smoothstep(1350.0, 1580.0, vDistM)) * nearIn;
+  vec3 col = vec3(1.00, 0.93, 0.78) * core + vec3(1.00, 0.56, 0.16) * halo * 0.7;
   gl_FragColor = vec4(col * uLampGlow * T * fade * skyGuard, 1.0);
+}
+`;
+
+/**
+ * 2026-11-23 아주 가까운 거리(95 m 이내)의 3D 가로등(기둥·팔·갓·전구) 셰이더.
+ * 밤하늘 배경과 겹쳐도 기둥과 갓 실루엣이 뚜렷이 보여 별과 혼동되지 않습니다.
+ */
+const LAMP_3D_VERT = BUILDING_VERT.slice(0, BUILDING_VERT.indexOf('void main() {')) + /* glsl */ `
+attribute vec2 aLampXZ;
+attribute vec2 aLampDir;
+attribute float aPart;
+varying float vPart;
+varying float vLocalY;
+void main() {
+  vec2 gCenter = aLampXZ - uBldEyeOffset;
+  float dCenter = length(gCenter);
+  if (dCenter > 95.0 || dCenter < 0.4) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  float scaleFade = 1.0 - smoothstep(78.0, 95.0, dCenter);
+  vec2 fDir = length(aLampDir) > 0.1 ? normalize(aLampDir) : vec2(1.0, 0.0);
+  vec2 rDir = vec2(-fDir.y, fDir.x);
+  vec3 localPos = position * scaleFade;
+  vec2 worldXZ = localPos.x * fDir + localPos.z * rDir;
+  vec2 g = gCenter + worldXZ;
+  float d = max(length(g), 0.1);
+  float r = bf_ringRadius(d);
+  float baseElevM = bf_groundElev(gCenter);
+  float h = baseElevM + localPos.y;
+  float eyeElevM = bf_groundAtEye() + uEyeHeightM;
+  vec3 p = gp_project(g, h, eyeElevM, r);
+  vDistM = d;
+  vPart = aPart;
+  vLocalY = position.y;
+  vNormalW = normalize(vec3(
+    normal.x * fDir.x + normal.z * rDir.x,
+    normal.y,
+    normal.x * fDir.y + normal.z * rDir.y
+  ));
+  vec4 wp = modelMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+const LAMP_3D_FRAG = /* glsl */ `
+precision highp float;
+${ATMOSPHERE_GLSL}
+${GROUND_DISPLAY_GLSL}
+varying vec3  vNormalW;
+varying float vDistM;
+varying float vPart;
+varying float vLocalY;
+uniform float uLampGlow;
+uniform float uSunAzRad;
+uniform float uSunAltRad;
+uniform float uSunAltDeg;
+uniform vec3  uSurfaceIrr;
+uniform vec3  uSunRadiance;
+uniform float uExposure;
+uniform float uSaturation;
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+void main() {
+  vec3 n = normalize(vNormalW);
+  if (vPart > 0.5) {
+    // 전구 발광면: 밤에는 따뜻한 가로등 불빛, 낮에는 밝은 유리/반사판
+    vec3 dayCol = vec3(0.42, 0.44, 0.48) * uSurfaceIrr;
+    vec3 bulbEmit = vec3(1.00, 0.78, 0.42) * (0.65 + 1.35 * uLampGlow) * step(0.001, uLampGlow);
+    vec3 col = dayCol + bulbEmit;
+    gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + bulbEmit * 0.45, 1.0);
+    return;
+  }
+  vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad), sin(uSunAltRad), -cos(uSunAltRad) * cos(uSunAzRad));
+  float ndl = max(0.0, dot(n, sun));
+  float sunUp = max(0.0, sin(uSunAltRad));
+  vec3 directFlat = (uSunRadiance * sunUp) / 3.14159265;
+  vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
+  vec3 directLit = (uSunRadiance * ndl) / 3.14159265;
+  vec3 metalAlb = vec3(0.11, 0.115, 0.125) * (0.78 + 0.22 * n.y);
+  vec3 col = metalAlb * (skyIrr + directLit);
+  // 밤에는 기둥 상단과 갓 안쪽·테두리에 가로등 빛 반사를 더해 밤하늘과 겹쳐도 기둥 형태가 또렷이 보이게 함
+  float topBounce = smoothstep(5.5, 8.6, vLocalY);
+  vec3 lampReflect = vec3(0.16, 0.11, 0.06) * uLampGlow * (0.28 + 0.72 * topBounce);
+  vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
+  col = col * T + lampReflect * T;
+  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + lampReflect * 0.35, 1.0);
 }
 `;
 
@@ -373,15 +464,79 @@ void main() {
 #endif
 `;
 
+/**
+ * 2026-11-23 아주 가까운 거리(95 m 이내)의 가로등을 실제 3D 형태(기둥 · 팔 · 갓 · 전구)로 그리는 프로토타입 기하.
+ * +X 방향을 도로 안쪽으로 두고(셰이더에서 aLampDir 로 회전), part=0 은 기둥·팔·갓, part=1 은 아래쪽 전구 발광면.
+ */
+function createLampPrototypeGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const parts: number[] = [];
+
+  const pushQuad = (
+    a: [number, number, number],
+    b: [number, number, number],
+    c: [number, number, number],
+    d: [number, number, number],
+    n: [number, number, number],
+    part: number,
+  ) => {
+    for (const p of [a, b, c, a, c, d]) {
+      positions.push(p[0], p[1], p[2]);
+      normals.push(n[0], n[1], n[2]);
+      parts.push(part);
+    }
+  };
+
+  const addTaperBox = (
+    x0: number, x1: number,
+    y0: number, y1: number,
+    z0: number, z1: number,
+    topScaleXZ: number,
+    part: number,
+  ) => {
+    const cx = (x0 + x1) * 0.5;
+    const cz = (z0 + z1) * 0.5;
+    const tx0 = cx + (x0 - cx) * topScaleXZ;
+    const tx1 = cx + (x1 - cx) * topScaleXZ;
+    const tz0 = cz + (z0 - cz) * topScaleXZ;
+    const tz1 = cz + (z1 - cz) * topScaleXZ;
+
+    pushQuad([tx0, y1, tz1], [tx1, y1, tz1], [tx1, y1, tz0], [tx0, y1, tz0], [0, 1, 0], part);
+    pushQuad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], part);
+    pushQuad([x0, y0, z1], [x1, y0, z1], [tx1, y1, tz1], [tx0, y1, tz1], [0, 0, 1], part);
+    pushQuad([x1, y0, z0], [x0, y0, z0], [tx0, y1, tz0], [tx1, y1, tz0], [0, 0, -1], part);
+    pushQuad([x1, y0, z1], [x1, y0, z0], [tx1, y1, tz0], [tx1, y1, tz1], [1, 0, 0], part);
+    pushQuad([x0, y0, z0], [x0, y0, z1], [tx0, y1, tz1], [tx0, y1, tz0], [-1, 0, 0], part);
+  };
+
+  // 1) 기둥 (0 ~ 8.6m, 아래 0.26m → 위 0.16m)
+  addTaperBox(-0.13, 0.13, 0.0, 8.60, -0.13, 0.13, 0.62, 0.0);
+  // 2) 수평 암 / 브래킷 (기둥 꼭대기에서 도로 안쪽 +X 로 1.45m 뻗음)
+  addTaperBox(0.02, 1.45, 8.38, 8.54, -0.06, 0.06, 1.0, 0.0);
+  // 3) 등기구 갓 (위쪽과 옆쪽을 덮는 갓 — 밤하늘 위에서도 가로등 윤곽이 뚜렷함)
+  addTaperBox(1.12, 1.80, 8.50, 8.68, -0.22, 0.22, 0.88, 0.0);
+  // 4) 아래쪽 발광 전구판 (갓 아래에만 위치해 위쪽 별과 섞이지 않음)
+  addTaperBox(1.18, 1.72, 8.43, 8.50, -0.16, 0.16, 1.0, 1.0);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('aPart', new THREE.Float32BufferAttribute(parts, 1));
+  return geo;
+}
+
 export interface BuildingFieldHandle {
   mesh: THREE.Mesh;
   distMesh: THREE.Mesh;
   litMesh: THREE.Mesh;
   windowMesh: THREE.Mesh;
-  /** 2026-11-18 가로등 머리 점(더하기). 부르는 쪽이 씬의 LAYER_MID 에 넣습니다. */
+  /** 2026-11-18 중·원거리 가로등 점(지평선 아래 도로용). 부르는 쪽이 씬의 LAYER_MID 에 넣습니다. */
   lampPoints: THREE.Points;
-  /** 가로등 자리(동 x, 남 z, m) 쌍. null 이면 지웁니다. */
-  setLamps: (xz: Float32Array | null | undefined) => void;
+  /** 2026-11-23 아주 가까운 거리(95 m 이내)의 실제 3D 가로등 형태(기둥·팔·갓·전구). */
+  lampMesh3D: THREE.Mesh;
+  /** 가로등 자리(동 x, 남 z, m) 쌍과 선택적 도로 방향 벡터(dx, dz). null 이면 지웁니다. */
+  setLamps: (xz: Float32Array | null | undefined, dirs?: Float32Array | null | undefined) => void;
   /** 가로등 밝기(0 = 끔)와 화면 배율(점 크기). */
   setLampGlow: (glow: number, pixelRatio?: number) => void;
   material: THREE.ShaderMaterial;
@@ -491,7 +646,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   windowMesh.frustumCulled = false;
   windowMesh.visible = false;
 
-  // 2026-11-18 가로등 머리 점(건물 켬·끔과 상관없이 밤에 보임).
+  // 2026-11-18 중·원거리 가로등 점(밤에 지평선 아래 도로만 보임).
   const lampMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: LAMP_VERT,
@@ -505,6 +660,27 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   lampPoints.name = 'streetLamps';
   lampPoints.frustumCulled = false;
   lampPoints.visible = false;
+
+  // 2026-11-23 아주 가까운 가로등 3D 형태(기둥·팔·갓·전구). 불투명 메시라 밤하늘 별을 가리고 형태가 구분됨.
+  const lampProto = createLampPrototypeGeometry();
+  const lamp3DMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: LAMP_3D_VERT,
+    fragmentShader: LAMP_3D_FRAG,
+    side: THREE.FrontSide,
+    depthWrite: true,
+    depthTest: true,
+  });
+  const emptyInstGeo = new THREE.InstancedBufferGeometry();
+  emptyInstGeo.attributes.position = lampProto.attributes.position;
+  emptyInstGeo.attributes.normal = lampProto.attributes.normal;
+  emptyInstGeo.attributes.aPart = lampProto.attributes.aPart;
+  emptyInstGeo.instanceCount = 0;
+  const lampMesh3D = new THREE.Mesh(emptyInstGeo, lamp3DMaterial);
+  lampMesh3D.name = 'streetLamps3D';
+  lampMesh3D.frustumCulled = false;
+  lampMesh3D.visible = false;
+
   let hasLamps = false;
 
   let currentGeo = emptyGeo;
@@ -519,6 +695,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     litMesh.visible = show;
     windowMesh.visible = show && Number(uniforms.uWinGlow.value) > 0.001 && Number(uniforms.uWinRate.value) > 0;
     lampPoints.visible = hasLamps && Number(uniforms.uLampGlow.value) > 0.001;
+    lampMesh3D.visible = hasLamps;
   };
 
   return {
@@ -527,18 +704,49 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     litMesh,
     windowMesh,
     lampPoints,
+    lampMesh3D,
     material,
-    setLamps: (xz) => {
+    setLamps: (xz, dirs) => {
       const old = lampPoints.geometry;
       const geo = new THREE.BufferGeometry();
+      const old3D = lampMesh3D.geometry;
+      const instGeo = new THREE.InstancedBufferGeometry();
+      instGeo.attributes.position = lampProto.attributes.position;
+      instGeo.attributes.normal = lampProto.attributes.normal;
+      instGeo.attributes.aPart = lampProto.attributes.aPart;
+
       const n = xz ? Math.floor(xz.length / 2) : 0;
       if (n > 0) {
         const pos = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) { pos[i * 3] = xz![i * 2]; pos[i * 3 + 1] = 9; pos[i * 3 + 2] = xz![i * 2 + 1]; }
+        const xzAttr = new Float32Array(n * 2);
+        const dirAttr = new Float32Array(n * 2);
+        for (let i = 0; i < n; i++) {
+          const lx = xz![i * 2];
+          const lz = xz![i * 2 + 1];
+          pos[i * 3] = lx;
+          pos[i * 3 + 1] = 8.6;
+          pos[i * 3 + 2] = lz;
+          xzAttr[i * 2] = lx;
+          xzAttr[i * 2 + 1] = lz;
+          if (dirs && dirs.length >= (i + 1) * 2) {
+            dirAttr[i * 2] = dirs[i * 2];
+            dirAttr[i * 2 + 1] = dirs[i * 2 + 1];
+          } else {
+            dirAttr[i * 2] = 1;
+            dirAttr[i * 2 + 1] = 0;
+          }
+        }
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        instGeo.setAttribute('aLampXZ', new THREE.InstancedBufferAttribute(xzAttr, 2));
+        instGeo.setAttribute('aLampDir', new THREE.InstancedBufferAttribute(dirAttr, 2));
+        instGeo.instanceCount = n;
+      } else {
+        instGeo.instanceCount = 0;
       }
       lampPoints.geometry = geo;
+      lampMesh3D.geometry = instGeo;
       old.dispose();
+      old3D.dispose();
       hasLamps = n > 0;
       syncVisibility();
     },
@@ -604,6 +812,9 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       windowMaterial.dispose();
       lampPoints.geometry.dispose();
       lampMaterial.dispose();
+      lampMesh3D.geometry.dispose();
+      lampProto.dispose();
+      lamp3DMaterial.dispose();
     },
   };
 }
@@ -617,6 +828,7 @@ export function updateBuildingFieldEye(handle: BuildingFieldHandle, camera: THRE
   handle.litMesh.position.copy(camera.position);
   handle.windowMesh.position.copy(camera.position);
   handle.lampPoints.position.copy(camera.position);
+  handle.lampMesh3D.position.copy(camera.position);
   handle.distMesh.visible = handle.mesh.visible;
   handle.litMesh.visible = handle.mesh.visible;
 }

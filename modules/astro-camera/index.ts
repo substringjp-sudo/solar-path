@@ -63,10 +63,19 @@ export interface AstroStackFinalizeResult {
   estimatedSkyFloor: number;
 }
 
+export interface RearLensInfo {
+  cameraId: string;
+  focalLengthMm: number;
+  focal35mm: number;
+  hfovDeg: number;
+}
+
 interface AstroCameraNative {
-  getCapabilitiesAsync(facing?: string): Promise<AstroCameraCapabilities>;
+  getRearLensesAsync(): Promise<RearLensInfo[]>;
+  getCapabilitiesAsync(facing?: string, cameraId?: string): Promise<AstroCameraCapabilities>;
   startSessionAsync(opts: {
     facing?: 'back' | 'front';
+    cameraId?: string;
     preferRaw?: boolean;
     maxLongEdge?: number;
   }): Promise<AstroSessionInfo>;
@@ -130,12 +139,22 @@ export function isAstroCameraAvailable(): boolean {
   return NativeAstroCamera !== null;
 }
 
+export async function getRearLensesAsync(): Promise<RearLensInfo[]> {
+  if (!NativeAstroCamera?.getRearLensesAsync) return [];
+  try {
+    return await NativeAstroCamera.getRearLensesAsync();
+  } catch {
+    return [];
+  }
+}
+
 export async function getAstroCapabilitiesAsync(
   facing: 'back' | 'front' = 'back',
+  cameraId?: string,
 ): Promise<AstroCameraCapabilities> {
   if (!NativeAstroCamera) return UNAVAILABLE_CAPS;
   try {
-    return await NativeAstroCamera.getCapabilitiesAsync(facing);
+    return await NativeAstroCamera.getCapabilitiesAsync(facing, cameraId);
   } catch {
     return UNAVAILABLE_CAPS;
   }
@@ -143,6 +162,7 @@ export async function getAstroCapabilitiesAsync(
 
 export async function startAstroSessionAsync(opts: {
   facing?: 'back' | 'front';
+  cameraId?: string;
   preferRaw?: boolean;
   maxLongEdge?: number;
 } = {}): Promise<AstroSessionInfo> {

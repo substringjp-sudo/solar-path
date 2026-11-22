@@ -500,6 +500,8 @@ export interface UrbanMaskResult {
   pave?: { size: number; halfM: number; data: Uint8Array; lamp?: Uint8Array };
   /** 2026-11-18 큰 도로 가로등 자리(동 x, 남 z, m) 쌍. 관측자 둘레 ±PAVE_HALF_M. */
   lamps?: Float32Array;
+  /** 2026-11-23 각 가로등이 도로 안쪽을 향하는 단위 방향(dx, dz) 쌍. */
+  lampDirs?: Float32Array;
   /** 건물 덮개(0/255, 관측자 둘레 ±halfM, 512칸 ≈ 12.5 m). 고도의 건물 높이 깎기(demBuildingFlatten.ts)에 씁니다. */
   bld?: { size: number; halfM: number; data: Uint8Array };
   /**
@@ -730,6 +732,7 @@ export async function fetchUrbanMask(
   const pave = new Uint8Array(pSize * pSize * 2);
   const lampPool = new Uint8Array(pSize * pSize);
   const lampXZ: number[] = [];
+  const lampDirXZ: number[] = [];
   {
     const bGrid = new Uint8Array(pSize * pSize);
     for (const { tc, layers } of okTiles) {
@@ -792,7 +795,10 @@ export async function fetchUrbanMask(
               const cx = a.x + (dx * t) / len, cz = a.z + (dz * t) / len;
               const put = (sgn: number) => {
                 const x = cx + nx * off * sgn, z = cz + nz * off * sgn;
-                if (Math.abs(x) < pHalf && Math.abs(z) < pHalf && lampXZ.length < LAMP_MAX * 2) lampXZ.push(x, z);
+                if (Math.abs(x) < pHalf && Math.abs(z) < pHalf && lampXZ.length < LAMP_MAX * 2) {
+                  lampXZ.push(x, z);
+                  lampDirXZ.push(-nx * sgn, -nz * sgn);
+                }
               };
               if (w >= 16) { put(1); put(-1); } else { put(side); side = -side; }
             }
@@ -915,7 +921,7 @@ export async function fetchUrbanMask(
     size,
     halfM,
     data: smooth,
-    pave: { size: pSize, halfM: pHalf, data: pave, lamp: lampPool }, lamps: Float32Array.from(lampXZ),
+    pave: { size: pSize, halfM: pHalf, data: pave, lamp: lampPool }, lamps: Float32Array.from(lampXZ), lampDirs: Float32Array.from(lampDirXZ),
     bld: { size: BLD_COVER_SIZE, halfM, data: bldCover },
     footprints,
     water: waterGrid,

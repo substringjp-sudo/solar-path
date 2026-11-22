@@ -86,7 +86,7 @@ export const SkyFrame: React.FC<Props> = ({
   const off = dayOffset(timeMs, nowMs, tz);
 
   const firstSandboxTab = React.useMemo(
-    () => (['shoot', 'scene'] as const).find(k => sandbox?.[k]) ?? null,
+    () => (sandbox?.shoot ? 'shoot' : null),
     [sandbox],
   );
 
@@ -151,29 +151,7 @@ export const SkyFrame: React.FC<Props> = ({
     );
   }
 
-  const sandboxChipOrder: (ChipId | 'shoot')[] = sandbox?.shoot
-    ? ['shoot', 'scene']
-    : chips;
-
-  const dockChips: BottomDockChip[] = mode === 'simulation'
-    ? [
-        {
-          id: 'forecast',
-          testID: 'chip-forecast',
-          label: L3(language, '노을 예보', 'Forecast', '夕焼け予報'),
-          active: stage !== 'min',
-          expanded: stage !== 'min',
-          onPress: () => setStageSafe(stage === 'min' ? 'full' : 'min'),
-        },
-      ]
-    : sandboxChipOrder.map(c => ({
-        id: c,
-        testID: `chip-${c}`,
-        label: c === 'shoot' ? L3(language, '촬영', 'Shoot', '撮影') : chipLabel(c, language),
-        active: chipActive(c),
-        expanded: c === 'date' || c === 'shoot' || c === 'scene' ? chipActive(c) : undefined,
-        onPress: () => onChip(c),
-      }));
+  const dockChips: BottomDockChip[] = [];
 
   const effectiveShowNow = showNow ?? (Math.abs(timeMs - nowMs) > 60_000);
 

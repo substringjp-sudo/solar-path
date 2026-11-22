@@ -2656,6 +2656,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     buildingField.windowMesh.renderOrder = -0.468;
     scene.add(buildingField.windowMesh);
     assignLayer(buildingField.windowMesh, LAYER_MID);
+    buildingField.lampMesh3D.renderOrder = -0.466;
+    scene.add(buildingField.lampMesh3D);
+    assignLayer(buildingField.lampMesh3D, LAYER_MID);
     buildingField.lampPoints.renderOrder = -0.465;
     scene.add(buildingField.lampPoints);
     assignLayer(buildingField.lampPoints, LAYER_MID);
@@ -4624,7 +4627,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         urbanLoadedKeyRef.current = key;
         urbanCenterRef.current = { lat: bldLat, lng: bldLng };
         terrainFieldRef.current.setUrbanMask(mask);
-        buildingFieldRef.current?.setLamps(mask.lamps);
+        buildingFieldRef.current?.setLamps(mask.lamps, mask.lampDirs);
         seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
         urbanSerialRef.current += 1;
         applyEye();
