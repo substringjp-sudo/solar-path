@@ -12,8 +12,11 @@ import { DockSheet } from '../glass/DockSheet';
 import { GlassSurface } from '../glass/GlassSurface';
 import { ModeStrip } from '../glass/ModeStrip';
 import { TimeRuler } from '../glass/TimeRuler';
+import { ZoomDialPill } from '../glass/ZoomDialPill';
+import { CHIP_MIN_H } from '../glass/GlassChip';
 import type { DockStage } from '../../utils/dockStages';
 import type { AppMode } from '../../utils/modeStrip';
+import { dateShort, shiftDays, type ScoreSample } from '../../utils/timeRuler';
 import { L3, type Language } from '../../utils/i18n';
 import { color as DARK } from '../../theme/tokens';
 
@@ -36,9 +39,12 @@ export interface CameraRulerProps {
   nowMs: number;
   onDragStart?: () => void;
   onChange: (ms: number) => void;
-  onCommit?: () => void;
+  onCommit?: (ms: number) => void;
+  onDayShift?: (nextMs: number) => void;
+  onDatePress?: () => void;
   sunsetMs?: number | null;
   sunsetLabel?: string;
+  scoreSamples?: readonly ScoreSample[] | null;
   showNow?: boolean;
   onNow?: () => void;
 }
@@ -46,6 +52,11 @@ export interface CameraRulerProps {
 interface Props {
   language: Language;
   chips: readonly CameraChipSpec[];
+  /** 1줄 칩 왼쪽에 놓을 슬라이드형 배율 다이얼 */
+  zoomDial?: {
+    magnification: number;
+    onChange: (mag: number) => void;
+  } | null;
   panels?: Record<string, React.ReactNode>;
   /** 있으면 시간 자를 그립니다(3D 시뮬레이션 · 겹침일 때만). */
   ruler?: CameraRulerProps | null;
@@ -72,7 +83,7 @@ interface Props {
 }
 
 export const CameraFrame: React.FC<Props> = ({
-  language, chips, panels, ruler = null, left, right, shutterLabel, shutterInner, shutterBusy = false, shutterColor, onShutter,
+  language, chips, zoomDial = null, panels, ruler = null, left, right, shutterLabel, shutterInner, shutterBusy = false, shutterColor, onShutter,
   stripMode, stripModes, onPickMode, onDockHeight, screenH, stage: stageProp, onStageChange,
 }) => {
   const [stageState, setStageState] = React.useState<DockStage>('min');
@@ -100,7 +111,7 @@ export const CameraFrame: React.FC<Props> = ({
     if (!c.expands || !panels?.[c.id]) { c.onPress?.(); return; }
     if (active === c.id && stage !== 'min') { setStage('min'); return; }
     setActive(c.id);
-    if (stage === 'min') setStage(c.openStage ?? 'mid');
+    if (stage === 'min') setStage(c.openStage ?? 'full');
     c.onPress?.();
   };
   const activeKey = (active && panels?.[active]) ? active : firstPanelId;
@@ -114,8 +125,7 @@ export const CameraFrame: React.FC<Props> = ({
     </GlassSurface>
   ) : null;
 
-  const zoomChips = chips.filter(c => c.id.startsWith('zoom-'));
-  const subChips = chips.filter(c => !c.id.startsWith('zoom-'));
+  const visibleChips = zoomDial ? chips.filter(c => !c.id.startsWith('zoom-')) : chips;
   const renderChip = (c: CameraChipSpec) => (
     <GlassChip
       key={c.id}
@@ -131,10 +141,16 @@ export const CameraFrame: React.FC<Props> = ({
 
   return (
     <DockSheet stage={stage} onStageChange={setStage} language={language} expanded={expanded} screenH={screenH} fitContent onFixedHeight={onDockHeight}>
-      {chips.length > 0 ? (
-        <View testID="chips-row" style={styles.chipsCol}>
-          {zoomChips.length > 0 ? <View style={styles.chips}>{zoomChips.map(renderChip)}</View> : null}
-          {subChips.length > 0 ? <View style={styles.chips}>{subChips.map(renderChip)}</View> : null}
+      {(zoomDial || visibleChips.length > 0) ? (
+        <View testID="chips-row" style={styles.chips}>
+          {zoomDial ? (
+            <ZoomDialPill
+              magnification={zoomDial.magnification}
+              onChange={zoomDial.onChange}
+              language={language}
+            />
+          ) : null}
+          {visibleChips.map(renderChip)}
         </View>
       ) : null}
       {ruler ? (
@@ -148,6 +164,19 @@ export const CameraFrame: React.FC<Props> = ({
           onCommit={ruler.onCommit}
           sunsetMs={ruler.sunsetMs}
           sunsetLabel={ruler.sunsetLabel}
+          scoreSamples={ruler.scoreSamples}
+          dateText={dateShort(ruler.timeMs, ruler.tz, language)}
+          onDatePress={ruler.onDatePress}
+          onDayShift={(n) => {
+            const nextMs = shiftDays(ruler.timeMs, n);
+            if (ruler.onDayShift) {
+              ruler.onDayShift(nextMs);
+            } else {
+              ruler.onDragStart?.();
+              ruler.onChange(nextMs);
+              ruler.onCommit?.(nextMs);
+            }
+          }}
           showNow={ruler.showNow}
           onNow={ruler.onNow}
         />
@@ -175,13 +204,12 @@ export const CameraFrame: React.FC<Props> = ({
 export const cameraFrameLabel = (language: Language): string => L3(language, '카메라 조작', 'Camera controls', 'カメラ操作');
 
 const styles = StyleSheet.create({
-  chipsCol: { alignItems: 'center', gap: 6 },
-  chips: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10 },
+  chips: { minHeight: CHIP_MIN_H, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'nowrap', gap: 6, paddingHorizontal: 10 },
   panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
   panelScroll: { flexShrink: 1 },
   panelContent: { padding: 12, gap: 8 },
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
-  side: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  side: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   shutterRing: { width: 78, height: 78, borderRadius: 39, borderWidth: 4, borderColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
   shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: DARK.accent, alignItems: 'center', justifyContent: 'center' },
 });

@@ -11,7 +11,7 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Platform, Switch } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Platform, Switch, Image, Dimensions } from 'react-native';
 import { SlidersHorizontal, Sun, Sunset, Moon, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
@@ -73,6 +73,8 @@ import { SandboxPanel, type FarStatus } from './SandboxPanel';
 import { SceneBar } from './SceneBar';
 import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
+import { GlassSurface } from '../glass/GlassSurface';
+import { SandboxShootPanel, type SandboxShootMode } from './SandboxShootPanel';
 import { SceneSheet, type SaveResult } from './SceneSheet';
 import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
@@ -82,6 +84,23 @@ import { DialPair, MoveStick, ViewStick } from './SandboxDials';
 import { useJoystickDriver } from '../../hooks/useJoystickDriver';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
+import {
+  planAstroShotSummary,
+  computeAstroSimExposureParams,
+  createDefaultAstroSettings,
+  type AstroSettingsState,
+} from '../../utils/astroCameraUi';
+import type { AstroCameraCapabilities } from '../../../modules/astro-camera';
+import { adviseExposure } from '../../utils/exposureAdvice';
+import { lensLine } from '../../utils/lensInfo';
+import { previewTimeAt, videoClock, type TimelapsePlan } from '../../utils/timelapsePlan';
+
+const SANDBOX_ASTRO_CAPS: AstroCameraCapabilities = {
+  available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
+  minExposureMs: 100, maxExposureMs: 30000, minIso: 100, maxIso: 6400,
+  focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
+  supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
+};
 
 /** 해·달 걸기로 시선을 옮길 때 시야 중심을 올리는 몫(화면 높이의 비율) — 아래쪽을 덮는 정보 패널 위로 대상이 오게. */
 const ALIGN_VIEW_OFFSET_Y = 0.25;
@@ -710,11 +729,119 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       { name, nowMs: now, id: nextSceneId(now), tzHours: tz, lang: language },
     );
   };
-  /** "이 장면 찍기": 지금 장면을 저장하지 않고 그대로 카메라로 넘깁니다. 장면을 못 읽으면 아무것도 하지 않습니다. */
-  const shootScene = () => {
+  // ── 샌드박스 촬영 미리보기 스튜디오 (사진 노출 · 천체 장노출 · 타임랩스 미리보기 → 카메라 전달) ──
+  const [sandboxShootMode, setSandboxShootMode] = useState<SandboxShootMode>('photo');
+  const [sandboxExposure, setSandboxExposure] = useState<number>(0);
+  const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
+  const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
+  const [collapseNonce, setCollapseNonce] = useState<number>(0);
+  const [sandboxLongExpUri, setSandboxLongExpUri] = useState<string | null>(null);
+  const [sandboxLongExpBusy, setSandboxLongExpBusy] = useState<boolean>(false);
+  const [sandboxTlPreviewing, setSandboxTlPreviewing] = useState<boolean>(false);
+  const [sandboxTlClock, setSandboxTlClock] = useState<string>('0:00 / 0:00');
+  const sbPreviewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sbPreviewOriginRef = useRef<Date | null>(null);
+
+  const stopSandboxTlPreview = useCallback(() => {
+    if (sbPreviewTimerRef.current) { clearInterval(sbPreviewTimerRef.current); sbPreviewTimerRef.current = null; }
+    if (sbPreviewOriginRef.current) { setCurrentTime(sbPreviewOriginRef.current); sbPreviewOriginRef.current = null; }
+    setSandboxTlPreviewing(false);
+  }, [setCurrentTime]);
+
+  const startSandboxTlPreview = useCallback((plan: TimelapsePlan, startMs: number, endMs: number) => {
+    if (sbPreviewTimerRef.current) clearInterval(sbPreviewTimerRef.current);
+    if (!sbPreviewOriginRef.current) sbPreviewOriginRef.current = currentTime;
+    setSandboxLongExpUri(null);
+    setSandboxTlPreviewing(true);
+    setSandboxTlClock(videoClock(0, plan.targetVideoSec));
+    const t0 = Date.now();
+    sbPreviewTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - t0) / 1000;
+      setCurrentTime(new Date(previewTimeAt(startMs, endMs, plan.targetVideoSec, elapsed)));
+      setSandboxTlClock(videoClock(elapsed, plan.targetVideoSec));
+      if (elapsed >= plan.targetVideoSec) stopSandboxTlPreview();
+    }, 100);
+  }, [currentTime, setCurrentTime, stopSandboxTlPreview]);
+
+  useEffect(() => () => { if (sbPreviewTimerRef.current) clearInterval(sbPreviewTimerRef.current); }, []);
+  useEffect(() => {
+    if (!expertMode) {
+      setSandboxLongExpUri(null);
+      if (sandboxTlPreviewing) stopSandboxTlPreview();
+    }
+  }, [expertMode, sandboxTlPreviewing, stopSandboxTlPreview]);
+
+  const sandboxAstroSummary = useMemo(() => {
+    const view = sceneRef.current?.getRenderState?.()?.view;
+    return planAstroShotSummary({
+      settings: sandboxAstroSettings,
+      caps: SANDBOX_ASTRO_CAPS,
+      latitudeDeg: latitude,
+      azDeg: view?.az ?? sunAzimuth,
+      elDeg: view?.el ?? 30,
+    });
+  }, [sandboxAstroSettings, latitude, sunAzimuth]);
+
+  const runSandboxLongExp = useCallback(async () => {
+    if (sandboxLongExpBusy) return;
+    const sky = sceneRef.current;
+    const st = sky?.getRenderState?.();
+    if (!sky || !st) return;
+    setSandboxLongExpBusy(true);
+    try {
+      const simMode = sandboxAstroSettings.mode === 'tracked'
+        ? (sandboxAstroSettings.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
+        : 'trails';
+      const sp = computeAstroSimExposureParams(sandboxAstroSettings.durationSec, sandboxAstroSummary.clampedIso);
+      const res = await sky.renderLongExposure(
+        { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
+        {
+          mode: simMode,
+          startTimeMs: currentTime.getTime(),
+          durationSec: sandboxAstroSettings.durationSec,
+          steps: sp.stepsForPreview,
+          exposureGain: sp.exposureGain,
+          starBoost: sp.starBoost,
+          shadowLift: sp.shadowLift,
+          settleFrames: 4,
+          requireReady: false,
+          waitMs: 5000,
+          format: 'jpeg',
+          compress: 0.85,
+        },
+      );
+      if (res.uri) setSandboxLongExpUri(res.uri);
+    } finally {
+      setSandboxLongExpBusy(false);
+    }
+  }, [sandboxLongExpBusy, sandboxAstroSettings, sandboxAstroSummary.clampedIso, currentTime]);
+
+  const sandboxExpoAdvice = useMemo(() => adviseExposure(sunAltitude), [sunAltitude]);
+  const sandboxLensInfo = useMemo(() => {
+    const win = Dimensions.get('window');
+    const vFov = Math.max(10, Math.min(85, 65 / Math.max(1, teleX)));
+    return lensLine(vFov, win.width / Math.max(1, win.height));
+  }, [teleX]);
+
+  const sandboxSunAltAt = useCallback((ms: number) => {
+    return sunPosition(new Date(ms), latitude, longitude).altitude * (180 / Math.PI);
+  }, [latitude, longitude]);
+
+  /** "이 장면 찍기 / 카메라로 이동": 지금 장면과 샌드박스 촬영 세팅을 그대로 카메라로 넘깁니다. */
+  const shootScene = (overridePlan?: TimelapsePlan) => {
     const sc = readScene('');
     if (!sc) return;
-    useCelestialStore.getState().setCameraScene(sc);
+    if (sandboxTlPreviewing) stopSandboxTlPreview();
+    setSandboxLongExpUri(null);
+    const store = useCelestialStore.getState();
+    store.setCameraScene(sc);
+    store.setCameraHandoff(expertMode ? {
+      mode: sandboxShootMode,
+      zoomX: teleX,
+      exposure: sandboxExposure,
+      astroSettings: sandboxAstroSettings,
+      timelapsePlan: overridePlan ?? sandboxTlPlan,
+    } : null);
     onCameraPress?.();
   };
   const saveScene = (name: string): SaveResult => {
@@ -1130,6 +1257,42 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
       </View>
     ),
+    shoot: (
+      <SandboxShootPanel
+        language={language}
+        mode={sandboxShootMode}
+        onModeChange={(m) => {
+          setSandboxShootMode(m);
+          setSandboxLongExpUri(null);
+          if (sandboxTlPreviewing) stopSandboxTlPreview();
+        }}
+        exposure={sandboxExposure}
+        onExposureChange={setSandboxExposure}
+        expoAdvice={sandboxExpoAdvice}
+        lensMm={sandboxLensInfo.mmText}
+        lensText={sandboxLensInfo.lensText}
+        astroSettings={sandboxAstroSettings}
+        onAstroSettingsChange={setSandboxAstroSettings}
+        astroSummary={sandboxAstroSummary}
+        astroCaps={SANDBOX_ASTRO_CAPS}
+        isLongExpRendering={sandboxLongExpBusy}
+        hasLongExpPreview={!!sandboxLongExpUri}
+        onPreviewLongExp={runSandboxLongExp}
+        onClearLongExp={() => setSandboxLongExpUri(null)}
+        events={{
+          sunrise: events?.sunrise ? events.sunrise.getTime() : null,
+          sunset: events?.sunset ? events.sunset.getTime() : null,
+        }}
+        nowMs={currentTime.getTime()}
+        tzHours={tz}
+        sunAltAt={sandboxSunAltAt}
+        timelapsePlan={sandboxTlPlan}
+        onTimelapsePlanChange={setSandboxTlPlan}
+        onPreviewTimelapse={startSandboxTlPreview}
+        onGoToCamera={(plan) => shootScene(plan)}
+        onClosePanel={() => setCollapseNonce(n => n + 1)}
+      />
+    ),
     scene: <SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />,
   };
 
@@ -1170,6 +1333,67 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           topInset={HEADER_HEIGHT}
           registerPrimary
         />
+
+        {/* 샌드박스 사진 노출(EV) 미리보기 틴트 */}
+        {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && sandboxExposure !== 0 && (
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: sandboxExposure < 0
+                  ? `rgba(0, 0, 0, ${Math.abs(sandboxExposure) * 0.45})`
+                  : `rgba(255, 255, 255, ${sandboxExposure * 0.28})`,
+              },
+            ]}
+          />
+        )}
+
+        {/* 샌드박스 천체 장노출 3D 미리보기 */}
+        {expertMode && !isCameraOverlayActive && sandboxLongExpUri && (
+          <Image
+            source={{ uri: sandboxLongExpUri }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            fadeDuration={120}
+          />
+        )}
+
+        {/* 샌드박스 미리보기 상태 배너 (장노출 / 타임랩스) */}
+        {expertMode && !isCameraOverlayActive && (sandboxLongExpBusy || sandboxLongExpUri || sandboxTlPreviewing) && (
+          <View style={overlayStyles.previewBannerWrap} pointerEvents="box-none">
+            <GlassSurface style={overlayStyles.previewBanner}>
+              {sandboxLongExpBusy ? (
+                <>
+                  <ActivityIndicator size="small" color={DARK.moon} />
+                  <Text style={overlayStyles.previewBannerText}>
+                    {L3(language, '장노출 미리보기 계산 중…', 'Rendering long-exposure…', '長露光プレビュー計算中…')}
+                  </Text>
+                </>
+              ) : sandboxLongExpUri ? (
+                <>
+                  <Text style={overlayStyles.previewBannerText}>
+                    {L3(language, '장노출 미리보기', 'Long-exposure preview', '長露光プレビュー')}
+                  </Text>
+                  <GlassChip
+                    label={L3(language, '닫기', 'Close', '閉じる')}
+                    onPress={() => setSandboxLongExpUri(null)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={overlayStyles.previewBannerText}>
+                    {`${L3(language, '타임랩스 미리보기', 'Timelapse preview', 'タイムラプスプレビュー')} · ${sandboxTlClock}`}
+                  </Text>
+                  <GlassChip
+                    label={L3(language, '멈추기', 'Stop', '停止')}
+                    onPress={stopSandboxTlPreview}
+                  />
+                </>
+              )}
+            </GlassSurface>
+          </View>
+        )}
 
         {trackingTarget && (
           <PressScale
@@ -1353,8 +1577,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onSwitch={(sw) => {
             if (sw.mode === 'data') { onOpenData?.(); return; }
             if (sw.mode === 'simulation' || sw.mode === 'sandbox') { setExpertMode(sw.mode === 'sandbox'); return; }
-            // 모드 줄로 카메라에 들어가면 방향을 고정하지 않습니다(촬영 버튼을 누를 때만 고정).
+            // 모드 줄로 카메라에 들어가면 방향 · 세팅을 고정하지 않습니다(촬영 버튼을 누를 때만 고정).
             useCelestialStore.getState().setCameraScene(null);
+            useCelestialStore.getState().setCameraHandoff(null);
             onCameraPress?.();
           }}
           getView={frameGetView}
@@ -1370,6 +1595,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </>
           )}
           sandbox={frameSandbox}
+          collapseNonce={collapseNonce}
           shutterMove={<MoveStick language={language} size={78} relative onStick={shutterMoveDriver.onStick} onNudge={shutterMoveDriver.nudge} />}
           shutterView={<ViewStick language={language} size={78} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />}
           sunTracked={trackingTarget === 'sun'}
@@ -1439,6 +1665,9 @@ const overlayStyles = StyleSheet.create({
   },
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 알림 줄은 위(읽음 줄 아래)로 올립니다.
   bannerTop: { bottom: undefined, top: belowHeader(56) },
+  previewBannerWrap: { position: 'absolute', left: 16, right: 16, top: belowHeader(38), alignItems: 'center', zIndex: 28 },
+  previewBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  previewBannerText: { fontSize: 11, fontWeight: '600', color: '#F1F5F9' },
   buildBanner: {
     position: 'absolute',
     left: 14,

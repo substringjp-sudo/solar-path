@@ -1,14 +1,14 @@
 /**
  * DockSheet.tsx — 접었다 펼치는 아래 막대(목업 "4차 b", 애플 카메라 참고). 계산은 `utils/dockStages.ts`(판정 verify-dock-stages.js).
  *
- * 맨 아래 고정부(`children`: 칩 · 시간 자 · 셔터 · 모드 줄) 위에 펼친 영역(`expanded`)을 얹습니다. 접힘(min)은 고정부만, 펼침(mid) · 전체(full)는 영역이 자라 하늘을 더 덮습니다.
- * 손잡이를 누르면 다음 단계, 막대를 위로 밀면 펼침 · 아래로 밀면 접힘(40 px / 600 px/s 방향, 160 px / 1800 px/s 두 단계). 세로 밀기만 받으므로 가로로 끄는 시간 자 · 모드 줄과 겹치지 않습니다.
- * 뒤에는 아래 막이 깔려 밝은 하늘에서도 글자가 읽힙니다.
+ * 맨 아래 고정부(`children`: 칩 · 시간 자 · 셔터 · 모드 줄) 위에 펼친 영역(`expanded`)을 얹습니다.
+ * - 닫혀 있을 때도 `fullExtra` 기준으로 내용 실제 높이를 미리 재 두어 손가락 드래그가 막히지 않고 1:1 로 따라옵니다.
+ * - 배경 딤 막은 `anim` 값에 연동해 화면 전체를 부드럽게 덮어 잘림/깜박임 없이 어두워집니다.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, Pressable, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Animated, PanResponder, Pressable, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { dockExtraHeight, dragStage, tapNext, type DockStage } from '../../utils/dockStages';
-import { color as DARK } from '../../theme/tokens';
+import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
 import { Scrim } from './Scrim';
 import { isRecentDrag, markDragEnd } from './dragGuard';
@@ -20,21 +20,20 @@ interface Props {
   onStageChange: (s: DockStage) => void;
   language: Lang;
   /**
-   * 펼친 영역(min 에서는 보이지 않음). 높이는 이 부품이 정합니다. 함수로 주면 이 단계에서 쓸 수 있는 **최대 높이**(px)를 받아 그 안에 맞춰 그립니다
-   * (긴 패널이 안쪽에서 스크롤되게 하려는 것 — 내용 높이로 줄인 값이 아니라 단계의 최대값이라, 내용이 늘어도 막히지 않습니다).
+   * 펼친 영역(min 에서는 보이지 않음). 함수로 주면 쓸 수 있는 최대 높이(px)를 받아 그 안에 맞춰 그립니다.
    */
   expanded?: React.ReactNode | ((maxH: number) => React.ReactNode);
   /** 고정부: 칩 · 시간 자 · 셔터 · 모드 줄 */
   children: React.ReactNode;
   /** 화면 높이를 직접 넘길 때(하네스). 기본은 창 높이. */
   screenH?: number;
-  /** mid 단계일 때 펼친 영역의 최대 높이(콘텐츠 실제 높이에 맞춰 빈 여백을 없앨 때). */
+  /** mid 단계일 때 펼친 영역의 최대 높이. */
   midMaxH?: number;
-  /** true 면 mid/full 구분 없이 콘텐츠 실제 높이(최대 fullExtra)까지 펼쳐 잘리지 않게 함(샌드박스 패널 등). */
+  /** true 면 mid/full 구분 없이 콘텐츠 실제 높이(최대 fullExtra)까지 펼쳐 잘리지 않게 함. */
   fitContent?: boolean;
-  /** true 면 손잡이와 펼침 영역을 숨기고 고정부만 둠(시뮬레이션 등). */
+  /** true 면 손잡이와 펼침 영역을 숨기고 고정부만 둠. */
   hideHandle?: boolean;
-  /** 고정부 + 손잡이 줄의 높이가 정해지거나 바뀔 때(px). 막대 위에 떠 있는 것을 그만큼 올리는 데 씁니다. */
+  /** 고정부 + 손잡이 줄의 높이가 정해지거나 바뀔 때(px). */
   onFixedHeight?: (h: number) => void;
 }
 
@@ -47,14 +46,26 @@ const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   full: ['접기', 'Collapse', '閉じる'],
 };
 
-export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, expanded, children, screenH, midMaxH, fitContent = false, hideHandle = false, onFixedHeight }) => {
+export const DockSheet: React.FC<Props> = ({
+  stage,
+  onStageChange,
+  language,
+  expanded,
+  children,
+  screenH,
+  midMaxH,
+  fitContent = false,
+  hideHandle = false,
+  onFixedHeight,
+}) => {
   const win = useWindowDimensions();
   const H = screenH ?? win.height;
-  const [fixedH, setFixedH] = useState(380);
+  const [fixedH, setFixedH] = useState(270);
   const [contentH, setContentH] = useState(0);
-  // 막대 전체 = 손잡이 줄 + 펼친 영역 + 고정부. 펼친 영역이 쓸 수 있는 자리는 손잡이 줄까지 빼고 셉니다.
+
   const rawExtra = dockExtraHeight(stage, H, fixedH + HANDLE_ROW_H);
   const fullExtra = dockExtraHeight('full', H, fixedH + HANDLE_ROW_H);
+
   let extra = rawExtra;
   if (stage !== 'min') {
     if (fitContent && contentH > 0) {
@@ -65,8 +76,12 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
     }
   }
 
+  // 닫혀 있을 때도 fullExtra 를 넘겨 내용 실제 높이를 미리 잼 (96px 로 잘려 드래그가 막히는 버그 방지)
+  const panelMeasureMaxH = fitContent || stage === 'min' ? fullExtra : rawExtra;
+
   const anim = useRef(new Animated.Value(extra)).current;
   const animValRef = useRef(extra);
+  const animTargetRef = useRef(extra);
   const draggingRef = useRef(false);
   const dragStartRef = useRef(extra);
 
@@ -77,12 +92,32 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
 
   useEffect(() => {
     if (draggingRef.current) return;
-    Animated.timing(anim, { toValue: extra, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    if (Math.abs(extra - animTargetRef.current) < 0.5 && Math.abs(extra - animValRef.current) < 0.5) return;
+    animTargetRef.current = extra;
+    Animated.spring(anim, {
+      toValue: extra,
+      tension: 260,
+      friction: 28,
+      overshootClamping: true,
+      useNativeDriver: false,
+    }).start();
   }, [extra, anim]);
 
   const maxDrag = contentH > 0 ? Math.min(fullExtra, contentH) : fullExtra;
-  const ref = useRef({ stage, onStageChange, extra, maxDrag });
-  ref.current = { stage, onStageChange, extra, maxDrag };
+  const ref = useRef({ stage, onStageChange, extra, maxDrag, fitContent });
+  ref.current = { stage, onStageChange, extra, maxDrag, fitContent };
+
+  const springTo = (toValue: number) => {
+    animTargetRef.current = toValue;
+    Animated.spring(anim, {
+      toValue,
+      tension: 260,
+      friction: 28,
+      overshootClamping: true,
+      useNativeDriver: false,
+    }).start();
+  };
+
   const makePan = (capture: boolean) => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: capture ? undefined : (_, g) => Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.4,
@@ -92,6 +127,7 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
       draggingRef.current = true;
       dragStartRef.current = animValRef.current;
       anim.stopAnimation();
+      useCelestialStore.getState().setGestureBlocked(true);
     },
     onPanResponderMove: (_, g) => {
       const clamped = Math.max(0, Math.min(ref.current.maxDrag, dragStartRef.current - g.dy));
@@ -99,73 +135,115 @@ export const DockSheet: React.FC<Props> = ({ stage, onStageChange, language, exp
     },
     onPanResponderRelease: (_, g) => {
       draggingRef.current = false;
+      useCelestialStore.getState().setGestureBlocked(false);
       markDragEnd();
-      const next = dragStage(ref.current.stage, g.dy, g.vy * 1000);
+      const vy = g.vy * 1000;
+      let next = dragStage(ref.current.stage, g.dy, vy);
+      if (ref.current.fitContent) {
+        if (next !== 'min') {
+          next = 'full';
+        } else if (ref.current.stage === 'min' && ref.current.maxDrag > 0 && animValRef.current >= Math.min(90, ref.current.maxDrag * 0.45)) {
+          next = 'full';
+        }
+      }
       if (next !== ref.current.stage) {
         ref.current.onStageChange(next);
       } else {
-        Animated.timing(anim, { toValue: ref.current.extra, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+        springTo(ref.current.extra);
       }
     },
     onPanResponderTerminate: () => {
       draggingRef.current = false;
+      useCelestialStore.getState().setGestureBlocked(false);
       markDragEnd();
-      Animated.timing(anim, { toValue: ref.current.extra, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+      springTo(ref.current.extra);
     },
   });
   const pan = useMemo(() => makePan(false), [anim]);
   const handlePan = useMemo(() => makePan(true), [anim]);
 
+  const dimRange = Math.max(120, maxDrag);
+  const dimOpacity = anim.interpolate({
+    inputRange: [0, dimRange],
+    outputRange: [0, 0.48],
+    extrapolate: 'clamp',
+  });
+  const contentOpacity = anim.interpolate({
+    inputRange: [0, 32],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
   const [ko, en, ja] = HANDLE_LABELS[stage];
+  const onHandlePress = () => {
+    if (isRecentDrag()) return;
+    if (fitContent) {
+      onStageChange(stage === 'min' ? 'full' : 'min');
+    } else {
+      onStageChange(tapNext(stage));
+    }
+  };
+
   return (
-    <View testID="dock" pointerEvents="box-none" style={styles.dock} {...(hideHandle ? {} : pan.panHandlers)}>
-      <Scrim edge="bottom" height={fixedH + (hideHandle ? 0 : extra) + 72} />
+    <>
       {!hideHandle && (
-        <>
-          <View {...handlePan.panHandlers}>
-            <Pressable
-              testID="dock-handle"
-              accessibilityRole="button"
-              accessibilityLabel={L3(language, ko, en, ja)}
-              aria-expanded={stage !== 'min'}
-              onPress={() => { if (!isRecentDrag()) onStageChange(tapNext(stage)); }}
-              hitSlop={{ top: 8, bottom: 8 }}
-              style={styles.handleHit}
-            >
-              <View style={styles.handle} />
-            </Pressable>
-          </View>
-          <Animated.View
-            testID="dock-expanded"
-            renderToHardwareTextureAndroid
-            shouldRasterizeIOS
-            style={[styles.expanded, { height: anim }]}
-            pointerEvents={stage === 'min' ? 'none' : 'auto'}
-          >
-            <View
-              style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
-              onLayout={(e: LayoutChangeEvent) => {
-                const h = Math.ceil(e.nativeEvent.layout.height);
-                if (h !== contentH) setContentH(h);
-              }}
-            >
-              {typeof expanded === 'function' ? expanded(rawExtra) : expanded}
-            </View>
-          </Animated.View>
-        </>
+        <Animated.View pointerEvents="none" style={[styles.backdropDim, { opacity: dimOpacity }]} />
       )}
-      <View testID="dock-fixed" onLayout={(e: LayoutChangeEvent) => { const h = Math.round(e.nativeEvent.layout.height); setFixedH(h); onFixedHeight?.(h + (hideHandle ? 0 : HANDLE_ROW_H)); }} style={styles.fixed}>
-        {children}
+      <View testID="dock" pointerEvents="box-none" style={styles.dock} {...(hideHandle ? {} : pan.panHandlers)}>
+        <Scrim edge="bottom" height={fixedH + 72} />
+        {!hideHandle && (
+          <>
+            <View {...handlePan.panHandlers}>
+              <Pressable
+                testID="dock-handle"
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, ko, en, ja)}
+                aria-expanded={stage !== 'min'}
+                onPress={onHandlePress}
+                hitSlop={{ top: 8, bottom: 8 }}
+                style={styles.handleHit}
+              >
+                <View style={styles.handle} />
+              </Pressable>
+            </View>
+            <Animated.View
+              testID="dock-expanded"
+              style={[styles.expanded, { height: anim, opacity: contentOpacity }]}
+              pointerEvents={stage === 'min' ? 'none' : 'auto'}
+            >
+              <View
+                style={{ maxHeight: fullExtra > 0 ? fullExtra : undefined }}
+                onLayout={(e: LayoutChangeEvent) => {
+                  const h = Math.ceil(e.nativeEvent.layout.height);
+                  if (h > 0 && Math.abs(h - contentH) > 1) setContentH(h);
+                }}
+              >
+                {typeof expanded === 'function' ? expanded(panelMeasureMaxH) : expanded}
+              </View>
+            </Animated.View>
+          </>
+        )}
+        <View
+          testID="dock-fixed"
+          onLayout={(e: LayoutChangeEvent) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            if (h !== fixedH) setFixedH(h);
+            onFixedHeight?.(h + (hideHandle ? 0 : HANDLE_ROW_H));
+          }}
+          style={styles.fixed}
+        >
+          {children}
+        </View>
       </View>
-    </View>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
+  backdropDim: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
   dock: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 40 },
   handleHit: { alignSelf: 'center', minHeight: HANDLE_ROW_H, minWidth: 80, alignItems: 'center', justifyContent: 'center' },
   handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.45)' },
   expanded: { overflow: 'hidden' },
   fixed: { paddingBottom: 6, gap: 10 },
 });
-void DARK;

@@ -2,7 +2,7 @@
  * Scrim.tsx — 위 · 아래 어두운 막(밝은 하늘에서도 글자가 읽히게). 정지점은 `theme/glassTokens.ts` 의 SCRIM_TOP · SCRIM_BOTTOM.
  * 손가락을 받지 않습니다.
  */
-import React from 'react';
+import React, { useId } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { SCRIM_BOTTOM, SCRIM_TOP, type ScrimStops } from '../../theme/glassTokens';
@@ -35,9 +35,10 @@ const BOTTOM_SMOOTH: ScrimStops = [
 ];
 
 export const Scrim: React.FC<Props> = ({ edge, height, style, testID }) => {
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stops: ScrimStops = edge === 'top' ? TOP_SMOOTH : BOTTOM_SMOOTH;
   const h = height ?? (edge === 'top' ? SCRIM_TOP.heightPx : 380);
-  const id = `scrim-${edge}`;
+  const id = `scrim-${edge}-${uid}`;
   return (
     <View testID={testID} pointerEvents="none" style={[styles.base, edge === 'top' ? { top: 0 } : { bottom: 0 }, { height: h }, style]}>
       <Svg width="100%" height="100%" preserveAspectRatio="none">

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
   StyleSheet, View, Text, BackHandler,
@@ -19,7 +19,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass, ChevronDown, ChevronUp, Settings } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Crosshair, Layers, Compass } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -81,7 +81,7 @@ import { TimelapsePanel, kindLabel as timelapseKindLabel } from './AstroCamera/T
 import { ResultCompare } from './ResultCompare';
 import { forecastLine, sunFractionInPhoto } from '../utils/resultCompare';
 import { useTimelapseRun } from '../hooks/useTimelapseRun';
-import { clockLabel, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
+import { clockLabel, planTimelapse, previewTimeAt, savedSoFar, shotPlan, videoClock, type TimelapseKind, type TimelapsePlan } from '../utils/timelapsePlan';
 import { FrameAccumulator } from '../utils/frameComposite';
 import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
 import { TimelapseRunCard } from './AstroCamera/TimelapseRunCard';
@@ -96,7 +96,6 @@ import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
 import { Scrim } from './glass/Scrim';
 import { GlassChip } from './glass/GlassChip';
-import { GlassIconButton } from './glass/GlassIconButton';
 import { TEXT } from '../theme/glassTokens';
 import { adviseExposure } from '../utils/exposureAdvice';
 import { autoStartDue, autoStartState } from '../utils/autoStart';
@@ -129,7 +128,6 @@ interface SunCameraProps {
   onResetTime?: () => void;
   goldenTimeInfo: GoldenTimeInfo;
   onViewModeChange?: (mode: CameraViewMode) => void;
-  onSettingsPress?: () => void;
   onOpenData?: () => void;
 }
 
@@ -245,7 +243,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   onResetTime,
   goldenTimeInfo,
   onViewModeChange,
-  onSettingsPress,
   onOpenData,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
@@ -506,6 +503,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [lockedTarget, setLockedTarget] = useState<DirectionTarget | null>(null);
   // 샌드박스 "이 장면 찍기"로 넘어온 장면: 그 시각에 맞는 모드를 먼저 열고, 장면의 시선 방향으로 안내합니다(계획 12.3, 목업 4). 카메라를 닫으면 지웁니다.
   const cameraScene = useCelestialStore(s => s.cameraScene);
+  const cameraHandoff = useCelestialStore(s => s.cameraHandoff);
+  const [handoffTlPlan, setHandoffTlPlan] = useState<TimelapsePlan | null>(null);
+  const activeTlPlanRef = useRef<TimelapsePlan | null>(null);
   const [topInfoExpanded, setTopInfoExpanded] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [timelapseMode, setTimelapseMode] = useState(false);
@@ -517,11 +517,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   useEffect(() => {
     if (!visible || !cameraScene) return;
     setLockedTarget({ azDeg: cameraScene.azDeg, elDeg: cameraScene.elDeg });
-    // 시각과 상관없이 사진(일반)에서 시작하고, 보던 방향이 가이드가 됩니다(docs/SANDBOX_MODE_PLAN.md 18절).
-    const tab = tabForMode('normal');
-    if (tab) setCameraTab(tab);
-  }, [visible, cameraScene]);
-  useEffect(() => () => { useCelestialStore.getState().setCameraScene(null); }, []);
+    setMagnification(cameraScene.zoomX);
+    if (!cameraHandoff) {
+      const tab = tabForMode('normal');
+      if (tab) setCameraTab(tab);
+      setTimelapseMode(false);
+      setEclipseOn(false);
+    }
+  }, [visible, cameraScene, cameraHandoff, setMagnification]);
+  useEffect(() => {
+    if (!visible || !cameraHandoff) return;
+    setMagnification(cameraHandoff.zoomX);
+    setExposure(cameraHandoff.exposure);
+    if (cameraHandoff.astroSettings) setAstroSettings(cameraHandoff.astroSettings);
+    if (cameraHandoff.timelapsePlan) {
+      setHandoffTlPlan(cameraHandoff.timelapsePlan);
+      activeTlPlanRef.current = cameraHandoff.timelapsePlan;
+    }
+    setEclipseOn(false);
+    if (cameraHandoff.mode === 'timelapse') {
+      setTimelapseMode(true);
+    } else if (cameraHandoff.mode === 'astro') {
+      setTimelapseMode(false);
+      setCameraTab('astro');
+    } else {
+      setTimelapseMode(false);
+      setCameraTab('sunset');
+    }
+  }, [visible, cameraHandoff, setMagnification]);
+  useEffect(() => () => {
+    useCelestialStore.getState().setCameraScene(null);
+    useCelestialStore.getState().setCameraHandoff(null);
+  }, []);
 
   // ── 타임랩스(계획 8.3.1, 목업 9 · 12): 사진 묶음으로 앨범에 저장합니다(영상 만들기는 아직 없습니다) ──
   // 종류에 따라 장마다 `shotPlan` 이 정하는 대로: 일반은 그대로 저장, 밝게 합성은 묶음에 쌓았다가 묶음마다 저장, 궤적 누적은 겹치고 매번 누적 그림을 저장.
@@ -2185,27 +2212,78 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }, [visible]);
 
-  // 장면 줄의 "자동 시작": 장면 시각(앞으로의 실제 시각)이 되면 한 장 찍습니다(사진 탭에서만, 앱이 켜져 있는 동안).
+  // 장면 줄의 "자동 시작": 사용자가 한 번 눌러 예약하면, 샌드박스에서 고른 시각에 현재 모드(사진 · 천체 · 타임랩스) 촬영을 자동 시작합니다.
   const [autoStartAt, setAutoStartAt] = useState<number | null>(null);
   const [autoNowMs, setAutoNowMs] = useState(() => Date.now());
   const handleCaptureRef = useRef(handleCapture);
   handleCaptureRef.current = handleCapture;
+  const handleAstroStartRef = useRef(handleAstroStart);
+  handleAstroStartRef.current = handleAstroStart;
+  const startTimelapseRef = useRef(startTimelapse);
+  startTimelapseRef.current = startTimelapse;
+  const runScheduledCapture = useCallback(() => {
+    if (timelapseMode) {
+      const plan = activeTlPlanRef.current ?? planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'plain', stackSize: 1 });
+      startTimelapseRef.current(plan);
+    } else if (cameraTab === 'astro') {
+      handleAstroStartRef.current();
+    } else {
+      handleCaptureRef.current();
+    }
+  }, [timelapseMode, cameraTab]);
+  const runScheduledCaptureRef = useRef(runScheduledCapture);
+  runScheduledCaptureRef.current = runScheduledCapture;
   useEffect(() => {
-    if (!visible || !cameraScene || cameraTab !== 'sunset') return undefined;
+    if (!visible || !cameraScene) return undefined;
     setAutoNowMs(Date.now());
     const id = setInterval(() => setAutoNowMs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [visible, cameraScene, cameraTab]);
+  }, [visible, cameraScene]);
   useEffect(() => {
     if (autoStartAt != null && autoStartDue(autoStartAt, autoNowMs)) {
       setAutoStartAt(null);
-      handleCaptureRef.current();
+      runScheduledCaptureRef.current();
     }
   }, [autoStartAt, autoNowMs]);
-  useEffect(() => { if (!visible || !cameraScene || cameraTab !== 'sunset') setAutoStartAt(null); }, [visible, cameraScene, cameraTab]);
-  const autoState = cameraScene && cameraTab === 'sunset' ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
+  useEffect(() => { if (!visible || !cameraScene) setAutoStartAt(null); }, [visible, cameraScene]);
+  const autoState = cameraScene ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
   const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
   const lensInfoText = useMemo(() => lensLine(optics.vFovDeg, W / Math.max(1, stageLayoutH)), [optics.vFovDeg, W, stageLayoutH]);
+
+  const toggleTopInfo = useCallback(() => setTopInfoExpanded(v => !v), []);
+  const toggleAlignMenu = useCallback(() => setAlignMenuOpen(v => !v), []);
+  const switchCameraFacing = useCallback(() => setCameraFacing(prev => (prev === 'back' ? 'front' : 'back')), []);
+
+  const hudHidden = !visible || !cameraPermission?.granted || !!astroResult || astroNightPhase !== null || !!previewUri || !!(screenOff && timelapse.run?.running);
+  const hudAz = Math.round(displayAz);
+  const hudEl = Number(displayEl.toFixed(0)) || 0;
+  const hudAlignDot = hasInterference ? color.danger : (headingStatus && !headingStatus.trueNorth ? color.warning : null);
+  const hudFrozen = viewMode !== 'camera' && !!frozenView;
+  const hudCanSwitch = viewMode !== 'sim';
+  const hudIsAstro = cameraTab === 'astro';
+
+  useLayoutEffect(() => {
+    if (!visible) {
+      useCelestialStore.getState().setCameraHud(null);
+      return;
+    }
+    useCelestialStore.getState().setCameraHud({
+      hidden: hudHidden,
+      isAstro: hudIsAstro,
+      azDeg: hudAz,
+      elDeg: hudEl,
+      frozenActive: hudFrozen,
+      topInfoExpanded,
+      alignMenuOpen,
+      alignDotColor: hudAlignDot,
+      canSwitchCamera: hudCanSwitch,
+      onToggleTopInfo: toggleTopInfo,
+      onToggleAlignMenu: toggleAlignMenu,
+      onSwitchCamera: switchCameraFacing,
+    });
+  }, [visible, hudHidden, hudIsAstro, hudAz, hudEl, hudFrozen, topInfoExpanded, alignMenuOpen, hudAlignDot, hudCanSwitch, toggleTopInfo, toggleAlignMenu, switchCameraFacing]);
+
+  useEffect(() => () => { useCelestialStore.getState().setCameraHud(null); }, []);
 
   if (!visible) return null;
 
@@ -2572,54 +2650,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 )
               )}
 
-              {/* 무대 위 최소 상태 HUD (모드/방위 알약 · 보정 메뉴 · 카메라 전환) */}
+              {/* 무대 위 상단 스크림 및 보조 패널 (상단 줄 자체는 루트 단일 AppHeader 가 담당) */}
               <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
                 <Scrim edge="top" height={180} />
-                <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
-                  <Pressable
-                    onPress={() => setTopInfoExpanded(v => !v)}
-                    accessibilityRole="button"
-                    aria-expanded={topInfoExpanded}
-                    accessibilityLabel={L3(language, '촬영 정보 펼치기/접기', 'Toggle capture info', '撮影情報を開閉')}
-                    style={({ pressed }) => [pressed && { opacity: 0.7 }, { flexShrink: 1 }]}
-                  >
-                    <GlassSurface active={topInfoExpanded || (viewMode !== 'camera' && !!frozenView)} style={styles.modeAz}>
-                      {cameraTab === 'astro' ? <Moon size={12} color={TEXT} /> : <Sun size={12} color={TEXT} />}
-                      <Text style={styles.modeAzText} numberOfLines={1}>
-                        {`AZ ${Math.round(displayAz)}° · ${displayEl >= 0 ? '+' : ''}${displayEl.toFixed(0)}°`}
-                      </Text>
-                      {topInfoExpanded ? <ChevronUp size={13} color={TEXT} /> : <ChevronDown size={13} color={TEXT} />}
-                    </GlassSurface>
-                  </Pressable>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <GlassChip
-                      label={L3(language, '보정', 'Align', '補正')}
-                      active={alignMenuOpen}
-                      expanded={alignMenuOpen}
-                      onPress={() => setAlignMenuOpen(v => !v)}
-                      accessibilityLabel={L3(language, '화면·방위 보정', 'Align & Heading', '画面・方位補正')}
-                      icon={(hasInterference || (headingStatus && !headingStatus.trueNorth))
-                        ? <View style={[styles.dot, { backgroundColor: hasInterference ? color.danger : color.warning }]} />
-                        : undefined}
-                    />
-                    {viewMode !== 'sim' && (
-                      <GlassIconButton
-                        icon={<RefreshCw size={15} color={TEXT} />}
-                        onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
-                        accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
-                      />
-                    )}
-                    {onSettingsPress && (
-                      <GlassIconButton
-                        testID="cam-settings"
-                        icon={<Settings size={15} color={TEXT} />}
-                        onPress={onSettingsPress}
-                        accessibilityLabel={t('settings', language)}
-                      />
-                    )}
-                  </View>
-                </View>
 
                 {alignMenuOpen && (
                   <GlassSurface style={[styles.alignPopover, { top: TOP_INSET + 46 }]}>
@@ -2696,22 +2729,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         <Pressable
                           onPress={() => {
                             if (autoState.kind === 'wait') setAutoStartAt(autoStartAt == null ? cameraScene.timeMs : null);
-                            else handleCapturePress();
+                            else runScheduledCapture();
                           }}
                           accessibilityRole="button"
                           accessibilityState={{ selected: autoStartAt != null }}
-                          accessibilityLabel={autoState.kind === 'wait' ? L3(language, '자동 시작 켜고 끄기', 'Toggle auto start', '自動開始の切替') : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
+                          accessibilityLabel={autoState.kind === 'wait' ? L3(language, '자동 촬영 예약 켜고 끄기', 'Toggle auto capture', '自動撮影予約の切替') : L3(language, '지금 촬영', 'Start now', '今すぐ開始')}
                           hitSlop={8}
                         >
                           <Text style={[styles.bannerText, { color: color.accent }]}>
                             {autoState.kind === 'wait'
-                              ? `${autoStartAt != null ? L3(language, '자동 시작 중', 'Auto', '自動中') : L3(language, '자동 시작', 'Auto start', '自動開始')} ${autoState.text}`
+                              ? `${autoStartAt != null ? L3(language, '예약됨', 'Scheduled', '予約中') : L3(language, '자동 촬영 예약', 'Schedule auto', '自動撮影予約')} ${autoState.text}`
                               : L3(language, '지금 시작', 'Start now', '今すぐ開始')}
                           </Text>
                         </Pressable>
                       )}
                       <Pressable
-                        onPress={() => { Vibration.cancel(); setAutoStartAt(null); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); }}
+                        onPress={() => { Vibration.cancel(); setAutoStartAt(null); setLockedTarget(null); useCelestialStore.getState().setCameraScene(null); useCelestialStore.getState().setCameraHandoff(null); }}
                         accessibilityRole="button"
                         accessibilityLabel={L3(language, '장면 지우기', 'Clear scene', 'シーンを消す')}
                         hitSlop={8}
@@ -2821,17 +2854,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
             </View>
 
-            {/* 카메라의 새 틀(17절 4번 · 23절): 유리 막대 — 칩(줌 · 노출) · 시간 자(3D · 겹침일 때만) · 셔터 줄 · 모드 줄. 카메라는 화면 전체를 채웁니다. */}
+            {/* 카메라의 새 틀: 실시간 촬영 전용 — 1줄 칩(배율 슬라이더 · 노출/천체/타임랩스) · 셔터 줄(실사/겹침 토글 · 셔터 · 방향 고정) · 모드 줄 (시간 자 · 미리보기는 샌드박스 전담) */}
             <CameraFrame
               language={language}
+              zoomDial={{
+                magnification: currentMagnification,
+                onChange: setMagnification,
+              }}
               chips={[
-                ...[1, 2, 3, 5].map(mag => ({
-                  id: `zoom-${mag}`,
-                  label: Math.abs(currentMagnification - mag) < 0.25 ? `${currentMagnification.toFixed(1)}×` : `${mag}×`,
-                  mono: true,
-                  active: Math.abs(currentMagnification - mag) < 0.25,
-                  onPress: () => setMagnification(mag),
-                })),
                 timelapseMode
                   ? { id: 'timelapse', label: tlSummaryLabel || L3(language, '노을 · 1시간 · 10초 · 12s', 'Sunset · 1h · 10s · 12s', '夕焼け · 1時間 · 10秒 · 12s'), mono: true, expands: true, openStage: 'full', accessibilityLabel: L3(language, '타임랩스 설정', 'Timelapse setup', 'タイムラプス設定') }
                   : cameraTab === 'astro'
@@ -2855,7 +2885,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                           peak={tlPeak}
                           lowCloud={tlLowCloud}
                           sunAltAt={tlSunAltAt}
-                          onPreview={playPreview}
+                          initialPlan={handoffTlPlan}
+                          onPlanChange={(p) => { activeTlPlanRef.current = p; }}
                           onStart={startTimelapse}
                           onClose={() => setCamStage('min')}
                           onSummaryChange={setTlSummaryLabel}
@@ -2866,26 +2897,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     ? { astro: <AstroSettingsPanel settings={astroSettings} onChange={setAstroSettings} summary={astroShotSummary} caps={astroCaps} language={language} /> }
                     : { exposure: <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} /> }
               }
-              ruler={viewMode !== 'camera' && onTimeChange ? {
-                timeMs: currentTime.getTime(),
-                tz: tzHours,
-                nowMs: Date.now(),
-                onDragStart: () => setIsInteracting(true),
-                onChange: (ms) => onTimeChange(new Date(ms)),
-                onCommit: () => setIsInteracting(false),
-                sunsetMs: goldenTimeInfo.type === 'sunset' && goldenTimeInfo.eventTime ? goldenTimeInfo.eventTime.getTime() : null,
-                showNow: isTimeMachineEnabled,
-                onNow: () => onResetTime?.(),
-              } : null}
+              ruler={null}
               left={
                 <GlassChip
                   label=""
                   active={viewMode !== 'camera'}
                   icon={<Layers size={20} color={TEXT} />}
-                  accessibilityLabel={L3(language, '보기 전환 (카메라 / 겹침 / 3D 시뮬)', 'Switch view mode', '表示モード切替')}
+                  accessibilityLabel={L3(language, '실사 / 겹침 전환', 'Toggle live / AR blend', '実写 / 重ね表示切替')}
                   onPress={() => {
                     Vibration.cancel();
-                    setViewMode(viewMode === 'camera' ? 'blend' : viewMode === 'blend' ? 'sim' : 'camera');
+                    setViewMode(viewMode === 'camera' ? 'blend' : 'camera');
                   }}
                   style={{ width: 48, minHeight: 48, borderRadius: 24, paddingHorizontal: 0 }}
                 />
@@ -2985,16 +3006,6 @@ const styles = StyleSheet.create({
   // ── 전체 화면 카메라(2026-10-25) ──
   liveRoot: { flex: 1, backgroundColor: '#000' },
   stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
-  topRow: {
-    position: 'absolute',
-    left: space.md,
-    right: space.md,
-    height: TOUCH,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
   countdownInline: {
     height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
     borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
@@ -3002,8 +3013,6 @@ const styles = StyleSheet.create({
   countdownInlineLabel: { ...type.micro, color: color.textDim },
   countdownInlineVal: { ...type.label, color: color.text },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  modeAz: { minHeight: TOUCH, paddingHorizontal: 12, borderRadius: TOUCH / 2, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  modeAzText: { ...type.micro, fontSize: 11, lineHeight: 14, color: TEXT, includeFontPadding: false, ...glassTextShadow },
   manualFrameOverlay: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 1.5,

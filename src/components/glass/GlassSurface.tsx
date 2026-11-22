@@ -8,6 +8,7 @@
 import React from 'react';
 import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { GLASS, glassFill } from '../../theme/glassTokens';
+import { TOUCH } from '../../theme/tokens';
 
 let BlurViewImpl: React.ComponentType<any> | null = null;
 if (Platform.OS === 'ios') {
@@ -52,7 +53,7 @@ export const GlassSurface: React.FC<Props> = ({ style, active = false, testID, c
 };
 
 const styles = StyleSheet.create({
-  base: { overflow: 'hidden', borderWidth: 0 },
+  base: { overflow: 'hidden', borderWidth: 0, borderRadius: TOUCH / 2 },
   highlight: { position: 'absolute', top: 0, left: 8, right: 8, height: 1, backgroundColor: GLASS.highlight },
 });
 

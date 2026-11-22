@@ -187,6 +187,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                 if (m === 'simulation') { useCelestialStore.getState().setExpertMode(false); setActiveTab('sky'); return; }
                 if (m === 'sandbox') { useCelestialStore.getState().setExpertMode(true); setActiveTab('sky'); return; }
                 useCelestialStore.getState().setCameraScene(null);
+                useCelestialStore.getState().setCameraHandoff(null);
                 setActiveTab('sky');
                 onCameraPress?.();
               }}

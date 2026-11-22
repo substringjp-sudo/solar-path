@@ -307,15 +307,6 @@ export default function App() {
         <StatusBar barStyle={scheme === 'light' ? 'dark-content' : 'light-content'} translucent backgroundColor="transparent" />
         
         <View style={styles.mainContent}>
-        {!isSunCameraVisible && (
-          <AppHeader
-            activeTab={activeTab as AppTab}
-            setActiveTab={setActiveTab}
-            setSettingsVisible={setSettingsVisible}
-            setMapVisible={setMapVisible}
-          />
-        )}
-
         <TabNavigator
           activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
@@ -421,6 +412,8 @@ export default function App() {
         </View>
       </Modal>
 
+      </AnimatedSafeAreaView>
+
       {/* AR 노을·천체 촬영 카메라 (단일 스테이지 오버레이 — 3D 씬을 공유하여 끊김 없이 전환) */}
       {isSunCameraVisible && (
         <SunCamera
@@ -434,10 +427,22 @@ export default function App() {
           onResetTime={() => handleToggleTimeMachine(false)}
           goldenTimeInfo={goldenTimeInfo!}
           onViewModeChange={setCameraViewMode}
-          onSettingsPress={() => setSettingsVisible(true)}
           onOpenData={() => { setActiveTab('learn'); setSunCameraVisible(false); }}
         />
       )}
+
+      {/* 앱 전체 단일 상단 HUD 인스턴스 (데이터 · 시뮬레이션 · 샌드박스 · 카메라 통합) */}
+      <SafeAreaView style={styles.hudLayer} pointerEvents="box-none">
+        <View style={styles.mainContent} pointerEvents="box-none">
+          <AppHeader
+            activeTab={activeTab as AppTab}
+            setActiveTab={setActiveTab}
+            setSettingsVisible={setSettingsVisible}
+            setMapVisible={setMapVisible}
+            isCameraActive={isSunCameraVisible}
+          />
+        </View>
+      </SafeAreaView>
 
       {/* 설정 모달 */}
       <SettingsModal
@@ -460,8 +465,6 @@ export default function App() {
         }}
         onDone={() => { setOnboardingSeen(true); setGuideReopened(false); }}
       />
-
-      </AnimatedSafeAreaView>
 
       {/* 앱 초기 기동 스플래시 오버레이: 3D 씬이 백그라운드에서 완전히 준비될 때까지 유지되다 부드럽게 페이드아웃 */}
       {!isSplashDismissed && (
@@ -542,6 +545,11 @@ const useStyles = makeStyles((color) => ({
   },
   mainContent: {
     flex: 1,
+  },
+  hudLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 600,
+    paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0,
   },
   centered: {
     flex: 1,

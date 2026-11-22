@@ -39,8 +39,11 @@ interface Props {
   lowCloud?: { fromMs: number; toMs: number } | null;
   /** 시각(ms) → 그때 해 고도(°). 있으면 구간의 "예측 노출 곡선"(맑은 하늘 기준 어림)을 그립니다. */
   sunAltAt?: ((ms: number) => number) | null;
-  onPreview: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
-  onStart: (plan: TimelapsePlan) => void;
+  onPreview?: (plan: TimelapsePlan, startMs: number, endMs: number) => void;
+  onStart?: (plan: TimelapsePlan) => void;
+  startLabel?: string;
+  initialPlan?: TimelapsePlan | null;
+  onPlanChange?: (plan: TimelapsePlan) => void;
   onClose: () => void;
   /** 현재 세팅 요약 문자열이 바뀔 때 알림(줌 아래 칩 라벨 표시용) */
   onSummaryChange?: (label: string) => void;
@@ -79,12 +82,25 @@ export const timelapseChipLabel = (plan: TimelapsePlan, l: Language): string => 
     : base;
 };
 
-export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, onClose, onSummaryChange }) => {
-  const [totalMin, setTotalMin] = useState<DurationMinChoice>(60);
-  const [videoSec, setVideoSec] = useState<number>(10);
-  const [kind, setKind] = useState<TimelapseKind>('plain');
+export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, startLabel, initialPlan = null, onPlanChange, onClose, onSummaryChange }) => {
+  const [totalMin, setTotalMin] = useState<DurationMinChoice>(() => (
+    initialPlan && (DURATION_MIN_CHOICES as readonly number[]).includes(initialPlan.totalMin)
+      ? (initialPlan.totalMin as DurationMinChoice)
+      : 60
+  ));
+  const [videoSec, setVideoSec] = useState<number>(() => initialPlan?.targetVideoSec ?? 10);
+  const [kind, setKind] = useState<TimelapseKind>(() => initialPlan?.kind ?? 'plain');
+  useEffect(() => {
+    if (!initialPlan) return;
+    if ((DURATION_MIN_CHOICES as readonly number[]).includes(initialPlan.totalMin)) {
+      setTotalMin(initialPlan.totalMin as DurationMinChoice);
+    }
+    setVideoSec(initialPlan.targetVideoSec);
+    setKind(initialPlan.kind);
+  }, [initialPlan]);
   const stackSize = kind === 'stacked' ? autoStackSize(totalMin, videoSec, 30) : 1;
   const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30, kind, stackSize }), [totalMin, videoSec, kind, stackSize]);
+  useEffect(() => { onPlanChange?.(plan); }, [plan, onPlanChange]);
   const win = useMemo(() => {
     if (kind === 'plain' && events.sunset !== null) {
       const before = Math.round(totalMin / 3);
@@ -105,12 +121,13 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
     return sum ? { line: exposureLine(stops, 120, 24), total: sum.total } : null;
   }, [win, sunAltAt]);
   const preview = () => {
+    if (!onPreview) return;
     const startMs = win ? win.startMs : nowMs;
     const endMs = win ? win.endMs : nowMs + totalMin * 60000;
     onPreview(plan, startMs, endMs);
     onClose();
   };
-  const start = () => { onStart(plan); onClose(); };
+  const start = () => { onStart?.(plan); onClose(); };
   // 목업 9: 부제는 구간("16:40 ~ 18:10"), 값 칸 넷, 그 아래 한 줄("시작 16:40 · 촬영 90분 · 종류")
   const subtitle = win ? windowLabel(win.startMs, win.endMs, tzHours) : `${L3(language, '지금부터', 'From now', '今から')} ${totalMin}${L3(language, '분', ' min', '分')}`;
   const startShown = win ? win.startMs : nowMs;
@@ -171,10 +188,16 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
         ) : null}
         <Text style={styles.note}>{L3(language, '사진 묶음으로 앨범에 저장해요. 영상 만들기는 준비 중이에요.', 'Saved to your album as a photo set. Video export is coming soon.', 'アルバムに写真の束として保存します。動画化は準備中です。')}</Text>
       </View>
-      <View style={styles.actions}>
-        <GlassChip testID="tl-preview" label={L3(language, '미리보기', 'Preview', 'プレビュー')} onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn} />
-        <GlassChip testID="tl-start" label={L3(language, '지금 시작', 'Start now', '今すぐ開始')} active onPress={start} accessibilityLabel={L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn} />
-      </View>
+      {(onPreview || onStart) && (
+        <View style={styles.actions}>
+          {onPreview && (
+            <GlassChip testID="tl-preview" label={L3(language, '미리보기', 'Preview', 'プレビュー')} onPress={preview} accessibilityLabel={L3(language, '미리보기: 시뮬레이션으로 재생', 'Preview: play the simulation', 'プレビュー: シミュレーションで再生')} style={styles.btn} />
+          )}
+          {onStart && (
+            <GlassChip testID="tl-start" label={startLabel ?? L3(language, '지금 시작', 'Start now', '今すぐ開始')} active onPress={start} accessibilityLabel={startLabel ?? L3(language, '지금 시작: 지금부터 촬영', 'Start now', '今すぐ開始')} style={styles.btn} />
+          )}
+        </View>
+      )}
     </>
   );
 

@@ -9,20 +9,17 @@
  * 안의 내용(`simBody` · `sandbox.*`)은 부르는 쪽이 넣습니다: 기존 조작부를 그대로 재사용합니다.
  */
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Bookmark } from 'lucide-react-native';
-import { DockSheet } from '../glass/DockSheet';
-import { GlassChip } from '../glass/GlassChip';
-import { GlassSurface, glassTextShadow } from '../glass/GlassSurface';
-import { ModeStrip } from '../glass/ModeStrip';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Bookmark, Camera, FolderOpen, Sun } from 'lucide-react-native';
+import { BottomDock, type BottomDockChip } from '../glass/BottomDock';
+import { GlassSurface } from '../glass/GlassSurface';
 import { Scrim } from '../glass/Scrim';
 import { belowHeader } from '../../utils/headerLayout';
-import { TimeRuler } from '../glass/TimeRuler';
 import { color as DARK, mono as monoFont } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
 import type { DockStage } from '../../utils/dockStages';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
-import { dateShort, dayOffset, shiftDays, weekStrip } from '../../utils/timeRuler';
+import { dayOffset, shiftDays } from '../../utils/timeRuler';
 import { L3 } from '../../utils/i18n';
 import { fmtAz, fmtEl, fmtEye, viewDiffers, type ViewAzEl } from '../../utils/sandboxDials';
 
@@ -57,7 +54,9 @@ interface Props {
   /** 시뮬레이션을 끝까지 펼쳤을 때 보이는 내용 */
   simBody?: React.ReactNode;
   /** 샌드박스 칩별 펼친 내용 */
-  sandbox?: Partial<Record<'move' | 'view' | 'scene', React.ReactNode>>;
+  sandbox?: Partial<Record<'move' | 'view' | 'shoot' | 'scene', React.ReactNode>>;
+  /** 값이 증가하면 펼친 시트를 접습니다(미리보기 시작 등) */
+  collapseNonce?: number;
   /** 샌드박스 "이동" · "보기" 칩을 켰을 때 가운데 셔터 자리에 대신 놓을 조이스틱 */
   shutterMove?: React.ReactNode;
   shutterView?: React.ReactNode;
@@ -78,22 +77,22 @@ interface Props {
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, shutterMove, shutterView, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
+  readout, simBody, sandbox, collapseNonce = 0, shutterMove, shutterView, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
-  const [active, setActive] = React.useState<ChipId | null>(null);
+  const [active, setActive] = React.useState<ChipId | 'shoot' | null>(null);
   const [shutterTool, setShutterTool] = React.useState<'move' | 'view' | null>(null);
-  const [dateStripH, setDateStripH] = React.useState<number>(0);
-  const simBodyOpen = mode === 'simulation' && stage === 'full';
+  const simBodyOpen = mode === 'simulation' && stage !== 'min';
   const simBodyCb = React.useRef(onSimBodyOpenChange);
   simBodyCb.current = onSimBodyOpenChange;
   React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
   React.useEffect(() => { if (mode !== 'sandbox') setShutterTool(null); }, [mode]);
+  React.useEffect(() => { if (collapseNonce > 0) { setStage('min'); setActive(null); } }, [collapseNonce]);
   const modes = React.useMemo(() => modeList(false), []);
   const off = dayOffset(timeMs, nowMs, tz);
 
   const firstSandboxTab = React.useMemo(
-    () => (['scene', 'move', 'view'] as const).find(k => sandbox?.[k]) ?? null,
+    () => (['shoot', 'scene', 'move', 'view'] as const).find(k => sandbox?.[k]) ?? null,
     [sandbox],
   );
 
@@ -110,7 +109,7 @@ export const SkyFrame: React.FC<Props> = ({
     onPick(shiftDays(timeMs, target - off), 'date');
     onSlideEnd('date');
   };
-  const onChip = (c: ChipId) => {
+  const onChip = (c: ChipId | 'shoot') => {
     if (c === 'yesterday') return jumpDay(-1);
     if (c === 'today') return jumpDay(0);
     if (c === 'tomorrow') return jumpDay(1);
@@ -120,10 +119,10 @@ export const SkyFrame: React.FC<Props> = ({
       return;
     }
     setShutterTool(null);
-    // 날짜 · 장면: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
+    // 날짜 · 촬영 · 장면: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
     if (active === c && stage !== 'min') { setStageSafe('min'); return; }
     setActive(c);
-    setStage(s => (s === 'min' ? 'mid' : s));
+    setStage(s => (s === 'min' ? 'full' : s));
   };
 
   const pickMode = (target: AppMode) => {
@@ -132,9 +131,8 @@ export const SkyFrame: React.FC<Props> = ({
     onSwitch(sw);
   };
 
-  const week = weekStrip(timeMs, nowMs, tz, language);
   const chips = chipsFor(mode) ?? [];
-  const chipActive = (c: ChipId): boolean => {
+  const chipActive = (c: ChipId | 'shoot'): boolean => {
     if (c === 'yesterday') return off === -1;
     if (c === 'today') return off === 0;
     if (c === 'tomorrow') return off === 1;
@@ -142,21 +140,66 @@ export const SkyFrame: React.FC<Props> = ({
     return active === c && stage !== 'min';
   };
 
-  let expanded: React.ReactNode = null;
+  let expanded: React.ReactNode | ((maxH: number) => React.ReactNode) = null;
   if (mode === 'sandbox') {
-    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'scene'])
-      ? (active as 'move' | 'view' | 'scene')
+    const sbTab = (active && active !== 'date' && sandbox?.[active as 'move' | 'view' | 'shoot' | 'scene'])
+      ? (active as 'move' | 'view' | 'shoot' | 'scene')
       : firstSandboxTab;
     if (sbTab && sandbox?.[sbTab]) {
-      expanded = (
-        <GlassSurface testID={`panel-${sbTab}`} style={styles.panel}>
+      expanded = (maxH: number) => (
+        <GlassSurface testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
           <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
         </GlassSurface>
       );
     }
+  } else if (mode === 'simulation' && simBody) {
+    expanded = (maxH: number) => (
+      <GlassSurface testID="panel-sim" style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
+        <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{simBody}</ScrollView>
+      </GlassSurface>
+    );
   }
 
+  const sandboxChipOrder: (ChipId | 'shoot')[] = sandbox?.shoot
+    ? ['move', 'view', 'shoot', 'scene']
+    : chips;
+
+  const dockChips: BottomDockChip[] = mode === 'simulation'
+    ? [
+        ...(onToggleTrackSun
+          ? [{
+              id: 'track-sun',
+              testID: 'ruler-track-sun',
+              label: L3(language, '태양 추적', 'Track Sun', '太陽追跡'),
+              icon: <Sun size={12} color={sunTracked ? DARK.sun : TEXT} />,
+              active: sunTracked,
+              onPress: onToggleTrackSun,
+            }]
+          : []),
+        {
+          id: 'forecast',
+          testID: 'chip-forecast',
+          label: L3(language, '노을 예보', 'Forecast', '夕焼け予報'),
+          active: stage !== 'min',
+          expanded: stage !== 'min',
+          onPress: () => setStageSafe(stage === 'min' ? 'full' : 'min'),
+        },
+      ]
+    : sandboxChipOrder.map(c => ({
+        id: c,
+        testID: `chip-${c}`,
+        label: c === 'shoot' ? L3(language, '촬영', 'Shoot', '撮影') : chipLabel(c, language),
+        active: chipActive(c),
+        expanded: c === 'date' || c === 'shoot' || c === 'scene' ? chipActive(c) : undefined,
+        onPress: () => onChip(c),
+      }));
+
   const effectiveShowNow = showNow ?? (Math.abs(timeMs - nowMs) > 60_000);
+  const centerOverride = mode === 'sandbox' && shutterTool === 'move' && shutterMove
+    ? shutterMove
+    : mode === 'sandbox' && shutterTool === 'view' && shutterView
+      ? shutterView
+      : undefined;
 
   return (
     <>
@@ -164,63 +207,53 @@ export const SkyFrame: React.FC<Props> = ({
       <View testID="frame-readout" pointerEvents="none" style={styles.readout}>
         {typeof readout === 'string' ? <Text style={[styles.readoutText, readoutShadow]}>{readout}</Text> : readout}
       </View>
-      <DockSheet
+      <BottomDock
+        language={language}
         stage={stage}
         onStageChange={setStageSafe}
-        language={language}
         expanded={expanded}
-        midMaxH={mode === 'simulation' && dateStripH > 0 ? dateStripH : undefined}
-        fitContent={mode === 'sandbox'}
-        hideHandle={mode === 'simulation'}
-      >
-        {chips.length > 0 && (
-        <View testID="chips-row" style={styles.chips}>
-          {chips.map(c => (
-            <GlassChip key={c} testID={`chip-${c}`} label={chipLabel(c, language)} active={chipActive(c)} expanded={c === 'date' || c === 'scene' ? chipActive(c) : undefined} onPress={() => onChip(c)} />
-          ))}
-        </View>
-        )}
-        <TimeRuler
-          timeMs={timeMs}
-          tz={tz}
-          nowMs={nowMs}
-          language={language}
-          onDragStart={() => onSlideStart('time')}
-          onChange={(ms) => onPick(ms, 'time')}
-          onCommit={() => onSlideEnd('time')}
-          sunsetMs={sunsetMs}
-          sunsetLabel={sunsetLabel}
-          scoreSamples={scoreSamples}
-          dateText={mode === 'simulation' ? dateShort(timeMs, tz, language) : undefined}
-          onDatePress={onOpenCalendar}
-          onDayShift={(n) => jumpDay(off + n)}
-          showNow={effectiveShowNow}
-          onNow={onNow}
-          sunTracked={mode === 'simulation' ? sunTracked : undefined}
-          onToggleTrackSun={mode === 'simulation' ? onToggleTrackSun : undefined}
-        />
-        <View testID="shutter-row" style={styles.shutterRow}>
-          <Pressable testID="thumb" accessibilityRole="button" accessibilityLabel={L3(language, '저장한 장면 열기', 'Open saved scene', '保存したシーンを開く')} disabled={!onOpenLatestScene} onPress={onOpenLatestScene} style={[styles.thumb, !onOpenLatestScene && { opacity: 0.5 }]} />
-          {mode === 'sandbox' && shutterTool === 'move' && shutterMove ? (
-            shutterMove
-          ) : mode === 'sandbox' && shutterTool === 'view' && shutterView ? (
-            shutterView
-          ) : (
-            <Pressable testID="shutter" accessibilityRole="button" accessibilityLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')} onPress={onShoot} style={styles.shutterRing}>
-              <View style={styles.shutter} />
-            </Pressable>
-          )}
-          <GlassChip
-            testID="scene-save"
-            label=""
-            icon={<Bookmark size={20} color={TEXT} />}
-            onPress={onSaveScene}
-            accessibilityLabel={L3(language, '장면 저장', 'Save scene', 'シーン保存')}
-            style={styles.round48}
-          />
-        </View>
-        <ModeStrip mode={mode} modes={modes} language={language} onPick={pickMode} />
-      </DockSheet>
+        fitContent
+        chips={dockChips}
+        ruler={{
+          timeMs,
+          tz,
+          nowMs,
+          onDragStart: () => onSlideStart('time'),
+          onChange: (ms) => onPick(ms, 'time'),
+          onCommit: () => onSlideEnd('time'),
+          onDayShift: (nextMs) => {
+            onSlideStart('date');
+            onPick(nextMs, 'date');
+            onSlideEnd('date');
+          },
+          onDatePress: onOpenCalendar,
+          sunsetMs,
+          sunsetLabel,
+          scoreSamples,
+          showNow: effectiveShowNow,
+          onNow,
+        }}
+        leftAction={{
+          testID: 'thumb',
+          icon: <FolderOpen size={20} color={TEXT} />,
+          disabled: !onOpenLatestScene,
+          accessibilityLabel: L3(language, '저장한 장면 열기', 'Open saved scene', '保存したシーンを開く'),
+          onPress: onOpenLatestScene,
+        }}
+        rightAction={{
+          testID: 'scene-save',
+          icon: <Bookmark size={20} color={TEXT} />,
+          accessibilityLabel: L3(language, '장면 저장', 'Save scene', 'シーン保存'),
+          onPress: onSaveScene,
+        }}
+        centerOverride={centerOverride}
+        shutterLabel={L3(language, '이 장면 찍기', 'Shoot this scene', 'このシーンを撮る')}
+        shutterInner={<Camera size={22} color={DARK.onAccent} />}
+        onShutter={onShoot}
+        stripMode={mode}
+        stripModes={modes}
+        onPickMode={pickMode}
+      />
     </>
   );
 };
@@ -229,24 +262,9 @@ const styles = StyleSheet.create({
   // 머리줄이 하늘 위에 떠 있으므로 그 아래에서 시작합니다(`utils/headerLayout`).
   readout: { position: 'absolute', left: 10, right: 10, top: belowHeader(12), alignItems: 'center' },
   readoutText: { fontFamily: monoFont, fontSize: 11, fontWeight: '500', color: TEXT, letterSpacing: 0.3 },
-  chips: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
-  simWrap: { maxHeight: '100%' },
-  week: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingBottom: 8 },
-  weekPress: { flex: 1, minWidth: 0 },
-  weekCell: { minHeight: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  weekDay: { color: TEXT, fontSize: 10, fontWeight: '400' },
-  weekNum: { color: TEXT, fontSize: 13, fontWeight: '500' },
-  calRow: { alignItems: 'center', paddingBottom: 8 },
-  body: { flexShrink: 1, marginHorizontal: 10 },
-  bodyContent: { paddingBottom: 12, gap: 10 },
   panel: { marginHorizontal: 10, marginBottom: 8, borderRadius: 16, maxHeight: '100%' },
-  panelScroll: { flexGrow: 0 },
-  panelContent: { padding: 12 },
-  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22 },
-  thumb: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#2b3a66', borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)' },
-  shutterRing: { width: 78, height: 78, borderRadius: 39, borderWidth: 4, borderColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
-  shutter: { width: 64, height: 64, borderRadius: 32, backgroundColor: DARK.accent },
-  round48: { width: 48, minHeight: 48, borderRadius: 24, paddingHorizontal: 0 },
+  panelScroll: { flexShrink: 1 },
+  panelContent: { padding: 12, gap: 8 },
 });
 
 interface LiveReadoutProps {

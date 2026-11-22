@@ -47,7 +47,7 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
       accessibilityLabel={accessibilityLabel ?? label}
       aria-pressed={active}
       aria-expanded={expanded}
-      style={({ pressed }) => [pressed && styles.pressed]}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
     >
       {body}
     </Pressable>
@@ -55,9 +55,10 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
 };
 
 const styles = StyleSheet.create({
+  pressable: { flexShrink: 1 },
   pill: { minHeight: CHIP_MIN_H, paddingHorizontal: 10, borderRadius: CHIP_MIN_H / 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   icon: { alignItems: 'center', justifyContent: 'center' },
-  text: { fontSize: 11, fontWeight: '500' },
+  text: { fontSize: 11, fontWeight: '500', flexShrink: 1 },
   mono: { fontFamily: monoFont },
   pressed: { opacity: 0.7 },
   flatActive: { backgroundColor: `rgba(${GLASS.tintRGB.join(', ')}, ${GLASS.tintAlpha})` },

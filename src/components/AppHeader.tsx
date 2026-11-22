@@ -30,15 +30,15 @@
  */
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import { Globe, MapPin, Settings, SlidersHorizontal } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Compass, Globe, MapPin, Moon, RefreshCw, Settings, SlidersHorizontal, Sun } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
-import { radius, space, type, TOUCH } from '../theme/tokens';
+import { space, TOUCH } from '../theme/tokens';
 import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
 import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
-import { TEXT } from '../theme/glassTokens';
-import { HEADER_HEIGHT, HEADER_PAD_BOTTOM, HEADER_PAD_TOP, HEADER_ROW, headerMaterial } from '../utils/headerLayout';
+import { ACTIVE_CHIP_TEXT, TEXT } from '../theme/glassTokens';
+import { HEADER_HEIGHT, HEADER_PAD_BOTTOM, HEADER_PAD_TOP, headerMaterial } from '../utils/headerLayout';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 import { useAdministrativeArea } from '../utils/reverseGeocode';
 
@@ -83,12 +83,14 @@ interface AppHeaderProps {
   setActiveTab: (tab: AppTab) => void;
   setSettingsVisible: (visible: boolean) => void;
   setMapVisible?: (visible: boolean) => void;
+  isCameraActive?: boolean;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
   activeTab,
   setSettingsVisible,
   setMapVisible,
+  isCameraActive = false,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
@@ -96,59 +98,105 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const savedLocations = useCelestialStore(s => s.savedLocations);
   const expertMode = useCelestialStore(s => s.expertMode);
   const skyHeaderActions = useCelestialStore(s => s.skyHeaderActions);
+  const cameraHud = useCelestialStore(s => s.cameraHud);
   const adminName = useAdministrativeArea(location?.coords?.latitude, location?.coords?.longitude);
   const place = useMemo(
     () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName),
     [location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName],
   );
 
+  // 단일 루트 HUD: 카메라 오버레이가 권한/결과 미리보기 등을 덮을 때만 숨김
+  if (isCameraActive && (!cameraHud || cameraHud.hidden)) return null;
+
+  const showCamera = !!isCameraActive && !!cameraHud;
   const glass = headerMaterial(activeTab) === 'glass';
-  const g = glass ? glassStyles : null;
+  const isGlass = showCamera || glass;
   const placeLabelText = `${L3(language, '위치 변경', 'Change location', '位置を変更')}${place ? ` — ${place}` : ''}`;
+
+  // 좌측 슬롯: 전 모드 동일 위치 · 동일 규격(40px 캡슐 알약).
+  const renderLeft = () => {
+    if (showCamera) {
+      return (
+        <PressScale
+          testID="hdr-az"
+          onPress={cameraHud.onToggleTopInfo}
+          style={styles.pillBtn}
+          accessibilityLabel={L3(language, '촬영 정보 펼치기/접기', 'Toggle capture info', '撮影情報を開閉')}
+          accessibilityRole="button"
+        >
+          <GlassSurface active={cameraHud.topInfoExpanded || cameraHud.frozenActive} style={StyleSheet.absoluteFill} />
+          {cameraHud.isAstro ? <Moon size={12} color={TEXT} /> : <Sun size={12} color={TEXT} />}
+          <Text style={[styles.pillText, { color: TEXT }, glassTextShadow]} numberOfLines={1}>
+            {`AZ ${Math.round(cameraHud.azDeg)}° · ${cameraHud.elDeg >= 0 ? '+' : ''}${cameraHud.elDeg.toFixed(0)}°`}
+          </Text>
+          {cameraHud.topInfoExpanded ? <ChevronUp size={13} color={TEXT} /> : <ChevronDown size={13} color={TEXT} />}
+        </PressScale>
+      );
+    }
+
+    return setMapVisible ? (
+      <PressScale
+        testID="hdr-place"
+        onPress={() => setMapVisible(true)}
+        style={[styles.pillBtn, !isGlass && styles.solidSurface]}
+        accessibilityLabel={placeLabelText}
+        accessibilityRole="button"
+      >
+        {isGlass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
+        <MapPin size={12} color={isGlass ? TEXT : color.accent} />
+        <Text
+          style={[styles.pillText, isGlass ? [{ color: TEXT }, glassTextShadow] : null]}
+          numberOfLines={1}
+        >
+          {place ?? L3(language, '위치', 'Place', '場所')}
+        </Text>
+      </PressScale>
+    ) : <View />;
+  };
 
   return (
     <View style={styles.header} pointerEvents="box-none">
       <View style={styles.headerTop} pointerEvents="box-none">
-        {glass ? (
-          setMapVisible ? (
-            <PressScale
-              testID="hdr-place"
-              onPress={() => setMapVisible(true)}
-              style={g!.placeBtn}
-              accessibilityLabel={placeLabelText}
-              accessibilityRole="button"
-            >
-              <GlassSurface style={StyleSheet.absoluteFill} />
-              <MapPin size={12} color={TEXT} />
-              <Text style={[styles.placeText, { color: TEXT }, glassTextShadow]} numberOfLines={1}>
-                {place ?? L3(language, '위치', 'Place', '場所')}
-              </Text>
-            </PressScale>
-          ) : <View />
-        ) : (
-          <Text style={styles.dataTitle}>{L3(language, '데이터', 'Data', 'データ')}</Text>
-        )}
+        {renderLeft()}
 
-        <View style={styles.rightButtons}>
-          {!glass && setMapVisible && (
-            <PressScale
-              testID="hdr-place"
-              onPress={() => setMapVisible(true)}
-              style={styles.placeBtn}
-              accessibilityLabel={placeLabelText}
-              accessibilityRole="button"
-            >
-              <MapPin size={12} color={color.accent} />
-              {!!place && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
-            </PressScale>
+        {/* 우측 슬롯: 전 모드 동일 규격의 40×40 원형 아이콘 버튼만 정렬 */}
+        <View style={styles.rightButtons} pointerEvents="box-none">
+          {showCamera && (
+            <>
+              <PressScale
+                testID="hdr-align"
+                onPress={cameraHud.onToggleAlignMenu}
+                style={styles.circleBtn}
+                accessibilityLabel={L3(language, '화면·방위 보정', 'Align & Heading', '画面・方位補正')}
+                accessibilityRole="button"
+              >
+                <GlassSurface active={cameraHud.alignMenuOpen} style={StyleSheet.absoluteFill} />
+                <Compass size={15} color={cameraHud.alignMenuOpen ? ACTIVE_CHIP_TEXT : TEXT} />
+                {cameraHud.alignDotColor ? (
+                  <View style={[styles.dotBadge, { backgroundColor: cameraHud.alignDotColor }]} />
+                ) : null}
+              </PressScale>
+              {cameraHud.canSwitchCamera && (
+                <PressScale
+                  testID="cam-switch"
+                  onPress={cameraHud.onSwitchCamera}
+                  style={styles.circleBtn}
+                  accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
+                  accessibilityRole="button"
+                >
+                  <GlassSurface style={StyleSheet.absoluteFill} />
+                  <RefreshCw size={15} color={TEXT} />
+                </PressScale>
+              )}
+            </>
           )}
 
-          {glass && expertMode && skyHeaderActions?.openLayers && (
+          {!showCamera && isGlass && expertMode && skyHeaderActions?.openLayers && (
             <PressScale
               testID="hdr-layers"
               onPress={skyHeaderActions.openLayers}
               onLongPress={skyHeaderActions.openDev}
-              style={g!.iconBtn}
+              style={styles.circleBtn}
               accessibilityLabel={t('layerTitle', language)}
               accessibilityRole="button"
             >
@@ -157,11 +205,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </PressScale>
           )}
 
-          {glass && !expertMode && !skyHeaderActions?.ascended && skyHeaderActions?.flyToMap && (
+          {!showCamera && isGlass && !expertMode && !skyHeaderActions?.ascended && skyHeaderActions?.flyToMap && (
             <PressScale
               testID="hdr-map"
               onPress={skyHeaderActions.flyToMap}
-              style={g!.iconBtn}
+              style={styles.circleBtn}
               accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
               accessibilityRole="button"
             >
@@ -173,12 +221,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <PressScale
             testID="hdr-settings"
             onPress={() => setSettingsVisible(true)}
-            style={glass ? g!.iconBtn : styles.iconBtn}
+            style={[styles.circleBtn, !isGlass && styles.solidSurface]}
             accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
-            {glass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
-            <Settings size={15} color={glass ? TEXT : color.textDim} />
+            {isGlass ? <GlassSurface style={StyleSheet.absoluteFill} /> : null}
+            <Settings size={15} color={isGlass ? TEXT : color.textDim} />
           </PressScale>
         </View>
       </View>
@@ -186,14 +234,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   );
 };
 
-/** 유리 머리줄의 모양(하늘 탭). 칠 · 흐림은 `GlassSurface` 가 그립니다 — 사진 상단 줄(`modeAz` · `GlassIconButton`)과 같은 크기 · 둥글기. */
-const glassStyles = StyleSheet.create({
-  placeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TOUCH, maxWidth: 180, paddingHorizontal: 12, borderRadius: TOUCH / 2, overflow: 'hidden', justifyContent: 'center' },
-  iconBtn: { width: TOUCH, height: TOUCH, borderRadius: TOUCH / 2, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
-});
-
 const useStyles = makeStyles((color) => ({
-  // 하늘 위에 떠 있습니다(`HEADER_HEIGHT` = 위 여백 4 + 줄 40 + 아래 여백 4). 탭 내용이 아래에서 시작하는 것은 `TabNavigator` 가 맡습니다.
+  // 하늘 위에 떠 있습니다(`HEADER_HEIGHT` = 위 여백 4 + 줄 40 + 아래 여백 4).
   header: {
     position: 'absolute',
     top: 0,
@@ -212,40 +254,47 @@ const useStyles = makeStyles((color) => ({
     justifyContent: 'space-between',
     gap: 6,
   },
-  dataTitle: {
-    ...type.title,
-    fontSize: 16,
-    color: color.text,
-  },
   rightButtons: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  /** 위치 버튼 — 지금 어느 하늘인지 이름으로 보여 줍니다. */
-  placeBtn: {
+  /** 좌측 공용 알약 규격 (전 모드 동일: 높이 40, 반지름 20). */
+  pillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     height: TOUCH,
+    minHeight: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 148,
+    maxWidth: 180,
     paddingHorizontal: 12,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.panel,
-    justifyContent: 'center',
+    borderRadius: TOUCH / 2,
+    overflow: 'hidden',
   },
-  placeText: { fontSize: 11, lineHeight: 14, fontWeight: '500', includeFontPadding: false, color: color.text, flexShrink: 1 },
-  iconBtn: {
+  pillText: { fontSize: 11, lineHeight: 14, fontWeight: '500', includeFontPadding: false, color: color.text, flexShrink: 1 },
+  /** 우측 공용 원형 아이콘 버튼 규격 (전 모드 동일: 40×40 정원). */
+  circleBtn: {
     width: TOUCH,
     height: TOUCH,
-    borderRadius: radius.xs,
+    borderRadius: TOUCH / 2,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  /** 불투명 화면(데이터 탭)에서만 쓰는 바탕 · 테두리. */
+  solidSurface: {
     borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.panel,
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  dotBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 }));
