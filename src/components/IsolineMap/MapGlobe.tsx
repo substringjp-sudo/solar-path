@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback, useImperativeHandle } from 'react';
 import { StyleSheet, View, PanResponder } from 'react-native';
-import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
+import Svg, { Circle, Path, G, Defs, RadialGradient, LinearGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -1178,13 +1178,33 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="98%" stopColor="#7DD3FC" stopOpacity="0.14" />
               <Stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.30" />
             </RadialGradient>
-            <RadialGradient id="orbitalSunriseFlare" cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.98" />
-              <Stop offset="22%" stopColor="#FEF08A" stopOpacity="0.85" />
-              <Stop offset="48%" stopColor="#FB923C" stopOpacity="0.42" />
-              <Stop offset="75%" stopColor="#38BDF8" stopOpacity="0.14" />
+            <RadialGradient id="orbitalLimbBlue" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#7DD3FC" stopOpacity="0.46" />
+              <Stop offset="38%" stopColor="#38BDF8" stopOpacity="0.24" />
+              <Stop offset="72%" stopColor="#2563EB" stopOpacity="0.08" />
               <Stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
             </RadialGradient>
+            <RadialGradient id="orbitalLimbSunset" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FEF08A" stopOpacity="0.82" />
+              <Stop offset="26%" stopColor="#FB923C" stopOpacity="0.52" />
+              <Stop offset="58%" stopColor="#EA580C" stopOpacity="0.20" />
+              <Stop offset="84%" stopColor="#9A3412" stopOpacity="0.05" />
+              <Stop offset="100%" stopColor="#7C2D12" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="orbitalSunriseFlare" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.96" />
+              <Stop offset="18%" stopColor="#FEF9C3" stopOpacity="0.78" />
+              <Stop offset="42%" stopColor="#FDBA74" stopOpacity="0.34" />
+              <Stop offset="72%" stopColor="#38BDF8" stopOpacity="0.10" />
+              <Stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
+            </RadialGradient>
+            <LinearGradient id="orbitalRayGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+              <Stop offset="0%" stopColor="#FFFBEB" stopOpacity="0" />
+              <Stop offset="35%" stopColor="#FEF3C7" stopOpacity="0.35" />
+              <Stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.72" />
+              <Stop offset="65%" stopColor="#FEF3C7" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor="#FFFBEB" stopOpacity="0" />
+            </LinearGradient>
           </Defs>
 
           {spaceMilkyWay && spaceMilkyWay.length > 0 && (
@@ -1518,24 +1538,40 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
           )}
           {orbitalSunrise && (
-            <G pointerEvents="none">
+            <G transform={`translate(${orbitalSunrise.lx} ${orbitalSunrise.ly})`} pointerEvents="none">
               {orbitalSunrise.arcStrength > 0.01 && (
-                <G opacity={orbitalSunrise.arcStrength}>
-                  <Path d={orbitalSunrise.blueArc} fill="none" stroke="#38BDF8" strokeWidth={2.8} strokeLinecap="round" opacity={0.48} />
-                  <Path d={orbitalSunrise.amberArc} fill="none" stroke="#FBBF24" strokeWidth={1.8} strokeLinecap="round" opacity={0.75} />
-                  <Path d={orbitalSunrise.redArc} fill="none" stroke="#F97316" strokeWidth={1.2} strokeLinecap="round" opacity={0.90} />
+                <G transform={`rotate(${orbitalSunrise.angDeg + 90})`} opacity={orbitalSunrise.arcStrength}>
+                  <G transform="scale(3.1, 0.42)">
+                    <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.95} fill="url(#orbitalLimbBlue)" />
+                  </G>
+                  <G transform="scale(2.4, 0.24)">
+                    <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.85} fill="url(#orbitalLimbSunset)" />
+                  </G>
                 </G>
               )}
               {orbitalSunrise.flareStrength > 0.02 && (
-                <G transform={`translate(${orbitalSunrise.lx} ${orbitalSunrise.ly})`} opacity={orbitalSunrise.flareStrength}>
+                <G opacity={orbitalSunrise.flareStrength}>
                   <Circle cx={0} cy={0} r={orbitalSunrise.flareR} fill="url(#orbitalSunriseFlare)" />
                   <G transform={`rotate(${orbitalSunrise.angDeg + 90})`}>
-                    <Path d={`M ${-orbitalSunrise.rayTangential} 0 Q 0 -1.8 ${orbitalSunrise.rayTangential} 0 Q 0 1.8 ${-orbitalSunrise.rayTangential} 0 Z`} fill="#FFFBEB" opacity={0.55} />
+                    <Rect
+                      x={-orbitalSunrise.rayTangential}
+                      y={-1.6}
+                      width={orbitalSunrise.rayTangential * 2}
+                      height={3.2}
+                      fill="url(#orbitalRayGrad)"
+                      opacity={0.75}
+                    />
                   </G>
                   <G transform={`rotate(${orbitalSunrise.angDeg})`}>
-                    <Path d={`M ${-orbitalSunrise.rayNormal} 0 Q 0 -1.4 ${orbitalSunrise.rayNormal} 0 Q 0 1.4 ${-orbitalSunrise.rayNormal} 0 Z`} fill="#FEF3C7" opacity={0.42} />
+                    <Rect
+                      x={-orbitalSunrise.rayNormal}
+                      y={-1.2}
+                      width={orbitalSunrise.rayNormal * 2}
+                      height={2.4}
+                      fill="url(#orbitalRayGrad)"
+                      opacity={0.55}
+                    />
                   </G>
-                  <Circle cx={0} cy={0} r={3.5} fill="#FFFFFF" opacity={0.95} />
                 </G>
               )}
             </G>

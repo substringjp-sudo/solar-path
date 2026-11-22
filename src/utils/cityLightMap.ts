@@ -16,7 +16,7 @@ export interface NightLights { w: number; h: number; data: Uint8Array }
 
 /** 표준 대도시 중심(서울/수도권 등)의 5km 가우스 흐림 땅 밝기 및 Walker 적분 기준치 */
 export const CITY_REF_LOCAL = 0.88;
-export const CITY_REF_WALKER = 1.75;
+export const CITY_REF_WALKER = 1.22;
 
 /**
  * 8 비트 PNG(인터레이스 없음)를 풀어 첫 채널만 남깁니다 — RN 에 캔버스가 없어 직접. 회색·RGB·팔레트·알파 모두 받음
@@ -160,7 +160,8 @@ function computeWalkerStats(m: NightLights, lat: number, lon: number): WalkerSta
       const d = Math.hypot(xk, yk);
       if (d < 10 || d > 300) continue;
       const area = kmLat * step * kmLat * step * cosLa;
-      const c = L * area * Math.pow(d, -2.5);
+      // 하층 대기 수평 소광(L_ext ≈ 45 km): 먼 도시(50~300 km)일수록 산란광이 대기 통과 중 지수 감쇠
+      const c = L * area * Math.pow(d, -2.5) * Math.exp(-d / 45);
       const b = Math.floor((((Math.atan2(xk, yk) * 180) / Math.PI + 360) % 360) / 10) % 36;
       az[b] += c;
       walker += c;
@@ -177,7 +178,7 @@ function computeWalkerStats(m: NightLights, lat: number, lon: number): WalkerSta
   const floor = Math.max(mean * 0.15, 1e-9);
   const azGain = new Float32Array(36);
   for (let i = 0; i < 36; i++) {
-    azGain[i] = Math.min(4, Math.max(0.2, (az[i] + floor) / (mean + floor)));
+    azGain[i] = Math.min(2.4, Math.max(0.2, (az[i] + floor) / (mean + floor)));
   }
 
   const local = blurredLightAt(m, lat, lon, kmLat, kmLon);

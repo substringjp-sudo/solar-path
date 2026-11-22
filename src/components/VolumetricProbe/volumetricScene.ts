@@ -1289,7 +1289,7 @@ export async function createVolumetricScene(
       '    #endif',
       '    float cTer = 0.0;',
       '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) cTer = 1.0; }',
-      '    float cG = min(4.0, pow(1.1 / (max(cSin, 0.0) + 0.1), 0.7));',
+      '    float cG = min(2.4, pow(1.1 / (max(cSin, 0.0) + 0.14), 0.65));',
       // 밤 불빛 지도: 방위 10° 칸 세기(평균 1)를 지평선에서 쓰고 위로 갈수록 고르게.
       '    if (cityAzOn > 0.5) {',
       '      float cA = mod(degrees(atan(dot(cRd, cityEast), dot(cRd, cityNorth))) + 360.0, 360.0) / 10.0 - 0.5;',
