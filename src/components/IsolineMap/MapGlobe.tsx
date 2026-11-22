@@ -957,11 +957,23 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     const cLatR = (-rotate[1]) * RAD;
     const sx = Math.cos(sLatR) * Math.sin(dLon);
     const sy = -(Math.cos(cLatR) * Math.sin(sLatR) - Math.sin(cLatR) * Math.cos(sLatR) * Math.cos(dLon));
+    const sz = Math.sin(cLatR) * Math.sin(sLatR) + Math.cos(cLatR) * Math.cos(sLatR) * Math.cos(dLon);
     const len = Math.hypot(sx, sy) || 1;
+    // 태양-시선 하프벡터 H = normalize(S + V), V = (0, 0, 1) -> 바다 Sun Glint 중심
+    const hx = sx;
+    const hy = sy;
+    const hz = sz + 1;
+    const hLen = Math.hypot(hx, hy, hz) || 1;
+    const glintCxPct = `${(50 + (hx / hLen) * 50).toFixed(1)}%`;
+    const glintCyPct = `${(50 + (hy / hLen) * 50).toFixed(1)}%`;
+    const glintOp = sz > -0.25 ? Math.max(0, Math.min(1, (sz + 0.25) / 1.15)) : 0;
     return {
       op,
       cxPct: `${(50 + (sx / len) * 16).toFixed(1)}%`,
       cyPct: `${(50 + (sy / len) * 16).toFixed(1)}%`,
+      glintCxPct,
+      glintCyPct,
+      glintOp,
     };
   }, [morph, RADIUS, rotate, subsolar]);
 
@@ -1000,9 +1012,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       flareR: Math.max(22, sun.sr * 4.6),
       rayTangential: Math.max(26, sun.sr * 6.5),
       rayNormal: Math.max(18, sun.sr * 4.0),
-      blueArc: makeArc(RADIUS + 3.2, 26),
-      amberArc: makeArc(RADIUS + 1.4, 20),
-      redArc: makeArc(RADIUS + 0.2, 14),
+      blueArc: makeArc(RADIUS + 1.6, 22),
+      amberArc: makeArc(RADIUS + 0.7, 17),
+      redArc: makeArc(RADIUS + 0.1, 12),
     };
   }, [morph, RADIUS, CX, CY, spaceBodies]);
 
@@ -1087,10 +1099,26 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       <View style={[styles.canvasWrapper, { width: W, height: H }]} {...panResponder.panHandlers}>
         <Svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
           <Defs>
-            <RadialGradient id="globeShadow" cx="30%" cy="30%" rx="70%" ry="70%">
-              <Stop offset="0%" stopColor={theme.dark ? '#1a273b' : '#cce0ff'} stopOpacity="1" />
-              <Stop offset="70%" stopColor={theme.dark ? '#0c121e' : '#6b92cc'} stopOpacity="1" />
-              <Stop offset="100%" stopColor={theme.dark ? '#03050a' : '#334c73'} stopOpacity="1" />
+            <RadialGradient id="globeShadow" cx={spaceAtmosphere?.cxPct ?? '35%'} cy={spaceAtmosphere?.cyPct ?? '35%'} rx="75%" ry="75%">
+              <Stop offset="0%" stopColor={theme.dark ? '#1B6CA8' : '#7cb6e8'} stopOpacity="1" />
+              <Stop offset="62%" stopColor={theme.dark ? '#0D3B66' : '#4a7eb5'} stopOpacity="1" />
+              <Stop offset="100%" stopColor={theme.dark ? '#040B18' : '#253f63'} stopOpacity="1" />
+            </RadialGradient>
+            <RadialGradient id="oceanGlint" cx={spaceAtmosphere?.glintCxPct ?? '45%'} cy={spaceAtmosphere?.glintCyPct ?? '45%'} r="38%">
+              <Stop offset="0%" stopColor="#FEF9C3" stopOpacity="0.30" />
+              <Stop offset="25%" stopColor="#BAE6FD" stopOpacity="0.18" />
+              <Stop offset="62%" stopColor="#38BDF8" stopOpacity="0.06" />
+              <Stop offset="100%" stopColor="#0284C7" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="oceanFresnel" cx="50%" cy="50%" r="50%">
+              <Stop offset="76%" stopColor="#38BDF8" stopOpacity="0" />
+              <Stop offset="93%" stopColor="#7DD3FC" stopOpacity="0.09" />
+              <Stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.18" />
+            </RadialGradient>
+            <RadialGradient id="earthLandGrad" cx={spaceAtmosphere?.cxPct ?? '35%'} cy={spaceAtmosphere?.cyPct ?? '35%'} rx="75%" ry="75%">
+              <Stop offset="0%" stopColor={theme.dark ? '#5E8861' : '#7ba675'} stopOpacity="0.92" />
+              <Stop offset="62%" stopColor={theme.dark ? '#3D5E4C' : '#597f5c'} stopOpacity="0.88" />
+              <Stop offset="100%" stopColor={theme.dark ? '#18232E' : '#334a45'} stopOpacity="0.85" />
             </RadialGradient>
             <RadialGradient id="sunMarkerGlow" cx="50%" cy="50%" rx="50%" ry="50%">
               <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
@@ -1137,15 +1165,18 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="60%" stopColor="#02040A" stopOpacity="0.08" />
               <Stop offset="100%" stopColor="#02040A" stopOpacity="0" />
             </RadialGradient>
-            <RadialGradient id="earthAtmosOuter" cx={spaceAtmosphere?.cxPct ?? '35%'} cy={spaceAtmosphere?.cyPct ?? '35%'} r="55%">
-              <Stop offset="86%" stopColor="#38BDF8" stopOpacity="0.68" />
-              <Stop offset="93%" stopColor="#60A5FA" stopOpacity="0.28" />
-              <Stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
+            <RadialGradient id="earthAtmosOuter" cx="50%" cy="50%" r="50%">
+              <Stop offset="96.6%" stopColor="#7DD3FC" stopOpacity="0.50" />
+              <Stop offset="97.2%" stopColor="#38BDF8" stopOpacity="0.32" />
+              <Stop offset="97.9%" stopColor="#3B82F6" stopOpacity="0.16" />
+              <Stop offset="98.6%" stopColor="#2563EB" stopOpacity="0.065" />
+              <Stop offset="99.3%" stopColor="#1D4ED8" stopOpacity="0.018" />
+              <Stop offset="100%" stopColor="#1E3A8A" stopOpacity="0" />
             </RadialGradient>
             <RadialGradient id="earthAtmosInner" cx="50%" cy="50%" r="50%">
-              <Stop offset="84%" stopColor="#38BDF8" stopOpacity="0" />
-              <Stop offset="95%" stopColor="#7DD3FC" stopOpacity="0.22" />
-              <Stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.42" />
+              <Stop offset="94%" stopColor="#38BDF8" stopOpacity="0" />
+              <Stop offset="98%" stopColor="#7DD3FC" stopOpacity="0.14" />
+              <Stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.30" />
             </RadialGradient>
             <RadialGradient id="orbitalSunriseFlare" cx="50%" cy="50%" r="50%">
               <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.98" />
@@ -1228,19 +1259,50 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           })()}
 
           {spaceAtmosphere && morph >= 1 && (
-            <Circle cx={CX} cy={CY} r={RADIUS * 1.095} fill="url(#earthAtmosOuter)" opacity={spaceAtmosphere.op} pointerEvents="none" />
+            <Circle cx={CX} cy={CY} r={RADIUS * 1.034} fill="url(#earthAtmosOuter)" opacity={spaceAtmosphere.op} pointerEvents="none" />
           )}
           {morph >= 1
             ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
             : <Path d={spherePath} fill="url(#globeShadow)" />}
+          {spaceAtmosphere && morph >= 1 && spaceAtmosphere.glintOp > 0.01 && (
+            <Circle
+              cx={CX}
+              cy={CY}
+              r={RADIUS}
+              fill="url(#oceanGlint)"
+              opacity={spaceAtmosphere.op * spaceAtmosphere.glintOp}
+              pointerEvents="none"
+            />
+          )}
+          {spaceAtmosphere && morph >= 1 && (
+            <Circle
+              cx={CX}
+              cy={CY}
+              r={RADIUS}
+              fill="url(#oceanFresnel)"
+              opacity={spaceAtmosphere.op * 0.75}
+              pointerEvents="none"
+            />
+          )}
 
           {landPath && (
-            <Path
-              d={landPath}
-              fill={theme.dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.25)'}
-              stroke={theme.dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)'}
-              strokeWidth={0.5}
-            />
+            <>
+              {morph >= 0.7 && (
+                <Path
+                  d={landPath}
+                  fill="none"
+                  stroke={theme.dark ? 'rgba(45, 212, 191, 0.18)' : 'rgba(20, 184, 166, 0.14)'}
+                  strokeWidth={4.2}
+                  strokeLinejoin="round"
+                />
+              )}
+              <Path
+                d={landPath}
+                fill="url(#earthLandGrad)"
+                stroke={theme.dark ? 'rgba(167, 224, 198, 0.36)' : 'rgba(30, 80, 70, 0.25)'}
+                strokeWidth={0.7}
+              />
+            </>
           )}
 
           {graticulePath && (
@@ -1452,16 +1514,16 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           )}
           {morph > 0.05 && (
             morph >= 1
-              ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
+              ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(148, 210, 255, 0.06)' : 'rgba(0,0,0,0.10)'} strokeWidth={0.75} />
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
           )}
           {orbitalSunrise && (
             <G pointerEvents="none">
               {orbitalSunrise.arcStrength > 0.01 && (
                 <G opacity={orbitalSunrise.arcStrength}>
-                  <Path d={orbitalSunrise.blueArc} fill="none" stroke="#38BDF8" strokeWidth={4.5} strokeLinecap="round" opacity={0.52} />
-                  <Path d={orbitalSunrise.amberArc} fill="none" stroke="#FBBF24" strokeWidth={3.0} strokeLinecap="round" opacity={0.78} />
-                  <Path d={orbitalSunrise.redArc} fill="none" stroke="#F97316" strokeWidth={2.0} strokeLinecap="round" opacity={0.92} />
+                  <Path d={orbitalSunrise.blueArc} fill="none" stroke="#38BDF8" strokeWidth={2.8} strokeLinecap="round" opacity={0.48} />
+                  <Path d={orbitalSunrise.amberArc} fill="none" stroke="#FBBF24" strokeWidth={1.8} strokeLinecap="round" opacity={0.75} />
+                  <Path d={orbitalSunrise.redArc} fill="none" stroke="#F97316" strokeWidth={1.2} strokeLinecap="round" opacity={0.90} />
                 </G>
               )}
               {orbitalSunrise.flareStrength > 0.02 && (
