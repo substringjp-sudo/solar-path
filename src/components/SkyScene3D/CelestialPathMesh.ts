@@ -62,7 +62,7 @@ void main() {
   vAltDeg = aAltDeg;
   vAcross = aSide;
 
-  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
 }
 `;
 

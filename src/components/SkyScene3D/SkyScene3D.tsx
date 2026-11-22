@@ -1968,11 +1968,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     });
     cb(target);
   };
-  // 눈 높이 — 바뀌면 다시 그립니다(렌더 루프가 읽음).
+  // 눈 높이 — 바뀌면 다시 그립니다(렌더 루프가 읽음). 고도 상승에 따른 하층 에어로졸/대기 감쇠 변화도 다시 반영합니다.
   useEffect(() => {
     const h = eyeHeightM !== undefined && Number.isFinite(eyeHeightM) ? Math.max(0.5, Math.min(2000, eyeHeightM)) : undefined;
     if (eyeHeightRef.current === h) return;
     eyeHeightRef.current = h;
+    cachedAtmosphereMsRef.current = 0;
+    sceneDirtyRef.current = true;
     lastViewMoveMsRef.current = Date.now();
     requestRender(6);
   }, [eyeHeightM, requestRender]);
@@ -2930,6 +2932,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         camera.position.set(0, cameraY, 0);
         if (starFieldRef.current) starFieldRef.current.points.position.set(0, cameraY, 0);
         if (milkyWayRef.current) milkyWayRef.current.mesh.position.set(0, cameraY, 0);
+        if (celestialPathsRef.current) celestialPathsRef.current.containerGroup.position.set(0, cameraY, 0);
+        if (compassGroupRef.current) compassGroupRef.current.position.set(0, cameraY, 0);
         const effectiveElev = pose.elevDeg;
         const effectiveAz = pose.azDeg;
         if (Math.abs(camera.fov - pose.fovDeg) > 0.05) {
@@ -3544,6 +3548,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const py = ((-projTempVec.y + 1) * vh) / 2;
               return { px, py, visible };
             };
+            // 천구 위 천체(태양·달·은하수·행성)는 관측자 눈(camera.position) 중심의 반구에 놓이므로 camera.position 을 더해 투영합니다.
+            const projEye = (v3: THREE.Vector3) => {
+              projTempVec.copy(v3).add(camera.position);
+              return proj(projTempVec);
+            };
 
             const azOf = (v: THREE.Vector3) => ((Math.atan2(v.x, -v.z) * 180) / Math.PI + 360) % 360;
             // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
@@ -3555,7 +3564,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const sunHoriz = terrainHorizonDegAtAz(terrainData, azOf(sp));
               const sunAppAlt = getApparentAltitude(sunAltRef.current);
               if (isSunVisibleAboveHorizon(sunAppAlt, sunDiscRadiusDegRef.current, sunHoriz, sunAppAlt > -0.8)) {
-                const p = proj(sp);
+                const p = projEye(sp);
                 if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
               }
             }
@@ -3574,7 +3583,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               }
               const illum = SunCalc.getMoonIllumination(frameDate).fraction;
               if (moonAltDeg + 0.26 > Math.max(0, moonHoriz) && moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
-                const p = proj(mp);
+                const p = projEye(mp);
                 if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
               }
             }
@@ -3585,7 +3594,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
               const mwHoriz = terrainHorizonDegAtAz(terrainData, azOf(mwPos));
               if (mwAltDeg > Math.max(0.5, mwHoriz) && milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
-                const p = proj(mwPos);
+                const p = projEye(mwPos);
                 if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
               }
             }
@@ -3603,7 +3612,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
                 const pHoriz = terrainHorizonDegAtAz(terrainData, azOf(pWorld));
                 if (pAltDeg > Math.max(0.5, pHoriz) && planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
-                  const p = proj(pWorld);
+                  const p = projEye(pWorld);
                   if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
                 }
               });
@@ -3703,13 +3712,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (sampled) {
       cachedAtmosphereRef.current = sampled.atmosphere;
     } else if (!cachedAtmosphereRef.current || nowMs - cachedAtmosphereMsRef.current > 120_000) {
+      const eyeOffsetM = Math.max(0, (eyeHeightRef.current ?? 1.6) - 1.6);
       cachedAtmosphereRef.current = makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
         aod550: observerWeather()?.aod550,
         dustUgM3: observerWeather()?.dust,
         pm10: observerWeather()?.pm10,
-        observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
+        observerElevM: (simRef.current?.terrain?.observerElevation ?? 0) + eyeOffsetM,
         latitude: lat,
         dayOfYear: dayOfYearOf(targetDate),
       });
@@ -4036,7 +4046,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const sunScale = sunDisplayScale(fovRef.current, sunPlaceAlt);
       const ow = observerWeather();
       const sunOptics = (ow && aerosolOpticsFromObs(ow)) ?? { aod: 0.12, alpha: 1.3, g: 0.64, omega: 0.95 };
-      const sunVis = sunVisibility(sunPlaceAlt, simRef.current?.terrain?.observerElevation ?? 0, sunOptics);
+      const eyeOffsetM = Math.max(0, (eyeHeightRef.current ?? 1.6) - 1.6);
+      const sunVis = sunVisibility(sunPlaceAlt, (simRef.current?.terrain?.observerElevation ?? 0) + eyeOffsetM, sunOptics);
       const cloudOcc = (currentLayers.clouds && lastCloudOpticsRef.current)
         ? lastCloudOpticsRef.current.sunTransmittance
         : 1;

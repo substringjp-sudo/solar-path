@@ -93,7 +93,7 @@ void main() {
   float size = (1.0 + 2.0 * pow(clamp(vis, 0.0, 1.0), 0.60)) * (1.0 + aKind * 0.15);
   gl_PointSize = size * uPixelRatio;
 
-  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
 }
 `;
 

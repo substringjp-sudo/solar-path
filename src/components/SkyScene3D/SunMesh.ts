@@ -26,7 +26,9 @@ varying vec2 vUv;
 varying vec4 vClip;
 void main() {
   vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  wp.xyz += cameraPosition;
+  gl_Position = projectionMatrix * viewMatrix * wp;
   vClip = gl_Position;
 }
 `;
@@ -222,8 +224,8 @@ export function updateSun(
   u.uGlare.value = vis ? vis.glareGain : 0;
   u.uBlur.value = vis ? vis.edgeBlur : 0;
 
-  // 겉보기 위 끝이 해수면 수평선(높은 산 위에서도 약 −1°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
-  handle.mesh.visible = placeAltDeg > -1.5;
+  // 겉보기 위 끝이 해수면 수평선(높은 산·전망대 수평선 낙차까지 감안해 약 −4.5°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
+  handle.mesh.visible = placeAltDeg > -4.5;
 }
 
 /**

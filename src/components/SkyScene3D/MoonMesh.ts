@@ -19,7 +19,9 @@ const VERT = `
 varying vec2 vUv;
 void main() {
   vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  wp.xyz += cameraPosition;
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
 
@@ -261,8 +263,8 @@ export function updateMoonPosition(
   // 카메라 화각과 1:1 비교 가능한 고정 물리 각반지름(0.259°)
   group.scale.setScalar(1);
 
-  // 달 원반(-1.5° 이하) 완전히 지평선 아래로 내려가면 숨김
-  group.visible = moonAltDeg > -1.5;
+  // 달 원반(-4.5° 이하, 고도 상승 시 수평선 낙차 감안) 완전히 지평선 아래로 내려가면 숨김
+  group.visible = moonAltDeg > -4.5;
 
   const localLight = computeMoonLocalLightDir(date, lat, lng, {
     azimuth: moonAzDeg,

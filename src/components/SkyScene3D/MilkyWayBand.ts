@@ -50,7 +50,7 @@ void main() {
   vBright = aBright;
   vWidthDeg = aWidthDeg;
   vAltDeg = degrees(asin(clamp(h.y, -1.0, 1.0)));
-  gl_Position = projectionMatrix * viewMatrix * vec4(h * ${BAND_RADIUS}.0, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(h * ${BAND_RADIUS}.0, 1.0);
 }
 `;
 
