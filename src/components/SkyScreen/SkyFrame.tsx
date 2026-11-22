@@ -272,7 +272,7 @@ const readoutShadow = {
 } as const;
 
 /** 지금 시선의 방위 · 앙각(과 눈 높이)을 투명 글자 한 줄로. 읽을 만큼 바뀔 때만 이 줄만 다시 그립니다(`SandboxDials.ViewReadout` 과 같은 읽기). */
-export const LiveReadout: React.FC<LiveReadoutProps> = ({ language, getView, eyeHeightM, intervalMs = 200 }) => {
+export const LiveReadout: React.FC<LiveReadoutProps> = React.memo(({ language, getView, eyeHeightM, intervalMs = 330 }) => {
   const get = React.useRef(getView);
   get.current = getView;
   const [v, setV] = React.useState<ViewAzEl | null>(() => get.current());
@@ -284,4 +284,4 @@ export const LiveReadout: React.FC<LiveReadoutProps> = ({ language, getView, eye
   }, [intervalMs]);
   const eye = eyeHeightM == null ? '' : ` · ${L3(language, '눈', 'EYE', '目')} ${fmtEye(eyeHeightM)}`;
   return <Text style={[styles.readoutText, readoutShadow]}>{`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${eye}`}</Text>;
-};
+});

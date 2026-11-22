@@ -25,11 +25,13 @@ interface Props {
 
 export const CHIP_MIN_H = 28;
 
-export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = false, expanded, mono = false, flat = false, accessibilityLabel, style, testID }) => {
+export const GlassChip: React.FC<Props> = React.memo(({ label, onPress, icon, active = false, expanded, mono = false, flat = false, accessibilityLabel, style, testID }) => {
   const content = (
     <>
       {icon ? <View style={styles.icon}>{icon}</View> : null}
-      <Text numberOfLines={1} style={[styles.text, mono && styles.mono, { color: active ? ACTIVE_CHIP_TEXT : TEXT }, glassTextShadow]}>{label}</Text>
+      {label ? (
+        <Text numberOfLines={1} style={[styles.text, mono && styles.mono, { color: active ? ACTIVE_CHIP_TEXT : TEXT }, glassTextShadow]}>{label}</Text>
+      ) : null}
     </>
   );
   const body = flat ? (
@@ -52,7 +54,7 @@ export const GlassChip: React.FC<Props> = ({ label, onPress, icon, active = fals
       {body}
     </Pressable>
   );
-};
+});
 
 const styles = StyleSheet.create({
   pressable: { flexShrink: 1 },

@@ -790,15 +790,24 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [expertMode, sandboxTlPreviewing, stopSandboxTlPreview]);
 
   const sandboxAstroSummary = useMemo(() => {
+    if (!expertMode) {
+      return planAstroShotSummary({
+        settings: sandboxAstroSettings,
+        caps: SANDBOX_ASTRO_CAPS,
+        latitudeDeg: latitude,
+        azDeg: 180,
+        elDeg: 30,
+      });
+    }
     const view = sceneRef.current?.getRenderState?.()?.view;
     return planAstroShotSummary({
       settings: sandboxAstroSettings,
       caps: SANDBOX_ASTRO_CAPS,
       latitudeDeg: latitude,
-      azDeg: view?.az ?? sunAzimuth,
+      azDeg: view?.az ?? Math.round(sunAzimuth),
       elDeg: view?.el ?? 30,
     });
-  }, [sandboxAstroSettings, latitude, sunAzimuth]);
+  }, [expertMode, sandboxAstroSettings, latitude, sunAzimuth]);
 
   const longExpReqRef = useRef<number>(0);
   const runSandboxLongExp = useCallback(async () => {
@@ -841,7 +850,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const isGestureBlocked = useCelestialStore(s => s.isGestureBlocked);
   const [sandboxViewSig, setSandboxViewSig] = useState<string>('');
   useEffect(() => {
-    if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro') return undefined;
+    if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro' || isSliding || isGestureBlocked) return undefined;
     const poll = () => {
       const v = sceneRef.current?.getRenderState?.()?.view;
       if (!v) return;
@@ -849,9 +858,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setSandboxViewSig(prev => (prev === sig ? prev : sig));
     };
     poll();
-    const id = setInterval(poll, 250);
+    const id = setInterval(poll, 350);
     return () => clearInterval(id);
-  }, [expertMode, isCameraOverlayActive, sandboxShootMode]);
+  }, [expertMode, isCameraOverlayActive, sandboxShootMode, isSliding, isGestureBlocked]);
 
   // 천체 탭 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 장노출 합성
   useEffect(() => {
@@ -873,7 +882,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return () => clearTimeout(t);
   }, [expertMode, isCameraOverlayActive, sandboxShootMode, isSliding, isGestureBlocked, sandboxViewSig, runSandboxLongExp]);
 
-  const sandboxExpoAdvice = useMemo(() => adviseExposure(sunAltitude), [sunAltitude]);
+  const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
     const win = Dimensions.get('window');
     const vFov = Math.max(10, Math.min(85, 65 / Math.max(1, teleX)));
@@ -974,10 +983,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
   const timelineValid = isTimelineUsable(timeline, latitude, longitude, currentTime);
+  const lastAstroAnalysisRef = useRef<AstroWindowAnalysis | null>(null);
   const sandboxAstroAnalysis: AstroWindowAnalysis | null = useMemo(() => {
     if (!expertMode) return null;
     const isTlAstro = sandboxShootMode === 'timelapse' && (sandboxTlPlan?.kind ?? 'plain') !== 'plain';
     if (sandboxShootMode !== 'astro' && !isTlAstro) return null;
+    if (isSliding) return lastAstroAnalysisRef.current;
     const view = sceneRef.current?.getRenderState?.()?.view;
     const win = Dimensions.get('window');
     const vFov = view?.fov ?? Math.max(10, Math.min(85, 65 / Math.max(1, teleX)));
@@ -985,7 +996,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const durSec = sandboxShootMode === 'astro'
       ? sandboxAstroSettings.durationSec
       : (sandboxTlPlan?.totalMin ?? 60) * 60;
-    return analyzeAstroWindow({
+    const next = analyzeAstroWindow({
       timeline: timelineValid ? timeline : null,
       view: {
         azDeg: view?.az ?? sunAzimuth,
@@ -997,7 +1008,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       exposureSec: durSec,
       lookaheadMin: Math.max(30, Math.round(durSec / 60)),
     });
-  }, [expertMode, sandboxShootMode, sandboxTlPlan, sandboxAstroSettings.durationSec, timelineValid, timeline, teleX, sunAzimuth, currentTime]);
+    lastAstroAnalysisRef.current = next;
+    return next;
+  }, [expertMode, isSliding, sandboxShootMode, sandboxTlPlan, sandboxAstroSettings.durationSec, timelineValid, timeline, teleX, sunAzimuth, currentTime]);
   // 촬영하기(카메라)도 같은 하루치 하늘을 쓰도록 스토어에 내놓습니다(저장하지 않는 칸).
   const setSkyTimeline = useCelestialStore(s => s.setSkyTimeline);
   useEffect(() => { setSkyTimeline(timelineValid ? timeline : null); }, [timelineValid, timeline, setSkyTimeline]);
@@ -1693,7 +1706,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           }}
           getView={frameGetView}
           readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el } : null; }} eyeHeightM={expertMode ? eyeH : undefined} />}
-          simBody={(
+          simBody={sheetOpen ? (
             <>
               {cloudCaption ? (
                 <View style={{ alignItems: 'flex-start' }}>
@@ -1702,7 +1715,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               ) : null}
               {sheetContent}
             </>
-          )}
+          ) : null}
           sandbox={frameSandbox}
           collapseNonce={collapseNonce}
           onDockHeight={setDockInset}

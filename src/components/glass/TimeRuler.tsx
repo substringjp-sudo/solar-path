@@ -2,11 +2,13 @@
  * TimeRuler.tsx — 시간 자(목업 "4차 b"). 상자 없이 눈금만, 가운데 파란 핀은 고정이고 눈금이 손가락을 따라 움직입니다.
  * 계산은 `utils/timeRuler.ts`(판정 verify-time-ruler.js). 왼쪽 날짜 단추 · 가운데 시각 숫자 · 오른쪽 "지금" 단추는 유리 알약/막 위 큰 글자(글자 대비는 glassTokens 판정).
  *
- * 시각은 바깥이 쥡니다(`timeMs`). 끄는 동안 `onChange` 로 계속 알리고, 놓을 때 `onCommit` 으로 한 번 더 알립니다(무거운 계산은 commit 에서).
- * 스크린리더: adjustable — 증가 · 감소로 15분씩.
+ * 성능 최적화(2026-11-22):
+ * - 터치 순간 JS 스레드 레이아웃 재계산을 유발하던 `height: trackH` (`useNativeDriver: false`) 애니메이션을 제거했습니다.
+ *   트랙 컨테이너 높이를 고정하고 눈금 스케일/투명도 전환으로 반응해 터치 시작 시 프레임 드랍이 발생하지 않습니다.
+ * - 눈금(`rulerTicks`)과 노을 점수 띠(`rulerBand`) 계산을 `useMemo`로 감싸 불필요한 배열 재할당을 줄였습니다.
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Sun } from 'lucide-react-native';
 import { color as DARK, mono } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
@@ -45,8 +47,7 @@ interface Props {
   onToggleTrackSun?: () => void;
 }
 
-const RULER_COMPACT_H = 22;
-const RULER_H = 56;
+const RULER_TRACK_H = 38;
 const DAY_STEP_PX = 20;
 const DAY_ROW_H = 16;
 const DAY_MS = 24 * 3_600_000;
@@ -54,12 +55,11 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
+export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const [rulerActive, setRulerActive] = useState(false);
   const [dayDragY, setDayDragY] = useState(0);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
-  const rulerAnim = useRef(new Animated.Value(0)).current;
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
@@ -67,19 +67,20 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart });
   propsRef.current = { timeMs, onChange, onCommit, onDragStart };
 
+  useEffect(() => () => {
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+  }, []);
+
   const setRulerOpen = useCallback((open: boolean) => {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
     if (open) {
       setRulerActive(true);
-      Animated.timing(rulerAnim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
     } else {
       collapseTimer.current = setTimeout(() => {
-        Animated.timing(rulerAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start(({ finished }) => {
-          if (finished) setRulerActive(false);
-        });
-      }, 280);
+        setRulerActive(false);
+      }, 240);
     }
-  }, [rulerAnim]);
+  }, []);
 
   const pan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -97,7 +98,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
         lastRef.current = ms;
         setScrubMs(ms);
         const now = Date.now();
-        if (now - lastEmitTsRef.current >= 32) {
+        if (now - lastEmitTsRef.current >= 40) {
           lastEmitTsRef.current = now;
           propsRef.current.onChange(ms);
         }
@@ -136,11 +137,13 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   }), []);
 
   const displayMs = scrubMs ?? timeMs;
-  const ticks = rulerTicks(displayMs, tz, width, PX_PER_HOUR);
-  const mx = sunsetMs == null ? null : markerX(displayMs, sunsetMs, width, PX_PER_HOUR);
+  // 눈금은 1분(60,000ms) 단위로만 위치가 유의미하게 바뀌므로 1분 버킷으로 메모이제이션
+  const minuteBucketMs = Math.round(displayMs / 60_000) * 60_000;
+  const ticks = useMemo(() => rulerTicks(minuteBucketMs, tz, width, PX_PER_HOUR), [minuteBucketMs, tz, width]);
+  const mx = useMemo(() => (sunsetMs == null ? null : markerX(minuteBucketMs, sunsetMs, width, PX_PER_HOUR)), [minuteBucketMs, sunsetMs, width]);
+  const band = useMemo(() => (scoreSamples ? rulerBand(scoreSamples, minuteBucketMs, width, PX_PER_HOUR) : []), [scoreSamples, minuteBucketMs, width]);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
   const text = timeText(displayMs, tz);
-  const band = scoreSamples ? rulerBand(scoreSamples, displayMs, width, PX_PER_HOUR) : [];
 
   // 세로 날짜 휠: 드래그 거리에 맞춰 위아래 날짜가 부드럽게 오르내림
   const liveDays = daySwipeSteps(dayDragY);
@@ -150,8 +153,8 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
   const currDayText = liveDays === 0 && dateText ? dateText : dateLabel(previewCenterMs, nowMs, tz, language);
   const nextDayText = dateLabel(previewCenterMs + DAY_MS, nowMs, tz, language);
 
-  const trackH = rulerAnim.interpolate({ inputRange: [0, 1], outputRange: [RULER_COMPACT_H, RULER_H] });
-  const tickScaleY = rulerActive ? 1 : 0.45;
+  const tickScaleY = rulerActive ? 1 : 0.6;
+  const tickBottom = rulerActive ? 14 : 6;
 
   return (
     <View style={styles.wrap} onLayout={(e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width) || RULER_WIDTH)}>
@@ -201,7 +204,7 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
         </View>
       </View>
 
-      <Animated.View
+      <View
         testID="ruler-track"
         {...pan.panHandlers}
         accessible
@@ -210,26 +213,26 @@ export const TimeRuler: React.FC<Props> = ({ timeMs, tz, nowMs, language, onChan
         accessibilityValue={{ text }}
         accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
         onAccessibilityAction={(e) => step(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
-        style={[styles.track, { height: trackH }]}
+        style={styles.track}
       >
         {band.map((b, i) => (
-          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { bottom: rulerActive ? 38 : 14, left: b.x0, width: b.x1 - b.x0, opacity: b.alpha * rulerFade((b.x0 + b.x1) / 2, width).opacity }]} />
+          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { bottom: rulerActive ? 31 : 21, left: b.x0, width: b.x1 - b.x0, opacity: b.alpha * rulerFade((b.x0 + b.x1) / 2, width).opacity }]} />
         ))}
         {ticks.map(t => {
           const f = rulerFade(t.x, width);
-          return <View key={t.ms} pointerEvents="none" style={[styles.tick, { bottom: rulerActive ? 18 : 4, left: t.x - 1, height: TICK_H[t.kind] * f.scale * tickScaleY, backgroundColor: `rgba(241,245,249,${TICK_A[t.kind] * f.opacity * (rulerActive ? 1 : 0.65)})` }]} />;
+          return <View key={t.ms} pointerEvents="none" style={[styles.tick, { bottom: tickBottom, left: t.x - 1, height: TICK_H[t.kind] * f.scale * tickScaleY, backgroundColor: `rgba(241,245,249,${TICK_A[t.kind] * f.opacity * (rulerActive ? 1 : 0.72)})` }]} />;
         })}
         {rulerActive && ticks.filter(t => t.label).map(t => {
           const f = rulerFade(t.x, width);
           return <Text key={`l${t.ms}`} pointerEvents="none" style={[styles.tickLabel, { left: t.x - 20, opacity: f.opacity, transform: [{ scale: f.scale }] }, glassTextShadow]}>{t.label}</Text>;
         })}
-        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { bottom: rulerActive ? 34 : 11, left: mx - 4, opacity: rulerFade(mx, width).opacity }]} /> : null}
+        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { bottom: rulerActive ? 27 : 18, left: mx - 4, opacity: rulerFade(mx, width).opacity }]} /> : null}
         {rulerActive && mx !== null && sunsetLabel ? <Text pointerEvents="none" style={[styles.sunsetLabel, { left: mx + 8 }, glassTextShadow]}>{sunsetLabel}</Text> : null}
-        <View pointerEvents="none" style={[styles.pin, { bottom: rulerActive ? 16 : 3, left: width / 2 - 1.5 }]} />
-      </Animated.View>
+        <View pointerEvents="none" style={[styles.pin, { bottom: rulerActive ? 12 : 4, left: width / 2 - 1.5 }]} />
+      </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   wrap: { alignSelf: 'stretch' },
@@ -246,7 +249,7 @@ const styles = StyleSheet.create({
   digits: { fontFamily: mono, fontSize: 16, fontWeight: '500', color: TEXT, letterSpacing: 0.4 },
   nowWrap: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 },
   sunBtn: { width: 28, minHeight: 28, borderRadius: 14, paddingHorizontal: 0 },
-  track: { overflow: 'hidden' },
+  track: { height: RULER_TRACK_H, overflow: 'hidden' },
   tick: { position: 'absolute', width: 1.5, borderRadius: 1 },
   tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 9.5, fontWeight: '400', color: TEXT },
   band: { position: 'absolute', height: 3, borderRadius: 2, backgroundColor: DARK.glow },

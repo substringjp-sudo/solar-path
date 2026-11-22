@@ -15,7 +15,7 @@
  * 구름 모양만은 고른 날이 아니라 **01 하늘이 지금 그린 그림**입니다(장면 핸들). 그 그림의 시각을 줄 위에 적습니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { InteractionManager, Platform, View, Text, ScrollView, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3, type Language } from '../../utils/i18n';
 import { radius, space, type, TOUCH } from '../../theme/tokens';
@@ -85,7 +85,16 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   const adminName = useAdministrativeArea(lat, lon);
   const place = placeLabel(lat, lon, savedLocations, adminName);
 
-  const { days, forecast, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM } = useForecastDays({ fetch: isActive, compute: isActive });
+  // 네이티브 탭 전환 시 화면 슬라이드 애니메이션이 먼저 부드럽게 재생되도록 무거운 예보·지평선·과제 연산을 전환 직후로 지연합니다.
+  const [computeReady, setComputeReady] = useState(Platform.OS === 'web' ? isActive : false);
+  useEffect(() => {
+    if (Platform.OS === 'web') { setComputeReady(isActive); return undefined; }
+    if (!isActive) { setComputeReady(false); return undefined; }
+    const task = InteractionManager.runAfterInteractions(() => setComputeReady(true));
+    return () => task.cancel();
+  }, [isActive]);
+
+  const { days, forecast, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM } = useForecastDays({ fetch: isActive, compute: computeReady });
 
   // ── 고른 날 ─────────────────────────────────────────────────────────────
   const entryNonce = entry?.nonce ?? 0;
@@ -144,10 +153,10 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   // 01 하늘이 그린 장면(땅 프로필 · 구름 그림). 이 페이지가 열릴 때마다, 새 길로 들어올 때마다 다시 읽습니다.
   const [scene, setScene] = useState<{ horizon: HorizonProfile | null; st: SceneState | null }>({ horizon: null, st: null });
   useEffect(() => {
-    if (!isActive) return;
+    if (!computeReady) return;
     const h = getPrimarySky();
     setScene({ horizon: h?.getHorizonProfile?.() ?? null, st: h?.getRenderState?.()?.scene ?? null });
-  }, [isActive, entryNonce]);
+  }, [computeReady, entryNonce]);
 
   // 별 보기가 쓰는 밤 불빛 지도(받아 두었으면 바로, 아니면 이 페이지가 열릴 때 한 번)
   const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());

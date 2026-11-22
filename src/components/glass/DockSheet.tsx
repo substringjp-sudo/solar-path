@@ -4,9 +4,14 @@
  * 맨 아래 고정부(`children`: 칩 · 시간 자 · 셔터 · 모드 줄) 위에 펼친 영역(`expanded`)을 얹습니다.
  * - 닫혀 있을 때도 `fullExtra` 기준으로 내용 실제 높이를 미리 재 두어 손가락 드래그가 막히지 않고 1:1 로 따라옵니다.
  * - 배경 딤 막은 `anim` 값에 연동해 화면 전체를 부드럽게 덮어 잘림/깜박임 없이 어두워집니다.
+ * - 성능 최적화(2026-11-22):
+ *   · 네이티브(Android/iOS)에서는 매 프레임 Yoga 레이아웃을 다시 계산하던 `height` 애니메이션(`useNativeDriver: false`) 대신,
+ *     고정부(`dock-fixed`)를 아래에 고정하고 펼침 시트(`dock-expanded`)와 손잡이를 `transform: [{ translateY }]` + `opacity`(`useNativeDriver: true`)로
+ *     UI 스레드에서 60fps로 구동합니다.
+ *   · 웹 하네스(`Platform.OS === 'web'`)에서는 기존 DOM `getBoundingClientRect().height` 판정 호환을 위해 `height` 애니메이션을 유지합니다.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Animated, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { dockExtraHeight, dragStage, tapNext, type DockStage } from '../../utils/dockStages';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
@@ -39,6 +44,7 @@ interface Props {
 
 /** 손잡이 줄 높이(px). */
 const HANDLE_ROW_H = 28;
+const USE_NATIVE_SHEET = Platform.OS !== 'web';
 
 const HANDLE_LABELS: Record<DockStage, [string, string, string]> = {
   min: ['펼치기', 'Expand', '広げる'],
@@ -101,7 +107,7 @@ export const DockSheet: React.FC<Props> = ({
       tension: 260,
       friction: 28,
       overshootClamping: true,
-      useNativeDriver: false,
+      useNativeDriver: USE_NATIVE_SHEET,
     }).start();
   }, [extra, anim]);
 
@@ -116,7 +122,7 @@ export const DockSheet: React.FC<Props> = ({
       tension: 260,
       friction: 28,
       overshootClamping: true,
-      useNativeDriver: false,
+      useNativeDriver: USE_NATIVE_SHEET,
     }).start();
   };
 
@@ -175,6 +181,18 @@ export const DockSheet: React.FC<Props> = ({
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
+  // 네이티브 전용: 높이 대신 Y축 이동(translateY)으로 UI 스레드에서 60fps 구동
+  const sheetSpan = Math.max(1, maxDrag);
+  const sheetTranslateY = anim.interpolate({
+    inputRange: [0, sheetSpan],
+    outputRange: [sheetSpan, 0],
+    extrapolate: 'clamp',
+  });
+  const handleTranslateY = anim.interpolate({
+    inputRange: [0, sheetSpan],
+    outputRange: [0, -sheetSpan],
+    extrapolate: 'clamp',
+  });
 
   const [ko, en, ja] = HANDLE_LABELS[stage];
   const onHandlePress = () => {
@@ -194,36 +212,84 @@ export const DockSheet: React.FC<Props> = ({
       <View testID="dock" pointerEvents="box-none" style={styles.dock} {...(hideHandle ? {} : pan.panHandlers)}>
         <Scrim edge="bottom" height={fixedH + 72} />
         {!hideHandle && (
-          <>
-            <View {...handlePan.panHandlers}>
-              <Pressable
-                testID="dock-handle"
-                accessibilityRole="button"
-                accessibilityLabel={L3(language, ko, en, ja)}
-                aria-expanded={stage !== 'min'}
-                onPress={onHandlePress}
-                hitSlop={{ top: 8, bottom: 8 }}
-                style={styles.handleHit}
+          USE_NATIVE_SHEET ? (
+            <>
+              <Animated.View
+                pointerEvents="box-none"
+                style={[
+                  styles.nativeHandleFloating,
+                  { bottom: fixedH, transform: [{ translateY: handleTranslateY }] },
+                ]}
+                {...handlePan.panHandlers}
               >
-                <View style={styles.handle} />
-              </Pressable>
-            </View>
-            <Animated.View
-              testID="dock-expanded"
-              style={[styles.expanded, { height: anim, opacity: contentOpacity }]}
-              pointerEvents={stage === 'min' ? 'none' : 'auto'}
-            >
+                <Pressable
+                  testID="dock-handle"
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, ko, en, ja)}
+                  aria-expanded={stage !== 'min'}
+                  onPress={onHandlePress}
+                  hitSlop={{ top: 8, bottom: 8 }}
+                  style={styles.handleHit}
+                >
+                  <View style={styles.handle} />
+                </Pressable>
+              </Animated.View>
               <View
-                style={[styles.expandedMeasure, { maxHeight: fullExtra > 0 ? fullExtra : undefined }]}
-                onLayout={(e: LayoutChangeEvent) => {
-                  const h = Math.ceil(e.nativeEvent.layout.height);
-                  if (h > 0 && Math.abs(h - contentH) > 1) setContentH(h);
-                }}
+                pointerEvents="box-none"
+                style={[styles.nativeClip, { bottom: fixedH, height: fullExtra > 0 ? fullExtra : 0 }]}
               >
-                {typeof expanded === 'function' ? expanded(panelMeasureMaxH) : expanded}
+                <Animated.View
+                  testID="dock-expanded"
+                  pointerEvents={stage === 'min' ? 'none' : 'auto'}
+                  style={[
+                    styles.nativeExpandedSheet,
+                    {
+                      maxHeight: fullExtra > 0 ? fullExtra : undefined,
+                      opacity: contentOpacity,
+                      transform: [{ translateY: sheetTranslateY }],
+                    },
+                  ]}
+                  onLayout={(e: LayoutChangeEvent) => {
+                    const h = Math.ceil(e.nativeEvent.layout.height);
+                    if (h > 0 && Math.abs(h - contentH) > 1) setContentH(h);
+                  }}
+                >
+                  {typeof expanded === 'function' ? expanded(panelMeasureMaxH) : expanded}
+                </Animated.View>
               </View>
-            </Animated.View>
-          </>
+            </>
+          ) : (
+            <>
+              <View {...handlePan.panHandlers}>
+                <Pressable
+                  testID="dock-handle"
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, ko, en, ja)}
+                  aria-expanded={stage !== 'min'}
+                  onPress={onHandlePress}
+                  hitSlop={{ top: 8, bottom: 8 }}
+                  style={styles.handleHit}
+                >
+                  <View style={styles.handle} />
+                </Pressable>
+              </View>
+              <Animated.View
+                testID="dock-expanded"
+                style={[styles.expanded, { height: anim, opacity: contentOpacity }]}
+                pointerEvents={stage === 'min' ? 'none' : 'auto'}
+              >
+                <View
+                  style={[styles.expandedMeasure, { maxHeight: fullExtra > 0 ? fullExtra : undefined }]}
+                  onLayout={(e: LayoutChangeEvent) => {
+                    const h = Math.ceil(e.nativeEvent.layout.height);
+                    if (h > 0 && Math.abs(h - contentH) > 1) setContentH(h);
+                  }}
+                >
+                  {typeof expanded === 'function' ? expanded(panelMeasureMaxH) : expanded}
+                </View>
+              </Animated.View>
+            </>
+          )
         )}
         <View
           testID="dock-fixed"
@@ -248,5 +314,8 @@ const styles = StyleSheet.create({
   handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.45)' },
   expanded: { overflow: 'hidden', position: 'relative' },
   expandedMeasure: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  nativeHandleFloating: { position: 'absolute', left: 0, right: 0, zIndex: 5 },
+  nativeClip: { position: 'absolute', left: 0, right: 0, overflow: 'hidden', justifyContent: 'flex-end' },
+  nativeExpandedSheet: { width: '100%' },
   fixed: { paddingBottom: 6, gap: 10 },
 });

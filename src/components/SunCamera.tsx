@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
-  StyleSheet, View, Text, BackHandler,
+  StyleSheet, View, Text, BackHandler, InteractionManager,
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView, Pressable, Vibration, StatusBar
 } from 'react-native';
 import Constants from 'expo-constants';
@@ -1008,12 +1008,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [language]);
 
   // ── 화면 인식 보정 — 산 능선·해·달로 방위를 맞춥니다 (docs/AR_VISION_PLAN.md) ─────────
-  // 화면이 열리면 이 자리의 DEM 지평선을 미리 구해 둡니다(몇 초, 쉬어 가며).
+  // 화면이 열리면 카메라 프리뷰 마운트 직후 여유 프레임에 DEM 지평선을 미리 구해 둡니다.
   useEffect(() => {
     if (!visible || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
     let cancelled = false;
-    loadHorizon(latitude, longitude).then(h => { if (!cancelled) horizonRef.current = h; });
-    return () => { cancelled = true; };
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      loadHorizon(latitude, longitude).then(h => { if (!cancelled) horizonRef.current = h; });
+    });
+    return () => { cancelled = true; task.cancel(); };
   }, [visible, latitude, longitude]);
 
   /** 사진을 찍는 **순간**의 센서 자세 — 방위는 지금 화면이 쓰는 융합 방위, 앙각·기울기는 원시 회전. */
@@ -1236,26 +1239,29 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return () => { cancelled = true; };
   }, [visible, cameraTab]);
 
-  // 천체 모드 30분 앞당김 구름 타임라인(3분 간격 11프레임) 계산
+  // 천체 모드 30분 앞당김 구름 타임라인(3분 간격 11프레임) 계산 — 모드 전환 직후 인터랙션이 끝난 뒤 비동기로 실행
   useEffect(() => {
     if (!visible || cameraTab !== 'astro' || !camWeatherData || camWeatherData.length === 0) return;
     let cancelled = false;
     const obsElev = Number(cameraSimState.terrain?.observerElevation) || 0;
-    buildSkyTimeline({
-      latitude,
-      longitude,
-      date: currentTime,
-      observerElevM: obsElev,
-      stepMinutes: 3,
-      windowStartMs: currentTime.getTime(),
-      windowDurationMin: 30,
-      pathData: camWeatherData,
-      isCancelled: () => cancelled,
-      language,
-    }).then(tl => {
-      if (!cancelled) setAstroTimeline(tl);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      buildSkyTimeline({
+        latitude,
+        longitude,
+        date: currentTime,
+        observerElevM: obsElev,
+        stepMinutes: 3,
+        windowStartMs: currentTime.getTime(),
+        windowDurationMin: 30,
+        pathData: camWeatherData,
+        isCancelled: () => cancelled,
+        language,
+      }).then(tl => {
+        if (!cancelled) setAstroTimeline(tl);
+      }).catch(() => {});
+    });
+    return () => { cancelled = true; task.cancel(); };
   }, [visible, cameraTab, camWeatherData, currentTime, latitude, longitude, cameraSimState.terrain?.observerElevation, language]);
 
   const astroShotSummary = useMemo(
