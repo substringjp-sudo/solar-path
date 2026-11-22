@@ -1910,6 +1910,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (!same) {
       eyeRef.current = null;
       eyeMovingRef.current = false;
+      cachedAtmosphereMsRef.current = 0;
+      const vOrig = volSceneOriginRef.current;
+      if (c && vOrig) {
+        const jumpOff = localOffsetM(vOrig, c.latitude, c.longitude);
+        if (Math.hypot(jumpOff.eastM, jumpOff.northM) > 30_000) {
+          volHasSceneRef.current = false;
+          volKeyRef.current = '';
+          volViewRef.current = '';
+        }
+      }
     }
     applyEye();
     lastAppliedTuningRef.current = null;
@@ -3516,8 +3526,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               if (viewKey !== volViewRef.current) {
                 // 연속 이동: 구름 · 대기 카메라도 실제 구워진 구름 씬 원점 기준 눈의 가로 자리로(커밋 직후에도 0으로 튀지 않게).
                 const volHere = volSceneOriginRef.current ?? location?.coords;
-                const volEyeOff = curEyeForKey && volHere ? localOffsetM(volHere, curEyeForKey.latitude, curEyeForKey.longitude) : { eastM: 0, northM: 0 };
-                vol.setEyeOffset?.(volEyeOff.northM, volEyeOff.eastM);
+                const rawEyeOff = curEyeForKey && volHere ? localOffsetM(volHere, curEyeForKey.latitude, curEyeForKey.longitude) : { eastM: 0, northM: 0 };
+                const farFromOrigin = Math.hypot(rawEyeOff.eastM, rawEyeOff.northM) > 30_000;
+                vol.setEyeOffset?.(farFromOrigin ? 0 : rawEyeOff.northM, farFromOrigin ? 0 : rawEyeOff.eastM);
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, volRollDeg, volOffY);
                 volViewRef.current = viewKey;
                 if (overrideSceneTimeMsRef.current === null && !volPendingRef.current) {
