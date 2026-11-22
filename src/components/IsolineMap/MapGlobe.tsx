@@ -12,6 +12,56 @@ import { dataColor } from '../../theme/tokens';
 import { morphRaw, morphClipAngle } from '../../utils/globeMorph';
 import { getStarCatalog, bvToLinearRGB } from '../../utils/starCatalog';
 import { getGMSTDeg } from '../../utils/celestialCoords';
+import { MILKY_WAY_EQUATOR_NODES } from '../../utils/celestialMilkyWayData';
+
+interface MilkyWayPatchNode {
+  raDeg: number;
+  sinDec: number;
+  cosDec: number;
+  angRad: number;
+  coreWeight: number;
+  isCore: boolean;
+  hasDust: boolean;
+}
+
+let cachedMwNodes: MilkyWayPatchNode[] | null = null;
+function getSpaceMilkyWayNodes(): MilkyWayPatchNode[] {
+  if (cachedMwNodes) return cachedMwNodes;
+  const RAD = Math.PI / 180;
+  const n = MILKY_WAY_EQUATOR_NODES.length;
+  const vecs = MILKY_WAY_EQUATOR_NODES.map((pt) => {
+    const ra = pt.raHours * 15 * RAD;
+    const dec = pt.decDeg * RAD;
+    const cd = Math.cos(dec);
+    return { x: cd * Math.cos(ra), y: cd * Math.sin(ra), z: Math.sin(dec), lDeg: pt.lDeg };
+  });
+  const out: MilkyWayPatchNode[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = vecs[i];
+    const b = vecs[(i + 1) % n];
+    for (let s = 0; s < 2; s++) {
+      const t = s * 0.5;
+      let vx = a.x * (1 - t) + b.x * t;
+      let vy = a.y * (1 - t) + b.y * t;
+      let vz = a.z * (1 - t) + b.z * t;
+      const len = Math.hypot(vx, vy, vz) || 1;
+      vx /= len; vy /= len; vz /= len;
+      const lDeg = (a.lDeg + t * 15) % 360;
+      const coreWeight = Math.pow(Math.max(0, Math.cos(lDeg * RAD)), 2.2);
+      out.push({
+        raDeg: Math.atan2(vy, vx) / RAD,
+        sinDec: vz,
+        cosDec: Math.hypot(vx, vy),
+        angRad: 0.145 + 0.085 * coreWeight,
+        coreWeight,
+        isCore: coreWeight > 0.32,
+        hasDust: coreWeight > 0.22 && s === 0,
+      });
+    }
+  }
+  cachedMwNodes = out;
+  return out;
+}
 
 interface SpaceStarEntry {
   raDeg: number;
@@ -859,6 +909,103 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return out;
   }, [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies]);
 
+  const spaceMilkyWay = useMemo(() => {
+    if (morph < 0.9 || RADIUS <= 1) return null;
+    const morphFade = Math.min(1, (morph - 0.9) / 0.1);
+    const nodes = getSpaceMilkyWayNodes();
+    const gmstDeg = getGMSTDeg(new Date(gmstMin * 60000));
+    const cLat = -rotate[1];
+    const cLon = -rotate[0];
+    const RAD = Math.PI / 180;
+    const cosCLat = Math.cos(cLat * RAD);
+    const sinCLat = Math.sin(cLat * RAD);
+    const f = Math.max(width, height) * 0.9;
+    const sun = spaceBodies?.sun;
+    const out: Array<{ sx: number; sy: number; r: number; op: number; isCore: boolean; hasDust: boolean }> = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const nd = nodes[i];
+      const dLon = (nd.raDeg - gmstDeg - cLon) * RAD;
+      const cosDLon = Math.cos(dLon);
+      const x = nd.cosDec * Math.sin(dLon);
+      const y = cosCLat * nd.sinDec - sinCLat * nd.cosDec * cosDLon;
+      const z = sinCLat * nd.sinDec + cosCLat * nd.cosDec * cosDLon;
+      if (z >= -0.08) continue;
+      const invZ = 1 / -z;
+      const sx = CX + x * invZ * f;
+      const sy = CY - y * invZ * f;
+      const r = nd.angRad * invZ * f;
+      if (sx < -r || sx > width + r || sy < -r || sy > height + r) continue;
+      let glareFade = 1;
+      if (sun) {
+        const dSun = Math.hypot(sx - sun.sx, sy - sun.sy);
+        if (dSun < sun.sr * 9) {
+          glareFade = Math.max(0.15, dSun / (sun.sr * 9));
+        }
+      }
+      const op = (0.34 + 0.56 * nd.coreWeight) * morphFade * glareFade;
+      out.push({ sx, sy, r, op, isCore: nd.isCore, hasDust: nd.hasDust });
+    }
+    return out;
+  }, [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies]);
+
+  const spaceAtmosphere = useMemo(() => {
+    if (morph < 0.5 || RADIUS <= 1) return null;
+    const op = Math.min(1, (morph - 0.5) / 0.45);
+    const RAD = Math.PI / 180;
+    const dLon = (subsolar.longitude - (-rotate[0])) * RAD;
+    const sLatR = subsolar.latitude * RAD;
+    const cLatR = (-rotate[1]) * RAD;
+    const sx = Math.cos(sLatR) * Math.sin(dLon);
+    const sy = -(Math.cos(cLatR) * Math.sin(sLatR) - Math.sin(cLatR) * Math.cos(sLatR) * Math.cos(dLon));
+    const len = Math.hypot(sx, sy) || 1;
+    return {
+      op,
+      cxPct: `${(50 + (sx / len) * 16).toFixed(1)}%`,
+      cyPct: `${(50 + (sy / len) * 16).toFixed(1)}%`,
+    };
+  }, [morph, RADIUS, rotate, subsolar]);
+
+  const orbitalSunrise = useMemo(() => {
+    if (morph < 0.9 || RADIUS <= 1 || !spaceBodies?.sun || spaceBodies.sun.inFront) return null;
+    const sun = spaceBodies.sun;
+    const dx = sun.sx - CX;
+    const dy = sun.sy - CY;
+    const d = Math.hypot(dx, dy);
+    const limbGap = d - RADIUS;
+    if (limbGap < -sun.sr * 2.6 || limbGap > sun.sr * 3.6) return null;
+    const rawArc = limbGap < 0
+      ? Math.max(0, 1 + limbGap / (sun.sr * 2.6))
+      : Math.max(0, 1 - limbGap / (sun.sr * 2.8));
+    const arcStrength = rawArc * rawArc * (3 - 2 * rawArc);
+    const rawFlare = limbGap < sun.sr * 0.2
+      ? Math.max(0, (limbGap + sun.sr * 1.1) / (sun.sr * 1.3))
+      : Math.max(0, 1 - (limbGap - sun.sr * 0.2) / (sun.sr * 3.0));
+    const flareStrength = rawFlare * rawFlare * (3 - 2 * rawFlare);
+    const angRad = Math.atan2(dy, dx);
+    const angDeg = (angRad * 180) / Math.PI;
+    const lx = CX + RADIUS * Math.cos(angRad);
+    const ly = CY + RADIUS * Math.sin(angRad);
+    const makeArc = (rad: number, halfSpanDeg: number) => {
+      const span = (halfSpanDeg * Math.PI) / 180;
+      const a1 = angRad - span;
+      const a2 = angRad + span;
+      return `M ${(CX + rad * Math.cos(a1)).toFixed(2)} ${(CY + rad * Math.sin(a1)).toFixed(2)} A ${rad.toFixed(2)} ${rad.toFixed(2)} 0 0 1 ${(CX + rad * Math.cos(a2)).toFixed(2)} ${(CY + rad * Math.sin(a2)).toFixed(2)}`;
+    };
+    return {
+      arcStrength,
+      flareStrength,
+      angDeg,
+      lx,
+      ly,
+      flareR: Math.max(22, sun.sr * 4.6),
+      rayTangential: Math.max(26, sun.sr * 6.5),
+      rayNormal: Math.max(18, sun.sr * 4.0),
+      blueArc: makeArc(RADIUS + 3.2, 26),
+      amberArc: makeArc(RADIUS + 1.4, 20),
+      redArc: makeArc(RADIUS + 0.2, 14),
+    };
+  }, [morph, RADIUS, CX, CY, spaceBodies]);
+
   const renderSpaceSun = (sun: { sx: number; sy: number; sr: number }) => {
     const r = sun.sr;
     const rayL = r * 5.2;
@@ -974,7 +1121,65 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="0%" stopColor="#E2E8F0" stopOpacity="0.32" />
               <Stop offset="100%" stopColor="#E2E8F0" stopOpacity="0" />
             </RadialGradient>
+            <RadialGradient id="mwBandGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#A5B4FC" stopOpacity="0.11" />
+              <Stop offset="45%" stopColor="#60A5FA" stopOpacity="0.045" />
+              <Stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="mwCoreGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FDE68A" stopOpacity="0.14" />
+              <Stop offset="40%" stopColor="#DDD6FE" stopOpacity="0.08" />
+              <Stop offset="75%" stopColor="#93C5FD" stopOpacity="0.03" />
+              <Stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="mwDustGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#02040A" stopOpacity="0.22" />
+              <Stop offset="60%" stopColor="#02040A" stopOpacity="0.08" />
+              <Stop offset="100%" stopColor="#02040A" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="earthAtmosOuter" cx={spaceAtmosphere?.cxPct ?? '35%'} cy={spaceAtmosphere?.cyPct ?? '35%'} r="55%">
+              <Stop offset="86%" stopColor="#38BDF8" stopOpacity="0.68" />
+              <Stop offset="93%" stopColor="#60A5FA" stopOpacity="0.28" />
+              <Stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="earthAtmosInner" cx="50%" cy="50%" r="50%">
+              <Stop offset="84%" stopColor="#38BDF8" stopOpacity="0" />
+              <Stop offset="95%" stopColor="#7DD3FC" stopOpacity="0.22" />
+              <Stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.42" />
+            </RadialGradient>
+            <RadialGradient id="orbitalSunriseFlare" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.98" />
+              <Stop offset="22%" stopColor="#FEF08A" stopOpacity="0.85" />
+              <Stop offset="48%" stopColor="#FB923C" stopOpacity="0.42" />
+              <Stop offset="75%" stopColor="#38BDF8" stopOpacity="0.14" />
+              <Stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
+            </RadialGradient>
           </Defs>
+
+          {spaceMilkyWay && spaceMilkyWay.length > 0 && (
+            <G pointerEvents="none">
+              {spaceMilkyWay.map((mw, i) => (
+                <React.Fragment key={`mw-${i}`}>
+                  <Circle
+                    cx={mw.sx}
+                    cy={mw.sy}
+                    r={mw.r}
+                    fill={mw.isCore ? 'url(#mwCoreGlow)' : 'url(#mwBandGlow)'}
+                    opacity={mw.op}
+                  />
+                  {mw.hasDust && (
+                    <Circle
+                      cx={mw.sx}
+                      cy={mw.sy}
+                      r={mw.r * 0.45}
+                      fill="url(#mwDustGlow)"
+                      opacity={mw.op * 0.85}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </G>
+          )}
 
           {spaceStars && spaceStars.length > 0 && (
             <G pointerEvents="none">
@@ -1022,6 +1227,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             );
           })()}
 
+          {spaceAtmosphere && morph >= 1 && (
+            <Circle cx={CX} cy={CY} r={RADIUS * 1.095} fill="url(#earthAtmosOuter)" opacity={spaceAtmosphere.op} pointerEvents="none" />
+          )}
           {morph >= 1
             ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
             : <Path d={spherePath} fill="url(#globeShadow)" />}
@@ -1239,10 +1447,36 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </G>
           )}
 
+          {spaceAtmosphere && morph >= 1 && (
+            <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#earthAtmosInner)" opacity={spaceAtmosphere.op} pointerEvents="none" />
+          )}
           {morph > 0.05 && (
             morph >= 1
               ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
+          )}
+          {orbitalSunrise && (
+            <G pointerEvents="none">
+              {orbitalSunrise.arcStrength > 0.01 && (
+                <G opacity={orbitalSunrise.arcStrength}>
+                  <Path d={orbitalSunrise.blueArc} fill="none" stroke="#38BDF8" strokeWidth={4.5} strokeLinecap="round" opacity={0.52} />
+                  <Path d={orbitalSunrise.amberArc} fill="none" stroke="#FBBF24" strokeWidth={3.0} strokeLinecap="round" opacity={0.78} />
+                  <Path d={orbitalSunrise.redArc} fill="none" stroke="#F97316" strokeWidth={2.0} strokeLinecap="round" opacity={0.92} />
+                </G>
+              )}
+              {orbitalSunrise.flareStrength > 0.02 && (
+                <G transform={`translate(${orbitalSunrise.lx} ${orbitalSunrise.ly})`} opacity={orbitalSunrise.flareStrength}>
+                  <Circle cx={0} cy={0} r={orbitalSunrise.flareR} fill="url(#orbitalSunriseFlare)" />
+                  <G transform={`rotate(${orbitalSunrise.angDeg + 90})`}>
+                    <Path d={`M ${-orbitalSunrise.rayTangential} 0 Q 0 -1.8 ${orbitalSunrise.rayTangential} 0 Q 0 1.8 ${-orbitalSunrise.rayTangential} 0 Z`} fill="#FFFBEB" opacity={0.55} />
+                  </G>
+                  <G transform={`rotate(${orbitalSunrise.angDeg})`}>
+                    <Path d={`M ${-orbitalSunrise.rayNormal} 0 Q 0 -1.4 ${orbitalSunrise.rayNormal} 0 Q 0 1.4 ${-orbitalSunrise.rayNormal} 0 Z`} fill="#FEF3C7" opacity={0.42} />
+                  </G>
+                  <Circle cx={0} cy={0} r={3.5} fill="#FFFFFF" opacity={0.95} />
+                </G>
+              )}
+            </G>
           )}
           {spaceBodies?.sun && spaceBodies.sun.inFront && renderSpaceSun(spaceBodies.sun)}
           {spaceBodies?.moon && spaceBodies.moon.inFront && (() => {

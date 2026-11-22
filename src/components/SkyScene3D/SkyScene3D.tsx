@@ -5188,7 +5188,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
           {globeMounted && (
             <Animated.View
-              style={[StyleSheet.absoluteFillObject, { opacity: globeOpacityAnim, backgroundColor: '#0B1220' }]}
+              style={[StyleSheet.absoluteFillObject, { opacity: globeOpacityAnim, backgroundColor: '#02040A' }]}
               // 지도 단계 내내 구 겹이 손을 받습니다(타일만 보일 때도) — 끌기는 형태 0 의 메르카토르라 밑의 지도와
               // 같이 움직이고, 두 손가락은 하늘 탭 줌으로 넘어가 지구본 ↔ 지도 ↔ 지상을 한 손짓으로 오갑니다(§154).
               pointerEvents={atMapStage ? 'auto' : 'none'}
