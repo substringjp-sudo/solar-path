@@ -519,7 +519,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       } else if (forceRefresh) {
         setWeatherRefreshError(msg);
       }
-      hapticError();
+      if (forceRefresh) hapticError();
     } finally {
       if (weatherAbortControllerRef.current === controller) {
         weatherAbortControllerRef.current = null;
@@ -592,6 +592,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     else { isTimeSlidingRef.current = true; updateSlidingState(); }
   }, [handleDateSlidingStart, updateSlidingState]);
 
+  /** 하늘을 떠나 지도·구 단계에 있는지 — 그때는 "지도로" 버튼 대신 지도 위 "착륙"이 돌아오는 길입니다. */
+  const [ascended, setAscended] = useState(false);
+  const prevWasAscendedRef = useRef(false);
+
   const handleDateSlidingComplete = useCallback(() => {
     isDateSlidingRef.current = false;
     updateSlidingState();
@@ -599,7 +603,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       clearTimeout(weatherDebounceTimerRef.current);
       weatherDebounceTimerRef.current = null;
     }
-    if (isAstroMode) {
+    if (isAstroMode || ascended) {
       skippedAstroDateRef.current = true;
       return;
     }
@@ -608,7 +612,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       weatherDebounceTimerRef.current = null;
       loadWeather(false);
     }, 250);
-  }, [updateSlidingState, loadWeather, isAstroMode]);
+  }, [updateSlidingState, loadWeather, isAstroMode, ascended]);
 
   const handleBarSlidingComplete = useCallback((kind: ScrubKind) => {
     if (kind === 'date') handleDateSlidingComplete();
@@ -627,10 +631,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const isDateChanged = prevDateStrRef.current !== currentDateStr;
     const isLocChanged = prevLatLonRef.current !== latLonStr;
     const wasAstroMode = prevIsAstroRef.current;
+    const wasAscended = prevWasAscendedRef.current;
 
     prevDateStrRef.current = currentDateStr;
     prevLatLonRef.current = latLonStr;
     prevIsAstroRef.current = isAstroMode;
+    prevWasAscendedRef.current = ascended;
 
     // 슬라이더 스크롤 중일 때는 즉시 로드하지 않고 타이머에 위임
     if (isDateSlidingRef.current || isTimeSlidingRef.current) {
@@ -662,7 +668,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       return;
     }
 
-    const resumedFromAstro = wasAstroMode && !isAstroMode && skippedAstroDateRef.current;
+    const resumedFromAstro = ((wasAstroMode && !isAstroMode) || (wasAscended && !ascended)) && skippedAstroDateRef.current;
 
     if (isDateChanged || isLocChanged || resumedFromAstro) {
       setWeatherRefreshError(null);
@@ -684,8 +690,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         weatherDebounceTimerRef.current = null;
       }
 
-      // 천체 모드에서 날짜만 바뀐 경우 날씨 서버 요청을 건너뜁니다
-      if (isAstroMode && isDateChanged && !isLocChanged) {
+      // 천체 모드 또는 우주/지도 모드에서 날짜만 바뀐 경우 날씨 서버 요청을 건너뜁니다
+      if ((isAstroMode || ascended) && isDateChanged && !isLocChanged) {
         skippedAstroDateRef.current = true;
         return;
       }
@@ -698,7 +704,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       }, 250);
       return;
     }
-  }, [isCacheHydrated, latitude, longitude, currentDateStr, isAstroMode, loadWeather, pathData.length, weatherCacheList]);
+  }, [isCacheHydrated, latitude, longitude, currentDateStr, isAstroMode, ascended, loadWeather, pathData.length, weatherCacheList]);
 
   useEffect(() => {
     return () => {
@@ -1031,8 +1037,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
     if (!picked) alignedBodyRef.current = null;
   }, [picked]);
-  /** 하늘을 떠나 지도·구 단계에 있는지 — 그때는 "지도로" 버튼 대신 지도 위 "착륙"이 돌아오는 길입니다. */
-  const [ascended, setAscended] = useState(false);
   const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
 
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.

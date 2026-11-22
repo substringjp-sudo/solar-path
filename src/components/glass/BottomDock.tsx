@@ -41,6 +41,9 @@ export interface BottomDockRulerProps {
   onChange: (ms: number) => void;
   onCommit?: (ms: number) => void;
   onDayShift?: (nextMs: number) => void;
+  onDayDragStart?: () => void;
+  onDayPreview?: (ms: number) => void;
+  onDayCommit?: (ms: number) => void;
   onDatePress?: () => void;
   sunsetMs?: number | null;
   sunsetLabel?: string;
@@ -299,6 +302,9 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           void off;
           handleDayShift(n);
         }}
+        onDayDragStart={ruler.onDayDragStart}
+        onDayPreview={ruler.onDayPreview}
+        onDayCommit={ruler.onDayCommit}
         showNow={ruler.showNow}
         onNow={ruler.onNow}
       />

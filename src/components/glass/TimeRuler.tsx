@@ -17,6 +17,7 @@ import { L3 } from '../../utils/i18n';
 import { GlassChip } from './GlassChip';
 import { glassTextShadow } from './GlassSurface';
 import { isRecentDrag, markDragEnd } from './dragGuard';
+import { emitScrubTime } from '../../utils/liveClock';
 
 type Lang = 'ko' | 'en' | 'ja';
 
@@ -39,6 +40,10 @@ interface Props {
   onDatePress?: () => void;
   /** 날짜 단추를 위아래로 밀었을 때 옮길 날 수(위로 + · 아래로 −, 20 px 마다 하루). 없으면 밀기를 받지 않음. */
   onDayShift?: (days: number) => void;
+  /** 세로 날짜 휠 드래그 시작/드래그 중 미리보기/손 뗌 커밋(ms). */
+  onDayDragStart?: () => void;
+  onDayPreview?: (ms: number) => void;
+  onDayCommit?: (ms: number) => void;
   /** 현재 시각/위치와 다를 때만 "지금" 단추를 보임. */
   showNow?: boolean;
   onNow?: () => void;
@@ -55,7 +60,7 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
+export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, onDayDragStart, onDayPreview, onDayCommit, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const [rulerActive, setRulerActive] = useState(false);
   const [dayDragY, setDayDragY] = useState(0);
@@ -64,8 +69,10 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
   const lastEmitTsRef = useRef(0);
-  const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart });
-  propsRef.current = { timeMs, onChange, onCommit, onDragStart };
+  const dayStartMsRef = useRef<number | null>(null);
+  const lastDayStepRef = useRef(0);
+  const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit });
+  propsRef.current = { timeMs, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit };
 
   useEffect(() => () => {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
@@ -97,6 +104,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
       if (ms !== lastRef.current) {
         lastRef.current = ms;
         setScrubMs(ms);
+        emitScrubTime(ms);
         const now = Date.now();
         if (now - lastEmitTsRef.current >= 40) {
           lastEmitTsRef.current = now;
@@ -124,16 +132,48 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
   dayRef.current = onDayShift;
   const dayPan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, g) => !!dayRef.current && Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.2,
+    onMoveShouldSetPanResponder: (_, g) => (!!dayRef.current || !!propsRef.current.onDayPreview) && Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.2,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderMove: (_, g) => { setDayDragY(g.dy); },
+    onPanResponderGrant: () => {
+      dayStartMsRef.current = propsRef.current.timeMs;
+      lastDayStepRef.current = 0;
+      propsRef.current.onDayDragStart?.();
+    },
+    onPanResponderMove: (_, g) => {
+      setDayDragY(g.dy);
+      const step = daySwipeSteps(g.dy);
+      if (step !== lastDayStepRef.current) {
+        lastDayStepRef.current = step;
+        const base = dayStartMsRef.current ?? propsRef.current.timeMs;
+        const nextMs = base + step * DAY_MS;
+        emitScrubTime(nextMs);
+        propsRef.current.onDayPreview?.(nextMs);
+      }
+    },
     onPanResponderRelease: (_, g) => {
       markDragEnd();
+      const base = dayStartMsRef.current;
+      dayStartMsRef.current = null;
       setDayDragY(0);
       const n = daySwipeSteps(g.dy);
-      if (n !== 0) dayRef.current?.(n);
+      if (base != null && propsRef.current.onDayCommit) {
+        const finalMs = base + n * DAY_MS;
+        propsRef.current.onDayPreview?.(finalMs);
+        propsRef.current.onDayCommit(finalMs);
+      } else if (n !== 0) {
+        dayRef.current?.(n);
+      }
     },
-    onPanResponderTerminate: () => { markDragEnd(); setDayDragY(0); },
+    onPanResponderTerminate: (_, g) => {
+      markDragEnd();
+      const base = dayStartMsRef.current;
+      dayStartMsRef.current = null;
+      setDayDragY(0);
+      const n = daySwipeSteps(g.dy);
+      if (base != null && propsRef.current.onDayCommit) {
+        propsRef.current.onDayCommit(base + n * DAY_MS);
+      }
+    },
   }), []);
 
   const displayMs = scrubMs ?? timeMs;
@@ -147,7 +187,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
 
   // 세로 날짜 휠: 드래그 거리에 맞춰 위아래 날짜가 부드럽게 오르내림
   const liveDays = daySwipeSteps(dayDragY);
-  const previewCenterMs = displayMs + liveDays * DAY_MS;
+  const previewCenterMs = (dayStartMsRef.current ?? displayMs) + liveDays * DAY_MS;
   const wheelOffsetY = dayDragY + liveDays * DAY_STEP_PX;
   const prevDayText = dateLabel(previewCenterMs - DAY_MS, nowMs, tz, language);
   const currDayText = liveDays === 0 && dateText ? dateText : dateLabel(previewCenterMs, nowMs, tz, language);

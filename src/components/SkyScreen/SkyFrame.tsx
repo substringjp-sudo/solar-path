@@ -182,6 +182,9 @@ export const SkyFrame: React.FC<Props> = ({
             onPick(nextMs, 'date');
             onSlideEnd('date');
           },
+          onDayDragStart: () => onSlideStart('date'),
+          onDayPreview: (ms) => onPick(ms, 'date'),
+          onDayCommit: () => onSlideEnd('date'),
           onDatePress: onOpenCalendar,
           sunsetMs,
           sunsetLabel,
