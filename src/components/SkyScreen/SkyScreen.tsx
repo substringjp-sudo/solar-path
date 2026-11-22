@@ -164,7 +164,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [teleX, setTeleX] = useState(1);
   // 샌드박스 눈 높이(m)와 이동 모드(걷기 · 자전거 · 차 · 비행). 전문가 모드가 꺼지면 씬에는 눈 높이를 넘기지 않아 원래(1.6 m)로 돌아갑니다.
   const [eyeH, setEyeH] = useState(1.6);
-  const [moveMode, setMoveMode] = useState<MoveMode>('walk');
+  const [moveMode, setMoveMode] = useState<MoveMode>('bike');
   const homeCoords = useCelestialStore(s => s.homeCoords);
   // 샌드박스에서 화면을 탭해 고른 대상(지형 지점). 전문가 모드를 끄거나 위치가 바뀌면 지웁니다.
   const [picked, setPicked] = useState<PickedTarget | null>(null);
@@ -755,13 +755,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     if (sbPreviewTimerRef.current) clearInterval(sbPreviewTimerRef.current);
     if (!sbPreviewOriginRef.current) sbPreviewOriginRef.current = currentTime;
     setSandboxLongExpUri(null);
-    const accumMode = plan.kind === 'trail' || plan.kind === 'stacked';
+    const accumMode = plan.kind === 'trail';
     if (accumMode) {
       sceneRef.current?.beginLiveAccum?.({
-        lighten: plan.kind === 'trail',
-        exposureGain: plan.kind === 'trail' ? 1.25 : 1.15,
+        lighten: true,
+        exposureGain: 1.25,
         shadowLift: 0.012,
-        starBoost: plan.kind === 'trail' ? 1.45 : 1.25,
+        starBoost: 1.45,
       });
     } else {
       sceneRef.current?.endLiveAccum?.();
@@ -1519,11 +1519,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                   active
                   onPress={() => {
                     const plan = sandboxTlPlan ?? planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'plain', stackSize: 1 });
-                    const sunsetMs = events?.sunset ? events.sunset.getTime() : null;
-                    const nowMs = currentTime.getTime();
-                    const startMs = plan.kind === 'plain' && sunsetMs !== null
-                      ? sunsetMs - Math.round(plan.totalMin / 3) * 60000
-                      : nowMs;
+                    const startMs = currentTime.getTime();
                     const endMs = startMs + plan.totalMin * 60000;
                     setCollapseNonce(n => n + 1);
                     startSandboxTlPreview(plan, startMs, endMs);

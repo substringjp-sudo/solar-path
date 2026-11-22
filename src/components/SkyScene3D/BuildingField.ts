@@ -122,7 +122,7 @@ void main() {
   vDistM = d;
   vNormalW = normalize(normal);
   vViewDir = normalize(p);
-  vBuildPos = gCenter;
+  vBuildPos = aGroundPos;
 #ifdef TERRAIN_WINDOW_OUT
   vWallCoord = aWallCoord;
 #endif

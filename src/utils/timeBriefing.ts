@@ -18,9 +18,9 @@ import { getCalculatedPlanets } from './celestialPlanets';
 import { cloudSummary, skyDirection } from './skyWords';
 import { starLimit, seeLevel } from './starVisibility';
 import { hourlyCovers, starWeatherOf } from './starTonight';
-import { scenePrediction } from './sunsetScoring';
-import { findNextLunarEclipse } from './lunarEclipse';
-import { bloodMoonPrediction } from './eclipseScore';
+import { scenePrediction } from './scenePrediction';
+import { nextLunarEclipse } from './lunarEclipse';
+import { planEclipse } from './eclipsePlan';
 import type { ForecastDay, ForecastEvent } from './sunForecast';
 import type { LearnTopic } from './learnSections';
 
@@ -400,14 +400,16 @@ export const buildTimeBriefing = (args: {
       latitude: lat,
       observerElevM: elevM,
     });
-    const st = sunTimes(selectedTime, lat, lon);
-    const isMorning = Math.abs(timeMs - st.sunrise.getTime()) < Math.abs(timeMs - st.sunset.getTime());
-    glowVerdict = {
-      quality: livePred.quality,
-      score: Math.round(livePred.score),
-      side: isMorning ? 'sunrise' : 'sunset',
-      reason: translateSunsetDesc(livePred.description, language),
-    };
+    if (livePred) {
+      const st = sunTimes(selectedTime, lat, lon);
+      const isMorning = Math.abs(timeMs - st.sunrise.getTime()) < Math.abs(timeMs - st.sunset.getTime());
+      glowVerdict = {
+        quality: livePred.quality,
+        score: Math.round(livePred.score),
+        side: isMorning ? 'sunrise' : 'sunset',
+        reason: translateSunsetDesc(livePred.description, language),
+      };
+    }
   }
 
   let sunNarrative = '';
@@ -484,7 +486,7 @@ export const buildTimeBriefing = (args: {
     sunAltDeg,
     moonAltDeg,
     moonIllum: moonIllum.fraction,
-    lightPollutionMag: lightPollutionMag ?? undefined,
+    lightPollutionMag: lightPollutionMag ?? null,
     aod550: starW?.aod550,
     visibilityM: starW?.visibilityM,
     humidityPct: starW?.humidityPct,
@@ -513,11 +515,16 @@ export const buildTimeBriefing = (args: {
       `太陽高度が${sunAltDeg.toFixed(1)}°で空が明るいため星は見えません。太陽が-12°(航海薄明)以下になると星座が現れます。`);
   } else {
     const reasons: string[] = [];
-    if (limit.twilightLoss > 0.4) reasons.push(L3(language, `박명 잔광(-${limit.twilightLoss.toFixed(1)}등급)`, `twilight (-${limit.twilightLoss.toFixed(1)} mag)`, `薄明かり(-${limit.twilightLoss.toFixed(1)}等)`));
-    if (limit.moonLoss > 0.3) reasons.push(L3(language, `달빛(-${limit.moonLoss.toFixed(1)}등급)`, `moonlight (-${limit.moonLoss.toFixed(1)} mag)`, `月明かり(-${limit.moonLoss.toFixed(1)}等)`));
-    if (limit.lightLoss > 0.4) reasons.push(L3(language, `도심 광공해(-${limit.lightLoss.toFixed(1)}등급)`, `light pollution (-${limit.lightLoss.toFixed(1)} mag)`, `光害(-${limit.lightLoss.toFixed(1)}等)`));
-    if (limit.hazeLoss > 0.25) reasons.push(L3(language, `대기 연무·습기(-${limit.hazeLoss.toFixed(1)}등급)`, `haze/humidity (-${limit.hazeLoss.toFixed(1)} mag)`, `靄・湿気(-${limit.hazeLoss.toFixed(1)}等)`));
-    if (limit.cloudLoss > 0.3) reasons.push(L3(language, `구름 가림(-${limit.cloudLoss.toFixed(1)}등급)`, `cloud cover (-${limit.cloudLoss.toFixed(1)} mag)`, `雲の遮폐(-${limit.cloudLoss.toFixed(1)}等)`));
+    const twilightLoss = limit.twilight ? Math.max(0, -limit.twilight.deltaMag) : 0;
+    const moonLoss = Math.max(0, -limit.moon.deltaMag);
+    const lightLoss = Math.max(0, -limit.light.deltaMag);
+    const hazeLoss = Math.max(0, -limit.haze.deltaMag);
+    const cloudPctVal = limit.cloud.pct;
+    if (twilightLoss > 0.4) reasons.push(L3(language, `박명 잔광(-${twilightLoss.toFixed(1)}등급)`, `twilight (-${twilightLoss.toFixed(1)} mag)`, `薄明かり(-${twilightLoss.toFixed(1)}等)`));
+    if (moonLoss > 0.3) reasons.push(L3(language, `달빛(-${moonLoss.toFixed(1)}등급)`, `moonlight (-${moonLoss.toFixed(1)} mag)`, `月明かり(-${moonLoss.toFixed(1)}等)`));
+    if (lightLoss > 0.4) reasons.push(L3(language, `도심 광공해(-${lightLoss.toFixed(1)}등급)`, `light pollution (-${lightLoss.toFixed(1)} mag)`, `光害(-${lightLoss.toFixed(1)}等)`));
+    if (hazeLoss > 0.25) reasons.push(L3(language, `대기 연무·습기(-${hazeLoss.toFixed(1)}등급)`, `haze/humidity (-${hazeLoss.toFixed(1)} mag)`, `靄・湿気(-${hazeLoss.toFixed(1)}等)`));
+    if (cloudPctVal >= 30) reasons.push(L3(language, `구름 가림(${Math.round(cloudPctVal)}%)`, `cloud cover (${Math.round(cloudPctVal)}%)`, `雲(${Math.round(cloudPctVal)}%)`));
 
     const factorText = reasons.length > 0
       ? L3(language, `주요 감점 요인은 ${reasons.join(', ')}입니다.`, `Main limiting factors: ${reasons.join(', ')}.`, `主な減点要因は${reasons.join('、')}です。`)
@@ -535,9 +542,9 @@ export const buildTimeBriefing = (args: {
     .filter(p => p.altitude > 0)
     .sort((a, b) => b.altitude - a.altitude)
     .map(p => ({
-      id: p.id,
-      name: planetDisplayName(p.id, p.name, language),
-      direction: skyDirection(p.azimuth, language),
+      id: p.key,
+      name: planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language),
+      direction: skyDirection(p.azimuth, language) ?? '',
       altitudeDeg: Math.round(p.altitude),
       azimuthDeg: Math.round(p.azimuth),
       magnitude: p.magnitude,
@@ -704,7 +711,7 @@ export const buildUpcomingTimeline = (args: {
           `태양이 고도 -18°로 올라오며 동쪽 하늘 가장자리부터 미세한 대기 산란광이 시작됩니다. 은하수·딥스카이 촬영은 이 시각 전에 마무리하는 것이 좋습니다.${wb.note ? ` · ${wb.note}` : ''}`,
           `The Sun reaches -18°, beginning faint upper-atmosphere scattering in the east. Wrap up deep-sky astrophotography before this time.${wb.note ? ` · ${wb.note}` : ''}`,
           `太陽が高度-18°に達し、東の空からわずかな散乱光が始まります。天の川撮影はこの時刻前までに終えるのが理想です。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'sun',
+        topic: 'sunrise',
       });
     }
 
@@ -746,7 +753,7 @@ export const buildUpcomingTimeline = (args: {
         category: 'sun',
         categoryLabel: L3(language, '태양 · 일출 노을', 'Sunrise & Glow', '日の出・朝焼け'),
         title: L3(language, `일출 (${dir} ${sunAz.toFixed(0)}°)`, `Sunrise (${dir} ${sunAz.toFixed(0)}°)`, `日の出 (${dir} ${sunAz.toFixed(0)}°)`),
-        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `朝焼け ${scoreVal}点`) : dir,
+        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `朝焼け ${scoreVal}点`) : (dir ?? undefined),
         quality: fe?.quality ?? null,
         score: scoreVal,
         description: L3(language,
@@ -795,7 +802,7 @@ export const buildUpcomingTimeline = (args: {
         category: 'sun',
         categoryLabel: L3(language, '태양 · 일몰 노을', 'Sunset & Glow', '日の入り・夕焼け'),
         title: L3(language, `일몰 (${dir} ${sunAz.toFixed(0)}°)`, `Sunset (${dir} ${sunAz.toFixed(0)}°)`, `日の入り (${dir} ${sunAz.toFixed(0)}°)`),
-        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `夕焼け ${scoreVal}点`) : dir,
+        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `夕焼け ${scoreVal}点`) : (dir ?? undefined),
         quality: fe?.quality ?? null,
         score: scoreVal,
         description: L3(language,
@@ -822,7 +829,7 @@ export const buildUpcomingTimeline = (args: {
           `태양이 -6° 아래로 내려가며 붉은 잔광이 마무리되고, 금성·목성 같은 밝은 행성과 1등성이 하늘에 모습을 드러내기 시작합니다.${wb.note ? ` · ${wb.note}` : ''}`,
           `The Sun drops below -6°, concluding the red afterglow as bright planets and first-magnitude stars emerge.${wb.note ? ` · ${wb.note}` : ''}`,
           `太陽が-6°を下回り赤い残照が終わり、金星や木星などの明るい惑星と一等星が見え始めます。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'sun',
+        topic: 'sunrise',
       });
     }
 
@@ -839,7 +846,7 @@ export const buildUpcomingTimeline = (args: {
         sunAltDeg: -19,
         moonAltDeg: mAlt,
         moonIllum: mIllum.fraction,
-        lightPollutionMag: lightPollutionMag ?? undefined,
+        lightPollutionMag: lightPollutionMag ?? null,
         aod550: sW?.aod550,
         visibilityM: sW?.visibilityM,
         humidityPct: sW?.humidityPct,
@@ -859,7 +866,7 @@ export const buildUpcomingTimeline = (args: {
           `태양이 -18° 아래로 내려가 대기 중 태양 산란광이 완전히 사라집니다. 이 시각 예상 한계등급은 약 ${magStr}등급이며, ${mAlt > 0 ? `달이 고도 +${mAlt.toFixed(0)}°(밝기 ${Math.round(mIllum.fraction * 100)}%)에 떠 있습니다.` : '달도 지평선 아래에 있어 밤하늘이 매우 어둡습니다.'}${wb.note ? ` (${wb.note})` : ''}`,
           `The Sun drops below -18° for complete astronomical darkness. Expected limiting magnitude is ~${magStr}, and ${mAlt > 0 ? `the Moon is at +${mAlt.toFixed(0)}° (${Math.round(mIllum.fraction * 100)}%).` : 'the Moon is below the horizon for maximum darkness.'}${wb.note ? ` (${wb.note})` : ''}`,
           `太陽が-18°を下回り完全な夜になります。予想限界等級は約${magStr}等で、${mAlt > 0 ? `月が高度+${mAlt.toFixed(0)}°(${Math.round(mIllum.fraction * 100)}%)にあります。` : '月も地平線下にあり非常に暗い夜空になります。'}${wb.note ? ` (${wb.note})` : ''}`),
-        topic: 'star',
+        topic: 'stars',
       });
     }
 
@@ -874,20 +881,20 @@ export const buildUpcomingTimeline = (args: {
         .sort((a, b) => b.altitude - a.altitude);
       if (pls.length > 0) {
         const wb = weatherBriefAt(ms);
-        const names = pls.map(p => `${planetDisplayName(p.id, p.name, language)}(${skyDirection(p.azimuth, language)} ${Math.round(p.altitude)}°)`).join(' · ');
+        const names = pls.map(p => `${planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)}(${skyDirection(p.azimuth, language)} ${Math.round(p.altitude)}°)`).join(' · ');
         pushUnique({
           id: `planets_${ms}`,
           timeMs: ms,
           relativeLabel: formatRelativeAfter(startMs, ms, language),
           category: 'planet',
           categoryLabel: L3(language, '행성 관측', 'Planets', '惑星観測'),
-          title: L3(language, `초저녁 행성 관측 적기 (${pls.map(p => planetDisplayName(p.id, p.name, language)).join('·')})`, `Evening Planets Visible (${pls.map(p => planetDisplayName(p.id, p.name, language)).join(' · ')})`, `宵の惑星観測好機 (${pls.map(p => planetDisplayName(p.id, p.name, language)).join('・')})`),
+          title: L3(language, `초저녁 행성 관측 적기 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('·')})`, `Evening Planets Visible (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join(' · ')})`, `宵の惑星観測好機 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('・')})`),
           badge: L3(language, `${pls.length}개 행성`, `${pls.length} planets`, `${pls.length}惑星`),
           description: L3(language,
             `어둠이 내린 하늘에서 ${names}이 고도 10° 이상 높이 떠 있어 맨눈이나 망원경으로 관측하기 좋습니다.${wb.note ? ` · ${wb.note}` : ''}`,
             `Above 10° altitude in the evening sky: ${names}.${wb.note ? ` · ${wb.note}` : ''}`,
             `夕闇の空に${names}が高度10°以上に昇り、肉眼や望遠鏡での観測に最適です。${wb.note ? ` · ${wb.note}` : ''}`),
-          topic: 'star',
+          topic: 'stars',
         });
       }
     }
@@ -917,7 +924,7 @@ export const buildUpcomingTimeline = (args: {
         `${mDir} 지평선(방위 ${mAz.toFixed(0)}°)에서 ${mName}(밝기 ${mPct}%)이 떠오릅니다. 지평선 바로 위에서는 대기 굴절과 지상 지형물 대비로 달이 평소보다 크고 붉게 보입니다.${wb.note ? ` · ${wb.note}` : ''}`,
         `A ${mPct}% illuminated ${mName} rises on the ${mDir} horizon (AZ ${mAz.toFixed(0)}°), appearing warm and large near foreground landmarks.${wb.note ? ` · ${wb.note}` : ''}`,
         `${mDir}の地平線(方位${mAz.toFixed(0)}°)から${mName}(輝面${mPct}%)が昇ります。地平線付近では月が大きく赤みを帯びて見えます。${wb.note ? ` · ${wb.note}` : ''}`),
-      topic: 'sun',
+      topic: 'stars',
     });
   }
 
@@ -944,7 +951,7 @@ export const buildUpcomingTimeline = (args: {
         `${mDir} 지평선(방위 ${mAz.toFixed(0)}°) 아래로 달이 집니다.${sAlt < -12 && mPct >= 20 ? ' 달이 진 직후부터 하늘 배경이 한층 어두워져 은하수와 어두운 별 관측 여건이 크게 좋아집니다.' : ''}${wb.note ? ` · ${wb.note}` : ''}`,
         `The Moon sets on the ${mDir} horizon (AZ ${mAz.toFixed(0)}°).${sAlt < -12 && mPct >= 20 ? ' Once the Moon sets, the night sky darkens significantly for stargazing.' : ''}${wb.note ? ` · ${wb.note}` : ''}`,
         `${mDir}の地平線(方位${mAz.toFixed(0)}°)へ月が沈みます。${sAlt < -12 && mPct >= 20 ? '月の入り直後から夜空が一段と暗くなり、天の川観測の好機となります。' : ''}${wb.note ? ` · ${wb.note}` : ''}`),
-      topic: 'star',
+      topic: 'stars',
     });
   }
 
@@ -1046,18 +1053,14 @@ export const buildUpcomingTimeline = (args: {
   }
 
   // 11) 향후 16일 내 개기/부분 월식 안내
-  const eclipse = findNextLunarEclipse(selectedTime, lat, lon, 16);
-  if (eclipse && eclipse.peak.getTime() > startMs) {
-    const ms = eclipse.peak.getTime();
-    const { obs: ecObs } = weatherAtTime(eclipse.peak, ringFor, forecast);
-    const bm = ecObs ? bloodMoonPrediction({
-      kind: eclipse.kind,
-      moonAltDeg: eclipse.moonAltAtPeak,
-      umbralMagnitude: eclipse.umbralMagnitude,
-      lowCloud: ecObs.low, midCloud: ecObs.mid, highCloud: ecObs.high,
-      aod550: ecObs.aod550, visibilityKm: ecObs.visibility != null ? ecObs.visibility / 1000 : undefined,
-      humidity: ecObs.humidity,
-    }) : null;
+  const eclipse = nextLunarEclipse(startMs);
+  const eclipsePlan = eclipse && eclipse.greatestMs - startMs <= 16 * 86400_000
+    ? planEclipse(eclipse, lat, lon)
+    : null;
+  if (eclipse && eclipsePlan && eclipsePlan.visible && eclipse.greatestMs > startMs) {
+    const ms = eclipse.greatestMs;
+    const peakDate = new Date(ms);
+    const moonAltAtPeak = getMoonPositionPrecise(peakDate, lat, lon, elevM).altitude * DEG;
     const kindWord = eclipse.kind === 'total'
       ? L3(language, '개기월식 (블러드문)', 'Total Lunar Eclipse (Blood Moon)', '皆既月食 (ブラッドムーン)')
       : L3(language, '부분월식', 'Partial Lunar Eclipse', '部分月食');
@@ -1067,13 +1070,13 @@ export const buildUpcomingTimeline = (args: {
       relativeLabel: formatRelativeAfter(startMs, ms, language),
       category: 'eclipse',
       categoryLabel: L3(language, '특이 천문 현상', 'Lunar Eclipse', '月食'),
-      title: `${kindWord} · ${eclipse.peak.getMonth() + 1}/${eclipse.peak.getDate()}`,
-      badge: bm ? L3(language, `관측 ${bm.score}점`, `Score ${bm.score}`, `観測 ${bm.score}点`) : `${eclipse.moonAltAtPeak.toFixed(0)}°`,
+      title: `${kindWord} · ${peakDate.getMonth() + 1}/${peakDate.getDate()}`,
+      badge: `${moonAltAtPeak.toFixed(0)}°`,
       description: L3(language,
-        `달이 지구 본그림자에 들어가 붉게 물드는 ${kindWord}이 예정되어 있습니다 (최대 식 시각 고도 ${eclipse.moonAltAtPeak.toFixed(0)}°).`,
-        `An upcoming ${kindWord} with peak altitude ${eclipse.moonAltAtPeak.toFixed(0)}°.`,
-        `月が地球の本影に入る${kindWord}が予定されています(最大食時の高度${eclipse.moonAltAtPeak.toFixed(0)}°)。`),
-      topic: 'star',
+        `달이 지구 본그림자에 들어가 붉게 물드는 ${kindWord}이 예정되어 있습니다 (최대 식 시각 고도 ${moonAltAtPeak.toFixed(0)}°).`,
+        `An upcoming ${kindWord} with peak altitude ${moonAltAtPeak.toFixed(0)}°.`,
+        `月が地球の本影に入る${kindWord}が予定されています(最大食時の高度${moonAltAtPeak.toFixed(0)}°)。`),
+      topic: 'stars',
     });
   }
 

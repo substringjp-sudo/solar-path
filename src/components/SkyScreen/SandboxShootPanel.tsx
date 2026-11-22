@@ -68,7 +68,7 @@ export const SandboxShootPanel: React.FC<Props> = ({
   onTimelapsePlanChange,
 }) => {
   const tabs: Array<{ key: SandboxShootMode; label: string; icon: React.ReactNode }> = [
-    { key: 'photo', label: L3(language, '노을', 'Sunset', '夕焼け'), icon: <Sun size={13} color={mode === 'photo' ? DARK.accent : TEXT} /> },
+    { key: 'photo', label: L3(language, '일반', 'Normal', '通常'), icon: <Sun size={13} color={mode === 'photo' ? DARK.accent : TEXT} /> },
     { key: 'astro', label: L3(language, '천체', 'Astro', '天体'), icon: <Moon size={13} color={mode === 'astro' ? DARK.accent : TEXT} /> },
     { key: 'timelapse', label: L3(language, '타임랩스', 'Timelapse', 'タイムラプス'), icon: <Timer size={13} color={mode === 'timelapse' ? DARK.accent : TEXT} /> },
   ];

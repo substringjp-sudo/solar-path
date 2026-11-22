@@ -50,7 +50,7 @@ interface Props {
 }
 
 export const kindLabel = (k: TimelapseKind, l: Language): string => {
-  if (k === 'plain') return L3(l, '노을', 'Sunset', '夕焼け');
+  if (k === 'plain') return L3(l, '일반', 'Normal', '通常');
   if (k === 'stacked') return L3(l, '천체', 'Astro', '天体');
   return L3(l, '궤적', 'Trails', '軌跡');
 };
@@ -101,13 +101,10 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
   const stackSize = kind === 'stacked' ? autoStackSize(totalMin, videoSec, 30) : 1;
   const plan = useMemo(() => planTimelapse({ totalMin, videoSec, fps: 30, kind, stackSize }), [totalMin, videoSec, kind, stackSize]);
   useEffect(() => { onPlanChange?.(plan); }, [plan, onPlanChange]);
-  const win = useMemo(() => {
-    if (kind === 'plain' && events.sunset !== null) {
-      const before = Math.round(totalMin / 3);
-      return { startMs: events.sunset - before * 60000, endMs: events.sunset + (totalMin - before) * 60000, totalMin };
-    }
-    return { startMs: nowMs, endMs: nowMs + totalMin * 60000, totalMin };
-  }, [kind, events.sunset, totalMin, nowMs]);
+  const win = useMemo(
+    () => ({ startMs: nowMs, endMs: nowMs + totalMin * 60000, totalMin }),
+    [totalMin, nowMs],
+  );
 
   const chipSummary = useMemo(() => timelapseChipLabel(plan, language), [plan, language]);
   useEffect(() => { onSummaryChange?.(chipSummary); }, [chipSummary, onSummaryChange]);

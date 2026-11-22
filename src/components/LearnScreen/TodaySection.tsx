@@ -77,7 +77,7 @@ export const TodaySection: React.FC<Props> = ({
   const categoryColor = (cat: UpcomingCategory): string => {
     switch (cat) {
       case 'weather': return color.accent;
-      case 'sun': return dataColor.good;
+      case 'sun': return dataColor.sunrise;
       case 'twilight': return '#7E9CFF';
       case 'moon': return '#E5C07B';
       case 'star': return '#B392F0';
@@ -248,7 +248,7 @@ export const TodaySection: React.FC<Props> = ({
             {/* (A) 태양 · 박명 · 노을 상태 */}
             <View style={styles.celestialBlock}>
               <View style={styles.celestialHeadRow}>
-                <Sun size={15} color={dataColor.good} />
+                <Sun size={15} color={dataColor.sunrise} />
                 <Text style={styles.celestialBlockTitle}>{briefing.sunTitle}</Text>
               </View>
 
@@ -348,7 +348,7 @@ export const TodaySection: React.FC<Props> = ({
 
               <PressScale
                 style={styles.topicLinkBtn}
-                onPress={() => onOpenTopic(briefing.phaseKind === 'night' || briefing.phaseKind === 'astronomical' ? 'star' : 'score')}
+                onPress={() => onOpenTopic(briefing.phaseKind === 'night' || briefing.phaseKind === 'astronomical' ? 'stars' : 'score')}
                 accessibilityRole="button"
                 accessibilityLabel={L3(language, '천체 및 점수 계산 과정 보기', 'See celestial & score calculation steps', '天体とスコアの計算過程を見る')}
               >
