@@ -87,6 +87,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLanguage,
     themeMode,
     setThemeMode,
+    statusBarIcon,
+    setStatusBarIcon,
     notifPrefs: storedNotifPrefs,
     setNotifPref,
   } = useCelestialStore();
@@ -448,6 +450,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     'The sky, the map and the camera stay dark so their labels stay readable over the picture.',
                     '空・地図の上とカメラ画面は、絵の上で読めるよう常に暗いままです。')}
                 </Text>
+              </View>
+
+              {/* 1-b2. 상단 알림바 아이콘 색 (배경은 검은색 고정) */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '상단 알림바 아이콘', 'Status bar icons', 'ステータスバーアイコン')}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.langSelectorRow}>
+                    {([
+                      ['light', L3(language, '흰색 (밝게)', 'White', '白 (明るく)')],
+                      ['dark', L3(language, '검은색 (어둡게)', 'Black', '黒 (暗く)')],
+                    ] as const).map(([iconMode, label]) => (
+                      <PressScale
+                        key={iconMode}
+                        style={[styles.langOption, statusBarIcon === iconMode && { backgroundColor: color.accentSoft }]}
+                        onPress={() => setStatusBarIcon(iconMode)}
+                        accessibilityState={{ selected: statusBarIcon === iconMode }}
+                      >
+                        <Text style={[styles.langText, { color: statusBarIcon === iconMode ? color.accent : theme.text, fontWeight: statusBarIcon === iconMode ? '800' : '500' }]}>{label}</Text>
+                      </PressScale>
+                    ))}
+                  </View>
+                </View>
               </View>
 
               {/* 1-c. 알림 — 노을·일출 예보 + 천체력으로 정해지는 하늘 이벤트(utils/notificationPlan.ts) */}

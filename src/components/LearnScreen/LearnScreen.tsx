@@ -1,18 +1,13 @@
 /**
- * LearnScreen.tsx — **02 학습**: 데이터의 근거와 결과가 나온 과정을 한 페이지에서(2026-11-20, docs/SANDBOX_MODE_PLAN.md 13 장).
+ * LearnScreen.tsx — **02 데이터**: 현재 선택된 시각의 기상·천체 해설과 이후 발생할 이벤트,
+ * 그리고 16일 예보·근거 데이터·결과가 나온 과정을 한 페이지에서 보여줍니다.
  *
- * 예전에는 같은 성격의 설명이 다섯 곳에 흩어져 있었습니다(시트의 이벤트 목록 · 시트의 기상 정보 · 02 예보 16일 · 왜 그런가요 창).
- * 이 페이지가 모두 모읍니다. 위에서 아래로 한 번에 읽고, 위의 칩은 구역으로 건너뛰는 목차입니다.
+ *   선택 시각 해설 & 이후 이벤트 → 앞으로 16일 → 근거 데이터 → 결과가 나온 과정 → 낮과 밤의 경계
  *
- *   오늘(고른 날) → 앞으로 16일 → 근거 데이터 → 결과가 나온 과정 → 낮과 밤의 경계
- *
- * **항목마다 중요한 정보만 먼저 보이고, 부차적인 정보는 접어 둡니다**(사용자 결정 2026-11-20). 접는 규칙은 `utils/learnSections.ts` 한 곳입니다.
- *
- * 페이지는 **고른 날 하나**를 따라갑니다(그 날의 일출 또는 일몰). 들어올 때는 온 곳의 날로 맞춰지고(`LearnEntry.focus`),
- * 앞으로 16일에서 칸을 누르면 그 날로 바뀝니다. 여기서 날을 바꿔도 01 하늘의 시간은 바뀌지 않습니다(01 하늘에서 보기를 누를 때만).
- * 오늘 · 근거 · 과정이 **같은 칸**(`inputFor` / `pathFor`)에서 나와 점수와 자료가 서로 어긋나지 않습니다.
- *
- * 구름 모양만은 고른 날이 아니라 **01 하늘이 지금 그린 그림**입니다(장면 핸들). 그 그림의 시각을 줄 위에 적습니다.
+ * 기본적으로 01 하늘에서 선택한 시각(`currentTime`)을 기준으로 날씨·대기·천체를 해설하고
+ * 그 시각 직후부터 이어지는 기상 및 천체 이벤트를 시간순으로 보여줍니다.
+ * 앞으로 16일 표에서 다른 날의 일출·일몰 칸을 누르면 그 시각의 해설로 전환되며,
+ * 언제든 "하늘 화면 선택 시각 해설로 돌아가기" 버튼으로 복귀할 수 있습니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InteractionManager, Platform, View, Text, ScrollView, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
@@ -28,7 +23,7 @@ import { useForecastDays } from '../../hooks/useForecastDays';
 import { getPrimarySky } from '../SkyScene3D/primarySky';
 import type { SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { getInterpolatedWeather, layerWindsFrom } from '../../utils/weather';
-import { sunPosition } from '../../utils/solarPosition';
+import { sunPosition, sunTimes } from '../../utils/solarPosition';
 import { getCelestialEvents } from '../../utils/celestial';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { skyDirection } from '../../utils/skyWords';
@@ -38,6 +33,7 @@ import { estimateLightPollution, type NightLights } from '../../utils/cityLightM
 import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import { buildTopicResult, type TopicResult } from '../../utils/calcTopic';
 import { cloudSceneUsable } from '../../utils/calcSteps';
+import { buildTimeBriefing, buildUpcomingTimeline } from '../../utils/timeBriefing';
 import type { EventSide, ForecastEvent } from '../../utils/sunForecast';
 import type { HorizonProfile } from '../../utils/horizon';
 import {
@@ -64,7 +60,7 @@ type SceneState = NonNullable<NonNullable<ReturnType<SkyScene3DHandle['getRender
 
 const sectionName = (s: LearnSection, language: Language) => {
   switch (s) {
-    case 'today': return L3(language, '오늘', 'Today', '今日');
+    case 'today': return L3(language, '지금 해설 · 일정', 'Now & Schedule', '現在解説・予定');
     case 'forecast': return L3(language, '앞으로 16일', 'Next 16 days', 'これから16日');
     case 'data': return L3(language, '근거 데이터', 'Data', '根拠データ');
     case 'why': return L3(language, '결과가 나온 과정', 'How it is made', '結果が出るまで');
@@ -79,6 +75,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   const tz = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
   const savedLocations = useCelestialStore(s => s.savedLocations);
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
+  const currentTime = useCelestialStore(s => s.currentTime);
 
   const lat = location?.coords?.latitude;
   const lon = location?.coords?.longitude;
@@ -96,34 +93,82 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 
   const { days, forecast, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM } = useForecastDays({ fetch: isActive, compute: computeReady });
 
-  // ── 고른 날 ─────────────────────────────────────────────────────────────
+  // ── 현재 선택된 시각(`currentTime`)과 16일 표에서 따로 고른 시각(`customPickedTimeMs`) ──
+  const [customPickedTimeMs, setCustomPickedTimeMs] = useState<number | null>(null);
   const entryNonce = entry?.nonce ?? 0;
   const [pick, setPick] = useState<LearnPick | null>(null);
   const seenEntry = useRef<number | null>(null);
+
+  // 01 하늘의 currentTime이 바뀌면 customPickedTimeMs를 해제하고 그 날짜의 가장 가까운 일출/일몰 칸에 pick을 맞춥니다.
+  const currentTimeMs = currentTime instanceof Date ? currentTime.getTime() : Date.now();
+  useEffect(() => {
+    setCustomPickedTimeMs(null);
+  }, [currentTimeMs]);
+
   useEffect(() => {
     if (days.length === 0) return;
-    // 처음이거나, 고른 날이 새 목록에 없거나, 새로 들어온 길이면 그 길(없으면 앞으로 가장 좋은 때)의 날로 맞춥니다.
-    if (!pick || !pickedEvent(days, pick) || seenEntry.current !== entryNonce) {
+    if (seenEntry.current !== entryNonce && entry?.focus) {
       seenEntry.current = entryNonce;
-      setPick(defaultPick(days, now, entry?.focus ?? null));
+      const p = defaultPick(days, now, entry.focus);
+      setPick(p);
+      const pe = pickedEvent(days, p);
+      if (pe?.event) {
+        setCustomPickedTimeMs((pe.event.peakAt ?? pe.event.at).getTime());
+      }
+      return;
+    }
+    // 평소에는 01 하늘에서 선택된 시각(`currentTime`)이 속한 날과 가장 가까운 일출/일몰로 pick을 동기화합니다.
+    if (!customPickedTimeMs) {
+      const targetNoon = new Date(currentTimeMs);
+      targetNoon.setHours(12, 0, 0, 0);
+      const matchedDay = days.find(d => sameNoon(d.noonMs, targetNoon.getTime())) ?? days[0];
+      if (matchedDay) {
+        let side: EventSide = 'sunset';
+        if (lat != null && lon != null) {
+          const st = sunTimes(new Date(currentTimeMs), lat, lon);
+          const dRise = Math.abs(currentTimeMs - st.sunrise.getTime());
+          const dSet = Math.abs(currentTimeMs - st.sunset.getTime());
+          side = dRise < dSet ? 'sunrise' : 'sunset';
+        }
+        setPick({ noonMs: matchedDay.noonMs, side });
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, now, entryNonce]);
+  }, [days, now, entryNonce, currentTimeMs, customPickedTimeMs]);
 
   // 별 보기처럼 시각이 필요한 주제가 쓸 시각(한밤에 별 카드로 들어온 길). 앞으로 16일에서 날을 다시 고르면 지웁니다.
   const [pinnedAt, setPinnedAt] = useState<number | null>(entry?.at ?? null);
   useEffect(() => { setPinnedAt(entry?.at ?? null); }, [entry?.nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const onPickDay = (p: LearnPick) => { setPinnedAt(null); setPick(p); };
+  const onPickDay = (p: LearnPick) => {
+    setPinnedAt(null);
+    setPick(p);
+    const pe = pickedEvent(days, p);
+    if (pe?.event) {
+      setCustomPickedTimeMs((pe.event.peakAt ?? pe.event.at).getTime());
+    } else if (pe?.day) {
+      setCustomPickedTimeMs(pe.day.noonMs);
+    }
+  };
+  const onResetToSkyTime = useCallback(() => {
+    setCustomPickedTimeMs(null);
+  }, []);
+
+  const inspectedTimeMs = customPickedTimeMs ?? currentTimeMs;
+  const inspectedTime = useMemo(() => new Date(inspectedTimeMs), [inspectedTimeMs]);
 
   const picked = useMemo(() => pickedEvent(days, pick), [days, pick]);
   const day = picked?.day ?? null;
   const event: ForecastEvent | null = picked?.event ?? null;
   const side: EventSide = pick?.side ?? 'sunset';
   const isToday = !!day && days.length > 0 && sameNoon(day.noonMs, days[0].noonMs);
-  // 근거를 센 시각: 그 칸의 가장 붉을 때(없으면 고른 날 정오)
-  const atMs = event ? (event.peakAt ?? event.at).getTime() : day?.noonMs ?? now.getTime();
-  const at = useMemo(() => new Date(atMs), [atMs]);
-  const path = event ? pathFor(event) : null;
+  // 근거 데이터 시각: 현재 해설 중인 선택 시각(`inspectedTimeMs`)
+  const atMs = inspectedTimeMs;
+  const at = inspectedTime;
+  const path = useMemo(() => {
+    const r = ringFor(inspectedTime);
+    if (r && r.length > 0 && !r[0]?.isFallback) return r;
+    return event ? pathFor(event) : forecast;
+  }, [ringFor, inspectedTime, event, pathFor, forecast]);
   const eventInput = useMemo(() => (event ? inputFor(event) : null), [event, inputFor]);
 
   // ── 오늘 구역의 값 ──────────────────────────────────────────────────────
@@ -135,7 +180,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   const items = useMemo(() => {
     if (!day || lat == null || lon == null) return [];
     const date = new Date(day.noonMs);
-    // 앞날(7일 밖)은 점수를 숨깁니다 — 줄에도 숫자를 달지 않습니다.
     const pred = (e: ForecastEvent | null) => (e && e.quality && e.score != null && showsScore(e.tier) ? { score: e.score, quality: e.quality } : null);
     return buildSkyEvents({
       date, latitude: lat, longitude: lon,
@@ -150,7 +194,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   ), [event, path, lat, lon, tz, elevM]);
 
   // ── 결과가 나온 과정의 입력 ─────────────────────────────────────────────
-  // 01 하늘이 그린 장면(땅 프로필 · 구름 그림). 이 페이지가 열릴 때마다, 새 길로 들어올 때마다 다시 읽습니다.
   const [scene, setScene] = useState<{ horizon: HorizonProfile | null; st: SceneState | null }>({ horizon: null, st: null });
   useEffect(() => {
     if (!computeReady) return;
@@ -167,20 +210,57 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     return () => { alive = false; };
   }, [nightLights, isActive]);
 
+  const lightPollutionMag = useMemo(() => (
+    nightLights && lat != null && lon != null ? estimateLightPollution(nightLights, lat, lon).magLimit : null
+  ), [nightLights, lat, lon]);
+
+  const fmtTime = useCallback((ms: number) => localHHMM(new Date(ms), tz), [tz]);
+
+  // ── 현재 선택 시각의 기상·천체 종합 해설 & 이후 발생할 이벤트 타임라인 ──
+  const briefing = useMemo(() => {
+    if (!computeReady || lat == null || lon == null) return null;
+    return buildTimeBriefing({
+      selectedTime: inspectedTime,
+      lat,
+      lon,
+      elevM: elevM ?? 0,
+      language,
+      ringFor,
+      forecast,
+      days,
+      lightPollutionMag,
+    });
+  }, [computeReady, inspectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag]);
+
+  const upcomingEvents = useMemo(() => {
+    if (!computeReady || lat == null || lon == null) return [];
+    return buildUpcomingTimeline({
+      selectedTime: inspectedTime,
+      lat,
+      lon,
+      elevM: elevM ?? 0,
+      language,
+      ringFor,
+      forecast,
+      days,
+      lightPollutionMag,
+      fmtTime,
+    });
+  }, [computeReady, inspectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag, fmtTime]);
+
   const starArgs = useMemo(() => {
     if (!day || lat == null || lon == null) return null;
     const p = path ?? forecast;
-    // 그 시각의 예보가 받아 둔 시간 범위 밖이면 "모름" 으로 둡니다(가장자리 값을 지어 쓰지 않음).
     const weatherAt = (when: Date) => {
       const h = p?.[0]?.hourly;
       const times = h?.timeMs ?? h?.time?.map((x: string) => new Date(x).getTime());
       return p && hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(p, when)[0]) : null;
     };
     return starArgsFor({
-      date: new Date(pinnedAt ?? day.noonMs), lat, lon, elevM: elevM ?? 0, weatherAt,
-      lightPollutionMag: nightLights ? estimateLightPollution(nightLights, lat, lon).magLimit : null,
+      date: new Date(pinnedAt ?? inspectedTimeMs), lat, lon, elevM: elevM ?? 0, weatherAt,
+      lightPollutionMag,
     });
-  }, [day, pinnedAt, lat, lon, path, forecast, elevM, nightLights]);
+  }, [day, pinnedAt, inspectedTimeMs, lat, lon, path, forecast, elevM, lightPollutionMag]);
 
   const cloudArgs = useMemo(() => {
     const st = scene.st;
@@ -192,7 +272,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     return { scene: st, altKm: { low: alt(obs?.layerAltLowKm), mid: alt(obs?.layerAltMidKm), high: alt(obs?.layerAltHighKm) }, winds: layerWindsFrom(obs) };
   }, [scene.st, ringFor]);
 
-  const fmtTime = useCallback((ms: number) => localHHMM(new Date(ms), tz), [tz]);
   const qualityWord = useCallback((q: string) => verdictWord(q as any, language), [language]);
   const results = useMemo(() => {
     const out = {} as Record<LearnTopic, TopicResult | null>;
@@ -204,7 +283,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     }
     return out;
   }, [day, lat, lon, language, fmtTime, scene.horizon, eventInput, starArgs, cloudArgs, qualityWord]);
-  // 구름 모양 줄 위의 안내: 01 하늘이 그린 시각. 그 시각이 고른 칸의 시각과 30분 넘게 다르면(`cloudSceneUsable`) 다르다고 덧붙입니다.
+
   const notes = useMemo(() => {
     if (!scene.st) return undefined;
     const when = fmtTime(new Date(scene.st.t).getTime());
@@ -239,8 +318,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     for (const s of LEARN_SECTIONS) if ((offsets.current[s] ?? Infinity) <= y) cur = s;
     setActiveSection(prev => (prev === cur ? prev : cur));
   };
-  // 다른 화면에서 구역을 가리키고 들어오면 그 구역으로(구역의 위치는 그려진 뒤에야 알 수 있어 잠깐 기다립니다).
-  // 길마다 한 번만, 받은 날이 처음 들어와 높이가 바뀐 뒤 한 번 더 맞춥니다. 나중에 머리 탭으로 돌아올 때는 맞추지 않습니다.
+
   const hasDays = days.length > 0;
   const scrolledKey = useRef('');
   useEffect(() => {
@@ -254,7 +332,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   }, [entry?.nonce, isActive, hasDays]);
 
   const openSky = (ms?: number) => {
-    setCurrentTime(ms != null ? new Date(ms) : (event?.peakAt ?? event?.at ?? at));
+    setCurrentTime(ms != null ? new Date(ms) : inspectedTime);
     onOpenSky();
   };
   const openTopic = (t: LearnTopic) => {
@@ -263,7 +341,9 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   };
   const openSandbox = () => { setExpertMode(true); onOpenSky(); };
 
-  const dateLabel = day ? dayLabel(day.noonMs, tz, language) : '';
+  const inspectedDateLabel = dayLabel(inspectedTimeMs, tz, language);
+  const inspectedTimeLabel = fmtTime(inspectedTimeMs);
+  const skyTimeLabel = `${dayLabel(currentTimeMs, tz, language)} ${fmtTime(currentTimeMs)}`;
   const hasLocation = lat != null && lon != null;
 
   return (
@@ -280,7 +360,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
         <View style={styles.head}>
           <Text style={styles.pageTitle} accessibilityRole="header">{L3(language, '데이터', 'Data', 'データ')}</Text>
           <Text style={styles.sub}>
-            {[place, L3(language, '데이터의 근거와 결과가 나온 과정', 'The data behind it and how results are made', 'データの根拠と結果が出るまで')].filter(Boolean).join(' · ')}
+            {[place, L3(language, '선택 시각 기상 · 천체 종합 해설과 예보 근거', 'Weather & celestial briefing for selected time and forecast data', '選択時刻の気象・天体解説と予報の根拠')].filter(Boolean).join(' · ')}
           </Text>
         </View>
 
@@ -290,9 +370,23 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 
         <View onLayout={onLayoutOf('today')}>
           <TodaySection
-            language={language} tz={tz} isToday={isToday} dateLabel={dateLabel} side={side}
-            event={event} direction={direction} items={items} graph={graph}
-            onOpenSky={openSky} onOpenTopic={openTopic}
+            language={language}
+            tz={tz}
+            isToday={isToday}
+            dateLabel={inspectedDateLabel}
+            timeLabel={inspectedTimeLabel}
+            isCustomPickedTime={customPickedTimeMs != null && Math.abs(customPickedTimeMs - currentTimeMs) > 60_000}
+            skyTimeLabel={skyTimeLabel}
+            onResetToSkyTime={onResetToSkyTime}
+            side={side}
+            event={event}
+            direction={direction}
+            items={items}
+            graph={graph}
+            briefing={briefing}
+            upcomingEvents={upcomingEvents}
+            onOpenSky={openSky}
+            onOpenTopic={openTopic}
           />
         </View>
 

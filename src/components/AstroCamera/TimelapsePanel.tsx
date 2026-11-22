@@ -208,7 +208,7 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
       <View style={styles.fill}>
         <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} />
         {/* 유리 시트(2026-11-21): 카메라가 비치는 흐림 유리 위에 글자는 모두 #F1F5F9. 켜진 칩은 하늘색 덧칠. */}
-        <GlassSurface testID="tl-sheet" style={styles.sheet}>
+        <GlassSurface blurred testID="tl-sheet" style={styles.sheet}>
           <View style={styles.header}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title}>{L3(language, '타임랩스', 'Timelapse', 'タイムラプス')}</Text>

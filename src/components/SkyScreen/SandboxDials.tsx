@@ -43,10 +43,10 @@ interface DialProps {
   height?: number;
 }
 
-const DIAL_W = 36;
-const KNOB = 18;
+const DIAL_W = 28;
+const KNOB = 14;
 
-export const VerticalDial: React.FC<DialProps> = ({ label, valueText, t, tickTs, onChange, onStep, accessibilityLabel, height = 150 }) => {
+export const VerticalDial: React.FC<DialProps> = ({ label, valueText, t, tickTs, onChange, onStep, accessibilityLabel, height = 104 }) => {
   const cb = useRef({ onChange, onStep, height });
   cb.current = { onChange, onStep, height };
   const tRef = useRef(t);
@@ -80,9 +80,10 @@ export const VerticalDial: React.FC<DialProps> = ({ label, valueText, t, tickTs,
   const y = yFromT(t, height);
   return (
     <View style={styles.dialCol}>
-      <Text style={styles.dialLabel}>{label}</Text>
+      <Text style={styles.dialLabel} numberOfLines={1}>{label}</Text>
       <View
         {...pan.panHandlers}
+        hitSlop={{ left: 6, right: 6, top: 4, bottom: 4 }}
         style={{ width: DIAL_W, height: height + KNOB }}
         accessible
         accessibilityRole="adjustable"
@@ -93,15 +94,15 @@ export const VerticalDial: React.FC<DialProps> = ({ label, valueText, t, tickTs,
       >
         {/* 트랙은 위아래로 손잡이 반지름(KNOB / 2)만큼 안쪽에서 시작합니다 — 손잡이가 끝에 가도 위 이름과 아래 값 글자를 가리지 않게. */}
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { top: KNOB / 2, bottom: KNOB / 2 }]}>
-          <View style={[styles.track, { left: (DIAL_W - 6) / 2, height }]} />
-          <View style={[styles.trackFill, { left: (DIAL_W - 6) / 2, top: y, height: Math.max(0, height - y) }]} />
+          <View style={[styles.track, { left: (DIAL_W - 4) / 2, height }]} />
+          <View style={[styles.trackFill, { left: (DIAL_W - 4) / 2, top: y, height: Math.max(0, height - y) }]} />
           {tickTs.map((k, i) => (
             <View key={i} style={[styles.tick, { top: yFromT(k, height) - 0.5 }]} />
           ))}
           <View style={[styles.knob, { left: (DIAL_W - KNOB) / 2, top: y - KNOB / 2 }]} />
         </View>
       </View>
-      <Text style={styles.dialValue}>{valueText}</Text>
+      <Text style={styles.dialValue} numberOfLines={1}>{valueText}</Text>
     </View>
   );
 };
@@ -125,24 +126,28 @@ export const DialPair: React.FC<PairProps> = ({ language, eyeHeightM, onEyeHeigh
   const zoomLabel = L3(language, '줌', 'Zoom', 'ズーム');
   return (
     <View style={styles.pair} pointerEvents="box-none">
-      <VerticalDial
-        label={eyeLabel}
-        valueText={fmtEye(eyeHeightM)}
-        t={tOf(eyeHeightM, EYE_RANGE)}
-        tickTs={eyeTicks}
-        onChange={(t, final) => { const v = roundEye(tToValue(t, EYE_RANGE)); onEyeHeight(final ? snapValue(v, EYE_RANGE, EYE_TICKS) : v); }}
-        onStep={(dir) => onEyeHeight(stepToTick(eyeHeightM, EYE_TICKS, dir))}
-        accessibilityLabel={L3(language, '눈 높이', 'Eye height', '目の高さ')}
-      />
-      <VerticalDial
-        label={zoomLabel}
-        valueText={fmtZoom(zoomX)}
-        t={tOf(zoomX, ZOOM_RANGE)}
-        tickTs={zoomTicks}
-        onChange={(t, final) => { const v = roundZoom(tToValue(t, ZOOM_RANGE)); onZoom(final ? snapValue(v, ZOOM_RANGE, ZOOM_TICKS) : v); }}
-        onStep={(dir) => onZoom(stepToTick(zoomX, ZOOM_TICKS, dir))}
-        accessibilityLabel={L3(language, '망원 배율', 'Telephoto zoom', '望遠倍率')}
-      />
+      <View style={styles.dialBox}>
+        <VerticalDial
+          label={eyeLabel}
+          valueText={fmtEye(eyeHeightM)}
+          t={tOf(eyeHeightM, EYE_RANGE)}
+          tickTs={eyeTicks}
+          onChange={(t, final) => { const v = roundEye(tToValue(t, EYE_RANGE)); onEyeHeight(final ? snapValue(v, EYE_RANGE, EYE_TICKS) : v); }}
+          onStep={(dir) => onEyeHeight(stepToTick(eyeHeightM, EYE_TICKS, dir))}
+          accessibilityLabel={L3(language, '눈 높이', 'Eye height', '目の高さ')}
+        />
+      </View>
+      <View style={styles.dialBox}>
+        <VerticalDial
+          label={zoomLabel}
+          valueText={fmtZoom(zoomX)}
+          t={tOf(zoomX, ZOOM_RANGE)}
+          tickTs={zoomTicks}
+          onChange={(t, final) => { const v = roundZoom(tToValue(t, ZOOM_RANGE)); onZoom(final ? snapValue(v, ZOOM_RANGE, ZOOM_TICKS) : v); }}
+          onStep={(dir) => onZoom(stepToTick(zoomX, ZOOM_TICKS, dir))}
+          accessibilityLabel={L3(language, '망원 배율', 'Telephoto zoom', '望遠倍率')}
+        />
+      </View>
     </View>
   );
 };
@@ -369,16 +374,19 @@ export const ViewReadout: React.FC<ReadoutProps> = ({ language, getView, eyeHeig
 
 const styles = StyleSheet.create({
   pair: {
-    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    paddingHorizontal: 6, paddingVertical: 6,
-    backgroundColor: DARK.overlay, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.sm,
+    flexDirection: 'column', gap: 6, alignItems: 'center',
   },
-  dialCol: { alignItems: 'center', gap: 2 },
-  dialLabel: { fontFamily: mono, fontSize: 9, letterSpacing: 0.6, color: DARK.textMute },
-  dialValue: { fontFamily: mono, fontSize: 10, fontWeight: '700', color: DARK.text },
-  track: { position: 'absolute', top: 0, width: 6, borderRadius: 3, backgroundColor: DARK.border },
-  trackFill: { position: 'absolute', width: 6, borderRadius: 3, backgroundColor: DARK.accentLine },
-  tick: { position: 'absolute', left: 4, right: 4, height: 1, backgroundColor: DARK.borderStrong },
+  dialBox: {
+    paddingHorizontal: 5, paddingVertical: 5,
+    backgroundColor: DARK.overlay, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.sm,
+    alignItems: 'center',
+  },
+  dialCol: { alignItems: 'center', gap: 2, minWidth: 28 },
+  dialLabel: { fontFamily: mono, fontSize: 8, letterSpacing: 0.3, color: DARK.textMute },
+  dialValue: { fontFamily: mono, fontSize: 9, fontWeight: '700', color: DARK.text },
+  track: { position: 'absolute', top: 0, width: 4, borderRadius: 2, backgroundColor: DARK.border },
+  trackFill: { position: 'absolute', width: 4, borderRadius: 2, backgroundColor: DARK.accentLine },
+  tick: { position: 'absolute', left: 5, right: 5, height: 1, backgroundColor: DARK.borderStrong },
   knob: { position: 'absolute', width: KNOB, height: KNOB, borderRadius: KNOB / 2, backgroundColor: DARK.accent, borderColor: '#04121C', borderWidth: 2 },
   stick: {
     width: STICK, height: STICK, borderRadius: STICK / 2,

@@ -30,7 +30,7 @@
  */
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import { ChevronDown, ChevronUp, Compass, Globe, MapPin, Moon, RefreshCw, Settings, SlidersHorizontal, Sun } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Compass, Globe, MapPin, Moon, RefreshCw, Settings, SlidersHorizontal, Sun, Target, X } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
 import { space, TOUCH } from '../theme/tokens';
@@ -159,6 +159,56 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <View style={styles.headerTop} pointerEvents="box-none">
         {renderLeft()}
 
+        {/* 중앙 슬롯: 현재 위치와 우측 버튼 사이에 추적 중 / 선택 객체 요약 배지 배치 */}
+        <View style={styles.centerSlot} pointerEvents="box-none">
+          {!showCamera && isGlass && skyHeaderActions?.trackingLabel ? (
+            <PressScale
+              testID="hdr-tracking"
+              onPress={skyHeaderActions.onClearTracking}
+              style={styles.centerPill}
+              accessibilityLabel={`${skyHeaderActions.trackingLabel} — ${t('trackRelease', language)}`}
+              accessibilityRole="button"
+            >
+              <GlassSurface active style={StyleSheet.absoluteFill} />
+              <Target size={11} color={ACTIVE_CHIP_TEXT} />
+              <Text style={[styles.centerPillText, glassTextShadow]} numberOfLines={1}>
+                {skyHeaderActions.trackingLabel}
+              </Text>
+              <X size={11} color={TEXT} />
+            </PressScale>
+          ) : !showCamera && isGlass && skyHeaderActions?.pickedLabel ? (
+            <View style={styles.centerPillGroup} pointerEvents="box-none">
+              <PressScale
+                testID="hdr-picked"
+                onPress={skyHeaderActions.onTogglePickedDetail}
+                style={styles.centerPill}
+                accessibilityLabel={skyHeaderActions.pickedLabel}
+                accessibilityRole="button"
+              >
+                <GlassSurface active={!!skyHeaderActions.pickedDetailOpen} style={StyleSheet.absoluteFill} />
+                <Text style={[styles.centerPillText, glassTextShadow]} numberOfLines={1}>
+                  {skyHeaderActions.pickedLabel}
+                </Text>
+                {skyHeaderActions.pickedDetailOpen
+                  ? <ChevronUp size={12} color={TEXT} />
+                  : <ChevronDown size={12} color={TEXT} />}
+              </PressScale>
+              {skyHeaderActions.onClearPicked ? (
+                <PressScale
+                  testID="hdr-picked-clear"
+                  onPress={skyHeaderActions.onClearPicked}
+                  style={styles.centerCloseBtn}
+                  accessibilityLabel={L3(language, '고른 대상 지우기', 'Clear target', '選択を消す')}
+                  accessibilityRole="button"
+                >
+                  <GlassSurface style={StyleSheet.absoluteFill} />
+                  <X size={12} color={TEXT} />
+                </PressScale>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+
         {/* 우측 슬롯: 전 모드 동일 규격의 40×40 원형 아이콘 버튼만 정렬 */}
         <View style={styles.rightButtons} pointerEvents="box-none">
           {showCamera && (
@@ -259,6 +309,47 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     gap: 6,
   },
+  centerSlot: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerPillGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+  },
+  centerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: TOUCH,
+    minHeight: TOUCH,
+    maxWidth: '100%',
+    flexShrink: 1,
+    paddingHorizontal: 10,
+    borderRadius: TOUCH / 2,
+    overflow: 'hidden',
+  },
+  centerPillText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '600',
+    includeFontPadding: false,
+    color: TEXT,
+    flexShrink: 1,
+  },
+  centerCloseBtn: {
+    width: TOUCH,
+    height: TOUCH,
+    borderRadius: TOUCH / 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   /** 좌측 공용 알약 규격 (전 모드 동일: 높이 40, 반지름 20). */
   pillBtn: {
     flexDirection: 'row',
@@ -268,7 +359,8 @@ const useStyles = makeStyles((color) => ({
     height: TOUCH,
     minHeight: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 180,
+    maxWidth: 150,
+    flexShrink: 1,
     paddingHorizontal: 12,
     borderRadius: TOUCH / 2,
     overflow: 'hidden',

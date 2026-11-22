@@ -191,6 +191,8 @@ interface CelestialState extends ClockState {
   language: 'ko' | 'en' | 'ja';
   /** 화면 모드 — 밝은 모드는 패널·창·기록 탭·헤더만 밝힙니다(docs/DESIGN_SYSTEM.md §4.1). 기본은 어둡게. */
   themeMode: 'system' | 'light' | 'dark';
+  /** 상단 알림바(StatusBar) 아이콘 색 — 배경은 검은색으로 고정하고 아이콘만 밝게(흰색)/어둡게(검은색) 전환합니다. */
+  statusBarIcon: 'light' | 'dark';
   /**
    * 전문가 모드 (2026-11-19, docs/SANDBOX_MODE_PLAN.md 2.4). 꺼짐(기본)이면 하늘 화면이 초보자용으로 덜어낸 모습이고,
    * 켜면 지금까지의 모든 조작(레이어·지구/지도·태양 추적·달력·기상정보·수치)이 그대로 나옵니다.
@@ -225,8 +227,19 @@ interface CelestialState extends ClockState {
   cameraHandoff: CameraHandoff | null;
   setCameraHandoff: (handoff: CameraHandoff | null) => void;
   /** 하늘 화면 상단 통합 버튼(지도 이동 · 레이어 설정) 콜백. 저장하지 않습니다. */
-  skyHeaderActions: { flyToMap?: () => void; openLayers?: () => void; openDev?: () => void; ascended?: boolean } | null;
-  setSkyHeaderActions: (actions: { flyToMap?: () => void; openLayers?: () => void; openDev?: () => void; ascended?: boolean } | null) => void;
+  skyHeaderActions: {
+    flyToMap?: () => void;
+    openLayers?: () => void;
+    openDev?: () => void;
+    ascended?: boolean;
+    trackingLabel?: string | null;
+    onClearTracking?: () => void;
+    pickedLabel?: string | null;
+    pickedDetailOpen?: boolean;
+    onTogglePickedDetail?: () => void;
+    onClearPicked?: () => void;
+  } | null;
+  setSkyHeaderActions: (actions: CelestialState['skyHeaderActions']) => void;
   /** 카메라 오버레이 활성 시 루트 상단 HUD가 표시할 상태와 콜백. 저장하지 않습니다. */
   cameraHud: CameraHudState | null;
   setCameraHud: (hud: CameraHudState | null) => void;
@@ -305,6 +318,7 @@ interface CelestialState extends ClockState {
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+  setStatusBarIcon: (icon: 'light' | 'dark') => void;
   setExpertMode: (on: boolean) => void;
   setOnboardingSeen: (seen: boolean) => void;
   setHomeCoords: (c: { latitude: number; longitude: number } | null) => void;
@@ -387,6 +401,7 @@ export const useCelestialStore = create<CelestialState>()(
       isDebugMode: false,
       language: 'ko',
       themeMode: 'dark',
+      statusBarIcon: 'light',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       expertMode: false,
       onboardingSeen: false,
@@ -1127,6 +1142,7 @@ export const useCelestialStore = create<CelestialState>()(
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
+      setStatusBarIcon: (icon) => set({ statusBarIcon: icon }),
       setExpertMode: (on) => set({ expertMode: !!on }),
       setOnboardingSeen: (seen) => set({ onboardingSeen: !!seen }),
       setHomeCoords: (c) => set({ homeCoords: c }),
@@ -1440,6 +1456,7 @@ export const useCelestialStore = create<CelestialState>()(
         myPhotos: state.myPhotos,
         language: state.language,
         themeMode: state.themeMode,
+        statusBarIcon: state.statusBarIcon,
         notifPrefs: state.notifPrefs,
         expertMode: state.expertMode,
         onboardingSeen: state.onboardingSeen,

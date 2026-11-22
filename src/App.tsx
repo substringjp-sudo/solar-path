@@ -76,7 +76,7 @@ const LOAD_IMAGES = [
 export default function App() {
   const color = useThemeColors(); const styles = useStyles(); const scheme = useScheme();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const { language, isAppReady, preloadInitialData, preloadStatus, setTeleportTarget } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData, preloadStatus, setTeleportTarget, statusBarIcon } = useCelestialStore();
   const {
     showDatePicker,
     setShowDatePicker,
@@ -302,11 +302,15 @@ export default function App() {
   leftOffset = Math.max(screenWidth - scaledWidth, Math.min(0, leftOffset));
 
   return (
-    <Animated.View style={{ flex: 1, backgroundColor: dynamicTheme.bg }}>
-      <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
-        <StatusBar barStyle={scheme === 'light' ? 'dark-content' : 'light-content'} translucent backgroundColor="transparent" />
+    <Animated.View style={{ flex: 1, backgroundColor: '#000000' }}>
+      <AnimatedSafeAreaView style={[styles.container, { backgroundColor: '#000000' }]}>
+        <StatusBar
+          barStyle={statusBarIcon === 'dark' ? 'dark-content' : 'light-content'}
+          translucent
+          backgroundColor="#000000"
+        />
         
-        <View style={styles.mainContent}>
+        <Animated.View style={[styles.mainContent, { backgroundColor: dynamicTheme.bg }]}>
         <TabNavigator
           activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
@@ -331,7 +335,7 @@ export default function App() {
           isCameraOverlayActive={isSunCameraVisible}
           isSuspended={!isAppActive || (isSunCameraVisible && cameraViewMode === 'camera') || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
-      </View>
+        </Animated.View>
 
       {showDatePicker && (
         <AdaptiveDatePicker

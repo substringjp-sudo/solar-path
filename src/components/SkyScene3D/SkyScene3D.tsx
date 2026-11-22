@@ -441,6 +441,8 @@ export interface LongExposureSimOptions {
   waitMs?: number;
   format?: 'jpeg' | 'png';
   compress?: number;
+  /** 진행 중인 장노출 합성을 즉시 중단하기 위한 AbortSignal */
+  signal?: AbortSignal;
 }
 
 export interface LongExposureSimResult {
@@ -497,6 +499,8 @@ export interface SkyScene3DHandle {
     view: { az: number; el: number; fov: number; rollDeg?: number },
     opts: LongExposureSimOptions,
   ) => Promise<LongExposureSimResult>;
+  /** 진행 중이거나 대기 중인 장노출 합성(renderLongExposure)을 즉시 중단합니다. */
+  cancelLongExposure?: () => void;
   /** 타임랩스 미리보기용 실시간 누적 시작 / 스텝 / 종료 (궤적 · 별+구름 누적). */
   beginLiveAccum?: (opts?: { lighten?: boolean; exposureGain?: number; shadowLift?: number; starBoost?: number }) => void;
   stepLiveAccum?: (timeMs: number) => void;
@@ -603,8 +607,6 @@ const DEFAULT_LAYERS: LayerState = {
   cityLights: true,
   buildings: true,
 };
-
-const DRAG_SENSITIVITY = 0.3;
 
 /** 연중 일수 — 지구·태양 거리 보정에 사용 */
 function dayOfYearOf(d: Date): number {
@@ -1564,27 +1566,39 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       return run;
     };
 
+    let latestLongExpToken = 0;
+    let activeLongExpCancel: (() => void) | null = null;
+
     const runRenderStep = (directive: {
       begin?: boolean;
       captureStep?: { weight: number; fixedBase: boolean };
       pendingResolve?: { gain: number; shadowLift: number; fixedGround: boolean };
-    }) => new Promise<void>((resolve) => {
+    }, registerCancel?: (fn: (() => void) | null) => void) => new Promise<void>((resolve) => {
       let settled = false;
       const done = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        registerCancel?.(null);
         resolve();
       };
       const timer = setTimeout(() => {
         if (accumDirectiveRef.current?.onDone === done) accumDirectiveRef.current = null;
         done();
       }, 2000);
+      registerCancel?.(() => {
+        if (accumDirectiveRef.current?.onDone === done) accumDirectiveRef.current = null;
+        done();
+      });
       accumDirectiveRef.current = { ...directive, onDone: done };
       requestRender(2);
     });
 
-    const renderLongExposureOnce: SkyScene3DHandle['renderLongExposure'] = async (view, opts) => {
+    const renderLongExposureOnce = async (
+      view: { az: number; el: number; fov: number; rollDeg?: number },
+      opts: LongExposureSimOptions,
+      token: number,
+    ): Promise<LongExposureSimResult> => {
       const mode = opts.mode;
       const startTimeMs = opts.startTimeMs ?? targetTimeMsRef.current;
       const durationSec = Math.max(10, Math.min(3600, opts.durationSec ?? 300));
@@ -1595,6 +1609,29 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const settleFrames = Math.max(1, Math.min(REMOTE_SETTLE_FRAMES, Math.round(opts.settleFrames ?? REMOTE_SETTLE_FRAMES)));
       const requireReady = opts.requireReady ?? true;
       const waitMs = opts.waitMs ?? 5000;
+
+      const isCancelled = () => token !== latestLongExpToken || !!opts.signal?.aborted;
+      const cancelledResult = (): LongExposureSimResult => ({
+        uri: null,
+        ready: false,
+        error: 'aborted',
+        mode,
+        durationSec,
+        steps,
+        exposureGain,
+        state: null,
+      });
+
+      if (isCancelled()) return cancelledResult();
+
+      let cancelCurrentWait: (() => void) | null = null;
+      const cancelHook = () => {
+        cancelCurrentWait?.();
+        cancelCurrentWait = null;
+      };
+      activeLongExpCancel = cancelHook;
+      const onSignalAbort = () => cancelHook();
+      opts.signal?.addEventListener('abort', onSignalAbort, { once: true });
 
       const wasActive = isActiveRef.current;
       const saved = {
@@ -1625,8 +1662,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       try {
         const t0 = Date.now();
         for (;;) {
+          if (isCancelled()) return cancelledResult();
           requestRender(3);
-          await new Promise(r => setTimeout(r, 60));
+          await new Promise<void>(r => {
+            const t = setTimeout(() => { cancelCurrentWait = null; r(); }, 60);
+            cancelCurrentWait = () => { clearTimeout(t); cancelCurrentWait = null; r(); };
+          });
+          if (isCancelled()) return cancelledResult();
           const ready = h.isVolumetricReady();
           if (remoteFramesRef.current >= settleFrames && (ready || !requireReady)) break;
           if (Date.now() - t0 > waitMs) {
@@ -1646,6 +1688,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
         }
 
+        if (isCancelled()) return cancelledResult();
         if (!composerRef.current) {
           return {
             uri: null,
@@ -1663,6 +1706,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         volRef.current?.setCityTerrainExpScale?.(cityExpCompRef.current);
         volRef.current?.setAccumulating?.(true);
         for (let k = 0; k < steps; k++) {
+          if (isCancelled()) return cancelledResult();
           const frac = steps <= 1 ? 0 : k / (steps - 1);
           const tkMs = startTimeMs + frac * durationSec * 1000;
           overrideSceneTimeMsRef.current = tkMs;
@@ -1681,15 +1725,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             };
           }
 
-          await runRenderStep({
-            begin: k === 0,
-            captureStep: {
-              weight: 1,
-              fixedBase: k === 0 && mode === 'tracked_fixed_ground',
+          await runRenderStep(
+            {
+              begin: k === 0,
+              captureStep: {
+                weight: 1,
+                fixedBase: k === 0 && mode === 'tracked_fixed_ground',
+              },
             },
-          });
+            (fn) => { cancelCurrentWait = fn; },
+          );
+          if (isCancelled()) return cancelledResult();
         }
 
+        if (isCancelled()) return cancelledResult();
         const useFixedGround = mode === 'tracked_fixed_ground';
         const state = h.getRenderState();
         const uri = await captureGlSnapshot(() => {
@@ -1701,6 +1750,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
         }, { format: opts.format ?? 'jpeg', compress: opts.compress ?? 0.9 });
 
+        if (isCancelled()) return cancelledResult();
         return {
           uri,
           ready: true,
@@ -1712,6 +1762,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           state,
         };
       } finally {
+        opts.signal?.removeEventListener('abort', onSignalAbort);
+        if (activeLongExpCancel === cancelHook) activeLongExpCancel = null;
+        cancelCurrentWait = null;
         cityExpCompRef.current = 1;
         volRef.current?.setCityTerrainExpScale?.(1);
         volRef.current?.setAccumulating?.(false);
@@ -1741,8 +1794,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
     };
 
+    h.cancelLongExposure = () => {
+      latestLongExpToken += 1;
+      activeLongExpCancel?.();
+    };
+
     h.renderLongExposure = (view, opts) => {
-      const run = remoteChain.then(() => renderLongExposureOnce(view, opts));
+      const token = ++latestLongExpToken;
+      // 진행 중이던 이전 장노출 작업을 즉시 중단시켜 큐 대기를 없앱니다.
+      activeLongExpCancel?.();
+      const run = remoteChain.then(() => renderLongExposureOnce(view, opts, token));
       remoteChain = run.catch(() => undefined);
       return run;
     };
@@ -2357,12 +2418,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           if (lastTouchRef.current && zoomProgressRef.current < P_FADE_START) {
             const dx = touches[0].pageX - lastTouchRef.current.x;
             const dy = touches[0].pageY - lastTouchRef.current.y;
-            const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
+            // 화면 높이와 현재 세로 FOV 에 맞춘 1:1 각도/픽셀 비율(전체화면·망원 줌에서도 손가락을 따라옴)
+            const vh = Math.max(200, viewSizeRef.current.h || 844);
+            const fovDeg = Math.max(1, Math.min(120, fovRef.current || 60));
+            const degPerPx = ((2 * Math.tan((fovDeg * Math.PI) / 360)) / vh) * (180 / Math.PI);
+            const cosEl = Math.max(0.25, Math.cos((cameraElevRef.current * Math.PI) / 180));
+            const nextAz = (cameraAzRef.current - (dx * degPerPx) / cosEl + 360) % 360;
             cameraAzRef.current = nextAz;
             // 지상 모드에서만 상하 시선 조작 허용 (상공 레이더 모드에서는 직하향 탑다운 안정 유지)
             if (zoomProgressRef.current <= P_FOV_END) {
               const minElev = -45;
-              cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
+              cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * degPerPx));
               savedGroundElevRef.current = cameraElevRef.current;
             }
           }

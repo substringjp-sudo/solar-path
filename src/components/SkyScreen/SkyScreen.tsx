@@ -70,7 +70,6 @@ import { PressScale, OverlayButton, Reveal } from '../ui';
 import { distanceM } from '../../utils/geoMove';
 import type { MoveMode } from '../../utils/joystickMotion';
 import { SandboxPanel, type FarStatus } from './SandboxPanel';
-import { SceneBar } from './SceneBar';
 import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface } from '../glass/GlassSurface';
@@ -169,7 +168,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const homeCoords = useCelestialStore(s => s.homeCoords);
   // 샌드박스에서 화면을 탭해 고른 대상(지형 지점). 전문가 모드를 끄거나 위치가 바뀌면 지웁니다.
   const [picked, setPicked] = useState<PickedTarget | null>(null);
+  const [pickedDetailOpen, setPickedDetailOpen] = useState(false);
   useEffect(() => { if (!expertMode) setPicked(null); }, [expertMode]);
+  useEffect(() => { if (!picked) setPickedDetailOpen(false); }, [picked]);
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
   const toggleGoodOnly = (next: boolean) => {
@@ -733,7 +734,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // ── 샌드박스 촬영 미리보기 스튜디오 (사진 노출 · 천체 장노출 · 타임랩스 미리보기 → 카메라 전달) ──
   const [sandboxShootMode, setSandboxShootMode] = useState<SandboxShootMode>('photo');
   const [sandboxExposure, setSandboxExposure] = useState<number>(0);
-  const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
+  const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
   const [sandboxLongExpUri, setSandboxLongExpUri] = useState<string | null>(null);
@@ -810,12 +811,18 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [expertMode, sandboxAstroSettings, latitude, sunAzimuth]);
 
   const longExpReqRef = useRef<number>(0);
+  const longExpBusyRef = useRef<boolean>(false);
+  const longExpAbortRef = useRef<AbortController | null>(null);
   const runSandboxLongExp = useCallback(async () => {
     const sky = sceneRef.current;
     const st = sky?.getRenderState?.();
     if (!sky || !st) return;
+    longExpAbortRef.current?.abort();
+    const ctl = new AbortController();
+    longExpAbortRef.current = ctl;
     longExpReqRef.current += 1;
     const reqId = longExpReqRef.current;
+    longExpBusyRef.current = true;
     setSandboxLongExpBusy(true);
     try {
       const simMode = sandboxAstroSettings.mode === 'tracked'
@@ -826,7 +833,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
         {
           mode: simMode,
-          startTimeMs: currentTime.getTime(),
+          startTimeMs: currentTimeRef.current.getTime(),
           durationSec: sandboxAstroSettings.durationSec,
           steps: sp.stepsForPreview,
           exposureGain: sp.exposureGain,
@@ -837,21 +844,27 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           waitMs: 5000,
           format: 'jpeg',
           compress: 0.85,
+          signal: ctl.signal,
         },
       );
-      if (reqId === longExpReqRef.current && res.uri) {
+      if (reqId === longExpReqRef.current && !ctl.signal.aborted && res.uri) {
         setSandboxLongExpUri(res.uri);
       }
     } finally {
-      if (reqId === longExpReqRef.current) setSandboxLongExpBusy(false);
+      if (reqId === longExpReqRef.current) {
+        longExpBusyRef.current = false;
+        setSandboxLongExpBusy(false);
+      }
     }
-  }, [sandboxAstroSettings, sandboxAstroSummary.clampedIso, currentTime]);
+  }, [sandboxAstroSettings, sandboxAstroSummary.clampedIso]);
 
   const isGestureBlocked = useCelestialStore(s => s.isGestureBlocked);
   const [sandboxViewSig, setSandboxViewSig] = useState<string>('');
   useEffect(() => {
     if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro' || isSliding || isGestureBlocked) return undefined;
     const poll = () => {
+      // 합성 중에는 remoteViewRef(적도의 추적)로 시선이 임시 회전하므로 시선 시그니처를 갱신하지 않습니다.
+      if (longExpBusyRef.current) return;
       const v = sceneRef.current?.getRenderState?.()?.view;
       if (!v) return;
       const sig = `${Math.round(v.az)}_${Math.round(v.el)}_${Math.round(v.fov)}`;
@@ -865,6 +878,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 천체 탭 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 장노출 합성
   useEffect(() => {
     longExpReqRef.current += 1;
+    longExpBusyRef.current = false;
+    longExpAbortRef.current?.abort();
+    longExpAbortRef.current = null;
+    sceneRef.current?.cancelLongExposure?.();
+
     if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro') {
       setSandboxLongExpUri(null);
       setSandboxLongExpBusy(false);
@@ -879,7 +897,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const t = setTimeout(() => {
       runSandboxLongExp();
     }, 450);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      longExpAbortRef.current?.abort();
+      sceneRef.current?.cancelLongExposure?.();
+    };
   }, [expertMode, isCameraOverlayActive, sandboxShootMode, isSliding, isGestureBlocked, sandboxViewSig, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
@@ -1329,15 +1351,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   });
 
   const setSkyHeaderActions = useCelestialStore(s => s.setSkyHeaderActions);
+  const headerTrackingLabel = trackingTarget
+    ? t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)
+    : null;
+  const headerPickedLabel = !isCameraOverlayActive && expertMode && !ascended && picked
+    ? (picked.kind === 'building' && picked.building
+      ? `${L3(language, '건물', 'Bldg', '建物')} ${Math.round(picked.building.heightM)}m · ${picked.distM >= 1000 ? `${(picked.distM / 1000).toFixed(1)}km` : `${Math.round(picked.distM)}m`}`
+      : `${L3(language, '지형', 'Terrain', '地形')} · ${picked.distM >= 1000 ? `${(picked.distM / 1000).toFixed(1)}km` : `${Math.round(picked.distM)}m`}`)
+    : null;
   useEffect(() => {
     setSkyHeaderActions({
       flyToMap: () => sceneRef.current?.flyToMap(),
       openLayers: () => setLayerModalVisible(true),
       openDev: () => setDevPanelOpen(v => !v),
       ascended,
+      trackingLabel: headerTrackingLabel,
+      onClearTracking: () => setTrackingTarget(null),
+      pickedLabel: headerPickedLabel,
+      pickedDetailOpen,
+      onTogglePickedDetail: () => setPickedDetailOpen(v => !v),
+      onClearPicked: () => { pendingSceneTargetRef.current = null; setPicked(null); },
     });
     return () => setSkyHeaderActions(null);
-  }, [setSkyHeaderActions, ascended]);
+  }, [setSkyHeaderActions, ascended, headerTrackingLabel, headerPickedLabel, pickedDetailOpen]);
 
   const [dockInset, setDockInset] = useState(210);
   // ── 새 화면 틀(SkyFrame) 연결 ────────────────────────────────────────────────
@@ -1376,7 +1412,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         onTimelapsePlanChange={setSandboxTlPlan}
       />
     ),
-    scene: <SceneBar language={language} scenes={savedScenes} onSave={() => setSceneSheetOpen(true)} onOpen={openScene} onAll={() => setSceneSheetOpen(true)} onShoot={shootScene} />,
   };
 
   return (
@@ -1434,12 +1469,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
         {/* 샌드박스 천체 장노출 3D 미리보기 */}
         {expertMode && !isCameraOverlayActive && sandboxLongExpUri && (
-          <Image
-            source={{ uri: sandboxLongExpUri }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            fadeDuration={120}
-          />
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <Image
+              source={{ uri: sandboxLongExpUri }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+              fadeDuration={120}
+            />
+          </View>
         )}
 
         {/* 샌드박스 천체 자동 합성 상태 & 타임랩스 메인화면 재생 컨트롤 */}
@@ -1497,22 +1534,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {trackingTarget && (
-          <PressScale
-            style={overlayStyles.trackingBadge}
-            onPress={() => setTrackingTarget(null)}
-            activeOpacity={0.8}
-          >
-            <Target size={11} color={DARK.accent} style={{ marginRight: 4 }} />
-            <Text style={overlayStyles.trackingText}>
-              {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
-            </Text>
-            <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
-          </PressScale>
-        )}
-
-        {/* 고른 대상 정보 (전문가 모드, 지상에서만) */}
-        {!isCameraOverlayActive && expertMode && !ascended && picked && (
+        {/* 고른 대상 상세 정보 (전문가 모드, 헤더 배지를 탭해 펼침) */}
+        {!isCameraOverlayActive && expertMode && !ascended && picked && pickedDetailOpen && (
           <View style={overlayStyles.objectPanelTop} pointerEvents="box-none">
             <ObjectInfoPanel
               language={language}
@@ -1647,27 +1670,25 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </View>
           </Reveal>
         )}
-      </View>
 
-      {/* 샌드박스 상시 오버레이: 좌측 하단 이동 조이스틱 · 우측 하단 높이/줌 슬라이더 */}
-      {!isCameraOverlayActive && expertMode && !ascended && (
-        <>
-          <View style={[overlayStyles.floatingJoystick, { bottom: dockInset + 12 }]}>
-            <MoveStick
-              language={language}
-              size={88}
-              relative
-              onStick={shutterMoveDriver.onStick}
-              onNudge={shutterMoveDriver.nudge}
-            />
-          </View>
-          <View style={[overlayStyles.floatingDials, { bottom: dockInset + 12 }]}>
-            <GlassSurface style={overlayStyles.floatingDialsSurface}>
+        {/* 샌드박스 상시 오버레이: stage 안에 두어 SkyFrame 설정 시트/배경막 아래에 놓이도록 배치 */}
+        {!isCameraOverlayActive && expertMode && !ascended && (
+          <>
+            <View style={[overlayStyles.floatingJoystick, { bottom: dockInset + 12 }]}>
+              <MoveStick
+                language={language}
+                size={88}
+                relative
+                onStick={shutterMoveDriver.onStick}
+                onNudge={shutterMoveDriver.nudge}
+              />
+            </View>
+            <View style={[overlayStyles.floatingDials, { bottom: dockInset + 12 }]}>
               <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
-            </GlassSurface>
-          </View>
-        </>
-      )}
+            </View>
+          </>
+        )}
+      </View>
 
       {/* ── 새 화면 틀(실험): 시간 자 · 칩 · 셔터 · 모드 줄이 한 막대에 ─────────── */}
       {!isCameraOverlayActive && (
@@ -1719,8 +1740,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           sandbox={frameSandbox}
           collapseNonce={collapseNonce}
           onDockHeight={setDockInset}
-          sunTracked={trackingTarget === 'sun'}
-          onToggleTrackSun={() => setTrackingTarget(prev => (prev === 'sun' ? null : 'sun'))}
           onShoot={() => { if (readScene('')) shootScene(); else onCameraPress?.(); }}
           onSaveScene={() => setSceneSheetOpen(true)}
           onOpenLatestScene={savedScenes.length > 0 ? () => openScene(savedScenes[0]) : undefined}
@@ -1764,7 +1783,7 @@ const overlayStyles = StyleSheet.create({
   sandboxPanel: { position: 'absolute', left: 12, top: belowHeader(108), zIndex: 20 },
   objectPanel: { position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 22 },
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 고른 대상 정보는 위(읽음 줄 아래)에 둡니다.
-  objectPanelTop: { position: 'absolute', left: 12, right: 12, top: belowHeader(64), zIndex: 22 },
+  objectPanelTop: { position: 'absolute', left: 12, right: 12, top: belowHeader(42), zIndex: 22 },
   // 고른 대상이 없을 때의 장면 저장 줄: 도구 열었을 때 하단 툴독 위에 배치
   sceneBar: { position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 22 },
   sandboxDock: {
@@ -1787,9 +1806,8 @@ const overlayStyles = StyleSheet.create({
   // 새 화면 틀: 아래는 유리 막대가 쓰므로 알림 줄은 위(읽음 줄 아래)로 올립니다.
   bannerTop: { bottom: undefined, top: belowHeader(56) },
   previewBannerWrap: { position: 'absolute', left: 16, right: 16, top: belowHeader(38), alignItems: 'center', zIndex: 28 },
-  floatingJoystick: { position: 'absolute', left: 14, zIndex: 21 },
-  floatingDials: { position: 'absolute', right: 14, zIndex: 21 },
-  floatingDialsSurface: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 16 },
+  floatingJoystick: { position: 'absolute', left: 14, zIndex: 15 },
+  floatingDials: { position: 'absolute', right: 10, zIndex: 15 },
   previewBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   previewBannerText: { fontSize: 11, fontWeight: '600', color: '#F1F5F9' },
   buildBanner: {

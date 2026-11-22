@@ -41,15 +41,22 @@ export const SimPickerOverlay: React.FC<SimPickerOverlayProps> = ({
   const [longExpUri, setLongExpUri] = useState<string | null>(null);
   const [isIntegrating, setIsIntegrating] = useState(false);
 
+  React.useEffect(() => {
+    if (!visible) getPrimarySky()?.cancelLongExposure?.();
+    return () => { getPrimarySky()?.cancelLongExposure?.(); };
+  }, [visible]);
+
   if (!visible) return null;
 
   const handleSyncToPhone = () => {
+    getPrimarySky()?.cancelLongExposure?.();
     setLongExpUri(null);
     const v = currentPhoneView();
     getPrimarySky()?.setCameraView?.(v.az, v.el);
   };
 
   const handleLockCurrentView = () => {
+    getPrimarySky()?.cancelLongExposure?.();
     const sky = getPrimarySky();
     const state = sky?.getRenderState();
     const v = state?.view;
@@ -65,11 +72,11 @@ export const SimPickerOverlay: React.FC<SimPickerOverlayProps> = ({
   };
 
   const handlePreviewLongExposure = async () => {
-    if (isIntegrating) return;
     const sky = getPrimarySky();
     const state = sky?.getRenderState();
     if (!sky || !state) return;
 
+    sky.cancelLongExposure?.();
     setIsIntegrating(true);
     try {
       const simMode =

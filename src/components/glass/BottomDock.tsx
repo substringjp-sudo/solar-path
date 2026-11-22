@@ -90,6 +90,13 @@ export interface BottomDockProps {
   onPickMode: (m: AppMode) => void;
 }
 
+let lastDockSnapshot: {
+  mode: AppMode;
+  chipsNode: React.ReactNode;
+  shutterNode: React.ReactNode;
+  shutterBg: string;
+} | null = null;
+
 export const BottomDock: React.FC<BottomDockProps> = ({
   language,
   stage,
@@ -113,50 +120,87 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   stripModes,
   onPickMode,
 }) => {
-  const SHUTTER_SLIDE_PX = 64;
+  const SHUTTER_SLIDE_PX = 76;
+  const [chipsW, setChipsW] = React.useState(360);
   const slideAnim = React.useRef(new Animated.Value(0)).current;
-  const [slideState, setSlideState] = React.useState<{ dir: -1 | 1; prevNode: React.ReactNode | null } | null>(null);
-  const prevSnapshotRef = React.useRef<{ mode: AppMode; node: React.ReactNode }>({ mode: stripMode, node: shutterInner });
-  const mountedRef = React.useRef(false);
+  const curShutterBg = shutterColor ?? DARK.accent;
+  const chipsContent = (
+    <>
+      {zoomDial ? (
+        <ZoomDialPill
+          magnification={zoomDial.magnification}
+          onChange={zoomDial.onChange}
+          language={language}
+        />
+      ) : null}
+      {chips.map(c => (
+        <GlassChip
+          key={c.id}
+          testID={c.testID ?? `chip-${c.id}`}
+          label={c.label}
+          icon={c.icon}
+          mono={c.mono}
+          active={c.active}
+          expanded={c.expanded}
+          accessibilityLabel={c.accessibilityLabel}
+          onPress={c.onPress}
+        />
+      ))}
+    </>
+  );
+
+  const [slideState, setSlideState] = React.useState<{
+    dir: -1 | 1;
+    prevChips: React.ReactNode;
+    prevShutter: React.ReactNode;
+    prevShutterBg: string;
+  } | null>(null);
+  const latestRef = React.useRef({ mode: stripMode, chipsContent, shutterInner, shutterBg: curShutterBg });
+  latestRef.current = { mode: stripMode, chipsContent, shutterInner, shutterBg: curShutterBg };
 
   React.useEffect(() => {
-    const startSlide = (dir: -1 | 1, prevNode: React.ReactNode | null) => {
-      setSlideState({ dir, prevNode });
-      slideAnim.setValue(0);
-      Animated.timing(slideAnim, {
-        toValue: 1,
-        duration: 240,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (finished) setSlideState(null);
-      });
-    };
-
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      prevSnapshotRef.current = { mode: stripMode, node: shutterInner };
-      const dir = getLastModeSlideDir();
-      if (dir !== 0) startSlide(dir, null);
-      return;
-    }
-
-    const prevMode = prevSnapshotRef.current.mode;
-    if (prevMode !== stripMode) {
-      const prevIdx = stripModes.indexOf(prevMode);
+    const prev = lastDockSnapshot;
+    const cur = latestRef.current;
+    if (prev && prev.mode !== stripMode) {
+      const prevIdx = stripModes.indexOf(prev.mode);
       const curIdx = stripModes.indexOf(stripMode);
       const dir: -1 | 0 | 1 =
         prevIdx >= 0 && curIdx >= 0 && prevIdx !== curIdx
           ? (curIdx > prevIdx ? 1 : -1)
           : getLastModeSlideDir();
-      const prevNode = prevSnapshotRef.current.node;
-      prevSnapshotRef.current = { mode: stripMode, node: shutterInner };
-      if (dir !== 0) startSlide(dir, prevNode);
+      if (dir !== 0) {
+        setSlideState({
+          dir,
+          prevChips: prev.chipsNode,
+          prevShutter: prev.shutterNode,
+          prevShutterBg: prev.shutterBg,
+        });
+        slideAnim.setValue(0);
+        Animated.timing(slideAnim, {
+          toValue: 1,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) setSlideState(null);
+        });
+      }
     }
+    lastDockSnapshot = {
+      mode: cur.mode,
+      chipsNode: cur.chipsContent,
+      shutterNode: cur.shutterInner,
+      shutterBg: cur.shutterBg,
+    };
   }, [stripMode, stripModes, slideAnim]);
 
-  if (prevSnapshotRef.current.mode === stripMode) {
-    prevSnapshotRef.current.node = shutterInner;
+  if (lastDockSnapshot && lastDockSnapshot.mode === stripMode) {
+    lastDockSnapshot = {
+      mode: stripMode,
+      chipsNode: chipsContent,
+      shutterNode: shutterInner,
+      shutterBg: curShutterBg,
+    };
   }
 
   const off = dayOffset(ruler.timeMs, ruler.nowMs, ruler.tz);
@@ -182,27 +226,58 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       screenH={screenH}
       onFixedHeight={onDockHeight}
     >
-      <View testID="chips-row" style={styles.chipsRow}>
-        {zoomDial ? (
-          <ZoomDialPill
-            magnification={zoomDial.magnification}
-            onChange={zoomDial.onChange}
-            language={language}
-          />
+      <View
+        testID="chips-row"
+        style={styles.chipsRow}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0 && Math.abs(w - chipsW) > 4) setChipsW(w);
+        }}
+      >
+        {slideState ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.chipsSlideSlot,
+              styles.chipsRowInner,
+              {
+                transform: [{
+                  translateX: slideAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -slideState.dir * chipsW],
+                  }),
+                }],
+                opacity: slideAnim.interpolate({
+                  inputRange: [0, 0.75, 1],
+                  outputRange: [1, 0.2, 0],
+                }),
+              },
+            ]}
+          >
+            {slideState.prevChips}
+          </Animated.View>
         ) : null}
-        {chips.map(c => (
-          <GlassChip
-            key={c.id}
-            testID={c.testID ?? `chip-${c.id}`}
-            label={c.label}
-            icon={c.icon}
-            mono={c.mono}
-            active={c.active}
-            expanded={c.expanded}
-            accessibilityLabel={c.accessibilityLabel}
-            onPress={c.onPress}
-          />
-        ))}
+        <Animated.View
+          style={[
+            styles.chipsRowInner,
+            slideState
+              ? {
+                  transform: [{
+                    translateX: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [slideState.dir * chipsW, 0],
+                    }),
+                  }],
+                  opacity: slideAnim.interpolate({
+                    inputRange: [0, 0.25, 1],
+                    outputRange: [0, 0.85, 1],
+                  }),
+                }
+              : null,
+          ]}
+        >
+          {chipsContent}
+        </Animated.View>
       </View>
 
       <TimeRuler
@@ -247,12 +322,14 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           onPress={onShutter}
           style={[styles.shutterRing, shutterBusy && styles.disabled]}
         >
-          <View style={[styles.shutterInner, shutterColor ? { backgroundColor: shutterColor } : null]}>
-            {slideState?.prevNode != null ? (
+          <View style={styles.shutterClip}>
+            {slideState ? (
               <Animated.View
                 pointerEvents="none"
                 style={[
-                  styles.shutterSlot,
+                  styles.shutterInner,
+                  styles.shutterCircleAbs,
+                  { backgroundColor: slideState.prevShutterBg },
                   {
                     transform: [{
                       translateX: slideAnim.interpolate({
@@ -260,19 +337,16 @@ export const BottomDock: React.FC<BottomDockProps> = ({
                         outputRange: [0, -slideState.dir * SHUTTER_SLIDE_PX],
                       }),
                     }],
-                    opacity: slideAnim.interpolate({
-                      inputRange: [0, 0.7, 1],
-                      outputRange: [1, 0.2, 0],
-                    }),
                   },
                 ]}
               >
-                {slideState.prevNode}
+                {slideState.prevShutter}
               </Animated.View>
             ) : null}
             <Animated.View
               style={[
-                styles.shutterSlot,
+                styles.shutterInner,
+                { backgroundColor: curShutterBg },
                 slideState
                   ? {
                       transform: [{
@@ -281,10 +355,6 @@ export const BottomDock: React.FC<BottomDockProps> = ({
                           outputRange: [slideState.dir * SHUTTER_SLIDE_PX, 0],
                         }),
                       }],
-                      opacity: slideAnim.interpolate({
-                        inputRange: [0, 0.3, 1],
-                        outputRange: [0, 0.85, 1],
-                      }),
                     }
                   : null,
               ]}
@@ -315,12 +385,24 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 const styles = StyleSheet.create({
   chipsRow: {
     minHeight: CHIP_MIN_H,
+    position: 'relative',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  chipsRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     flexWrap: 'nowrap',
     gap: 6,
     paddingHorizontal: 10,
+  },
+  chipsSlideSlot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
   shutterRow: {
     flexDirection: 'row',
@@ -348,6 +430,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  shutterClip: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   shutterInner: {
     width: 64,
@@ -356,12 +447,9 @@ const styles = StyleSheet.create({
     backgroundColor: DARK.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
   },
-  shutterSlot: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
+  shutterCircleAbs: {
+    position: 'absolute',
   },
   disabled: {
     opacity: 0.45,

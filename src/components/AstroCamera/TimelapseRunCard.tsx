@@ -44,7 +44,7 @@ export const TimelapseRunCard: React.FC<Props> = ({ language, title, subtitle, r
       ? L3(language, '화면을 켜 두세요', 'Keep the screen on', '画面をつけたままに')
       : L3(language, `타임랩스 끝 · ${saved}장 앨범에 저장`, `Timelapse done · ${saved} saved to album`, `タイムラプス終了 · ${saved}枚をアルバムに保存`);
   return (
-    <GlassSurface testID="tl-run" style={styles.card}>
+    <GlassSurface blurred testID="tl-run" style={styles.card}>
       <View style={styles.head}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>

@@ -49,7 +49,7 @@ export const EclipseCard: React.FC<Props> = ({ event, language, tzHours }) => {
   ].filter(Boolean).join(' · ');
 
   return (
-    <GlassSurface testID="eclipse-card" style={styles.card}>
+    <GlassSurface blurred testID="eclipse-card" style={styles.card}>
       <View style={styles.head}>
         <Moon size={14} color={TEXT} />
         <Text style={styles.title} numberOfLines={1}>

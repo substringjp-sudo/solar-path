@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Bookmark, Camera, FolderOpen, Sun } from 'lucide-react-native';
+import { Bookmark, Camera, FolderOpen } from 'lucide-react-native';
 import { BottomDock, type BottomDockChip } from '../glass/BottomDock';
 import { GlassSurface } from '../glass/GlassSurface';
 import { Scrim } from '../glass/Scrim';
@@ -59,9 +59,6 @@ interface Props {
   collapseNonce?: number;
   /** 하단 독 고정 높이 콜백 */
   onDockHeight?: (h: number) => void;
-  /** 태양 따라가기 칩 활성 여부 및 토글 */
-  sunTracked?: boolean;
-  onToggleTrackSun?: () => void;
   /** 셔터: 이 장면 찍기 */
   onShoot: () => void;
   /** 오른쪽 아래: 장면 저장 */
@@ -76,7 +73,7 @@ interface Props {
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, sunTracked = false, onToggleTrackSun, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
+  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | 'shoot' | null>(null);
@@ -137,7 +134,7 @@ export const SkyFrame: React.FC<Props> = ({
       : firstSandboxTab;
     if (sbTab && sandbox?.[sbTab]) {
       expanded = (maxH: number) => (
-        <GlassSurface testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
+        <GlassSurface blurred testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
           {sbTab === 'shoot' ? (
             sandbox[sbTab]
           ) : (
@@ -148,7 +145,7 @@ export const SkyFrame: React.FC<Props> = ({
     }
   } else if (mode === 'simulation' && simBody) {
     expanded = (maxH: number) => (
-      <GlassSurface testID="panel-sim" style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
+      <GlassSurface blurred testID="panel-sim" style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
         <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{simBody}</ScrollView>
       </GlassSurface>
     );
@@ -160,16 +157,6 @@ export const SkyFrame: React.FC<Props> = ({
 
   const dockChips: BottomDockChip[] = mode === 'simulation'
     ? [
-        ...(onToggleTrackSun
-          ? [{
-              id: 'track-sun',
-              testID: 'ruler-track-sun',
-              label: L3(language, '태양 추적', 'Track Sun', '太陽追跡'),
-              icon: <Sun size={12} color={sunTracked ? DARK.sun : TEXT} />,
-              active: sunTracked,
-              onPress: onToggleTrackSun,
-            }]
-          : []),
         {
           id: 'forecast',
           testID: 'chip-forecast',

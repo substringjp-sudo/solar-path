@@ -2509,7 +2509,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 <Scrim edge="top" height={180} />
 
                 {alignMenuOpen && (
-                  <GlassSurface style={[styles.alignPopover, { top: TOP_INSET + 46 }]}>
+                  <GlassSurface blurred style={[styles.alignPopover, { top: TOP_INSET + 46 }]}>
                     {viewMode !== 'sim' && (
                       <PressScale
                         style={styles.alignPopoverBtn}
@@ -2725,7 +2725,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                           sunAltAt={tlSunAltAt}
                           initialPlan={handoffTlPlan}
                           onPlanChange={(p) => { activeTlPlanRef.current = p; }}
-                          onStart={startTimelapse}
                           onClose={() => setCamStage('min')}
                           onSummaryChange={setTlSummaryLabel}
                         />
@@ -2784,7 +2783,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               }
               onShutter={() => {
                 Vibration.cancel();
-                if (timelapseMode) { setCamStage(s => (s === 'min' ? 'full' : 'min')); return; }
+                if (timelapseMode) {
+                  if (timelapse.run?.running) {
+                    timelapse.stop();
+                  } else {
+                    const plan = activeTlPlanRef.current ?? planTimelapse({ totalMin: 60, videoSec: 10, fps: 30, kind: 'plain', stackSize: 1 });
+                    setCamStage('min');
+                    startTimelapse(plan);
+                  }
+                  return;
+                }
                 if (cameraTab === 'astro') handleAstroStart();
                 else handleCapturePress();
               }}
