@@ -9,7 +9,7 @@
  * 안의 내용(`simBody` · `sandbox.*`)은 부르는 쪽이 넣습니다: 기존 조작부를 그대로 재사용합니다.
  */
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Bookmark, Camera, FolderOpen } from 'lucide-react-native';
 import { BottomDock, type BottomDockChip } from '../glass/BottomDock';
 import { GlassSurface } from '../glass/GlassSurface';
@@ -21,7 +21,8 @@ import type { DockStage } from '../../utils/dockStages';
 import { chipLabel, chipsFor, modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
 import { dayOffset, shiftDays } from '../../utils/timeRuler';
 import { L3 } from '../../utils/i18n';
-import { fmtAz, fmtEl, fmtEye, viewDiffers, type ViewAzEl } from '../../utils/sandboxDials';
+import { fmtAz, fmtEl, fmtEye, fmtZoom, viewDiffers, type ViewAzEl } from '../../utils/sandboxDials';
+import { equivalentFocalMm } from '../../utils/lensInfo';
 
 type Lang = 'ko' | 'en' | 'ja';
 export type SlideKind = 'time' | 'date';
@@ -238,15 +239,24 @@ const readoutShadow = {
 
 /** 지금 시선의 방위 · 앙각(과 눈 높이)을 투명 글자 한 줄로. 읽을 만큼 바뀔 때만 이 줄만 다시 그립니다(`SandboxDials.ViewReadout` 과 같은 읽기). */
 export const LiveReadout: React.FC<LiveReadoutProps> = React.memo(({ language, getView, eyeHeightM, intervalMs = 330 }) => {
+  const win = useWindowDimensions();
   const get = React.useRef(getView);
   get.current = getView;
   const [v, setV] = React.useState<ViewAzEl | null>(() => get.current());
   React.useEffect(() => {
-    const tick = () => { const n = get.current(); setV(p => (viewDiffers(p, n) ? (n ? { az: n.az, el: n.el } : null) : p)); };
+    const tick = () => { const n = get.current(); setV(p => (viewDiffers(p, n) ? (n ? { az: n.az, el: n.el, fov: n.fov } : null) : p)); };
     tick();
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
-  const eye = eyeHeightM == null ? '' : ` · ${L3(language, '눈', 'EYE', '目')} ${fmtEye(eyeHeightM)}`;
-  return <Text style={[styles.readoutText, readoutShadow]}>{`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${eye}`}</Text>;
+  const eye = eyeHeightM == null ? '' : ` · ${L3(language, '높이', 'HGT', '高さ')} ${fmtEye(eyeHeightM)}`;
+  let zoomStr = '';
+  if (v?.fov != null && Number.isFinite(v.fov) && v.fov > 0) {
+    const mm = equivalentFocalMm(v.fov, win.width / Math.max(1, win.height));
+    const mag = mm / 24;
+    const magFmt = fmtZoom(mag < 10 ? Math.round(mag * 10) / 10 : Math.round(mag));
+    const mmFmt = mm >= 100 ? Math.round(mm / 10) * 10 : Math.round(mm);
+    zoomStr = ` · ${magFmt} (${mmFmt}mm)`;
+  }
+  return <Text style={[styles.readoutText, readoutShadow]}>{`${v ? `AZ ${fmtAz(v.az)}°` : 'AZ —'} · ${v ? `EL ${fmtEl(v.el)}°` : 'EL —'}${zoomStr}${eye}`}</Text>;
 });

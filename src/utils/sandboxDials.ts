@@ -106,7 +106,7 @@ export function fmtEl(elDeg: number): string {
   return (r === 0 ? 0 : r).toFixed(1);
 }
 
-export interface ViewAzEl { az: number; el: number }
+export interface ViewAzEl { az: number; el: number; fov?: number }
 
 /**
  * 화면에 적은 시선과 새 시선이 읽을 만큼 다른가(`epsDeg` 도 넘게). 방위는 한 바퀴를 돌아 잰 차이라 359.99 와 0.01 은 0.02° 차입니다.
@@ -115,5 +115,5 @@ export interface ViewAzEl { az: number; el: number }
 export function viewDiffers(prev: ViewAzEl | null, next: ViewAzEl | null, epsDeg = 0.05): boolean {
   if (!prev || !next) return prev !== next;
   const dAz = Math.abs((((next.az - prev.az) % 360) + 540) % 360 - 180);
-  return dAz > epsDeg || Math.abs(next.el - prev.el) > epsDeg;
+  return dAz > epsDeg || Math.abs(next.el - prev.el) > epsDeg || Math.abs((next.fov ?? 0) - (prev.fov ?? 0)) > epsDeg;
 }

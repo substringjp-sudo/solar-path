@@ -1722,7 +1722,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             onCameraPress?.();
           }}
           getView={frameGetView}
-          readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el } : null; }} eyeHeightM={expertMode ? eyeH : undefined} />}
+          readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el, fov: v.fov } : null; }} eyeHeightM={expertMode ? eyeH : undefined} />}
           simBody={sheetOpen ? (
             <>
               {cloudCaption ? (

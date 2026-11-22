@@ -353,7 +353,7 @@ export const ViewReadout: React.FC<ReadoutProps> = ({ language, getView, eyeHeig
   }, [intervalMs]);
   const azT = v ? fmtAz(v.az) : '—';
   const elT = v ? fmtEl(v.el) : '—';
-  const eyeLabel = L3(language, '눈', 'EYE', '目');
+  const eyeLabel = L3(language, '높이', 'HGT', '高さ');
   return (
     <View
       style={styles.readout}
