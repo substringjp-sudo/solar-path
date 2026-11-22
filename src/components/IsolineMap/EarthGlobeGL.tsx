@@ -7,13 +7,12 @@
  * - 태양이 닿지 않는 밤 영역은 대기 박명(Rayleigh/Mie) 산란과 우주 시점 암부 대비, NASA 야간 불빛을 표현합니다.
  */
 import React, { useEffect, useRef } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
+import { Renderer } from 'expo-three';
 import * as THREE from 'three';
-import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
 import { unzlibSync } from 'fflate';
-import { BASE_DEM_ASSET } from '../../utils/demTileCache';
+import { BASE_DEM_PNG_B64 } from '../../utils/baseDemData';
 import { fromBase64, getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import type { NightLights } from '../../utils/cityLightMap';
 
@@ -25,7 +24,6 @@ interface DecodedDem {
 }
 
 let cachedDem: DecodedDem | null = null;
-let demPromise: Promise<DecodedDem | null> | null = null;
 let cachedSphereGeo: THREE.BufferGeometry | null = null;
 
 function decodePngToRgba(bytes: Uint8Array): { w: number; h: number; rgba: Uint8Array } {
@@ -105,32 +103,22 @@ function decodePngToRgba(bytes: Uint8Array): { w: number; h: number; rgba: Uint8
   return { w, h, rgba };
 }
 
-async function loadBaseDem(): Promise<DecodedDem | null> {
+function getBaseDemSync(): DecodedDem | null {
   if (cachedDem) return cachedDem;
-  if (demPromise) return demPromise;
-  demPromise = (async () => {
-    try {
-      const asset = Asset.fromModule(BASE_DEM_ASSET);
-      await asset.downloadAsync();
-      const uri = asset.localUri ?? asset.uri;
-      if (!uri) return null;
-      const bytes = Platform.OS === 'web'
-        ? new Uint8Array(await (await fetch(uri)).arrayBuffer())
-        : fromBase64(await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }));
-      const { w, h, rgba } = decodePngToRgba(bytes);
-      const elevM = new Float32Array(w * h);
-      for (let i = 0; i < w * h; i++) {
-        const idx = i * 4;
-        elevM[i] = rgba[idx] * 256 + rgba[idx + 1] + rgba[idx + 2] / 256 - 32768;
-      }
-      cachedDem = { w, h, rgba, elevM };
-      return cachedDem;
-    } catch (e) {
-      if (__DEV__) console.warn('[EarthGlobeGL] base DEM load failed', e);
-      return null;
+  try {
+    const bytes = fromBase64(BASE_DEM_PNG_B64);
+    const { w, h, rgba } = decodePngToRgba(bytes);
+    const elevM = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const idx = i * 4;
+      elevM[i] = rgba[idx] * 256 + rgba[idx + 1] + rgba[idx + 2] / 256 - 32768;
     }
-  })();
-  return demPromise;
+    cachedDem = { w, h, rgba, elevM };
+    return cachedDem;
+  } catch (e) {
+    if (__DEV__) console.warn('[EarthGlobeGL] base DEM decode failed', e);
+    return null;
+  }
 }
 
 function sampleElevCpu(dem: DecodedDem, lonRad: number, latRad: number): number {
@@ -239,13 +227,80 @@ varying vec3 vEarthPos;
 varying vec3 vCamNormal;
 varying vec3 vSphereCamNormal;
 varying float vElev;
+varying float vClipBack;
+
+uniform float uMorph;
+uniform vec2 uSizePx;
+uniform vec2 uCenterPx;
+uniform float uRadiusPx;
+uniform vec3 uRotateDeg;
+
+const float V_RAD = 0.01745329252;
+const float V_MAX_MERC_LAT = 1.483529864;
 
 void main() {
   vEarthPos = normalize(aSphereNormal);
   vCamNormal = normalize(normalMatrix * normal);
   vSphereCamNormal = normalize(normalMatrix * aSphereNormal);
   vElev = aElev;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vClipBack = 0.0;
+
+  if (uMorph >= 0.999) {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    return;
+  }
+
+  // d3.geoProjection(morphRaw(uMorph, -r1)) 와 1:1 일치하는 정사영 <-> 메르카토르 보간
+  float r0 = uRotateDeg.x * V_RAD;
+  float c0 = cos(r0), s0 = sin(r0);
+  // Y축 회전(+r0): aSphereNormal(x=동, y=북, z=앞)
+  float rx = vEarthPos.x * c0 + vEarthPos.z * s0;
+  float ry = vEarthPos.y;
+  float rz = -vEarthPos.x * s0 + vEarthPos.z * c0;
+
+  // X축 회전(-r1): phi0 = -uRotateDeg.y
+  float p0 = -uRotateDeg.y * V_RAD;
+  float cp0 = cos(p0), sp0 = sin(p0);
+  float cx = rx;
+  float cy = ry * cp0 - rz * sp0;
+  float cz = ry * sp0 + rz * cp0;
+
+  // 뒤쪽 반구(±180° 경도 래핑 구간) 삼각형 늘어짐 방지
+  if (cz <= 0.02) {
+    vClipBack = 1.0;
+  }
+
+  // 정사영(돌린 좌표 그대로)
+  float xo = cx;
+  float yo = cy;
+
+  // 메르카토르(기울임 되돌린 원래 위도 · 경도차)
+  float xUnrot = cz * cp0 - cy * sp0;
+  float zUnrot = cz * sp0 + cy * cp0;
+  if (xUnrot <= 0.02) {
+    vClipBack = 1.0;
+  }
+  float phi = clamp(asin(clamp(zUnrot, -1.0, 1.0)), -V_MAX_MERC_LAT, V_MAX_MERC_LAT);
+  float dl = atan(cx, xUnrot);
+  float m0 = log(tan(0.7853981634 + clamp(p0, -V_MAX_MERC_LAT, V_MAX_MERC_LAT) * 0.5));
+  float k = max(0.1, cp0);
+  float xm = k * dl;
+  float ym = k * (log(tan(0.7853981634 + phi * 0.5)) - m0);
+
+  float px = mix(xm, xo, uMorph);
+  float py = mix(ym, yo, uMorph);
+
+  // 롤(r2) 적용 후 픽셀 -> NDC 변환
+  float r2 = uRotateDeg.z * V_RAD;
+  float cr = cos(r2), sr = sin(r2);
+  float rpx = px * cr - py * sr;
+  float rpy = px * sr + py * cr;
+
+  float screenX = uCenterPx.x + rpx * uRadiusPx;
+  float screenY = uCenterPx.y - rpy * uRadiusPx;
+  float ndcX = (screenX / max(1.0, uSizePx.x)) * 2.0 - 1.0;
+  float ndcY = 1.0 - (screenY / max(1.0, uSizePx.y)) * 2.0;
+  gl_Position = vec4(ndcX, ndcY, 0.0, 1.0);
 }
 `;
 
@@ -256,7 +311,9 @@ varying vec3 vEarthPos;
 varying vec3 vCamNormal;
 varying vec3 vSphereCamNormal;
 varying float vElev;
+varying float vClipBack;
 
+uniform float uMorph;
 uniform vec3 uSunDir;
 uniform sampler2D uDemTex;
 uniform float uDemValid;
@@ -331,7 +388,7 @@ float sampleElevAt(float lonRad, float latRad) {
 }
 
 void main() {
-  if (uOpacity <= 0.01) discard;
+  if (uOpacity <= 0.01 || vClipBack > 0.5) discard;
 
   vec3 nEarth = normalize(vEarthPos);
   vec3 nSphere = normalize(vSphereCamNormal);
@@ -349,11 +406,18 @@ void main() {
 
   float ndl = dot(nSphere, L);
   float nz = clamp(nSphere.z, 0.0, 1.0);
-  float day = smoothstep(-0.07, 0.14, ndl);
-  // 박명/터미네이터 대기 산란(태양빛이 대기를 스치며 붉은/주황빛 -> 남색으로 전이)
-  float twilightBell = exp(-pow((ndl + 0.015) / 0.072, 2.0));
-  float nightDeep = smoothstep(-0.02, -0.22, ndl);
-  vec3 sunTint = mix(vec3(1.0, 0.48, 0.22), vec3(1.0, 0.98, 0.95), smoothstep(-0.04, 0.22, ndl));
+  // 실제 천문학 수치 기반 낮/박명/밤 경계:
+  // - 태양 시반경(16') + 대기 굴절(34') = -0.833°, 고도 h 에 따른 지평선 부각 sqrt(2h/R) 반영
+  float sunAltDeg = asin(clamp(ndl, -1.0, 1.0)) / RAD;
+  float dipDeg = h > 0.0 ? sqrt(2.0 * h / 6371000.0) / RAD : 0.0;
+  float effSunAlt = sunAltDeg + 0.833 + dipDeg;
+  float day = smoothstep(-0.35, 1.4, effSunAlt);
+  float civilTw = smoothstep(-6.0, -0.5, sunAltDeg);
+  float nautTw = smoothstep(-12.0, -6.0, sunAltDeg);
+  float astroTw = smoothstep(-18.0, -12.0, sunAltDeg);
+  float twilightBell = exp(-pow((sunAltDeg + 1.8) / 3.4, 2.0));
+  float nightDeep = 1.0 - astroTw;
+  vec3 sunTint = mix(vec3(1.0, 0.45, 0.20), vec3(1.0, 0.98, 0.95), smoothstep(-1.2, 10.0, effSunAlt));
 
   vec3 col;
   if (h < 0.0) {
@@ -390,9 +454,10 @@ void main() {
     // 얕은 바다는 굴절 투과광(해저면 반사) 반영
     vec3 oceanBody = mix(scatterCol, colShelfSand, transmittance.r * tCoastal * 0.65);
 
-    // 산란/일조량
-    float oceanDiff = max(0.0, dot(nWave, L));
-    float nightAmbient = mix(0.045, 0.014, nightDeep);
+    // 산란/일조량 (시민·항해·천문 박명 단계별 대기 잔광 포함)
+    float oceanDiff = max(0.0, dot(nWave, L)) * day;
+    float twGlow = civilTw * 0.055 + nautTw * 0.025 + astroTw * 0.010;
+    float nightAmbient = mix(0.032, 0.010, nightDeep) + twGlow;
     vec3 litBody = oceanBody * (nightAmbient + sunTint * oceanDiff * 0.96);
 
     // Schlick 프레넬 반사 (F0 = 0.02 for water)
@@ -427,8 +492,9 @@ void main() {
     // 실제 3D 메시 폴리곤 법선 + 세부 지형 기울기 결합
     vec3 nDetail = normalize(nSphere - eastCam * slopeE * 0.52 - northCam * slopeN * 0.52);
     vec3 nRelief = normalize(mix(nDetail, nMesh, 0.55));
-    float diff = max(0.0, dot(nRelief, L));
-    float nightAmbient = mix(0.055, 0.016, nightDeep);
+    float diff = max(0.0, dot(nRelief, L)) * day;
+    float twGlow = civilTw * 0.055 + nautTw * 0.025 + astroTw * 0.010;
+    float nightAmbient = mix(0.036, 0.012, nightDeep) + twGlow;
 
     // 지역별 토질·기후대 색상 (열대 우림 토양 / 적색 라테라이트·사막 사토 / 온대 양토 / 스텝·초원 / 한대 타이가 / 고산 암석·빙설)
     float lonDeg = lonRad / RAD;
@@ -487,14 +553,15 @@ void main() {
     }
   }
 
-  // ── 우주 시점 대기 산란 (낮쪽 레일리 림 + 명암 경계선 노을 산란 + 어두운 밤 가장자리) ──
+  // ── 우주 시점 대기 산란 (낮쪽 레일리 림 + 시민/항해 박명 산란) ──
   float limb = pow(1.0 - nz, 3.6);
-  vec3 rayleighRim = vec3(0.32, 0.64, 0.98) * limb * smoothstep(-0.08, 0.42, ndl) * 0.52;
-  vec3 terminatorScatter = vec3(0.92, 0.42, 0.16) * twilightBell * (0.06 + 0.24 * limb);
+  vec3 rayleighRim = vec3(0.32, 0.64, 0.98) * limb * smoothstep(-4.0, 22.0, sunAltDeg) * 0.52;
+  vec3 terminatorScatter = vec3(0.94, 0.42, 0.16) * twilightBell * (0.06 + 0.24 * limb)
+    + vec3(0.14, 0.26, 0.56) * nautTw * (1.0 - civilTw) * (0.05 + 0.12 * limb);
   col += rayleighRim + terminatorScatter;
 
-  // 가장자리 안티에일리어싱
-  float edgeAa = smoothstep(0.0, 0.08, nz);
+  // 가장자리 안티에일리어싱 (정사영 구일 때만 가장자리 소프트 처리)
+  float edgeAa = uMorph >= 0.999 ? smoothstep(0.0, 0.08, nz) : 1.0;
   gl_FragColor = vec4(col, uOpacity * edgeAa);
 }
 `;
@@ -505,6 +572,7 @@ interface Props {
   cx: number;
   cy: number;
   radius: number;
+  morph?: number;
   rotate: readonly [number, number] | readonly [number, number, number];
   subsolar: { latitude: number; longitude: number };
   opacity?: number;
@@ -517,13 +585,14 @@ export const EarthGlobeGL: React.FC<Props> = ({
   cx,
   cy,
   radius,
+  morph = 1,
   rotate,
   subsolar,
   opacity = 1,
   onReadyChange,
 }) => {
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const rendererRef = useRef<Renderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
@@ -532,8 +601,8 @@ export const EarthGlobeGL: React.FC<Props> = ({
   const onReadyCbRef = useRef(onReadyChange);
   onReadyCbRef.current = onReadyChange;
 
-  const propsRef = useRef({ width, height, cx, cy, radius, rotate, subsolar, opacity });
-  propsRef.current = { width, height, cx, cy, radius, rotate, subsolar, opacity };
+  const propsRef = useRef({ width, height, cx, cy, radius, morph, rotate, subsolar, opacity });
+  propsRef.current = { width, height, cx, cy, radius, morph, rotate, subsolar, opacity };
 
   const renderNow = () => {
     const gl = glRef.current;
@@ -545,6 +614,8 @@ export const EarthGlobeGL: React.FC<Props> = ({
     if (!gl || !r || !s || !c || !mesh || !m) return;
     const p = propsRef.current;
 
+    r.setPixelRatio(1);
+    r.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
     r.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     c.left = -p.width / 2;
     c.right = p.width / 2;
@@ -566,19 +637,26 @@ export const EarthGlobeGL: React.FC<Props> = ({
     mesh.rotation.order = 'ZXY';
     mesh.rotation.set(-r1 * RAD, r0 * RAD, r2 * RAD);
 
-    const dLon = (p.subsolar.longitude + r0) * RAD;
-    const sLat = p.subsolar.latitude * RAD;
-    const cLat = -r1 * RAD;
-    const sx = Math.cos(sLat) * Math.sin(dLon);
-    const sy0 = Math.cos(cLat) * Math.sin(sLat) - Math.sin(cLat) * Math.cos(sLat) * Math.cos(dLon);
-    const sz = Math.sin(cLat) * Math.sin(sLat) + Math.cos(cLat) * Math.cos(sLat) * Math.cos(dLon);
-    const roll = r2 * RAD;
-    const cr = Math.cos(roll);
-    const sr = Math.sin(roll);
-    const sunCamX = sx * cr - sy0 * sr;
-    const sunCamY = sx * sr + sy0 * cr;
+    const camDirOf = (latDeg: number, lonDeg: number) => {
+      const dLon = (lonDeg + r0) * RAD;
+      const sLat = latDeg * RAD;
+      const cLat = -r1 * RAD;
+      const sx = Math.cos(sLat) * Math.sin(dLon);
+      const sy0 = Math.cos(cLat) * Math.sin(sLat) - Math.sin(cLat) * Math.cos(sLat) * Math.cos(dLon);
+      const sz = Math.sin(cLat) * Math.sin(sLat) + Math.cos(cLat) * Math.cos(sLat) * Math.cos(dLon);
+      const roll = r2 * RAD;
+      const cr = Math.cos(roll);
+      const sr = Math.sin(roll);
+      return [sx * cr - sy0 * sr, sx * sr + sy0 * cr, sz] as const;
+    };
+    const [sunCamX, sunCamY, sunCamZ] = camDirOf(p.subsolar.latitude, p.subsolar.longitude);
 
-    (m.uniforms.uSunDir.value as THREE.Vector3).set(sunCamX, sunCamY, sz).normalize();
+    m.uniforms.uMorph.value = p.morph;
+    (m.uniforms.uSizePx.value as THREE.Vector2).set(p.width, p.height);
+    (m.uniforms.uCenterPx.value as THREE.Vector2).set(p.cx, p.cy);
+    m.uniforms.uRadiusPx.value = p.radius;
+    (m.uniforms.uRotateDeg.value as THREE.Vector3).set(r0, r1, r2);
+    (m.uniforms.uSunDir.value as THREE.Vector3).set(sunCamX, sunCamY, sunCamZ).normalize();
     m.uniforms.uOpacity.value = p.opacity;
 
     r.render(s, c);
@@ -605,19 +683,8 @@ export const EarthGlobeGL: React.FC<Props> = ({
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
     glRef.current = gl;
     const p = propsRef.current;
-    const renderer = new THREE.WebGLRenderer({
-      canvas: {
-        width: gl.drawingBufferWidth,
-        height: gl.drawingBufferHeight,
-        style: {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        clientHeight: gl.drawingBufferHeight,
-      } as any,
-      context: gl as any,
-      alpha: true,
-      antialias: true,
-    });
+    const renderer = new Renderer({ gl });
+    renderer.setPixelRatio(1);
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
     renderer.setClearColor(0x000000, 0);
 
@@ -639,6 +706,11 @@ export const EarthGlobeGL: React.FC<Props> = ({
       depthTest: true,
       depthWrite: true,
       uniforms: {
+        uMorph: { value: p.morph },
+        uSizePx: { value: new THREE.Vector2(p.width, p.height) },
+        uCenterPx: { value: new THREE.Vector2(p.cx, p.cy) },
+        uRadiusPx: { value: p.radius },
+        uRotateDeg: { value: new THREE.Vector3(p.rotate[0], p.rotate[1], p.rotate[2] ?? 0) },
         uSunDir: { value: new THREE.Vector3(0.4, 0.2, 0.85) },
         uDemTex: { value: null },
         uDemValid: { value: 0 },
@@ -653,7 +725,7 @@ export const EarthGlobeGL: React.FC<Props> = ({
     cameraRef.current = camera;
     matRef.current = mat;
 
-    const dem = await loadBaseDem();
+    const dem = getBaseDemSync();
     if (dem && matRef.current === mat) {
       const geo = getEarthTerrainGeometry(dem);
       const mesh = new THREE.Mesh(geo, mat);
@@ -683,10 +755,11 @@ export const EarthGlobeGL: React.FC<Props> = ({
   };
 
   return (
-    <GLView
-      pointerEvents="none"
-      style={StyleSheet.absoluteFill}
-      onContextCreate={onContextCreate}
-    />
+    <View collapsable={false} pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <GLView
+        style={StyleSheet.absoluteFill}
+        onContextCreate={onContextCreate}
+      />
+    </View>
   );
 };
