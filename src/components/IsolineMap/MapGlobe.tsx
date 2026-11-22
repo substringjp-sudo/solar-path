@@ -729,11 +729,48 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       const sy = CY - ((y * distR) / cz) * f;
       const sr = Math.max(1.5, (radR / cz) * f);
       if (sx < -sr - 50 || sx > width + sr + 50 || sy < -sr - 50 || sy > height + sr + 50) return null;
-      return { sx, sy, sr, inFront: z >= 0 };
+      return { sx, sy, sr, inFront: z >= 0, px: x * distR, py: y * distR, pz: z * distR };
     };
 
     const sun = projectBody(subsolar.latitude, subsolar.longitude, 23480, 109.2);
-    const moon = sublunar ? projectBody(sublunar.latitude, sublunar.longitude, 60.3, 0.2725) : null;
+    const moonRaw = sublunar ? projectBody(sublunar.latitude, sublunar.longitude, 60.3, 0.2725) : null;
+    let moon: (NonNullable<typeof moonRaw> & { litFrac: number; angleDeg: number; shadowPath: string | 'full' | null }) | null = null;
+    if (moonRaw) {
+      // 달 → 태양 벡터와 달 → 카메라 벡터로 실제 3D 위상 및 태양 방향 각도 계산
+      const sLonR = (subsolar.longitude - cLon) * RAD;
+      const sLatR = subsolar.latitude * RAD;
+      const cLatR = cLat * RAD;
+      const sx3 = Math.cos(sLatR) * Math.sin(sLonR) * 23480;
+      const sy3 = (Math.cos(cLatR) * Math.sin(sLatR) - Math.sin(cLatR) * Math.cos(sLatR) * Math.cos(sLonR)) * 23480;
+      const sz3 = (Math.sin(cLatR) * Math.sin(sLatR) + Math.cos(cLatR) * Math.cos(sLatR) * Math.cos(sLonR)) * 23480;
+      let lx = sx3 - moonRaw.px, ly = sy3 - moonRaw.py, lz = sz3 - moonRaw.pz;
+      const lLen = Math.hypot(lx, ly, lz) || 1;
+      lx /= lLen; ly /= lLen; lz /= lLen;
+
+      let vx = -moonRaw.px, vy = -moonRaw.py, vz = camZ - moonRaw.pz;
+      const vLen = Math.hypot(vx, vy, vz) || 1;
+      vx /= vLen; vy /= vLen; vz /= vLen;
+
+      const litFrac = Math.max(0, Math.min(1, (1 + (lx * vx + ly * vy + lz * vz)) * 0.5));
+      // 카메라 시선 V 에 수직인 화면 기저 (U: 오른쪽, W: 위쪽)
+      const upX = Math.abs(vy) > 0.99 ? 0 : 0, upY = Math.abs(vy) > 0.99 ? 0 : 1, upZ = Math.abs(vy) > 0.99 ? -1 : 0;
+      let ux = upY * vz - upZ * vy, uy = upZ * vx - upX * vz, uz = upX * vy - upY * vx;
+      const uLen = Math.hypot(ux, uy, uz) || 1;
+      ux /= uLen; uy /= uLen; uz /= uLen;
+      const wx = vy * uz - vz * uy, wy = vz * ux - vx * uz, wz = vx * uy - vy * ux;
+      const lu = lx * ux + ly * uy + lz * uz;
+      const lw = lx * wx + ly * wy + lz * wz;
+      const angleDeg = (Math.atan2(-lw, lu) * 180) / Math.PI;
+
+      const r = moonRaw.sr;
+      const rx = Math.abs(2 * litFrac - 1) * r;
+      const shadowPath = litFrac > 0.995
+        ? null
+        : litFrac < 0.005
+          ? 'full'
+          : `M0 ${r} A${r} ${r} 0 0 1 0 ${-r} A${rx} ${r} 0 0 ${litFrac > 0.5 ? 0 : 1} 0 ${r} Z`;
+      moon = { ...moonRaw, litFrac, angleDeg, shadowPath };
+    }
     return { sun, moon };
   }, [morph, RADIUS, rotate, width, height, CX, CY, subsolar, sublunar]);
 
@@ -808,6 +845,10 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="35%" stopColor="#FEF08A" stopOpacity="0.95" />
               <Stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
             </RadialGradient>
+            <RadialGradient id="spaceMoonGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor="#E2E8F0" stopOpacity="0.32" />
+              <Stop offset="100%" stopColor="#E2E8F0" stopOpacity="0" />
+            </RadialGradient>
           </Defs>
 
           {spaceBodies?.sun && !spaceBodies.sun.inFront && (
@@ -816,14 +857,37 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
             </G>
           )}
-          {spaceBodies?.moon && !spaceBodies.moon.inFront && (
-            <Circle
-              cx={spaceBodies.moon.sx}
-              cy={spaceBodies.moon.sy}
-              r={spaceBodies.moon.sr}
-              fill={`rgba(226, 232, 240, ${(0.25 + 0.75 * moonFraction).toFixed(2)})`}
-            />
-          )}
+          {spaceBodies?.moon && !spaceBodies.moon.inFront && (() => {
+            const m = spaceBodies.moon;
+            const r = m.sr;
+            return (
+              <G pointerEvents="none" transform={`translate(${m.sx} ${m.sy})`}>
+                <Defs>
+                  <ClipPath id="spaceMoonClipBack">
+                    <Circle cx={0} cy={0} r={r} />
+                  </ClipPath>
+                </Defs>
+                {m.litFrac > 0.05 && (
+                  <Circle cx={0} cy={0} r={r * 2.1} fill="url(#spaceMoonGlow)" opacity={0.3 + 0.7 * m.litFrac} />
+                )}
+                <G clipPath="url(#spaceMoonClipBack)">
+                  <Circle cx={0} cy={0} r={r} fill="#E2E8F0" />
+                  <Circle cx={-r * 0.28} cy={-r * 0.24} r={r * 0.28} fill="#94A3B8" opacity={0.45} />
+                  <Circle cx={r * 0.16} cy={-r * 0.22} r={r * 0.20} fill="#94A3B8" opacity={0.42} />
+                  <Circle cx={r * 0.28} cy={r * 0.08} r={r * 0.22} fill="#64748B" opacity={0.38} />
+                  <Circle cx={-r * 0.36} cy={r * 0.14} r={r * 0.25} fill="#94A3B8" opacity={0.36} />
+                  <Circle cx={r * 0.42} cy={-r * 0.14} r={r * 0.11} fill="#64748B" opacity={0.42} />
+                  <Circle cx={-r * 0.10} cy={r * 0.46} r={r * 0.08} fill="#FFFFFF" opacity={0.35} />
+                  {m.shadowPath === 'full' ? (
+                    <Circle cx={0} cy={0} r={r} fill="#090E1A" opacity={0.94} />
+                  ) : m.shadowPath && (
+                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#090E1A" opacity={0.94} />
+                  )}
+                </G>
+                <Circle cx={0} cy={0} r={r} fill="none" stroke="rgba(226, 232, 240, 0.22)" strokeWidth={0.5} />
+              </G>
+            );
+          })()}
 
           {morph >= 1
             ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
@@ -1053,14 +1117,37 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Circle cx={spaceBodies.sun.sx} cy={spaceBodies.sun.sy} r={spaceBodies.sun.sr} fill="#FFFBEB" />
             </G>
           )}
-          {spaceBodies?.moon && spaceBodies.moon.inFront && (
-            <Circle
-              cx={spaceBodies.moon.sx}
-              cy={spaceBodies.moon.sy}
-              r={spaceBodies.moon.sr}
-              fill={`rgba(226, 232, 240, ${(0.25 + 0.75 * moonFraction).toFixed(2)})`}
-            />
-          )}
+          {spaceBodies?.moon && spaceBodies.moon.inFront && (() => {
+            const m = spaceBodies.moon;
+            const r = m.sr;
+            return (
+              <G pointerEvents="none" transform={`translate(${m.sx} ${m.sy})`}>
+                <Defs>
+                  <ClipPath id="spaceMoonClipFront">
+                    <Circle cx={0} cy={0} r={r} />
+                  </ClipPath>
+                </Defs>
+                {m.litFrac > 0.05 && (
+                  <Circle cx={0} cy={0} r={r * 2.1} fill="url(#spaceMoonGlow)" opacity={0.3 + 0.7 * m.litFrac} />
+                )}
+                <G clipPath="url(#spaceMoonClipFront)">
+                  <Circle cx={0} cy={0} r={r} fill="#E2E8F0" />
+                  <Circle cx={-r * 0.28} cy={-r * 0.24} r={r * 0.28} fill="#94A3B8" opacity={0.45} />
+                  <Circle cx={r * 0.16} cy={-r * 0.22} r={r * 0.20} fill="#94A3B8" opacity={0.42} />
+                  <Circle cx={r * 0.28} cy={r * 0.08} r={r * 0.22} fill="#64748B" opacity={0.38} />
+                  <Circle cx={-r * 0.36} cy={r * 0.14} r={r * 0.25} fill="#94A3B8" opacity={0.36} />
+                  <Circle cx={r * 0.42} cy={-r * 0.14} r={r * 0.11} fill="#64748B" opacity={0.42} />
+                  <Circle cx={-r * 0.10} cy={r * 0.46} r={r * 0.08} fill="#FFFFFF" opacity={0.35} />
+                  {m.shadowPath === 'full' ? (
+                    <Circle cx={0} cy={0} r={r} fill="#090E1A" opacity={0.94} />
+                  ) : m.shadowPath && (
+                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#090E1A" opacity={0.94} />
+                  )}
+                </G>
+                <Circle cx={0} cy={0} r={r} fill="none" stroke="rgba(226, 232, 240, 0.22)" strokeWidth={0.5} />
+              </G>
+            );
+          })()}
         </Svg>
       </View>
     </View>

@@ -12,12 +12,13 @@ import { auth } from '../config/firebase';
 import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
-import { cachedSunForecast, eventVerdict, hasDataAt, isGoodOrBetter, observerElevationFrom } from '../utils/sunForecast';
+import { scenePrediction } from '../utils/scenePrediction';
+import { cachedSunForecast, eventVerdict, hasDataAt, isGoodOrBetter, observerElevationFrom, type EventSide, type Quality } from '../utils/sunForecast';
 import { fetchDayWeatherRing, getInterpolatedWeather, fetchTerrainProfile, type CloudPathData } from '../utils/weather';
 import { localDateString } from '../utils/localDate';
 import { sameBucket } from '../utils/cachePolicy';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
-import { t, Language } from '../utils/i18n';
+import { t, translateSunsetDesc, Language } from '../utils/i18n';
 import { airQualityNote } from '../utils/airQuality';
 
 const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
@@ -102,25 +103,58 @@ const elevFor = (lat: number, lon: number) => {
   return observerElevationFrom(st.terrainCacheList, lat, lon, st.location?.coords?.altitude);
 };
 
+interface NotifVerdict {
+  verdictLabel: string;
+  score: number;
+  reason: string;
+  peakHHMM: string;
+  quality: Quality;
+  good: boolean;
+  airNote: string;
+  peakTime: Date;
+  prediction: NonNullable<ReturnType<typeof eventVerdict>>['prediction'];
+}
+
+const fmtHHMM = (d: Date, tzHours: number) => {
+  const l = new Date(d.getTime() + tzHours * 3_600_000);
+  return `${String(l.getUTCHours()).padStart(2, '0')}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
+};
+
+const verdictFromWeather = (
+  wx: readonly CloudPathData[],
+  eventTime: Date,
+  side: EventSide,
+  lat: number,
+  lon: number,
+  language: Language,
+  tzHours: number,
+): NotifVerdict | null => {
+  const peak = eventVerdict(wx, eventTime, side, lat, lon, elevFor(lat, lon));
+  if (!peak) return null;
+  const pred = peak.prediction;
+  const obs = getInterpolatedWeather(wx as CloudPathData[], peak.time)[0];
+  return {
+    verdictLabel: t(('verdict' + pred.quality) as any, language),
+    score: Math.round(pred.score),
+    reason: translateSunsetDesc(pred.description, language),
+    peakHHMM: fmtHHMM(peak.time, tzHours),
+    quality: pred.quality,
+    good: isGoodOrBetter(pred.quality),
+    airNote: obs ? airQualityNote(obs, language) : '',
+    peakTime: peak.time,
+    prediction: pred,
+  };
+};
+
 const sunsetLabelsFor = async (
-  lat: number, lon: number, sunset: Date, language: Language, cacheOnly: boolean = true
-): Promise<{ cloudLabel: string; colorLabel: string; airNote: string; good: boolean } | null> => {
+  lat: number, lon: number, sunset: Date, language: Language, tzHours: number, cacheOnly: boolean = true
+): Promise<NotifVerdict | null> => {
   try {
     const ring = await getOrFetchWeatherData(lat, lon, sunset, undefined, cacheOnly);
     // 그날 링이 없으면 02 예보가 받아 둔 16일 자료(관측점 + 해 쪽 줄)로 — 네트워크는 쓰지 않습니다.
     const wx = ring && ring.length > 0 ? ring : (cachedSunForecast(lat, lon)?.path ?? null);
     if (!wx || wx.length === 0 || !hasDataAt(wx, sunset)) return null;
-    const obs = getInterpolatedWeather(wx, sunset)[0];
-    if (!obs) return null;
-    const pred = predictSunset(wx, sunset, 0, obs.visibility, obs.humidity, lat, 0, undefined, getSunPosition(sunset, lat, lon).azimuth);
-    if (!pred) return null;
-    return {
-      cloudLabel: t(('cloud' + pred.cloudLabel) as any, language),
-      colorLabel: t(('color' + pred.colorLabel) as any, language),
-      airNote: airQualityNote(obs, language),
-      // "좋음 이상만"(notifPrefs.goodOnly)은 02 예보와 같은 판정(가장 붉을 때)으로 거릅니다.
-      good: isGoodOrBetter(eventVerdict(wx, sunset, 'sunset', lat, lon, elevFor(lat, lon))?.prediction.quality),
-    };
+    return verdictFromWeather(wx, sunset, 'sunset', lat, lon, language, tzHours);
   } catch (e) {
     if (__DEV__) console.warn('[Notification] Day forecast failed:', sunset.toISOString(), e);
     return null;
@@ -130,8 +164,7 @@ const sunsetLabelsFor = async (
 const scheduleSunsetNotification = async (
   sunsetTime: Date,
   /** null 이면 예보 없이 "일몰 2시간 전" 만 알립니다(예보를 못 받았을 때 맑음이라고 지어내지 않습니다). */
-  cloudLabel: string | null,
-  colorLabel: string | null,
+  verdict: Pick<NotifVerdict, 'verdictLabel' | 'score' | 'reason' | 'peakHHMM'> | null,
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
@@ -146,11 +179,15 @@ const scheduleSunsetNotification = async (
     if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunsetNotificationTitle', language);
-    const body = cloudLabel == null || colorLabel == null
+    const body = verdict == null
       ? t('sunsetNotificationBodyNoForecast', language)
-      : t('sunsetNotificationBody', language)
-          .replace('{cloud}', cloudLabel)
-          .replace('{color}', colorLabel)
+      : L3(
+          language,
+          `오늘 일몰: ${verdict.verdictLabel} (${verdict.score}점 · 가장 붉을 때 ${verdict.peakHHMM}).`,
+          `Tonight's sunset: ${verdict.verdictLabel} (${verdict.score}/100 · peak ${verdict.peakHHMM}).`,
+          `今日の日の入り：${verdict.verdictLabel}（${verdict.score}点・見頃 ${verdict.peakHHMM}）。`,
+        )
+        + (verdict.reason ? ` ${verdict.reason}` : '')
         + (staleDays > 0 ? ' ' + t('sunsetNotificationStale', language).replace('{n}', String(staleDays)) : '')
         + (airNote ? ' ' + airNote : '');
 
@@ -182,7 +219,7 @@ const scheduleSunsetNotification = async (
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) console.log(`[Sunset Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
+    if (__DEV__) console.log(`[Sunset Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, verdict?.verdictLabel, verdict?.score, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunset notification:', err);
   }
@@ -190,8 +227,7 @@ const scheduleSunsetNotification = async (
 
 const scheduleSunriseNotification = async (
   sunriseTime: Date,
-  cloudLabel: string | null,
-  colorLabel: string | null,
+  verdict: Pick<NotifVerdict, 'verdictLabel' | 'score' | 'reason' | 'peakHHMM'> | null,
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
@@ -208,11 +244,16 @@ const scheduleSunriseNotification = async (
     if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunriseNotificationTitle', language);
-    const body = cloudLabel == null || colorLabel == null
+    const body = verdict == null
       ? t('sunriseNotificationBodyNoForecast', language)
-      : t('sunriseNotificationBody', language)
-          .replace('{cloud}', cloudLabel)
-          .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
+      : L3(
+          language,
+          `내일 일출: ${verdict.verdictLabel} (${verdict.score}점 · 가장 붉을 때 ${verdict.peakHHMM}).`,
+          `Tomorrow's sunrise: ${verdict.verdictLabel} (${verdict.score}/100 · peak ${verdict.peakHHMM}).`,
+          `明日の日の出：${verdict.verdictLabel}（${verdict.score}点・見頃 ${verdict.peakHHMM}）。`,
+        )
+        + (verdict.reason ? ` ${verdict.reason}` : '')
+        + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -244,7 +285,7 @@ const scheduleSunriseNotification = async (
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) console.log(`[Sunrise Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
+    if (__DEV__) console.log(`[Sunrise Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, verdict?.verdictLabel, verdict?.score, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunrise notification:', err);
   }
@@ -760,70 +801,58 @@ export function useCelestialApp() {
             }
 
             // 예보를 못 받으면 null — 예전에는 '맑음 / 깨끗' 을 기본으로 박아 받지도 않은 예보를 알렸습니다.
-            let cloudLabel: string | null = null;
-            let colorLabel: string | null = null;
+            let day0Verdict: NotifVerdict | null = null;
             let sunsetNotifImageUri: string | null = null;
             let sunsetWeather: CloudPathData[] | null = null;
-            let airNote = '';
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunsetTime);
               sunsetWeather = weatherData;
               if (weatherData && weatherData.length > 0) {
-                const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
-                const obs = interpolated[0];
-                // 대기질은 오늘 일몰 시각의 값입니다 — 다른 날은 그날 예보에서 따로 받습니다.
-                airNote = airQualityNote(obs, language);
-                if (obs) {
-                  const prediction = predictSunset(
-                    weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0,
-                    undefined, getSunPosition(sunsetTime, lat, lon).azimuth
-                  );
-                  if (prediction) {
-                    cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
-                    colorLabel = t(('color' + prediction.colorLabel) as any, language);
+                day0Verdict = verdictFromWeather(weatherData, sunsetTime, 'sunset', lat, lon, language, timezoneOffsetHours);
+                if (day0Verdict) {
+                  const { prediction, peakTime } = day0Verdict;
 
-                    // 앱아이콘: Vivid → epic, Overcast → muted, 그 외 → clear
-                    try {
-                      let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
-                      if (prediction.colorLabel === 'Vivid') targetIcon = 'spiconepic';
-                      else if (prediction.cloudLabel === 'Overcast') targetIcon = 'spiconmuted';
-                      if (typeof setAppIcon === 'function') {
-                        const currentIcon = getAppIcon();
-                        if (currentIcon !== targetIcon) {
-                          setAppIcon(targetIcon);
-                          if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (cloud:${prediction.cloudLabel} color:${prediction.colorLabel})`);
-                        }
+                  // 앱아이콘: Epic → epic, Overcast → muted, 그 외 → clear
+                  try {
+                    let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
+                    if (prediction.quality === 'Epic') targetIcon = 'spiconepic';
+                    else if (prediction.quality === 'Overcast') targetIcon = 'spiconmuted';
+                    if (typeof setAppIcon === 'function') {
+                      const currentIcon = getAppIcon();
+                      if (currentIcon !== targetIcon) {
+                        setAppIcon(targetIcon);
+                        if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (quality:${prediction.quality} score:${day0Verdict.score})`);
                       }
-                    } catch (iconErr) {
-                      console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+                    }
+                  } catch (iconErr) {
+                    console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+                  }
+
+                  // 알림 및 위젯용 시뮬레이션 이미지 생성 → 위젯 데이터 즉시 갱신
+                  try {
+                    const sunAltDeg = getSunPosition(peakTime, lat, lon).altitude;
+                    const overcast = prediction.factors?.overheadOvercast ?? 0.3;
+                    const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
+                    let resImages = null;
+                    if (b64) {
+                      sunsetNotifImageUri = await saveSimulationImageToCache(b64, 'notif_sunset.jpg');
+                      resImages = await compressToWidgetSizes(`data:image/jpeg;base64,${b64}`, 'widget_sunset');
                     }
 
-                    // 알림 및 위젯용 시뮬레이션 이미지 생성 → 위젯 데이터 즉시 갱신
-                    try {
-                      const sunAltDeg = getSunPosition(sunsetTime, lat, lon).altitude * (180 / Math.PI);
-                      const overcast = prediction.factors?.overheadOvercast ?? 0.3;
-                      const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
-                      let resImages = null;
-                      if (b64) {
-                        sunsetNotifImageUri = await saveSimulationImageToCache(b64, 'notif_sunset.jpg');
-                        resImages = await compressToWidgetSizes(`data:image/jpeg;base64,${b64}`, 'widget_sunset');
-                      }
-
-                      // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
-                      updateSunsetWidgetData({
-                        timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                        eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
-                        cloudLabel,
-                        colorLabel,
-                        simulationUri: sunsetNotifImageUri,
-                        simulationSmallUri: resImages?.small || sunsetNotifImageUri,
-                        simulationMediumUri: resImages?.medium || sunsetNotifImageUri,
-                        simulationLargeUri: resImages?.large || sunsetNotifImageUri,
-                        updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                      });
-                    } catch (imgErr) {
-                      console.warn('[Notification/Widget] Simulation image generation failed:', imgErr);
-                    }
+                    // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
+                    updateSunsetWidgetData({
+                      timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+                      eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
+                      cloudLabel: day0Verdict.verdictLabel,
+                      colorLabel: `${day0Verdict.score}/100`,
+                      simulationUri: sunsetNotifImageUri,
+                      simulationSmallUri: resImages?.small || sunsetNotifImageUri,
+                      simulationMediumUri: resImages?.medium || sunsetNotifImageUri,
+                      simulationLargeUri: resImages?.large || sunsetNotifImageUri,
+                      updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    });
+                  } catch (imgErr) {
+                    console.warn('[Notification/Widget] Simulation image generation failed:', imgErr);
                   }
                 }
               }
@@ -850,19 +879,16 @@ export function useCelestialApp() {
               const notifId = `sunset-alert-day-${dayOffset}`;
               const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
               if (dayOffset === 0) {
-                if (notifPrefs.goodOnly) {
-                  // 위에서 받은 날씨가 오늘 일몰을 덮지 않으면(다른 날을 보고 있을 때) 그날 것으로 다시 봅니다.
-                  const good = sunsetWeather?.length && hasDataAt(sunsetWeather, fSunset)
-                    ? isGoodOrBetter(eventVerdict(sunsetWeather, fSunset, 'sunset', lat, lon, elevFor(lat, lon))?.prediction.quality)
-                    : !!(await sunsetLabelsFor(lat, lon, fSunset, language))?.good;
-                  if (!good) continue;
-                }
-                await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, airNote);
+                const v0 = (sunsetWeather?.length && hasDataAt(sunsetWeather, fSunset))
+                  ? (day0Verdict ?? verdictFromWeather(sunsetWeather, fSunset, 'sunset', lat, lon, language, timezoneOffsetHours))
+                  : await sunsetLabelsFor(lat, lon, fSunset, language, timezoneOffsetHours);
+                if (notifPrefs.goodOnly && !v0?.good) continue;
+                await scheduleSunsetNotification(fSunset, v0, language, triggerTime, sunsetNotifImageUri, notifId, v0?.airNote ?? '');
               } else {
-                const day = await sunsetLabelsFor(lat, lon, fSunset, language);
+                const day = await sunsetLabelsFor(lat, lon, fSunset, language, timezoneOffsetHours);
                 // 예보가 없는 날(day === null)도 "좋음" 이라고 할 수 없으니 보내지 않습니다.
                 if (notifPrefs.goodOnly && !day?.good) continue;
-                await scheduleSunsetNotification(fSunset, day?.cloudLabel ?? null, day?.colorLabel ?? null, language, triggerTime, null, notifId, day?.airNote ?? '', dayOffset);
+                await scheduleSunsetNotification(fSunset, day, language, triggerTime, null, notifId, day?.airNote ?? '', dayOffset);
               }
             }
           } catch (err) {
@@ -897,52 +923,39 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string | null = null;
-            let colorLabel: string | null = null;
+            let sunriseVerdict: NotifVerdict | null = null;
             let sunriseNotifImageUri: string | null = null;
-            let sunriseGood = false;
-            let airNote = '';
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunriseTime);
-              if (weatherData && weatherData.length > 0) {
-                sunriseGood = isGoodOrBetter(eventVerdict(weatherData, sunriseTime, 'sunrise', lat, lon, elevFor(lat, lon))?.prediction.quality);
-                const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
-                const obs = interpolated[0];
-                airNote = airQualityNote(obs, language);
-                if (obs) {
-                  const prediction = predictSunset(
-                    weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0,
-                    undefined, getSunPosition(sunriseTime, lat, lon).azimuth
-                  );
-                  if (prediction) {
-                    cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
-                    colorLabel = t(('color' + prediction.colorLabel) as any, language);
+              if (weatherData && weatherData.length > 0 && hasDataAt(weatherData, sunriseTime)) {
+                sunriseVerdict = verdictFromWeather(weatherData, sunriseTime, 'sunrise', lat, lon, language, timezoneOffsetHours);
+                if (sunriseVerdict) {
+                  const { prediction, peakTime } = sunriseVerdict;
 
-                    try {
-                      let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
-                      if (prediction.colorLabel === 'Vivid') targetIcon = 'spiconepic';
-                      else if (prediction.cloudLabel === 'Overcast') targetIcon = 'spiconmuted';
+                  try {
+                    let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
+                    if (prediction.quality === 'Epic') targetIcon = 'spiconepic';
+                    else if (prediction.quality === 'Overcast') targetIcon = 'spiconmuted';
 
-                      if (typeof setAppIcon === 'function') {
-                        const currentIcon = getAppIcon();
-                        if (currentIcon !== targetIcon) {
-                          setAppIcon(targetIcon);
-                          if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (cloud:${prediction.cloudLabel} color:${prediction.colorLabel})`);
-                        }
+                    if (typeof setAppIcon === 'function') {
+                      const currentIcon = getAppIcon();
+                      if (currentIcon !== targetIcon) {
+                        setAppIcon(targetIcon);
+                        if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (quality:${prediction.quality} score:${sunriseVerdict.score})`);
                       }
-                    } catch (iconErr) {
-                      console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
                     }
+                  } catch (iconErr) {
+                    console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+                  }
 
-                    // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
-                    try {
-                      const sunAltDeg = getSunPosition(sunriseTime, lat, lon).altitude * (180 / Math.PI);
-                      const overcast = prediction.factors?.overheadOvercast ?? 0.3;
-                      const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
-                      sunriseNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunrise.jpg') : null;
-                    } catch (imgErr) {
-                      console.warn('[Notification] Sunrise simulation image generation failed:', imgErr);
-                    }
+                  // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
+                  try {
+                    const sunAltDeg = getSunPosition(peakTime, lat, lon).altitude;
+                    const overcast = prediction.factors?.overheadOvercast ?? 0.3;
+                    const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
+                    sunriseNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunrise.jpg') : null;
+                  } catch (imgErr) {
+                    console.warn('[Notification] Sunrise simulation image generation failed:', imgErr);
                   }
                 }
               }
@@ -950,11 +963,11 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed for sunrise, using default labels:', weatherErr);
             }
 
-            if (notifPrefs.goodOnly && !sunriseGood) {
+            if (notifPrefs.goodOnly && !sunriseVerdict?.good) {
               await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
               return;
             }
-            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, airNote);
+            await scheduleSunriseNotification(sunriseTime, sunriseVerdict, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, sunriseVerdict?.airNote ?? '');
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
             lastSunriseDateRef.current = null;
@@ -988,14 +1001,20 @@ export function useCelestialApp() {
           const interpolated = getInterpolatedWeather(weatherData, now);
           const obs = interpolated[0];
           if (obs) {
-            prediction = predictSunset(
-              weatherData, now, currentSunPos.altitude, obs.visibility, obs.humidity, lat, 0, undefined, azimuth
-            );
+            prediction = scenePrediction({
+              pathData: weatherData,
+              time: now,
+              sunAltDeg: currentSunPos.altitude,
+              sunAzDeg: azimuth,
+              obs,
+              latitude: lat,
+              observerElevM: elevFor(lat, lon),
+            });
             const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
             cloudRatio = maxCloud / 100;
           }
         } else {
-          prediction = predictSunset([], now, currentSunPos.altitude, 15000, 50, lat, 0);
+          prediction = predictSunset([], now, currentSunPos.altitude, 15000, 50, lat, elevFor(lat, lon));
         }
         
         if (isCancelled) return;
