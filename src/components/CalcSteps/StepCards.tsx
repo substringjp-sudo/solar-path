@@ -12,7 +12,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import { makeStyles } from '../../theme/useTheme';
 import { mono } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
-import type { SkyMap, SkyPicture, StepCard } from '../../utils/calcSteps';
+import { sunLineGap, type SkyMap, type SkyPicture, type StepCard } from '../../utils/calcSteps';
 
 type Lang = 'ko' | 'en' | 'ja';
 
@@ -74,7 +74,13 @@ export const StepCardView: React.FC<{ index: number; card: StepCard; language: L
               <Text style={styles.barText}>{card.bar.display}</Text>
             </View>
           )}
-          {card.shape === 'map' && card.map && <SkyMapView map={card.map} language={language} />}
+          {card.shape === 'map' && card.map && (
+            <>
+              <SkyMapView map={card.map} language={language} />
+              <Text style={styles.hint}>{L3(language, '읽는 법: 가운데가 나, 바깥일수록 먼 곳. 원이 크고 진할수록 구름이 많아요. 주황 점선이 해 방향이에요.', 'How to read: you are in the middle, farther out is farther away. Bigger, darker circles mean more cloud. The orange dashed line points to the sun.', '読み方: 真ん中が自分で、外ほど遠くです。丸が大きく濃いほど雲が多いです。オレンジの点線が太陽の方向です。')}</Text>
+              {card.map.sunLine && card.map.sunLine.length > 1 && <SunLineStrip map={card.map} language={language} />}
+            </>
+          )}
           {card.shape === 'sky' && card.sky && <SkyPictureView sky={card.sky} language={language} />}
           <Text style={styles.note}>{card.note}</Text>
         </View>
@@ -167,6 +173,47 @@ export const SkyMapView: React.FC<{ map: SkyMap; language: Lang }> = ({ map, lan
   );
 };
 
+/**
+ * 해 방향 옆모습 띠: 나(왼쪽)에서 해 쪽으로 거리별 구름을 옆에서 본 그림. 먼 곳에 구름 틈이 있으면 낮은 해의 빛이 그 틈으로 들어와
+ * 가까운 구름의 밑면을 비춥니다(그림의 주황 선). 틈이 없으면 선이 없고 글이 그렇다고 말합니다. 하늘 위에 그리므로 화면 모드와 상관없이 어둡습니다.
+ */
+export const SunLineStrip: React.FC<{ map: SkyMap; language: Lang }> = ({ map, language }) => {
+  const styles = useStyles();
+  const line = map.sunLine ?? [];
+  const W = 320, H = 84, X0 = 24, X1 = 300, GY = 70, BG = '#0F1625';
+  const x = (km: number) => X0 + (km / map.maxKm) * (X1 - X0);
+  const gap = sunLineGap(line);
+  const pitch = line.length > 1 ? (x(line[line.length - 1].distKm) - x(line[0].distKm)) / (line.length - 1) : 30;
+  const nearThick = line.find(p => p.cover >= 0.6);
+  const aria = L3(language, '해 방향 거리별 구름 옆모습', 'Side view of clouds toward the sun by distance', '太陽方向の距離別の雲の横から見た図');
+  return (
+    <View>
+      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} accessibilityLabel={aria} style={{ borderRadius: 6 }}>
+        <Rect x={0} y={0} width={W} height={H} fill={BG} />
+        <Rect x={0} y={GY} width={W} height={H - GY} fill="#1D2A3D" />
+        {line.map(p => (
+          <Rect key={p.distKm} x={x(p.distKm) - pitch / 2} y={18} width={pitch} height={16} fill="#E2E8F0" opacity={Math.min(0.9, 0.08 + 0.85 * p.cover)} />
+        ))}
+        {gap && nearThick ? (
+          <>
+            <Line x1={W - 8} y1={GY - 4} x2={x(nearThick.distKm)} y2={34} stroke="#F97316" strokeWidth={1.6} />
+            <Rect x={x(gap.fromKm) - pitch / 2} y={14} width={x(gap.toKm) - x(gap.fromKm) + pitch} height={24} fill="none" stroke="#4ADE80" strokeWidth={1.2} strokeDasharray="3 2" />
+          </>
+        ) : null}
+        <Circle cx={W - 8} cy={GY - 4} r={5} fill="#FBBF24" />
+        <Circle cx={X0} cy={GY - 3} r={3} fill="#38BDF8" />
+        <SvgText x={X0} y={H - 3} fill="#94A3B8" fontSize={8} fontFamily={mono} textAnchor="middle">{L3(language, '나', 'You', '自分')}</SvgText>
+        <SvgText x={W - 8} y={H - 3} fill="#94A3B8" fontSize={8} fontFamily={mono} textAnchor="end">{`${map.maxKm} km`}</SvgText>
+      </Svg>
+      <Text style={styles.hint}>
+        {gap && nearThick
+          ? L3(language, `해 쪽 ${gap.fromKm}–${gap.toKm} km 에 구름 틈이 있어요. 낮은 해의 빛이 그 틈으로 들어와 가까운 구름 밑면을 비춰요.`, `There is a gap ${gap.fromKm}–${gap.toKm} km toward the sun. Low sunlight comes through it and lights the underside of the nearer clouds.`, `太陽方向${gap.fromKm}〜${gap.toKm} kmに雲の切れ間があります。低い太陽の光がそこから入り、近くの雲の底を照らします。`)
+          : L3(language, '해 쪽에 빛이 들어올 구름 틈이 없어요. 구름이 있으면 빛이 막혀 회색으로 보여요.', 'There is no gap toward the sun for light to come through. Cloud blocks the light and looks grey.', '太陽方向に光が入る切れ間がありません。雲があると光が遮られて灰色に見えます。')}
+      </Text>
+    </View>
+  );
+};
+
 const useStyles = makeStyles((color) => ({
   card: { backgroundColor: color.panel, borderRadius: 10, padding: 10 },
   cardInset: { backgroundColor: color.fill, borderWidth: 1, borderColor: color.border },
@@ -185,6 +232,7 @@ const useStyles = makeStyles((color) => ({
   barFill: { height: 6, borderRadius: 3, backgroundColor: color.accent },
   barText: { fontFamily: mono, fontSize: 13, fontWeight: '700', color: color.text },
   note: { fontSize: 11, color: color.textDim },
+  hint: { fontSize: 11, color: color.textMute },
   resultText: { fontFamily: mono, fontSize: 16, fontWeight: '700', color: color.sun },
   metricRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   metricValue: { fontFamily: mono, fontSize: 13, fontWeight: '700', textAlign: 'right', maxWidth: 96 },

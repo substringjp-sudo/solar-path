@@ -46,7 +46,27 @@ export interface BarPart { value: number; display: string }
 export interface SkyMapCell { distKm: number; azDeg: number; cover: number; low: number; mid: number; high: number }
 
 /** 해 쪽을 포함한 주변 구름 지도(북쪽이 위). 해 방향 선과 거리 고리를 함께 그립니다. */
-export interface SkyMap { maxKm: number; ringsKm: number[]; cells: SkyMapCell[]; sunAzDeg: number }
+export interface SkyMap { maxKm: number; ringsKm: number[]; cells: SkyMapCell[]; sunAzDeg: number; /** 해 방향 거리별 구름(옆모습 띠) */ sunLine?: SunLinePoint[] }
+
+/** 해 방향 줄의 한 점: 관측점에서의 거리(km)와 층을 합친 운량(0~1) */
+export interface SunLinePoint { distKm: number; cover: number }
+
+/** 링에서 해 방향(azimuthOffset 0)의 점을 거리 오름차순으로 뽑아 층을 합친 운량을 구합니다. */
+export function sunLineProfile(ring: ReadonlyArray<{ distance: number; azimuthOffset: number; low: number; mid: number; high: number }>): SunLinePoint[] {
+  return ring.filter(p => p.distance > 0 && Math.abs(p.azimuthOffset) < 1e-6)
+    .map(p => ({ distKm: p.distance, cover: 1 - (1 - p.low / 100) * (1 - p.mid / 100) * (1 - p.high / 100) }))
+    .sort((a, b) => a.distKm - b.distKm);
+}
+
+/** 해 쪽 빛이 구름 밑으로 들어올 틈: 운량 0.3 미만의 연속 구간 가운데 그보다 가까운 곳에 0.6 이상 구름이 있는 첫 구간. 없으면 null. */
+export function sunLineGap(profile: readonly SunLinePoint[]): { fromKm: number; toKm: number } | null {
+  let thickNearer = false, start: number | null = null, last = 0;
+  for (const p of profile) {
+    if (p.cover < 0.3) { if (thickNearer) { if (start == null) start = p.distKm; last = p.distKm; } }
+    else { if (start != null) break; if (p.cover >= 0.6) thickNearer = true; }
+  }
+  return start != null ? { fromKm: start, toKm: last } : null;
+}
 
 /** 값 줄(`metric`)의 오른쪽 값 색: 좋음 · 주의 · 나쁨 · 달 · 보통 */
 export type MetricTone = 'good' | 'warn' | 'bad' | 'moon' | 'plain';
@@ -344,7 +364,7 @@ export function buildSunsetScoreCards(a: BuildSunsetScoreArgs): SunsetScoreCards
   const cards: StepCard[] = [
     { id: 'forecast', title: L3(L, '예보 원자료', 'Forecast data', '予報の元データ'), shape: 'rows', rows: rows1,
       note: L3(L, `내 위치의 ${hour}시 예보예요.`, `The forecast for your location at ${hour}:00.`, `あなたの場所の${hour}時の予報です。`) + keyTail('forecast'), key: keyId === 'forecast' },
-    { id: 'map', title: L3(L, '주변 지도로 펴기', 'Spread over the map', '周りの地図に広げる'), shape: 'map', map: { maxKm, ringsKm, cells, sunAzDeg: a.sunAzDeg }, note: note2 },
+    { id: 'map', title: L3(L, '주변 지도로 펴기', 'Spread over the map', '周りの地図に広げる'), shape: 'map', map: { maxKm, ringsKm, cells, sunAzDeg: a.sunAzDeg, sunLine: sunLineProfile(a.ring) }, note: note2 },
     { id: 'path', title: L3(L, '해 쪽으로 빛 따라가기', 'Follow the light toward the sun', '太陽方向へ光をたどる'), shape: 'bar', bar: { value: b.pathClarity, display: `${clarityPct} %` }, note: note3, key: keyId === 'path' },
     { id: 'cloudtype', title: L3(L, '구름 종류 정하기', 'Decide the cloud types', '雲の種類を決める'), shape: 'rows', rows: rows4, note: note4, key: keyId === 'cloudtype' },
     { id: 'score', title: L3(L, '점수', 'Score', 'スコア'), shape: 'result', result: `${qword} ${Math.round(a.prediction.score)}`,
