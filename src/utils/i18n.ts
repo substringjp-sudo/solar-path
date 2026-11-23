@@ -1285,28 +1285,28 @@ export const t = (key: keyof typeof translations['ko'], lang: Language): string 
 export const translateSunsetDesc = (desc: string, lang: Language): string => {
   if (lang === 'ko') {
     if (desc.includes('Heavy rain clouds cover')) {
-      return '폭우 구름이 하늘 전체를 뒤덮어 일몰 빛을 완전히 차단합니다.';
+      return '폭우 구름이 하늘을 덮어 노을빛이 완전히 막힘';
     }
     if (desc.includes('A thick single layer of clouds')) {
-      return '두껍고 짙은 구름층이 하늘을 완전히 덮어 햇빛을 가립니다.';
+      return '두꺼운 구름층이 하늘을 덮어 햇빛이 가려짐';
     }
     if (desc.includes('Thick clouds block the horizon')) {
-      return '일몰 방향 지평선에 두꺼운 구름이 끼어 노을빛이 강하게 차단됩니다.';
+      return '해 쪽 지평선에 두꺼운 구름, 노을빛이 크게 막힘';
     }
     if (desc.includes('Clear horizon combined with')) {
-      return '지평선이 깨끗하고 적절한 고/중층운이 있어 대단히 화려하고 강렬한 노을이 예상됩니다.';
+      return '지평선이 맑고 높은·중간 구름이 알맞아 화려한 노을 예상';
     }
     if (desc.includes('Ample red light is reflecting')) {
-      return '구름에 반사되는 붉은 광선이 풍부하여 아주 멋진 노을을 감상하기 좋습니다.';
+      return '구름에 붉은빛이 넉넉히 반사되어 멋진 노을 예상';
     }
     if (desc.includes('Light is weak or there are many clouds')) {
-      return '광선이 다소 약하거나 구름이 많지만, 은은하고 차분한 노을빛을 볼 수 있습니다.';
+      return '빛이 약하거나 구름이 많아 은은한 노을빛';
     }
     if (desc.includes('Lack of scattering or too few')) {
-      return '대기 산란이 부족하거나 구름이 없어 다소 평범하고 밋밋한 노을이 예상됩니다.';
+      return '산란이 부족하거나 구름이 없어 밋밋한 노을 예상';
     }
     if (desc.includes('Unable to predict due to invalid')) {
-      return '유효하지 않은 데이터로 인해 예측을 수행할 수 없습니다.';
+      return '자료가 올바르지 않아 예측 불가';
     }
   } else if (lang === 'ja') {
     if (desc.includes('Heavy rain clouds cover')) {
