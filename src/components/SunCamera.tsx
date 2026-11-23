@@ -100,6 +100,7 @@ import { CameraLensZoomSection, type LensOption } from './AstroCamera/CameraLens
 import { VirtualCameraBagModal } from './AstroCamera/VirtualCameraBagModal';
 import { ViewfinderOpticsOverlay, ZoneSystemBar } from './AstroCamera/ViewfinderOpticsOverlay';
 import {
+  computeSunsetBracketEv,
   createDefaultGearBag,
   createSkylineAnchor,
   hasActiveOpticalGear,
@@ -1573,7 +1574,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             await new Promise(r => setTimeout(r, 140));
           }
         }
-        const mergeW = gear.filmBack === 'sunsetWb' && gear.sunsetBracket3Shot ? [0.34, 0.48, 0.18] : undefined;
+        let mergeW: readonly number[] | undefined;
+        if (gear.filmBack === 'sunsetWb' && gear.sunsetBracket3Shot) {
+          const bracketSunAlt = getSunPosition(visionWhen, latitude, longitude).altitude;
+          const bracketObs = camWeatherData ? getInterpolatedWeather(camWeatherData, visionWhen)[0] : undefined;
+          const bracketCloud01 = typeof bracketObs?.total === 'number' ? bracketObs.total / 100 : 0.3;
+          mergeW = computeSunsetBracketEv(bracketSunAlt, bracketCloud01).mergeWeights;
+        }
         rawInputUri = (await mergeAlignedBurstFrames(burstFrames, optics.k, mergeW)) ?? photo?.uri ?? '';
       } else {
         // 일반 촬영 (EXIF 활성화)

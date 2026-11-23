@@ -207,6 +207,7 @@ export const loadRingCache = async <T = any>(): Promise<CacheEntry<T>[]> => {
 };
 export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('weather', WEATHER_KEY, e);
 export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => writeAsyncStorage(TERRAIN_KEY, e);
+<<<<<<< Updated upstream
 export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e.slice(0, MAX_RING_ENTRIES));
 
 /** 캐시만 통째로 비웁니다. 사용자 자료(`solar-path-storage`)는 안 건드립니다. */
@@ -221,3 +222,6 @@ export const clearCaches = async (): Promise<void> => {
     console.warn('[Cache] 비우기 실패:', e);
   }
 };
+=======
+export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e);
+>>>>>>> Stashed changes

@@ -27,17 +27,5 @@ const quietly = (run: () => Promise<void>) => {
 /** 셔터를 눌렀을 때. */
 export const hapticShutter = () => quietly(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 
-/** 시간 막대 손잡이가 일출 · 일몰 표시를 지날 때. */
-export const hapticTick = () => quietly(() => Haptics.selectionAsync());
-
 /** 사용자에게 알리는 오류. */
 export const hapticError = () => quietly(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
-
-/**
- * `prev` → `next` 분으로 옮길 때 지난 표시가 있는가. 표시와 같은 분에 닿으면 지난 것으로 칩니다.
- * 시간 막대가 끄는 동안 부릅니다(`DateTimeBar`).
- */
-export function crossesMarker(prev: number, next: number, markers: readonly (number | null | undefined)[]): boolean {
-  if (prev === next) return false;
-  return markers.some(m => m != null && Number.isFinite(m) && (prev < m) !== (next < m));
-}

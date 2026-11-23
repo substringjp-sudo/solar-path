@@ -264,20 +264,6 @@ for (const f of files) {
     fs.copyFileSync(from, path.join(APP, 'vendor', f));
   }
 }
-// sunsetPhysics는 sky_weights_v2.json을 import합니다. 브라우저는 JSON 모듈을
-// import attribute 없이 못 읽으므로, ESM 래퍼로 감싸 같은 경로에 둡니다.
-// (상대 import에 .js를 붙이는 규칙과 맞물려 './sky_weights_v2.json.js'가 됩니다.)
-{
-  const weightsSrc = path.join(SRC, 'src/utils/sky_weights_v2.json');
-  if (fs.existsSync(weightsSrc)) {
-    fs.mkdirSync(path.join(APP, 'utils'), { recursive: true });
-    fs.writeFileSync(
-      path.join(APP, 'utils', 'sky_weights_v2.json.js'),
-      'export default ' + fs.readFileSync(weightsSrc, 'utf8') + ';\n'
-    );
-  }
-}
-
 const sc = fs.readFileSync(path.join(SRC, 'node_modules/suncalc/suncalc.js'), 'utf8');
 fs.writeFileSync(path.join(APP, 'vendor', 'suncalc.js'),
   'const module={exports:{}};const exports=module.exports;\n' + sc + '\nexport default module.exports;\n');
