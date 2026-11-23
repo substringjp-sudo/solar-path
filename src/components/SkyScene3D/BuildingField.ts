@@ -258,14 +258,14 @@ void main() {
   vec3 directFlat = (uSunRadiance * sunUp) / 3.14159265;
   vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
   vec3 directLit = (uSunRadiance * ndl) / 3.14159265;
-  vec3 metalAlb = vec3(0.11, 0.115, 0.125) * (0.78 + 0.22 * n.y);
+  vec3 metalAlb = vec3(0.055, 0.055, 0.058) * (0.78 + 0.22 * n.y);
   vec3 col = metalAlb * (skyIrr + directLit);
-  // 밤에는 기둥 상단과 갓 안쪽·테두리에 가로등 빛 반사를 더해 밤하늘과 겹쳐도 기둥 형태가 또렷이 보이게 함
+  // 밤에는 기둥 상단과 갓 안쪽·테두리에 은은한 어두운 회색 반사를 더해 밤하늘과 겹쳐도 기둥 형태가 또렷이 보이게 함
   float topBounce = smoothstep(5.5, 8.6, vLocalY);
-  vec3 lampReflect = vec3(0.16, 0.11, 0.06) * uLampGlow * (0.28 + 0.72 * topBounce);
+  vec3 lampReflect = vec3(0.055, 0.055, 0.058) * uLampGlow * (0.28 + 0.72 * topBounce);
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
   col = col * T + lampReflect * T;
-  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + lampReflect * 0.35, 1.0);
+  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + lampReflect * 0.18, 1.0);
 }
 `;
 
