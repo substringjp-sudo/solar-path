@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDebouncedPersistStorage } from '../utils/debouncedPersist';
+import { startupTrace } from '../utils/startupTrace';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
@@ -12,7 +13,7 @@ import {
 } from '../utils/persistentCache';
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
-  findEntry, fingerprint, MAX_CACHE_ENTRIES, sameBucket,
+  findEntry, fingerprint, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, sameBucket,
   canaryPrint, canarySaysSkip, canaryIsUsable,
 } from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
@@ -1179,8 +1180,10 @@ export const useCelestialStore = create<CelestialState>()(
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
         try {
+          startupTrace.mark('시작');
           set({ preloadStatus: 'checkingPermissions' });
           await get().checkPermissions();
+          startupTrace.mark('권한');
           const locPerm = get().locationPermission;
  
           if (locPerm !== 'granted') {
@@ -1225,6 +1228,7 @@ export const useCelestialStore = create<CelestialState>()(
             });
           }
           set({ startupLocationSettled: true });
+          startupTrace.mark('위치');
  
           const now = new Date();
           const times = sunTimes(now, lat, lon);
@@ -1294,14 +1298,17 @@ export const useCelestialStore = create<CelestialState>()(
              * 통째로 죽습니다(실제로 아홉 개가 죽었습니다). 앱 쪽인 여기는
              * expo 를 써도 됩니다.
              */
+            // 링은 3 칸만 둡니다(`MAX_RING_ENTRIES`). 그리고 **3 초 모았다 씁니다**: 켜는 동안 같은 링이 날씨 캐시(`w_…`)에도 들어가는데,
+            // 그 쌍둥이가 생기면 링 쪽은 쓰지 않습니다(켤 때 같은 키는 날씨가 이기므로 읽을 일도 없음) — 같은 자료를 두 번 암호화해 쓰던 것을 없앱니다.
             setRingPersister((key, la, lo, data) => {
               if ((data as any)?.[0]?.isFallback) return;
-              diskRing = upsertEntry(
-                diskRing as any,
-                { key, data, timestamp: Date.now(), latitude: la, longitude: lo } as any,
-                MAX_CACHE_ENTRIES,
-              ) as any;
-              void saveRingCache(diskRing as any);
+              const entry = { key, data, timestamp: Date.now(), latitude: la, longitude: lo } as any;
+              const twin = key.startsWith('ring_') ? `w_${key.slice(5)}` : null;
+              setTimeout(() => {
+                if (twin && get().weatherCacheList.some(w => w.key === twin)) return;
+                diskRing = upsertEntry(diskRing as any, entry, MAX_RING_ENTRIES) as any;
+                void saveRingCache(diskRing as any);
+              }, 3000);
             });
             if (diskWeather.length || diskTerrain.length) {
               set({
@@ -1314,6 +1321,7 @@ export const useCelestialStore = create<CelestialState>()(
             } else {
               set({ isCacheHydrated: true });
             }
+            startupTrace.mark('저장 캐시 읽기');
             if (__DEV__) {
               console.log(`[Preload] 저장장치 캐시 — 날씨 ${diskWeather.length}칸 · 지형 ${diskTerrain.length}칸 · 고리 ${diskRing.length}칸`);
             }
@@ -1411,6 +1419,7 @@ export const useCelestialStore = create<CelestialState>()(
               : Promise.resolve()
           ]);
  
+          startupTrace.mark('날씨·지형');
           let initialTab: 'sky' | 'map' | 'log' = 'sky';
           try {
             const netState = await NetInfo.fetch();
@@ -1423,6 +1432,7 @@ export const useCelestialStore = create<CelestialState>()(
           }
 
           set({ initialTab, preloadStatus: 'simulationReady' });
+          startupTrace.mark('준비 끝');
           if (__DEV__) {
             console.log(`[Preload] Completed successfully. Initial tab: ${initialTab}`);
           }

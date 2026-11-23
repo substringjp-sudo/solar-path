@@ -34,7 +34,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { encryptData, decryptData } from './security';
 import {
-  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, CacheEntry,
+  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, CacheEntry, weatherTwinOfRingFile,
 } from './cachePolicy';
 
 const WEATHER_KEY = 'solar-path-cache-weather';
@@ -113,28 +113,29 @@ const writeAsyncStorage = async <T>(key: string, entries: CacheEntry<T>[]): Prom
   }
 };
 
-const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_ENTRIES): Promise<CacheEntry<T>[]> => {
+const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_ENTRIES, skip?: (fileName: string) => boolean): Promise<CacheEntry<T>[]> => {
   if (!BASE_DIR) return readAsyncStorage<T>(legacyKey, max);
   const dir = `${BASE_DIR}${bucket}/`;
   try {
     await ensureDir(dir);
-    const files = (await FileSystem.readDirectoryAsync(dir)).filter(f => f.endsWith('.dat'));
-    const loaded: CacheEntry<T>[] = [];
-    for (const file of files) {
+    const files = (await FileSystem.readDirectoryAsync(dir)).filter(f => f.endsWith('.dat') && !(skip && skip(f)));
+    // 파일은 하나씩이 아니라 한꺼번에 읽습니다(저장장치 읽기를 겹침). 복호화는 JS 스레드에서 차례로 돕니다.
+    const results = await Promise.all(files.map(async (file): Promise<CacheEntry<T> | null> => {
       const path = `${dir}${file}`;
       try {
         const raw = await FileSystem.readAsStringAsync(path);
         const env = JSON.parse(decodeText(raw)) as FileEnvelope<T>;
         if (env?.v === CACHE_SCHEMA_VERSION && env.entry?.key) {
-          loaded.push(env.entry);
           writtenTimestamps.set(path, env.entry.timestamp);
-        } else {
-          await FileSystem.deleteAsync(path, { idempotent: true });
+          return env.entry;
         }
+        await FileSystem.deleteAsync(path, { idempotent: true });
       } catch {
         await FileSystem.deleteAsync(path, { idempotent: true });
       }
-    }
+      return null;
+    }));
+    const loaded: CacheEntry<T>[] = results.filter((e): e is CacheEntry<T> => e != null);
     loaded.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
     if (loaded.length > 0) {
       await AsyncStorage.removeItem(legacyKey).catch(() => {});
@@ -185,10 +186,28 @@ const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEn
 
 export const loadWeatherCache = <T = any>() => readFiles<T>('weather', WEATHER_KEY, MAX_CACHE_ENTRIES);
 export const loadTerrainCache = <T = any>() => readAsyncStorage<T>(TERRAIN_KEY);
-export const loadRingCache = <T = any>() => readFiles<T>('ring', RING_KEY, MAX_CACHE_ENTRIES);
+/**
+ * 링 캐시는 칸을 3 개만 읽습니다(`MAX_RING_ENTRIES`) — 한 칸이 100~200 KB 라 10 칸을 다 읽으면 켤 때 복호화만으로 한참 걸립니다.
+ * 같은 날 · 같은 격자의 날씨 캐시(`w_…`) 파일이 있으면 그 링 파일은 건너뜁니다: 켤 때 둘을 `primeRingCache` 에 넣으면 같은 키는 날씨가 이기기 때문입니다.
+ * (건너뛴 파일은 지우지 않습니다. 다음 링 저장 때 상한에 걸려 정리됩니다.)
+ */
+export const loadRingCache = async <T = any>(): Promise<CacheEntry<T>[]> => {
+  let weatherFiles: Set<string> | null = null;
+  if (BASE_DIR) {
+    try {
+      const wdir = `${BASE_DIR}weather/`;
+      const info = await FileSystem.getInfoAsync(wdir);
+      if (info.exists) weatherFiles = new Set(await FileSystem.readDirectoryAsync(wdir));
+    } catch { weatherFiles = null; }
+  }
+  return readFiles<T>('ring', RING_KEY, MAX_RING_ENTRIES, weatherFiles ? (f) => {
+    const twin = weatherTwinOfRingFile(f);
+    return twin != null && weatherFiles!.has(twin);
+  } : undefined);
+};
 export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('weather', WEATHER_KEY, e);
 export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => writeAsyncStorage(TERRAIN_KEY, e);
-export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e);
+export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e.slice(0, MAX_RING_ENTRIES));
 
 /** 캐시만 통째로 비웁니다. 사용자 자료(`solar-path-storage`)는 안 건드립니다. */
 export const clearCaches = async (): Promise<void> => {

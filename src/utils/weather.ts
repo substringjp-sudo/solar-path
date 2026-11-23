@@ -1453,7 +1453,7 @@ const terrainCache = new Map<string, TerrainData>();
 /**
  * Fetches a panoramic skyline by sampling multiple azimuths around the target.
  */
-export const fetchTerrainProfile = async (
+const fetchTerrainProfileImpl = async (
   lat: number, 
   lon: number, 
   minAz: number, 
@@ -1621,6 +1621,26 @@ export const fetchTerrainProfile = async (
       isFallback: true,
     };
   }
+};
+
+/** 진행 중인 지형 요청 — 켜는 루틴과 하늘 화면이 같은 자리의 요청을 겹쳐 보내던 것을 하나로 합칩니다. */
+const terrainInflight = new Map<string, Promise<TerrainData>>();
+
+export const fetchTerrainProfile = (
+  lat: number,
+  lon: number,
+  minAz: number,
+  maxAz: number,
+  onProgress?: (msg: string) => void,
+): Promise<TerrainData> => {
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)},${minAz},${maxAz}`;
+  const hit = terrainCache.get(key);
+  if (hit) return Promise.resolve(hit);
+  const running = terrainInflight.get(key);
+  if (running) return running;
+  const p = fetchTerrainProfileImpl(lat, lon, minAz, maxAz, onProgress).finally(() => { terrainInflight.delete(key); });
+  terrainInflight.set(key, p);
+  return p;
 };
 
 /**
