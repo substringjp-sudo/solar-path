@@ -20,6 +20,7 @@ import type { SkyEventItem } from '../../utils/skyEvents';
 import type { ScorePoint, ScoreWindow } from '../../utils/scoreSeries';
 import type { LearnTopic } from '../../utils/learnSections';
 import type { TimeBriefing, UpcomingCategory, UpcomingTimelineEvent } from '../../utils/timeBriefing';
+import { ZoneHead } from './ZoneHead';
 import { Fold } from './Collapsible';
 
 interface Props {
@@ -371,6 +372,7 @@ export const TodaySection: React.FC<Props> = ({
       {/* ── 3. 선택 시각 이후 발생할 기상 · 천체 이벤트 타임라인 ── */}
       {upcomingEvents.length > 0 && (
         <View style={styles.timelineSection}>
+          <ZoneHead zone="hours" language={language} />
           <View style={styles.timelineHeader}>
             <Text style={styles.timelineSectionTitle} accessibilityRole="header">
               {L3(language, '이어서 발생할 기상 · 천체 이벤트', 'Upcoming Weather & Celestial Events', '続いて起こる気象・天体イベント')}

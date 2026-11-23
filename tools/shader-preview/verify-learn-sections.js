@@ -11,6 +11,8 @@
  *  3. 하늘 일정 줄 → 주제: f_sunrise · f_sunset → score, g_sunrise → sunrise, g_sunset → sunset,
  *     f_crescent · f_milkyway · f_planets · g_moonrise · g_moonset → stars, 모르는 id → score.
  *  4. 하늘 일정 접기: featured 는 먼저, general 은 접는다. 순서는 그대로. featured 가 하나도 없으면 전부 보이고 접는 것은 없다.
+ *  6. (2026-11-23 개편 2) 구역 순서는 지금(today) → 앞으로 16일(forecast) → 원리(why) → 근거 데이터(data) → 낮과 밤(globe). 구역마다 이름표(`zoneBadge`)와 범위 글(`zoneRange`)이
+ *     세 언어로 있고(en · ja 에 한글 없음), 화면(LearnScreen)이 같은 순서로 `ZoneHead` 를 그리고 오늘 구역 안 "앞으로 24시간" 에도 `ZoneHead` 가 있다.
  *  5. 16일 표 접기: high · past 는 먼저, medium · low · none 은 접는다. 순서는 그대로.
  *     먼저 보일 묶음이 없으면 첫 묶음을 보이고 나머지를 접는다. 묶음이 없으면 둘 다 빈 목록.
  *  6. 과정 항목의 머리 줄(`topicHeadline`): 값과 한 줄 이유를 단계 카드에서 고른다. 값이 없으면 null(지어내지 않는다).
@@ -30,7 +32,8 @@
  *       node tools/shader-preview/verify-learn-sections.js
  */
 const path = require('path');
-const { PREVIEW } = require('./paths');
+const fs = require('fs');
+const { PREVIEW, REPO_ROOT } = require('./paths');
 
 let pass = 0, fail = 0;
 const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fail++; console.log('  FAIL: ' + l); } };
@@ -229,6 +232,26 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
       const lat80 = T.buildTopicResult('sunrise', { ...base, latitude: 89, longitude: 0 });
       ok(lat80 === null || lat80.cards.length > 0, '극지에서도 던지지 않는다(null 이거나 카드가 있다)');
     }
+  }
+
+  // ── 6. 구역 순서 · 이름표 (2026-11-23 개편 2) ─────────────────────────────
+  console.log('\n[6] 구역 순서 · 이름표');
+  {
+    ok(L.LEARN_SECTIONS.join() === 'today,forecast,why,data,globe', `구역 순서 (${L.LEARN_SECTIONS.join()})`);
+    let miss = 0, han = 0;
+    for (const sec of [...L.LEARN_SECTIONS, 'hours']) for (const lg of ['ko', 'en', 'ja']) {
+      const b = L.zoneBadge(sec, lg), r = L.zoneRange(sec, lg);
+      if (!b || !r) miss++;
+      if (lg !== 'ko' && (/[가-힣]/.test(b) || /[가-힣]/.test(r))) han++;
+    }
+    ok(miss === 0, '다섯 구역과 앞으로 24시간 모두 이름표 · 범위 글이 세 언어로 있다');
+    ok(han === 0, 'en · ja 이름표 · 범위에 한글이 없다');
+    ok(L.zoneBadge('today', 'ko') === '지금' && L.zoneBadge('hours', 'ko') === '앞으로 24시간' && L.zoneBadge('forecast', 'ko') === '앞으로 16일' && L.zoneBadge('why', 'ko') === '원리' && L.zoneBadge('data', 'ko') === '근거 데이터', '한글 이름표: 지금 · 앞으로 24시간 · 앞으로 16일 · 원리 · 근거 데이터');
+    const learn = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'LearnScreen', 'LearnScreen.tsx'), 'utf8');
+    const today = fs.readFileSync(path.join(REPO_ROOT, 'src', 'components', 'LearnScreen', 'TodaySection.tsx'), 'utf8');
+    const idx = ['<TodaySection', '<ForecastSection', '<WhySection', '<DataSection'].map(t => learn.indexOf(t));
+    ok(idx.every(i => i > 0) && idx.every((v, i) => i === 0 || v > idx[i - 1]), `화면이 지금 → 16일 → 원리 → 근거 데이터 순서로 그린다 (${idx})`);
+    ok(['today', 'forecast', 'why', 'data'].every(k => new RegExp(`<ZoneHead zone="${k}"`).test(learn)) && /<ZoneHead zone="hours"/.test(today), '구역마다 ZoneHead (오늘 구역 안 앞으로 24시간 포함)');
   }
 
   console.log(`\n${fail === 0 ? '모두 통과' : '실패 있음'} — pass ${pass} / fail ${fail}`);
