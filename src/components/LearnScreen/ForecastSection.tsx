@@ -1,194 +1,164 @@
 /**
- * ForecastSection.tsx — 학습 페이지의 **앞으로 16일** 구역(옛 02 예보 화면을 옮겼습니다. docs/SANDBOX_MODE_PLAN.md 13.2).
+ * ForecastSection.tsx — 데이터 페이지 **③ 앞으로 16일** 7열 달력 구역.
  *
- * 날마다 일출 · 일몰 판정 표입니다. 판정 · 점수 · 시각은 01 하늘 요약 줄과 같은 식에서 나옵니다(`sunForecast.eventVerdict`).
- * 확실도는 색이 아니라 **무늬**입니다(개정 A3): 3일 안은 꽉 찬 칸 + 점수, 7일 안은 빗금, 16일 안은 점선(참고).
- * 앞날일수록 점수를 숨기는 것은 숫자가 실제보다 정확해 보이지 않게 하려는 것입니다.
- *
- * 달라진 것(옛 02 예보 화면과):
- *  - **3일 안만 먼저** 보이고 7일 안과 16일 안은 "7일 안과 16일 안 보기" 로 접어 둡니다(`learnSections.splitForecastGroups`).
- *  - 칸을 누르면 01 하늘을 여는 대신 **그 칸이 고른 날**이 되어 아래 오늘 · 근거 · 과정이 그 날로 바뀝니다.
- *    01 하늘에서 그 시각을 보는 길은 오늘 구역의 "하늘에서 보기" 입니다.
- *  - "좋음 이상 알림 켜기"는 화면 아래 고정 줄이 아니라 이 구역 끝에 있습니다.
+ * - 7열(월~일) 달력 각 칸에 **일출 · 일몰 점수 둘 다**와 밤 **별 점수**를 함께 보입니다.
+ * - 멀수록 신뢰도가 낮아지는 경향을 투명도 + 아래 신뢰도 막대로 나타냅니다.
+ * - 칸을 누르면 상세 카드가 열리고 페이지 전체(지금 · 원리 · 근거)가 그 날로 전환됩니다.
  */
 import React, { useMemo } from 'react';
-import { View, Text, ActivityIndicator, useWindowDimensions } from 'react-native';
-import Svg, { Line, Rect } from 'react-native-svg';
-import { Bell, BellOff, RotateCw, Sunrise, Sunset } from 'lucide-react-native';
+import { ActivityIndicator, Switch, Text, View } from 'react-native';
+import { RotateCw, Sunrise, Sunset } from 'lucide-react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3, type Language } from '../../utils/i18n';
-import { radius, space, type, TOUCH } from '../../theme/tokens';
-import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
-import { PressScale, PrimaryButton } from '../ui';
-import { VERDICT_ORDER, verdictColor, verdictLevel, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
-import type { ForecastDay, ForecastEvent, EventSide } from '../../utils/sunForecast';
+import { mono, radius, space, type, TOUCH } from '../../theme/tokens';
+import { makeStyles, useDataColors, useThemeColors } from '../../theme/useTheme';
+import { PressScale } from '../ui';
+import { localHHMM, verdictColor, verdictWord } from '../SunsetSimulation/PredictionCard';
+import type { ForecastDay } from '../../utils/sunForecast';
+import type { CloudPathData } from '../../utils/weather';
 import type { ForecastLoadState } from '../../hooks/useForecastDays';
 import type { AccuracyTier } from '../../utils/timeBar';
-import { sameNoon, splitForecastGroups, type LearnPick } from '../../utils/learnSections';
+import { sameNoon, type LearnPick } from '../../utils/learnSections';
+import { buildCalendarDays, type CalendarDayCell } from '../../utils/learnNoteData';
 import { Fold } from './Collapsible';
 
 interface Props {
   days: ForecastDay[];
   load: ForecastLoadState;
-  /** 16일 예보 자료를 받아 두었는가(받는 중 문구를 보일지 정함) */
   hasForecast: boolean;
   onRetry: () => void;
   pick: LearnPick | null;
   onPick: (p: LearnPick) => void;
   tz: number;
   language: Language;
+  forecast?: CloudPathData[] | null;
+  ringFor?: (d: Date) => CloudPathData[] | null;
+  lat?: number;
+  lon?: number;
+  elevM?: number;
+  lightPollutionMag?: number | null;
+  onOpenSky?: (ms: number) => void;
 }
 
-const WEEKDAYS: Record<'ko' | 'en' | 'ja', string[]> = {
+const WEEKDAYS_FULL: Record<'ko' | 'en' | 'ja', string[]> = {
   ko: ['일', '월', '화', '수', '목', '금', '토'],
   en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
   ja: ['日', '月', '火', '水', '木', '金', '土'],
 };
 
+const DOW_HEADERS: Record<'ko' | 'en' | 'ja', string[]> = {
+  ko: ['월', '화', '수', '목', '금', '토', '일'],
+  en: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+  ja: ['月', '火', '水', '木', '金', '土', '日'],
+};
+
 /** 관측지 현지 날짜 "10/27 (화)" */
 export const dayLabel = (noonMs: number, tz: number, language: Language) => {
   const l = new Date(noonMs + tz * 3_600_000);
-  const wd = WEEKDAYS[language === 'ko' ? 'ko' : language === 'ja' ? 'ja' : 'en'][l.getUTCDay()];
+  const wd = WEEKDAYS_FULL[language === 'ko' ? 'ko' : language === 'ja' ? 'ja' : 'en'][l.getUTCDay()];
   return `${l.getUTCMonth() + 1}/${l.getUTCDate()} (${wd})`;
 };
 
-/** 줄의 무리 — 그날 일몰(없으면 일출)의 등급. 지난 것은 3일 안에 넣습니다. */
-const rowTier = (d: ForecastDay): AccuracyTier => {
-  const t = (d.sunset ?? d.sunrise)?.tier ?? 'none';
-  return t === 'past' ? 'high' : t;
-};
 export const showsScore = (tier: AccuracyTier) => tier === 'high' || tier === 'past';
 
-/** 판정 칸 하나 — 확실도를 무늬로(꽉 참 · 빗금 · 점선). */
-const MeterCell: React.FC<{ on: boolean; tier: AccuracyTier; tone: string; off: string; w?: number; h?: number }> = ({
-  on, tier, tone, off, w = 14, h = 6,
+export const ForecastSection: React.FC<Props> = ({
+  days,
+  load,
+  hasForecast,
+  onRetry,
+  pick,
+  onPick,
+  tz,
+  language,
+  forecast = null,
+  ringFor = () => null,
+  lat,
+  lon,
+  elevM = 0,
+  lightPollutionMag = null,
+  onOpenSky,
 }) => {
-  if (!on) return <View style={{ width: w, height: h, borderRadius: 2, backgroundColor: off }} />;
-  if (showsScore(tier)) return <View style={{ width: w, height: h, borderRadius: 2, backgroundColor: tone }} />;
-  if (tier === 'medium') {
-    return (
-      <Svg width={w} height={h}>
-        <Rect x={0.5} y={0.5} width={w - 1} height={h - 1} rx={1.5} stroke={tone} strokeWidth={1} fill="none" />
-        {[-6, -2, 2, 6, 10, 14].map(x => <Line key={x} x1={x} y1={h} x2={x + h} y2={0} stroke={tone} strokeWidth={1} />)}
-      </Svg>
-    );
-  }
-  return (
-    <Svg width={w} height={h}>
-      <Rect x={0.5} y={0.5} width={w - 1} height={h - 1} rx={1.5} stroke={tone} strokeWidth={1} strokeDasharray="2 2" fill="none" />
-    </Svg>
-  );
-};
-
-export const ForecastSection: React.FC<Props> = ({ days, load, hasForecast, onRetry, pick, onPick, tz, language }) => {
-  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
+  const color = useThemeColors();
+  const dataColor = useDataColors();
+  const styles = useStyles();
   const goodOnly = useCelestialStore(s => !!s.notifPrefs?.goodOnly);
   const setNotifPref = useCelestialStore(s => s.setNotifPref);
-  // 320 폭에서는 칸 · 날짜 칸을 줄여 시각이 칸 위로 겹치지 않게 합니다(반쪽 폭 약 100).
-  const narrow = useWindowDimensions().width < 360;
-  const cellW = narrow ? 10 : 14;
 
-  const groups = useMemo(() => {
-    const order: { tier: AccuracyTier; label: string }[] = [
-      { tier: 'high', label: L3(language, '3일 안', 'Next 3 days', '3日以内') },
-      { tier: 'medium', label: L3(language, '7일 안', 'Within 7 days', '7日以内') },
-      { tier: 'low', label: L3(language, '16일 안 · 참고', 'Within 16 days · rough', '16日以内・参考') },
-    ];
-    return order
-      .map(g => ({ ...g, rows: days.filter(d => rowTier(d) === g.tier) }))
-      .filter(g => g.rows.length > 0);
-  }, [days, language]);
-  const { shown, folded } = useMemo(() => splitForecastGroups(groups), [groups]);
-
-  const sideWord = (e: ForecastEvent) => (e.side === 'sunrise'
-    ? L3(language, '일출', 'Sunrise', '日の出')
-    : L3(language, '일몰', 'Sunset', '日の入り'));
+  const cal = useMemo(() => {
+    if (lat == null || lon == null || days.length === 0) {
+      return { cells: [] as CalendarDayCell[], leadingBlanks: 0, topDates: [] as CalendarDayCell[] };
+    }
+    return buildCalendarDays({
+      days,
+      forecast,
+      ringFor,
+      lat,
+      lon,
+      elevM,
+      tzHours: tz,
+      lightPollutionMag,
+      language,
+    });
+  }, [days, forecast, ringFor, lat, lon, elevM, tz, lightPollutionMag, language]);
 
   const toggleGoodOnly = () => {
     const next = !goodOnly;
     setNotifPref('goodOnly', next);
-    // 켜면 노을 · 일출 예보도 켭니다 — 거를 알림이 있어야 합니다.
-    if (next) { setNotifPref('sunsetForecast', true); setNotifPref('sunriseForecast', true); }
-  };
-
-  const isPicked = (d: ForecastDay, side: EventSide) => !!pick && pick.side === side && sameNoon(d.noonMs, pick.noonMs);
-
-  // 컴포넌트가 아니라 함수로 그립니다 — 렌더 안에서 컴포넌트를 만들면 그릴 때마다 칸이 새로 붙습니다.
-  const renderHalf = (d: ForecastDay, e: ForecastEvent | null, date: string, key: string) => {
-    if (!e) {
-      return (
-        <View key={key} style={styles.half}>
-          <Text style={styles.noEvent}>{L3(language, '출몰 없음', 'None', 'なし')}</Text>
-        </View>
-      );
+    if (next) {
+      setNotifPref('sunsetForecast', true);
+      setNotifPref('sunriseForecast', true);
     }
-    const q = e.quality;
-    const tone = q ? verdictColor(q, dataColor, color) : color.textMute;
-    const n = q ? verdictLevel(q) : 0;
-    const word = q ? verdictWord(q, language) : L3(language, '예보 없음', 'No forecast', '予報なし');
-    const score = q && showsScore(e.tier) && e.score != null ? String(Math.round(e.score)) : '';
-    const time = localHHMM(e.peakAt ?? e.at, tz);
-    const picked = isPicked(d, e.side);
-    return (
-      <PressScale
-        key={key}
-        style={[styles.half, picked && styles.halfPicked]}
-        onPress={() => onPick({ noonMs: d.noonMs, side: e.side })}
-        accessibilityRole="button"
-        accessibilityState={{ selected: picked }}
-        accessibilityLabel={`${date} ${sideWord(e)} ${word}${score ? ` ${score}` : ''}, ${time}${picked ? `, ${L3(language, '보는 중', 'viewing', '表示中')}` : ''} — ${L3(language, '아래 근거와 과정을 이 날로 바꾸기', 'Show the data and steps below for this day', '下の根拠と過程をこの日にする')}`}
-      >
-        <View style={styles.halfTop}>
-          <Text style={[styles.word, { color: tone }]} numberOfLines={1}>{word}</Text>
-          {!!score && <Text style={styles.score}>{score}</Text>}
-        </View>
-        <View style={styles.halfBottom}>
-          <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            {VERDICT_ORDER.map((_, i) => <MeterCell key={i} on={i < n} tier={e.tier} tone={tone} off={color.border} w={cellW} />)}
-          </View>
-          <Text style={styles.time}>{time}</Text>
-        </View>
-      </PressScale>
-    );
   };
 
-  const todayNoon = days[0]?.noonMs;
-  const subOf = (noonMs: number) => {
-    if (todayNoon == null) return '';
-    const i = Math.round((noonMs - todayNoon) / 86_400_000);
-    return i === 0 ? L3(language, '오늘', 'Today', '今日') : i === 1 ? L3(language, '내일', 'Tomorrow', '明日') : '';
-  };
-
-  const renderGroup = (g: { tier: AccuracyTier; label: string; rows: ForecastDay[] }) => (
-    <View key={g.tier}>
-      <Text style={[styles.microLabel, styles.groupLabel]}>{g.label}</Text>
-      {g.rows.map(d => {
-        const date = dayLabel(d.noonMs, tz, language);
-        const sub = subOf(d.noonMs);
-        return (
-          <View key={d.noonMs} style={styles.row}>
-            <View style={[styles.dateCol, narrow && styles.dateColNarrow]}>
-              <Text style={styles.date}>{date}</Text>
-              {!!sub && <Text style={styles.microLabel}>{sub}</Text>}
-            </View>
-            {renderHalf(d, d.sunrise, date, 'rise')}
-            {renderHalf(d, d.sunset, date, 'set')}
-          </View>
-        );
-      })}
-    </View>
+  const selectedCell = useMemo(
+    () => (pick ? cal.cells.find(c => sameNoon(c.noonMs, pick.noonMs)) ?? null : null),
+    [cal.cells, pick],
   );
+
+  // 7열 달력 행으로 분할
+  const calendarRows = useMemo(() => {
+    const slots: Array<CalendarDayCell | null> = [
+      ...Array.from({ length: cal.leadingBlanks }, () => null),
+      ...cal.cells,
+    ];
+    while (slots.length % 7 !== 0) slots.push(null);
+    const rows: Array<Array<CalendarDayCell | null>> = [];
+    for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+    return rows;
+  }, [cal.cells, cal.leadingBlanks]);
+
+  const dowHeaders = DOW_HEADERS[language === 'ko' ? 'ko' : language === 'ja' ? 'ja' : 'en'];
+  const topHeadline =
+    cal.topDates.length > 0
+      ? L3(
+          language,
+          `좋은 날 ${cal.topDates.map(d => `${d.label}(${d.dowLabel})`).join(' · ')}`,
+          `Best days ${cal.topDates.map(d => `${d.label} (${d.dowLabel})`).join(' · ')}`,
+          `おすすめの日は ${cal.topDates.map(d => `${d.label}(${d.dowLabel})`).join(' · ')}`,
+        )
+      : L3(language, '앞으로 16일 일출 · 일몰 · 별 흐름', '16-day sunrise, sunset & star outlook', 'これから16日の日の出・日の入り・星');
+
+  const reliabilityText = (tier: CalendarDayCell['tier']) =>
+    tier === 'high'
+      ? L3(language, '예보 신뢰 높음', 'High forecast confidence', '予報信頼度 高')
+      : tier === 'medium'
+        ? L3(language, '예보 신뢰 보통', 'Moderate confidence', '予報信頼度 中')
+        : L3(language, '경향만 참고', 'Rough trend only', '傾向のみ参考');
+
+  const riseShort = L3(language, '출', 'R', '出');
+  const setShort = L3(language, '몰', 'S', '入');
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.head}>
-        <Text style={styles.title} accessibilityRole="header">{L3(language, '앞으로 16일', 'Next 16 days', 'これから16日')}</Text>
-        <Text style={styles.sub}>{L3(language, '일출과 일몰', 'Sunrise and sunset', '日の出と日の入り')}</Text>
-      </View>
-      <Text style={styles.sub}>
-        {L3(language, '칸을 누르면 아래 근거와 과정이 그 날로 바뀌어요. 칸의 무늬가 성길수록 덜 확실해요.',
-          'Tap a cell to show the data and steps below for that day. The sparser the pattern, the less certain.',
-          'マスを押すと、下の根拠と過程がその日に変わります。模様が粗いほど確実さは低めです。')}
+      <Text style={styles.headline}>{topHeadline}</Text>
+      <Text style={styles.lead}>
+        {L3(
+          language,
+          '칸 안의 일출·일몰 숫자는 노을 점수, 점은 밤 별 점수. 칸을 탭하면 페이지 전체가 그 날짜로 바뀝니다.',
+          'Each cell shows sunrise & sunset glow scores plus night star score. Tap any day to inspect it.',
+          '各マスの数値は日の出・日の入りの夕焼けスコア、丸は星スコア。タップするとページ全体がその日に切り替わります。',
+        )}
       </Text>
 
       {load.kind === 'loading' && !hasForecast && (
@@ -201,93 +171,262 @@ export const ForecastSection: React.FC<Props> = ({ days, load, hasForecast, onRe
         <View style={styles.status}>
           <Text style={[styles.statusText, { flex: 1 }]}>
             {load.rateLimited
-              ? L3(language, '요청이 많아 지금은 받지 못했습니다. 잠시 뒤에 다시 받아 주세요.', 'Too many requests right now. Try again in a moment.', 'リクエストが多く取得できませんでした。少し後でもう一度。')
+              ? L3(language, '요청이 많아 지금은 받지 못했습니다.', 'Rate limited right now.', 'リクエストが多く取得できませんでした。')
               : L3(language, '16일 예보를 받지 못했습니다.', "Couldn't fetch the 16-day forecast.", '16日予報を取得できませんでした。')}
           </Text>
-          <PressScale style={styles.retry} onPress={onRetry} accessibilityRole="button" accessibilityLabel={L3(language, '다시 받기', 'Retry', '再取得')}>
+          <PressScale style={styles.retry} onPress={onRetry} accessibilityRole="button">
             <RotateCw size={14} color={color.text} />
             <Text style={styles.retryText}>{L3(language, '다시 받기', 'Retry', '再取得')}</Text>
           </PressScale>
         </View>
       )}
 
-      <View style={styles.colHead}>
-        <Text style={[styles.microLabel, styles.dateCol, narrow && styles.dateColNarrow]}>{L3(language, '날짜', 'Date', '日付')}</Text>
-        <View style={styles.colHalf}>
-          <Sunrise size={12} color={color.sun} />
-          <Text style={styles.microLabel}>{L3(language, '일출', 'Sunrise', '日の出')}</Text>
+      {/* 7열 달력 그리드 */}
+      {calendarRows.length > 0 && (
+        <View style={styles.calGrid}>
+          <View style={styles.calRow}>
+            {dowHeaders.map((h, i) => (
+              <Text key={i} style={styles.dowCell}>{h}</Text>
+            ))}
+          </View>
+
+          {calendarRows.map((row, ri) => (
+            <View key={`wk-${ri}`} style={styles.calRow}>
+              {row.map((cell, ci) => {
+                if (!cell) return <View key={`empty-${ri}-${ci}`} style={styles.cellEmpty} />;
+                const picked = !!pick && sameNoon(cell.noonMs, pick.noonMs);
+                const confOp = cell.tier === 'high' ? 1 : cell.tier === 'medium' ? 0.72 : 0.48;
+                const rVal = cell.sunrise?.score != null ? Math.round(cell.sunrise.score) : null;
+                const sVal = cell.sunset?.score != null ? Math.round(cell.sunset.score) : null;
+                const tintOp = cell.maxGlowScore != null ? Math.min(0.28, (cell.maxGlowScore / 100) * 0.24 * confOp + 0.04) : 0.04;
+
+                return (
+                  <PressScale
+                    key={cell.noonMs}
+                    style={[
+                      styles.cell,
+                      {
+                        backgroundColor: `rgba(165, 180, 252, ${tintOp.toFixed(2)})`,
+                        borderColor: picked ? color.accent : cell.isTop ? color.moon : cell.isToday ? color.accentLine : color.border,
+                        borderWidth: picked || cell.isTop ? 1.8 : 1,
+                      },
+                    ]}
+                    onPress={() => {
+                      const defaultSide = (sVal ?? -1) >= (rVal ?? -1) ? 'sunset' : 'sunrise';
+                      onPick({ noonMs: cell.noonMs, side: defaultSide });
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: picked }}
+                    accessibilityLabel={`${cell.label} ${riseShort} ${rVal ?? '-'} ${setShort} ${sVal ?? '-'}`}
+                  >
+                    <Text style={[styles.cellDate, cell.isToday && { color: color.accent, fontWeight: '700' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                      {cell.label}
+                    </Text>
+
+                    <View style={[styles.dualScoreRow, { opacity: confOp }]}>
+                      <Text style={[styles.dualVal, { color: dataColor.sunrise }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                        {`${riseShort}${rVal ?? '—'}`}
+                      </Text>
+                      <Text style={[styles.dualVal, { color: dataColor.sunset }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                        {`${setShort}${sVal ?? '—'}`}
+                      </Text>
+                    </View>
+
+                    <View style={styles.starMiniRow}>
+                      <View
+                        style={[
+                          styles.starDot,
+                          {
+                            backgroundColor: color.moon,
+                            opacity: cell.starScore != null ? 0.3 + (cell.starScore / 100) * 0.7 : 0.2,
+                          },
+                        ]}
+                      />
+                      <Text style={styles.starMiniVal} numberOfLines={1}>
+                        {cell.starScore != null ? cell.starScore : '—'}
+                      </Text>
+                    </View>
+                  </PressScale>
+                );
+              })}
+            </View>
+          ))}
         </View>
-        <View style={styles.colHalf}>
-          <Sunset size={12} color={color.glow} />
-          <Text style={styles.microLabel}>{L3(language, '일몰', 'Sunset', '日の入り')}</Text>
+      )}
+
+      {/* 선택된 날 상세 카드 (일출 · 일몰 둘 다 표시) */}
+      {selectedCell && (
+        <View style={[styles.selCard, { borderColor: color.moon }]}>
+          <View style={styles.selHead}>
+            <Text style={styles.selTitle}>{`${selectedCell.label} (${selectedCell.dowLabel})`}</Text>
+            <Text style={styles.selMeta}>{reliabilityText(selectedCell.tier)}</Text>
+          </View>
+
+          {([
+            { ev: selectedCell.sunrise, side: 'sunrise' as const, label: L3(language, '일출', 'Sunrise', '日の出'), icon: <Sunrise size={13} color={dataColor.sunrise} /> },
+            { ev: selectedCell.sunset, side: 'sunset' as const, label: L3(language, '일몰', 'Sunset', '日の入り'), icon: <Sunset size={13} color={dataColor.sunset} /> },
+          ]).map(({ ev, side, label, icon }) => {
+            const activeSide = pick?.side === side;
+            const time = ev ? localHHMM(ev.peakAt ?? ev.at, tz) : '—';
+            const word = ev?.quality ? verdictWord(ev.quality, language) : L3(language, '예보 없음', 'No forecast', '予報なし');
+            const tone = ev?.quality ? verdictColor(ev.quality, dataColor, color) : color.textMute;
+            const score = ev?.score != null ? `${Math.round(ev.score)}` : '—';
+            return (
+              <View
+                key={side}
+                style={[styles.selSideRow, activeSide && { borderColor: color.accentLine, backgroundColor: color.accentSoft }]}
+              >
+                <PressScale
+                  style={styles.selSideInfo}
+                  onPress={() => onPick({ noonMs: selectedCell.noonMs, side })}
+                >
+                  {icon}
+                  <Text style={styles.selSideLabel}>{label}</Text>
+                  <Text style={styles.selSideTime}>{time}</Text>
+                  <Text style={[styles.selSideVerdict, { color: tone }]}>{`${word} ${score}`}</Text>
+                </PressScale>
+                {ev && onOpenSky && (
+                  <PressScale
+                    style={[styles.go3dBtn, { borderColor: color.moon }]}
+                    onPress={() => onOpenSky((ev.peakAt ?? ev.at).getTime())}
+                  >
+                    <Text style={[styles.go3dText, { color: color.moon }]}>3D ▸</Text>
+                  </PressScale>
+                )}
+              </View>
+            );
+          })}
         </View>
+      )}
+
+      {/* 신뢰도 막대 */}
+      <View style={styles.confBlock}>
+        <View style={styles.confLab}>
+          <Text style={styles.confText}>{L3(language, '예보 신뢰도', 'Forecast confidence', '予報信頼度')}</Text>
+          <Text style={styles.confText}>{L3(language, '높음(3일) → 낮음(16일)', 'High (3d) → Low (16d)', '高(3日) → 低(16日)')}</Text>
+        </View>
+        <Svg width="100%" height={8} viewBox="0 0 320 8">
+          <Defs>
+            <LinearGradient id="confGrad" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor={color.moon} stopOpacity={1} />
+              <Stop offset="1" stopColor={color.moon} stopOpacity={0.18} />
+            </LinearGradient>
+          </Defs>
+          <Rect width={320} height={8} rx={4} fill="url(#confGrad)" />
+        </Svg>
       </View>
 
-      {shown.map(renderGroup)}
-      {folded.length > 0 && (
-        <Fold label={L3(language, '7일 안과 16일 안 보기', 'Show 7-day and 16-day', '7日以内と16日以内を見る')} closeLabel={L3(language, '접기', 'Collapse', '閉じる')}>
-          {folded.map(renderGroup)}
-        </Fold>
-      )}
-
-      {goodOnly ? (
-        <PressScale style={styles.secondary} onPress={toggleGoodOnly} accessibilityRole="switch" accessibilityState={{ checked: true }}
-          accessibilityLabel={L3(language, '좋음 이상만 알림 — 켜짐. 누르면 끕니다', 'Good-or-better alerts — on. Tap to turn off', '「良い」以上だけ通知 — オン。押すとオフ')}>
-          <BellOff size={16} color={color.text} />
-          <Text style={styles.secondaryText}>{L3(language, '좋음 이상만 알림 중 · 끄기', 'Alerting good days only · Turn off', '「良い」以上だけ通知中・オフにする')}</Text>
-        </PressScale>
-      ) : (
-        <PrimaryButton
-          label={L3(language, '좋음 이상 알림 켜기', 'Alert me on good days', '「良い」以上で通知')}
-          icon={<Bell size={16} color={color.onAccent} />}
-          onPress={toggleGoodOnly}
+      {/* 좋음 이상 알림 스위치 1줄 */}
+      <View style={styles.swRow}>
+        <Text style={styles.swLabel}>
+          {L3(language, '좋음 이상(점수 60↑) 알림', 'Alert on good days (60+)', '「良い」以上(60点↑)で通知')}
+        </Text>
+        <Switch
+          value={goodOnly}
+          onValueChange={toggleGoodOnly}
+          trackColor={{ false: color.borderStrong, true: color.moon }}
+          thumbColor={color.panelRaised}
+          accessibilityLabel={L3(language, '좋음 이상 알림', 'Good-or-better alerts', '「良い」以上で通知')}
         />
-      )}
-      <Text style={styles.dockNote}>
-        {L3(language, '일몰 2시간 전 · 일출 전날 밤 10시, 좋음 이상으로 판정된 날만 알립니다.',
-          '2 h before sunset · 10 pm before sunrise, only when rated Good or better.',
-          '日没2時間前・日の出前夜22時、「良い」以上の日だけ通知します。')}
-      </Text>
+      </View>
+
+      <Fold
+        label={L3(language, '16일 예보 읽는 법', 'How to read the 16-day calendar', '16日カレンダーの見方')}
+        closeLabel={L3(language, '접기', 'Collapse', '閉じる')}
+      >
+        <Text style={styles.foldText}>
+          {L3(
+            language,
+            '3일까지는 층별 구름양이 비교적 정확하고, 7일이 넘어가면 고기압·기압골 통과 전후의 큰 흐름만 참고하는 편이 좋습니다.',
+            'Cloud layers stay reliable out to 3 days; beyond day 7, treat scores as broad synoptic trends rather than exact timing.',
+            '3日以内は層別雲量の精度が高く、7日以降は高気圧・気圧の谷の大きな流れを見る目安としてご活用ください。',
+          )}
+        </Text>
+      </Fold>
     </View>
   );
 };
 
 const useStyles = makeStyles((color) => ({
-  wrap: { gap: space.sm },
-  head: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
-  title: { ...type.title, color: color.text },
-  sub: { ...type.body, color: color.textDim },
-  microLabel: { ...type.micro, color: color.textDim },
+  wrap: { gap: space.sm + 2 },
+  headline: { fontSize: 17, fontWeight: '700', lineHeight: 24, color: color.text },
+  lead: { ...type.body, fontSize: 12.5, color: color.textDim, lineHeight: 18 },
+
   status: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: TOUCH },
   statusText: { ...type.body, color: color.textDim },
   retry: {
-    flexDirection: 'row', alignItems: 'center', gap: space.xs, height: TOUCH, paddingHorizontal: space.md,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.fill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    height: TOUCH,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.fill,
   },
   retryText: { ...type.bodyStrong, color: color.text },
-  colHead: {
-    flexDirection: 'row', alignItems: 'center', gap: space.sm, height: 24,
-    borderBottomWidth: 1, borderBottomColor: color.borderStrong,
+
+  calGrid: { gap: 4 },
+  calRow: { flexDirection: 'row', gap: 4 },
+  dowCell: { flex: 1, textAlign: 'center', fontSize: 10.5, fontWeight: '600', color: color.textMute, paddingVertical: 2 },
+  cellEmpty: { flex: 1 },
+  cell: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 2,
+    alignItems: 'center',
+    gap: 2,
   },
-  colHalf: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  dateCol: { width: 76, justifyContent: 'center' },
-  dateColNarrow: { width: 64 },
-  groupLabel: { paddingTop: space.sm, paddingBottom: space.xs },
-  row: { flexDirection: 'row', gap: space.sm, minHeight: 52, borderBottomWidth: 1, borderBottomColor: color.border },
-  date: { ...type.label, color: color.text },
-  half: { flex: 1, minWidth: 0, minHeight: 52, justifyContent: 'center', gap: space.xs },
-  halfPicked: { borderRadius: radius.sm, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.accentSoft, paddingHorizontal: space.xs },
-  halfTop: { flexDirection: 'row', alignItems: 'baseline', gap: space.xs },
-  halfBottom: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  word: { ...type.bodyStrong, flexShrink: 1 },
-  score: { ...type.label, color: color.text },
-  meter: { flexDirection: 'row', gap: 2 },
-  time: { ...type.label, color: color.textDim, flexShrink: 1 },
-  noEvent: { ...type.body, color: color.textMute },
-  secondary: {
-    height: TOUCH, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.fill,
+  cellDate: { fontFamily: mono, fontSize: 10, color: color.textDim },
+  dualScoreRow: { alignItems: 'center', gap: 1 },
+  dualVal: { fontFamily: mono, fontSize: 10.5, fontWeight: '700', lineHeight: 13 },
+  starMiniRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  starDot: { width: 5, height: 5, borderRadius: 2.5 },
+  starMiniVal: { fontFamily: mono, fontSize: 9.5, color: color.textDim },
+
+  selCard: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: radius.md,
+    backgroundColor: color.fill,
+    padding: space.sm + 2,
+    gap: 6,
   },
-  secondaryText: { ...type.bodyStrong, color: color.text },
-  dockNote: { ...type.body, color: color.textDim, textAlign: 'center' },
+  selHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  selTitle: { ...type.bodyStrong, fontSize: 13, color: color.text },
+  selMeta: { fontSize: 11, color: color.textMute },
+  selSideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: color.panel,
+  },
+  selSideInfo: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  selSideLabel: { fontSize: 12, fontWeight: '700', color: color.text },
+  selSideTime: { fontFamily: mono, fontSize: 12, color: color.textDim },
+  selSideVerdict: { fontSize: 12, fontWeight: '700', marginLeft: 'auto' },
+  go3dBtn: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  go3dText: { fontSize: 11, fontWeight: '700' },
+
+  confBlock: { gap: 4, marginTop: 2 },
+  confLab: { flexDirection: 'row', justifyContent: 'space-between' },
+  confText: { fontSize: 11, color: color.textDim },
+
+  swRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+    paddingVertical: 2,
+  },
+  swLabel: { fontSize: 13, color: color.text, fontWeight: '600' },
+  foldText: { fontSize: 12.5, color: color.textDim, lineHeight: 18 },
 }));

@@ -1,21 +1,16 @@
 /**
- * LearnScreen.tsx — **02 데이터**: 현재 선택된 시각의 기상·천체 해설과 이후 발생할 이벤트,
- * 그리고 16일 예보·근거 데이터·결과가 나온 과정을 한 페이지에서 보여줍니다.
+ * LearnScreen.tsx — **02 데이터 ("하늘 읽는 노트")**:
  *
- *   지금(선택 시각 해설) · 앞으로 24시간(이후 이벤트) → 앞으로 16일 → 원리(결과가 나온 과정) → 근거 데이터 → 낮과 밤의 경계
- *
- * 기본적으로 01 하늘에서 선택한 시각(`currentTime`)을 기준으로 날씨·대기·천체를 해설하고
- * 그 시각 직후부터 이어지는 기상 및 천체 이벤트를 시간순으로 보여줍니다.
- * 앞으로 16일 표에서 다른 날의 일출·일몰 칸을 누르면 그 시각의 해설로 전환되며,
- * 언제든 "하늘 화면 선택 시각 해설로 돌아가기" 버튼으로 복귀할 수 있습니다.
+ * 위에서 아래로 시간 순서의 4+1 층 카드로 읽습니다:
+ *   ① 지금(파란 실선) · ② 앞으로 24시간(주황 점선) → ③ 앞으로 16일(보라 점선) → ④ 원리(청록/초록) → 근거 데이터 · 낮과 밤
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InteractionManager, Platform, View, Text, ScrollView, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3, type Language } from '../../utils/i18n';
-import { radius, space, type, TOUCH } from '../../theme/tokens';
+import { mono, radius, space, type, TOUCH } from '../../theme/tokens';
 import { makeStyles, useThemeColors } from '../../theme/useTheme';
-import { Chip, PressScale } from '../ui';
+import { PressScale } from '../ui';
 import { placeLabel } from '../AppHeader';
 import { useAdministrativeArea } from '../../utils/reverseGeocode';
 import { localHHMM, verdictWord } from '../SunsetSimulation/PredictionCard';
@@ -40,6 +35,14 @@ import {
   LEARN_SECTIONS, LEARN_TOPICS, defaultPick, pickedEvent, sameNoon,
   type LearnEntry, type LearnPick, type LearnSection, type LearnTopic,
 } from '../../utils/learnSections';
+import {
+  buildCloudTrend6h,
+  buildComfortGauges,
+  buildLiveSkyMap,
+  buildMoonStripInfo,
+  buildStarGaugeSummary,
+  buildTimeline24hData,
+} from '../../utils/learnNoteData';
 import { TodaySection } from './TodaySection';
 import { ForecastSection, dayLabel, showsScore } from './ForecastSection';
 import { DataSection } from './DataSection';
@@ -61,16 +64,27 @@ type SceneState = NonNullable<NonNullable<ReturnType<SkyScene3DHandle['getRender
 
 const sectionName = (s: LearnSection, language: Language) => {
   switch (s) {
-    case 'today': return L3(language, '지금 해설 · 일정', 'Now & Schedule', '現在解説・予定');
-    case 'forecast': return L3(language, '앞으로 16일', 'Next 16 days', 'これから16日');
-    case 'why': return L3(language, '원리', 'How it works', '仕組み');
-    case 'data': return L3(language, '근거 데이터', 'Data', '根拠データ');
-    default: return L3(language, '낮과 밤의 경계', 'Day and night', '昼と夜の境目');
+    case 'today': return L3(language, '지금', 'Now', '今');
+    case 'forecast': return L3(language, '16일', '16d', '16日');
+    case 'why': return L3(language, '원리', 'Why', '仕組み');
+    case 'data': return L3(language, '근거', 'Data', '根拠');
+    default: return L3(language, '낮·밤', 'Day/Night', '昼夜');
+  }
+};
+
+const sectionSub = (s: LearnSection, language: Language) => {
+  switch (s) {
+    case 'today': return L3(language, '눈앞 하늘', 'Right now', '目の前の空');
+    case 'forecast': return L3(language, '길게', 'Outlook', '長期予報');
+    case 'why': return L3(language, '이유', 'Formula', '理由');
+    case 'data': return L3(language, '원본 수치', 'Raw data', '元データ');
+    default: return L3(language, '경계선', 'Terminator', '境界');
   }
 };
 
 export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTime, onOpenSky, entry = null }) => {
-  const color = useThemeColors(); const styles = useStyles();
+  const color = useThemeColors();
+  const styles = useStyles();
   const language = useCelestialStore(s => s.language);
   const location = useCelestialStore(s => s.location);
   const tz = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
@@ -83,7 +97,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   const adminName = useAdministrativeArea(lat, lon);
   const place = placeLabel(lat, lon, savedLocations, adminName);
 
-  // 네이티브 탭 전환 시 화면 슬라이드 애니메이션이 먼저 부드럽게 재생되도록 무거운 예보·지평선·과제 연산을 전환 직후로 지연합니다.
   const [computeReady, setComputeReady] = useState(Platform.OS === 'web' ? isActive : false);
   useEffect(() => {
     if (Platform.OS === 'web') { setComputeReady(isActive); return undefined; }
@@ -92,15 +105,13 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     return () => task.cancel();
   }, [isActive]);
 
-  const { days, forecast, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM } = useForecastDays({ fetch: isActive, compute: computeReady });
+  const { days, forecast, fetchedAt, load, get, now, inputFor, pathFor, stampFor, ringFor, elevM } = useForecastDays({ fetch: isActive, compute: computeReady });
 
-  // ── 현재 선택된 시각(`currentTime`)과 16일 표에서 따로 고른 시각(`customPickedTimeMs`) ──
   const [customPickedTimeMs, setCustomPickedTimeMs] = useState<number | null>(null);
   const entryNonce = entry?.nonce ?? 0;
   const [pick, setPick] = useState<LearnPick | null>(null);
   const seenEntry = useRef<number | null>(null);
 
-  // 01 하늘의 currentTime이 바뀌면 customPickedTimeMs를 해제하고 그 날짜의 가장 가까운 일출/일몰 칸에 pick을 맞춥니다.
   const currentTimeMs = currentTime instanceof Date ? currentTime.getTime() : Date.now();
   useEffect(() => {
     setCustomPickedTimeMs(null);
@@ -118,7 +129,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
       }
       return;
     }
-    // 평소에는 01 하늘에서 선택된 시각(`currentTime`)이 속한 날과 가장 가까운 일출/일몰로 pick을 동기화합니다.
     if (!customPickedTimeMs) {
       const targetNoon = new Date(currentTimeMs);
       targetNoon.setHours(12, 0, 0, 0);
@@ -137,7 +147,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, now, entryNonce, currentTimeMs, customPickedTimeMs]);
 
-  // 별 보기처럼 시각이 필요한 주제가 쓸 시각(한밤에 별 카드로 들어온 길). 앞으로 16일에서 날을 다시 고르면 지웁니다.
   const [pinnedAt, setPinnedAt] = useState<number | null>(entry?.at ?? null);
   useEffect(() => { setPinnedAt(entry?.at ?? null); }, [entry?.nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
   const onPickDay = (p: LearnPick) => {
@@ -156,13 +165,13 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 
   const inspectedTimeMs = customPickedTimeMs ?? currentTimeMs;
   const inspectedTime = useMemo(() => new Date(inspectedTimeMs), [inspectedTimeMs]);
+  const isCustomPicked = customPickedTimeMs != null && Math.abs(customPickedTimeMs - currentTimeMs) > 60_000;
 
   const picked = useMemo(() => pickedEvent(days, pick), [days, pick]);
   const day = picked?.day ?? null;
   const event: ForecastEvent | null = picked?.event ?? null;
   const side: EventSide = pick?.side ?? 'sunset';
   const isToday = !!day && days.length > 0 && sameNoon(day.noonMs, days[0].noonMs);
-  // 근거 데이터 시각: 현재 해설 중인 선택 시각(`inspectedTimeMs`)
   const atMs = inspectedTimeMs;
   const at = inspectedTime;
   const path = useMemo(() => {
@@ -172,7 +181,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   }, [ringFor, inspectedTime, event, pathFor, forecast]);
   const eventInput = useMemo(() => (event ? inputFor(event) : null), [event, inputFor]);
 
-  // ── 오늘 구역의 값 ──────────────────────────────────────────────────────
   const direction = useMemo(() => (
     event && lat != null && lon != null
       ? skyDirection(sunPosition(event.at, lat, lon).azimuth * (180 / Math.PI) + 180, language)
@@ -194,7 +202,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     event && path && lat != null && lon != null ? dayScoreSeries(path, event.at, event.side, lat, lon, tz, elevM) : null
   ), [event, path, lat, lon, tz, elevM]);
 
-  // ── 결과가 나온 과정의 입력 ─────────────────────────────────────────────
   const [scene, setScene] = useState<{ horizon: HorizonProfile | null; st: SceneState | null }>({ horizon: null, st: null });
   useEffect(() => {
     if (!computeReady) return;
@@ -202,7 +209,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     setScene({ horizon: h?.getHorizonProfile?.() ?? null, st: h?.getRenderState?.()?.scene ?? null });
   }, [computeReady, entryNonce]);
 
-  // 별 보기가 쓰는 밤 불빛 지도(받아 두었으면 바로, 아니면 이 페이지가 열릴 때 한 번)
   const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());
   useEffect(() => {
     if (nightLights || !isActive) return;
@@ -217,7 +223,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 
   const fmtTime = useCallback((ms: number) => localHHMM(new Date(ms), tz), [tz]);
 
-  // ── 현재 선택 시각의 기상·천체 종합 해설 & 이후 발생할 이벤트 타임라인 ──
   const briefing = useMemo(() => {
     if (!computeReady || lat == null || lon == null) return null;
     return buildTimeBriefing({
@@ -248,6 +253,52 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
       fmtTime,
     });
   }, [computeReady, inspectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag, fmtTime]);
+
+  // ── 목업 기반 시각화 데이터 계산 (실제 예보 · 천문 기반) ─────────────────
+  const liveSkyMap = useMemo(() => (
+    computeReady && lat != null && lon != null ? buildLiveSkyMap(path, inspectedTime, lat, lon, language) : null
+  ), [computeReady, lat, lon, path, inspectedTime, language]);
+
+  const cloudTrend = useMemo(() => (
+    computeReady ? buildCloudTrend6h(path, inspectedTimeMs, language) : null
+  ), [computeReady, path, inspectedTimeMs, language]);
+
+  const moonStrip = useMemo(() => (
+    computeReady && lat != null && lon != null
+      ? buildMoonStripInfo(inspectedTime, lat, lon, elevM ?? 0, tz, language)
+      : null
+  ), [computeReady, inspectedTime, lat, lon, elevM, tz, language]);
+
+  const starSummary = useMemo(() => (
+    computeReady && lat != null && lon != null
+      ? buildStarGaugeSummary(path, inspectedTime, lat, lon, elevM ?? 0, lightPollutionMag, language)
+      : null
+  ), [computeReady, path, inspectedTime, lat, lon, elevM, lightPollutionMag, language]);
+
+  const inspectedObs = useMemo(() => (
+    path?.length ? getInterpolatedWeather(path, inspectedTime)[0] : undefined
+  ), [path, inspectedTime]);
+
+  const gauges = useMemo(() => (
+    computeReady && inspectedObs ? buildComfortGauges(inspectedObs, language) : []
+  ), [computeReady, inspectedObs, language]);
+
+  const timeline24h = useMemo(() => (
+    computeReady && lat != null && lon != null
+      ? buildTimeline24hData({
+          baseMs: inspectedTimeMs,
+          tzHours: tz,
+          lat,
+          lon,
+          elevM: elevM ?? 0,
+          ringFor,
+          forecast,
+          lightPollutionMag,
+          events: upcomingEvents,
+          language,
+        })
+      : null
+  ), [computeReady, lat, lon, inspectedTimeMs, tz, elevM, ringFor, forecast, lightPollutionMag, upcomingEvents, language]);
 
   const starArgs = useMemo(() => {
     if (!day || lat == null || lon == null) return null;
@@ -297,7 +348,22 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
     };
   }, [scene.st, language, fmtTime, atMs]);
 
-  // ── 위치 · 눌렀을 때 ────────────────────────────────────────────────────
+  const conceptContext = useMemo(() => {
+    const winds = layerWindsFrom(inspectedObs);
+    return {
+      lowPct: inspectedObs?.low ?? null,
+      midPct: inspectedObs?.mid ?? null,
+      highPct: inspectedObs?.high ?? null,
+      windLowKmh: winds?.low?.speedKmh ?? null,
+      windHighKmh: winds?.high?.speedKmh ?? null,
+      t2mC: inspectedObs?.t2mC ?? null,
+      td2mC: inspectedObs?.td2mC ?? null,
+      visKm: inspectedObs?.visibility != null && Number.isFinite(inspectedObs.visibility) ? inspectedObs.visibility / 1000 : null,
+      moonPct: moonStrip?.pct ?? null,
+      sunDeltaLabel: results.sunset?.eventLabel ?? results.sunrise?.eventLabel ?? null,
+    };
+  }, [inspectedObs, moonStrip, results]);
+
   const [topicReq, setTopicReq] = useState<{ topic: LearnTopic | null; nonce: number }>({ topic: entry?.topic ?? null, nonce: entryNonce });
   useEffect(() => {
     if (entry) setTopicReq({ topic: entry.topic ?? null, nonce: entry.nonce });
@@ -347,29 +413,93 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
   const skyTimeLabel = `${dayLabel(currentTimeMs, tz, language)} ${fmtTime(currentTimeMs)}`;
   const hasLocation = lat != null && lon != null;
 
+  const legendTone = (s: LearnSection) => {
+    switch (s) {
+      case 'today': return { fg: color.accent, dashed: false };
+      case 'forecast': return { fg: color.moon, dashed: true };
+      case 'why': return { fg: color.success, dashed: false };
+      default: return { fg: color.textDim, dashed: true };
+    }
+  };
+
+  const fetchedClock = fetchedAt != null ? fmtTime(fetchedAt) : null;
+
   return (
     <View style={styles.root}>
+      {/* 상단 4색 바로가기 스트립 (verify-calc-steps 가로 ScrollView 규칙 유지) */}
       <View style={styles.chipBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {LEARN_SECTIONS.map(s => (
-            <Chip key={s} label={sectionName(s, language)} on={activeSection === s} onPress={() => scrollTo(s)} />
-          ))}
+          {LEARN_SECTIONS.map(s => {
+            const on = activeSection === s;
+            const { fg, dashed } = legendTone(s);
+            return (
+              <PressScale
+                key={s}
+                style={[
+                  styles.legendCard,
+                  { borderColor: on ? fg : color.borderStrong, borderStyle: dashed ? 'dashed' : 'solid' },
+                  on && { backgroundColor: color.fill },
+                ]}
+                onPress={() => scrollTo(s)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.legendTitle, { color: fg }]}>{sectionName(s, language)}</Text>
+                <Text style={styles.legendSub} numberOfLines={1}>{sectionSub(s, language)}</Text>
+              </PressScale>
+            );
+          })}
         </ScrollView>
       </View>
 
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} onScroll={onScroll} scrollEventThrottle={64}>
+        {/* 제목줄 + clockbar */}
         <View style={styles.head}>
           <Text style={styles.pageTitle} accessibilityRole="header">{L3(language, '데이터', 'Data', 'データ')}</Text>
           <Text style={styles.sub}>
-            {[place, L3(language, '선택 시각 기상 · 천체 종합 해설과 예보 근거', 'Weather & celestial briefing for selected time and forecast data', '選択時刻の気象・天体解説と予報の根拠')].filter(Boolean).join(' · ')}
+            {[place, `${inspectedDateLabel} ${inspectedTimeLabel}`].filter(Boolean).join(' · ')}
           </Text>
+          <View style={styles.clockbar}>
+            <View style={[styles.selpill, isCustomPicked && { backgroundColor: color.fill, borderColor: color.moon }]}>
+              <Text style={[styles.selpillText, { color: isCustomPicked ? color.moon : color.accent }]}>
+                {isCustomPicked
+                  ? `${L3(language, '선택', 'Picked', '選択')} · ${inspectedDateLabel} ${inspectedTimeLabel}`
+                  : `${L3(language, '선택 시각 · 지금', 'Time · Now', '時刻・今')} ${inspectedTimeLabel}`}
+              </Text>
+            </View>
+            <PressScale
+              style={styles.miniBtn}
+              onPress={isCustomPicked ? onResetToSkyTime : () => openSky(currentTimeMs)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.miniBtnText}>
+                {isCustomPicked
+                  ? L3(language, '01 하늘 시각으로', 'Sync 01 Sky', '01 空の時刻へ')
+                  : L3(language, '01 하늘에서 보기', 'Open in 01 Sky', '01 空で見る')}
+              </Text>
+            </PressScale>
+            <PressScale
+              style={styles.miniBtn}
+              onPress={() => get(true)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.miniBtnText}>
+                {load.kind === 'loading'
+                  ? L3(language, '받는 중…', 'Refreshing…', '取得中…')
+                  : fetchedClock
+                    ? `${L3(language, '새로고침', 'Refresh', '更新')} · ${fetchedClock}`
+                    : L3(language, '새로고침', 'Refresh', '更新')}
+              </Text>
+            </PressScale>
+          </View>
         </View>
 
         {!hasLocation && (
           <Text style={styles.sub}>{L3(language, '위치를 먼저 정해 주세요. 위쪽 장소 버튼으로 고를 수 있어요.', 'Pick a location first with the place button at the top.', '先に場所を決めてください。上の場所ボタンで選べます。')}</Text>
         )}
 
-        <View onLayout={onLayoutOf('today')} style={styles.zone}>
+        {/* ① 지금 · ② 24시간 */}
+        <View onLayout={onLayoutOf('today')} style={[styles.zoneCard, { borderColor: color.accent }]}>
           <ZoneHead zone="today" language={language} />
           <TodaySection
             language={language}
@@ -377,7 +507,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
             isToday={isToday}
             dateLabel={inspectedDateLabel}
             timeLabel={inspectedTimeLabel}
-            isCustomPickedTime={customPickedTimeMs != null && Math.abs(customPickedTimeMs - currentTimeMs) > 60_000}
+            isCustomPickedTime={isCustomPicked}
             skyTimeLabel={skyTimeLabel}
             onResetToSkyTime={onResetToSkyTime}
             side={side}
@@ -389,26 +519,38 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
             upcomingEvents={upcomingEvents}
             onOpenSky={openSky}
             onOpenTopic={openTopic}
+            cloudTrend={cloudTrend}
+            moonStrip={moonStrip}
+            starSummary={starSummary}
+            liveSkyMap={liveSkyMap}
+            gauges={gauges}
+            timeline24h={timeline24h}
           />
         </View>
 
-        <View onLayout={onLayoutOf('forecast')} style={styles.zone}>
+        {/* ③ 16일 달력 */}
+        <View onLayout={onLayoutOf('forecast')} style={[styles.zoneCard, styles.zoneDashed, { borderColor: color.moon }]}>
           <ZoneHead zone="forecast" language={language} />
           <ForecastSection
             days={days} load={load} hasForecast={!!forecast} onRetry={() => get(true)}
             pick={pick} onPick={onPickDay} tz={tz} language={language}
+            forecast={forecast} ringFor={ringFor} lat={lat} lon={lon} elevM={elevM ?? 0}
+            lightPollutionMag={lightPollutionMag} onOpenSky={openSky}
           />
         </View>
 
-        <View onLayout={onLayoutOf('why')} style={styles.zone}>
+        {/* ④ 원리 · 워터폴 · 학습 탭 · 용어 칩 */}
+        <View onLayout={onLayoutOf('why')} style={[styles.zoneCard, { borderColor: color.success }]}>
           <ZoneHead zone="why" language={language} />
           <WhySection
             language={language} results={results} openTopic={topicReq.topic} entryNonce={topicReq.nonce}
             notes={notes} onOpenData={() => scrollTo('data')}
+            conceptContext={conceptContext} onOpenSky={() => openSky(inspectedTimeMs)}
           />
         </View>
 
-        <View onLayout={onLayoutOf('data')} style={styles.zone}>
+        {/* ⑤ 근거 데이터 · 출처 */}
+        <View onLayout={onLayoutOf('data')} style={[styles.zoneCard, styles.zoneSubtle, { borderColor: color.borderStrong }]}>
           <ZoneHead zone="data" language={language} />
           {hasLocation && (
             <DataSection
@@ -425,7 +567,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
           )}
         </View>
 
-        <View onLayout={onLayoutOf('globe')} style={styles.globe}>
+        {/* 낮과 밤의 경계 */}
+        <View onLayout={onLayoutOf('globe')} style={[styles.zoneCard, styles.zoneSubtle, { borderColor: color.borderStrong }]}>
           <Text style={styles.sectionTitle} accessibilityRole="header">{L3(language, '낮과 밤의 경계', 'Day and night', '昼と夜の境目')}</Text>
           <Text style={styles.sub}>
             {L3(language,
@@ -451,22 +594,75 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
 const useStyles = makeStyles((color) => ({
   root: { flex: 1, backgroundColor: color.bg },
   chipBar: { borderBottomWidth: 1, borderBottomColor: color.border, backgroundColor: color.bg },
-  chips: { paddingHorizontal: space.lg, paddingVertical: space.sm, gap: space.sm },
-  scroll: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xl * 3 + 20, gap: space.xl },
-  head: { gap: space.xxs },
+  chips: { paddingHorizontal: space.md, paddingVertical: space.xs + 2, gap: 6 },
+  legendCard: {
+    minWidth: 74,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: color.panel,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 1,
+  },
+  legendTitle: { fontSize: 12, fontWeight: '700' },
+  legendSub: { fontSize: 10.5, color: color.textDim },
+
+  scroll: { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xl * 3 + 20, gap: space.lg },
+  head: { gap: space.xs },
   pageTitle: { ...type.title, fontSize: 20, color: color.text },
   sub: { ...type.body, color: color.textDim },
+
+  clockbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 2 },
+  selpill: {
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
+  },
+  selpillText: { fontFamily: mono, fontSize: 11.5, fontWeight: '700' },
+  miniBtn: {
+    borderWidth: 1,
+    borderColor: color.borderStrong,
+    backgroundColor: color.panel,
+    borderRadius: radius.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    minHeight: 28,
+    justifyContent: 'center',
+  },
+  miniBtnText: { fontSize: 11.5, color: color.textDim, fontWeight: '600' },
+
+  zoneCard: {
+    backgroundColor: color.panel,
+    borderWidth: 2,
+    borderRadius: 16,
+    padding: space.md + 2,
+    gap: space.md,
+  },
+  zoneDashed: { borderStyle: 'dashed' },
+  zoneSubtle: { borderWidth: 1 },
+
   sectionTitle: { ...type.title, color: color.text },
-  zone: { gap: space.sm },
-  globe: { gap: space.sm },
   outlineBtn: {
-    minHeight: TOUCH, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: space.md,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.borderStrong,
+    minHeight: TOUCH,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.borderStrong,
   },
   outlineBtnText: { ...type.bodyStrong, color: color.text },
   sandboxBtn: {
-    minHeight: 44, borderRadius: radius.sm, borderWidth: 1, borderColor: color.accentLine, backgroundColor: color.accentSoft,
-    alignItems: 'center', justifyContent: 'center',
+    minHeight: 44,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sandboxText: { ...type.bodyStrong },
 }));
