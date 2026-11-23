@@ -18,6 +18,7 @@
  * 별과 같은 회전 행렬을 공유하므로 매 프레임 CPU 비용은 0입니다.
  */
 import * as THREE from 'three';
+import { galacticToEquatorial, foldLongitude } from '../../utils/galacticCoords';
 
 const BAND_RADIUS = 468; // 별(470) 바로 안쪽 — 별이 은하수 위에 찍히도록
 /** 은하 위도 방향 반폭 (도). 실제 밝기 감쇠는 이보다 좁고, 이 값은 그리는 범위입니다. */
@@ -137,52 +138,6 @@ export interface MilkyWayHandle {
 }
 
 // ── 은하 좌표계 기저 (J2000) ────────────────────────────────────────────────
-// 북은하극: RA 12h51m26.28s (192.85948°), Dec +27.12825°
-// 은하 중심(l=0, b=0): RA 17h45m37.2s (266.405°), Dec −28.936°
-const NGP_RA_DEG = 192.85948;
-const NGP_DEC_DEG = 27.12825;
-const GC_RA_DEG = 266.405;
-const GC_DEC_DEG = -28.936;
-
-function fromRaDec(raDeg: number, decDeg: number): THREE.Vector3 {
-  const ra = (raDeg * Math.PI) / 180;
-  const dec = (decDeg * Math.PI) / 180;
-  const cd = Math.cos(dec);
-  return new THREE.Vector3(cd * Math.cos(ra), cd * Math.sin(ra), Math.sin(dec));
-}
-
-/**
- * xg = 은하 중심, zg = 북은하극, yg = zg × xg.
- *
- * 위 두 방향은 문헌값을 반올림한 것이라 정확히 직교하지 않습니다(약 0.0001° 어긋남).
- * 그대로 쓰면 기저가 미세하게 비직교가 되므로 극축 성분을 빼서 직교화합니다.
- */
-const GAL_Z = fromRaDec(NGP_RA_DEG, NGP_DEC_DEG).normalize();
-const GAL_X = (() => {
-  const x = fromRaDec(GC_RA_DEG, GC_DEC_DEG);
-  return x.addScaledVector(GAL_Z, -x.dot(GAL_Z)).normalize();
-})();
-const GAL_Y = new THREE.Vector3().crossVectors(GAL_Z, GAL_X).normalize();
-
-/** 은하 좌표 (l, b) → 적도좌표 단위벡터 */
-function galacticToEquatorial(lDeg: number, bDeg: number, out: THREE.Vector3): THREE.Vector3 {
-  const l = (lDeg * Math.PI) / 180;
-  const b = (bDeg * Math.PI) / 180;
-  const cb = Math.cos(b);
-  return out
-    .set(0, 0, 0)
-    .addScaledVector(GAL_X, cb * Math.cos(l))
-    .addScaledVector(GAL_Y, cb * Math.sin(l))
-    .addScaledVector(GAL_Z, Math.sin(b))
-    .normalize();
-}
-
-/** l을 은하 중심으로부터의 각거리 0~180°로 접습니다 */
-function foldLongitude(lDeg: number): number {
-  const x = ((lDeg % 360) + 360) % 360;
-  return x > 180 ? 360 - x : x;
-}
-
 /**
  * 은하 경도별 상대 표면 밝기.
  *

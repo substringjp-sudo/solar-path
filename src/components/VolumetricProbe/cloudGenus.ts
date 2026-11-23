@@ -23,6 +23,7 @@ import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, ICE_DIFFUSE_SCALE, INV_2P
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
+import { mulberry32 as rng } from '../../utils/math';
 import { applyLightingFixClouds, LIGHTING_FIX_OFF, type LightingFixFlags } from './lightingFix';
 import { injectTsun, syncTsunUniforms, tsunUniformValues, type TsunShaderConfig, type TsunUniformValues } from './cloudTsun';
 
@@ -247,10 +248,6 @@ function remapCover(t: [number, number][] | undefined, cover: number): number {
 const param = <K extends keyof GenusParams>(L: GenusLayer, k: K): GenusParams[K] => (L.opts?.[k] ?? GENUS[L.genus][k]) as GenusParams[K];
 
 // ───── 주기 경계 잡음 ─────
-const rng = (seed: number) => () => {
-  seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 type F2 = (u: number, v: number) => number;
 function periodicNoise(n: number, seed: number): F2 {
   const r = rng(seed), g = new Float32Array(n * n);

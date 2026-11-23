@@ -58,7 +58,15 @@
  */
 import { ClampToEdgeWrapping, DataTexture, DataUtils, HalfFloatType, LinearFilter, NoColorSpace, RGBAFormat } from 'three';
 import { ARCH_GL2, TSUN_COND_HF, TSUN_COND_HF_STEP, TSUN_COND_LEN, TSUN_COND_REACH_KM, TSUN_GL4_W, TSUN_GL4_X, TSUN_PROF_N, TSUN_SLICE_HF, tsunAtlasRows, type TsunAtlas } from './cloudTsun';
-import { tsunFixtureEntry, tsunTauCond, type TsunFixture } from './tsunFixture';
+import {
+  TSUN_GEO_EPS,
+  tsunBlendLambda,
+  tsunBlendOf,
+  tsunBlendTau,
+  tsunFixtureEntry,
+  tsunTauCond,
+  type TsunFixture,
+} from './tsunFixture';
 
 export const TSUN_ATLAS_MARK = '§179';
 /** 구축기 판(meta.builder) — 수식·격자가 바뀌면 올립니다. */
@@ -142,95 +150,10 @@ export function tsunUniformLaw(lam: number, dlKm = TSUN_ARCH_DL_DEFAULT_KM): Tsu
   return { label: `uniform λ=${lam}`, lambda: () => lam, G: L => (L > 0 ? L : 0), tauCond: () => 0, dlKm };
 }
 
-// ─── 고정표 평가기의 섞음 규칙(tsunFixture.ts 와 같은 식 — 그 파일은 내부 함수를 내보내지 않아 옮김; 시험이 마디에서 1e-12 로 대조) ───
-type FW = [number, number][];
-function fxBracket(grid: ArrayLike<number>, x: number): FW {
-  const n = grid.length;
-  if (x <= grid[0]) return [[0, 1]];
-  if (x >= grid[n - 1]) return [[n - 1, 1]];
-  let i = 0;
-  while (grid[i + 1] < x) i++;
-  const t = (x - grid[i]) / (grid[i + 1] - grid[i]);
-  return t === 0 ? [[i, 1]] : [[i, 1 - t], [i + 1, t]];
-}
-function fxCoverW(covers: number[], c: number, full: number, zeroCell: boolean): FW {
-  if (covers.length === 1) return [[0, 1]];
-  if (c >= full) { const i = covers.findIndex(x => x >= full); return [[i >= 0 ? i : covers.length - 1, 1]]; }
-  const below = covers.filter(x => x < full);
-  if (!(c > 0)) return zeroCell ? [[-1, 1]] : [[0, 1]];
-  if (c < below[0]) return zeroCell ? [[-1, 1 - c / below[0]], [0, c / below[0]]] : [[0, 1]];
-  return fxBracket(below, c);
-}
-function fxHfW(grid: number[], h: number): FW {
-  if (!(h > 0) || !(h < 1)) return [[-1, 1]];
-  const ext = [0, ...grid, 1];
-  return fxBracket(ext, h).map(([i, w]) => [i === 0 || i === ext.length - 1 ? -1 : i - 1, w] as [number, number]);
-}
-function fxPhiW(grid: number[], phiDeg: number, period: number): FW {
-  const p = ((phiDeg % period) + period) % period, n = grid.length;
-  if (p >= grid[n - 1] || p < grid[0]) {
-    const span = grid[0] + period - grid[n - 1], x = p >= grid[n - 1] ? p - grid[n - 1] : p + period - grid[n - 1];
-    const t = x / span;
-    return [[n - 1, 1 - t], [0, t]];
-  }
-  return fxBracket(grid, p);
-}
-const FX_GEO_EPS = 0.01;
-const FX_LAM_TAU_OK = Math.log(1e4);
-const FX_LAM_L_MAX = 10;
-function fxCellTau(fx: TsunFixture, base: number, Lkm: number): number {
-  const L = fx.header.grids.L, s = fx.header.layout.tau.scale, n = L.length, T = fx.tau;
-  if (!(Lkm > 0)) return 0;
-  if (Lkm <= L[0]) return (T[base] * s * Lkm) / L[0];
-  if (Lkm >= L[n - 1]) {
-    const a = T[base + n - 2] * s, b = T[base + n - 1] * s;
-    return b + (Math.max(0, b - a) * (Lkm - L[n - 1])) / (L[n - 1] - L[n - 2]);
-  }
-  let i = 0;
-  while (L[i + 1] < Lkm) i++;
-  const t = (Lkm - L[i]) / (L[i + 1] - L[i]);
-  return (T[base + i] * (1 - t) + T[base + i + 1] * t) * s;
-}
-interface FxBlend { w0: number; cells: [number, number][] }
-function fxBlendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): FxBlend {
-  const E = fx.header.entries[e], g = fx.header.grids, hfG = E.hf ?? g.hf, nH = hfG.length, nP = g.phi.length;
-  let w0 = 0;
-  const cells: [number, number][] = [];
-  for (const [ci, wc] of fxCoverW(E.covers, cover, g.fullCover, true)) {
-    if (wc === 0) continue;
-    for (const [hi, wh] of fxHfW(hfG, hf)) {
-      if (wh === 0) continue;
-      for (const [pi, wp] of fxPhiW(g.phi, phiDeg, 180)) {
-        if (wp === 0) continue;
-        const w = wc * wh * wp;
-        const k = ci < 0 || hi < 0 ? -1 : (ci * nH + hi) * nP + pi;
-        if (k < 0 || !(fx.lam10[e][k] > 0)) w0 += w; else cells.push([k, w]);
-      }
-    }
-  }
-  const sw = 1 - w0;
-  if (sw > 0) for (const c of cells) c[1] /= sw;
-  return { w0, cells };
-}
-function fxBlendTau(fx: TsunFixture, e: number, b: FxBlend, Lkm: number): number {
-  if (!b.cells.length || b.w0 >= 1 || !(Lkm > 0)) return 0;
-  const base = fx.header.entries[e].tauOffset, nL = fx.header.grids.L.length;
-  let s = 0;
-  for (const [k, w] of b.cells) s += w * Math.log(fxCellTau(fx, base + k * nL, Lkm) + FX_GEO_EPS);
-  return (1 - b.w0) * Math.max(0, Math.exp(s) - FX_GEO_EPS);
-}
-function fxBlendLambda(fx: TsunFixture, e: number, b: FxBlend): number {
-  const t10 = fxBlendTau(fx, e, b, FX_LAM_L_MAX);
-  if (!(t10 > 0)) return 0;
-  if (t10 <= FX_LAM_TAU_OK) return t10 / FX_LAM_L_MAX;
-  let lo = 0, hi = FX_LAM_L_MAX;
-  for (let it = 0; it < 40; it++) { const m = 0.5 * (lo + hi); if (fxBlendTau(fx, e, b, m) > FX_LAM_TAU_OK) hi = m; else lo = m; }
-  return FX_LAM_TAU_OK / Math.max(hi, 1e-6);
-}
 /** 시험용: 평가기와 같은 규칙의 마디 값(λ₁₀, τ(L)) — verify-tsun-atlas 가 tsunLambda10·tsunLawTau 와 대조. */
 export function tsunFixtureNodeValues(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number, Lkm: number): { lam: number; tau: number } {
-  const b = fxBlendOf(fx, e, cover, hf, phiDeg);
-  return { lam: fxBlendLambda(fx, e, b), tau: fxBlendTau(fx, e, b, Lkm) };
+  const b = tsunBlendOf(fx, e, cover, hf, phiDeg);
+  return { lam: tsunBlendLambda(fx, e, b), tau: tsunBlendTau(fx, e, b, Lkm) };
 }
 
 const uniqSorted = (xs: number[]) => [...new Set(xs.map(x => +x.toFixed(9)))].sort((a, b) => a - b);
@@ -263,21 +186,21 @@ export function tsunFixtureLaw(fx: TsunFixture, e: number, phiDeg: number, dlKm:
     const c = r < nc ? cNodes[r] : 1.0;
     for (let h = 0; h < nh; h++) {
       const o = r * nh + h;
-      const b = fxBlendOf(fx, e, single ? E.covers[0] : c, hNodes[h], phiDeg);
-      lam[o] = fxBlendLambda(fx, e, b);
-      for (let l = 0; l < nL; l++) logT[o * nL + l] = Math.log(fxBlendTau(fx, e, b, Lg[l]) + FX_GEO_EPS);
-      tauEnd[o * 2] = fxBlendTau(fx, e, b, Lg[nL - 2]); tauEnd[o * 2 + 1] = fxBlendTau(fx, e, b, Lg[nL - 1]);
+      const b = tsunBlendOf(fx, e, single ? E.covers[0] : c, hNodes[h], phiDeg);
+      lam[o] = tsunBlendLambda(fx, e, b);
+      for (let l = 0; l < nL; l++) logT[o * nL + l] = Math.log(tsunBlendTau(fx, e, b, Lg[l]) + TSUN_GEO_EPS);
+      tauEnd[o * 2] = tsunBlendTau(fx, e, b, Lg[nL - 2]); tauEnd[o * 2 + 1] = tsunBlendTau(fx, e, b, Lg[nL - 1]);
     }
   }
   const Lf = Float64Array.from(Lg);
   // 마디 곡선 τ_o(L): L 격자 사이 선형(τ 공간), L < L₀ 는 0 에서 선형, 끝 너머는 마지막 마디 기울기(평가기 cellTau 와 같은 꼴)
   const nodeTau = (o: number, Lkm: number, li: number, lt: number): number => {
-    if (Lkm <= Lf[0]) return (Math.exp(logT[o * nL]) - FX_GEO_EPS) * Lkm / Lf[0];
+    if (Lkm <= Lf[0]) return (Math.exp(logT[o * nL]) - TSUN_GEO_EPS) * Lkm / Lf[0];
     if (Lkm >= Lf[nL - 1]) {
       const a = tauEnd[o * 2], b = tauEnd[o * 2 + 1];
       return b + (Math.max(0, b - a) * (Lkm - Lf[nL - 1])) / (Lf[nL - 1] - Lf[nL - 2]);
     }
-    const a = Math.exp(logT[o * nL + li]) - FX_GEO_EPS, b = Math.exp(logT[o * nL + li + 1]) - FX_GEO_EPS;
+    const a = Math.exp(logT[o * nL + li]) - TSUN_GEO_EPS, b = Math.exp(logT[o * nL + li + 1]) - TSUN_GEO_EPS;
     return a + (b - a) * lt;
   };
   // (c, hf) → 마디 넷과 무게(0 칸 포함). 결과를 재사용 버퍼에.
@@ -310,10 +233,10 @@ export function tsunFixtureLaw(fx: TsunFixture, e: number, phiDeg: number, dlKm:
       if (w === 0) continue;
       const o = nodeIdx[k];
       if (!(lam[o] > 0)) { w0 += w; continue; }
-      s += w * Math.log(Math.max(0, nodeTau(o, Lkm, li, lt)) + FX_GEO_EPS); sw += w;
+      s += w * Math.log(Math.max(0, nodeTau(o, Lkm, li, lt)) + TSUN_GEO_EPS); sw += w;
     }
     if (!(sw > 0)) return 0;
-    return (1 - w0) * Math.max(0, Math.exp(s / sw) - FX_GEO_EPS);
+    return (1 - w0) * Math.max(0, Math.exp(s / sw) - TSUN_GEO_EPS);
   };
   return {
     label: `fixture ${E.genus}@${E.lane} φ ${phiDeg.toFixed(3)}°`,

@@ -18,12 +18,7 @@ import {
 import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
 import { LIT2_ENCODE_GLSL } from './terrainLook';
 import { createBuildingThreeGeometry, WINDOW_CELL_M, type BuildingMeshData } from '../../utils/buildingTiles';
-
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
-const smooth01 = (x: number) => {
-  const t = clamp01(x);
-  return t * t * (3 - 2 * t);
-};
+import { clamp01, smoothstep01 as smooth01 } from '../../utils/math';
 
 /**
  * 현지 시각(0~24h)에 따른 야간 창문 점등 비율 (0~1).

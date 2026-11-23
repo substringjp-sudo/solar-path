@@ -10,48 +10,13 @@ import * as THREE from 'three';
 import { getStarCatalog, bvToLinearRGB, STAR_MAG_LIMIT } from '../../utils/starCatalog';
 import { getGMSTDeg } from '../../utils/celestialCoords';
 import { PLANETS_METADATA, getPlanetEquatorialCoord, type PlanetKey } from '../../utils/celestialPlanets';
+import { galacticToEquatorial, foldLongitude } from '../../utils/galacticCoords';
 
 const BAND_RADIUS = 468;
 const STAR_RADIUS = 470;
 const BAND_HALF_WIDTH_DEG = 24;
 const SEGMENTS = 360;
 const ROWS = 20;
-
-const NGP_RA_DEG = 192.85948;
-const NGP_DEC_DEG = 27.12825;
-const GC_RA_DEG = 266.405;
-const GC_DEC_DEG = -28.936;
-
-function fromRaDec(raDeg: number, decDeg: number): THREE.Vector3 {
-  const ra = (raDeg * Math.PI) / 180;
-  const dec = (decDeg * Math.PI) / 180;
-  const cd = Math.cos(dec);
-  return new THREE.Vector3(cd * Math.cos(ra), cd * Math.sin(ra), Math.sin(dec));
-}
-
-const GAL_Z = fromRaDec(NGP_RA_DEG, NGP_DEC_DEG).normalize();
-const GAL_X = (() => {
-  const x = fromRaDec(GC_RA_DEG, GC_DEC_DEG);
-  return x.addScaledVector(GAL_Z, -x.dot(GAL_Z)).normalize();
-})();
-const GAL_Y = new THREE.Vector3().crossVectors(GAL_Z, GAL_X).normalize();
-
-function galacticToEquatorial(lDeg: number, bDeg: number, out: THREE.Vector3): THREE.Vector3 {
-  const l = (lDeg * Math.PI) / 180;
-  const b = (bDeg * Math.PI) / 180;
-  const cb = Math.cos(b);
-  return out
-    .set(0, 0, 0)
-    .addScaledVector(GAL_X, cb * Math.cos(l))
-    .addScaledVector(GAL_Y, cb * Math.sin(l))
-    .addScaledVector(GAL_Z, Math.sin(b))
-    .normalize();
-}
-
-function foldLongitude(lDeg: number): number {
-  const x = ((lDeg % 360) + 360) % 360;
-  return x > 180 ? 360 - x : x;
-}
 
 function longitudeBrightness(lDeg: number): number {
   const L = foldLongitude(lDeg);

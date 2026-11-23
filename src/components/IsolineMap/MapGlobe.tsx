@@ -11,98 +11,18 @@ import { subscribeScrubTime } from '../../utils/liveClock';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
-import { morphRaw, morphClipAngle } from '../../utils/globeMorph';
-import { getStarCatalog, bvToLinearRGB } from '../../utils/starCatalog';
-import { getGMSTDeg } from '../../utils/celestialCoords';
-import { MILKY_WAY_EQUATOR_NODES } from '../../utils/celestialMilkyWayData';
-
-interface MilkyWayPatchNode {
-  raDeg: number;
-  sinDec: number;
-  cosDec: number;
-  angRad: number;
-  coreWeight: number;
-  isCore: boolean;
-  hasDust: boolean;
-}
-
-let cachedMwNodes: MilkyWayPatchNode[] | null = null;
-function getSpaceMilkyWayNodes(): MilkyWayPatchNode[] {
-  if (cachedMwNodes) return cachedMwNodes;
-  const RAD = Math.PI / 180;
-  const n = MILKY_WAY_EQUATOR_NODES.length;
-  const vecs = MILKY_WAY_EQUATOR_NODES.map((pt) => {
-    const ra = pt.raHours * 15 * RAD;
-    const dec = pt.decDeg * RAD;
-    const cd = Math.cos(dec);
-    return { x: cd * Math.cos(ra), y: cd * Math.sin(ra), z: Math.sin(dec), lDeg: pt.lDeg };
-  });
-  const out: MilkyWayPatchNode[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = vecs[i];
-    const b = vecs[(i + 1) % n];
-    for (let s = 0; s < 2; s++) {
-      const t = s * 0.5;
-      let vx = a.x * (1 - t) + b.x * t;
-      let vy = a.y * (1 - t) + b.y * t;
-      let vz = a.z * (1 - t) + b.z * t;
-      const len = Math.hypot(vx, vy, vz) || 1;
-      vx /= len; vy /= len; vz /= len;
-      const lDeg = (a.lDeg + t * 15) % 360;
-      const coreWeight = Math.pow(Math.max(0, Math.cos(lDeg * RAD)), 2.2);
-      out.push({
-        raDeg: Math.atan2(vy, vx) / RAD,
-        sinDec: vz,
-        cosDec: Math.hypot(vx, vy),
-        angRad: 0.145 + 0.085 * coreWeight,
-        coreWeight,
-        isCore: coreWeight > 0.32,
-        hasDust: coreWeight > 0.22 && s === 0,
-      });
-    }
-  }
-  cachedMwNodes = out;
-  return out;
-}
-
-interface SpaceStarEntry {
-  raDeg: number;
-  sinDec: number;
-  cosDec: number;
-  r: number;
-  op: number;
-  color: string;
-  halo: boolean;
-}
-
-let cachedSpaceStars: SpaceStarEntry[] | null = null;
-function getSpaceStars(): SpaceStarEntry[] {
-  if (cachedSpaceStars) return cachedSpaceStars;
-  const cat = getStarCatalog();
-  const RAD = Math.PI / 180;
-  const list: SpaceStarEntry[] = [];
-  for (let i = 0; i < cat.count; i++) {
-    const mag = cat.magnitude[i];
-    if (mag > 4.1) continue;
-    const decRad = cat.decDeg[i] * RAD;
-    const [lr, lg, lb] = bvToLinearRGB(cat.colorIndex[i]);
-    const toSrgb = (c: number) => Math.round(Math.pow(Math.max(0, Math.min(1, c)), 1 / 2.2) * 255);
-    const cr = toSrgb(lr * 0.72 + 0.28);
-    const cg = toSrgb(lg * 0.72 + 0.28);
-    const cb = toSrgb(lb * 0.72 + 0.28);
-    list.push({
-      raDeg: cat.raHours[i] * 15,
-      sinDec: Math.sin(decRad),
-      cosDec: Math.cos(decRad),
-      r: Math.max(0.45, Math.min(1.85, 1.55 - mag * 0.27)),
-      op: Math.max(0.28, Math.min(0.95, 0.92 - (mag + 1.5) * 0.11)),
-      color: `rgb(${cr},${cg},${cb})`,
-      halo: mag < 1.1,
-    });
-  }
-  cachedSpaceStars = list;
-  return list;
-}
+import {
+  joinOnSphere,
+  makeProjection,
+  geoPathFor,
+  pickTerminatorMainLabelPt,
+  buildSubTerminatorPaths,
+  computeSpaceBodies,
+  projectSpaceStars,
+  projectSpaceMilkyWay,
+  computeSpaceAtmosphere,
+  computeOrbitalSunrise,
+} from './globeGeometry';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -154,29 +74,7 @@ interface MapGlobeProps {
   onViewChanging?: (v: { latitude: number; longitude: number; radius: number }) => void;
 }
 
-/**
- * 날짜변경선에서 잘린 조각을 다시 잇습니다. 평면 지도용으로 ±180° 에서 끊어 둔
- * 선이라, 구에서는 그 자리에 틈이 생깁니다. 끝과 시작이 5° 안이면 한 선입니다.
- */
-const joinOnSphere = (segments: IsochronePoint[][]): [number, number][][] => {
-  const lines = segments.filter(s => s.length >= 2).map(s => s.map(p => [p.longitude, p.latitude] as [number, number]));
-  let merged = true;
-  while (merged && lines.length > 1) {
-    merged = false;
-    for (let i = 0; i < lines.length && !merged; i++) {
-      for (let j = 0; j < lines.length && !merged; j++) {
-        if (i === j) continue;
-        const a = lines[i], b = lines[j];
-        if (d3.geoDistance(a[a.length - 1], b[0]) < 5 * Math.PI / 180) {
-          lines[i] = a.concat(b);
-          lines.splice(j, 1);
-          merged = true;
-        }
-      }
-    }
-  }
-  return lines;
-};
+/** `joinOnSphere` — `globeGeometry.ts`로 추출. */
 
 /**
  * 부모가 리렌더 없이 구를 움직입니다 — 하늘 탭의 줌이 손가락 이벤트마다 반지름(지도와 같은
@@ -670,21 +568,6 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return geoPath({ type: 'MultiLineString', coordinates: lines } as any) || null;
   }, [geoPath]);
 
-  // 적도(위도 0도)에 가장 인접한 좌표를 찾는 함수
-  const getEquatorPoint = useCallback((segment: IsochronePoint[]) => {
-    if (segment.length === 0) return null;
-    let best = segment[0];
-    let minDiff = Math.abs(best.latitude);
-    for (const pt of segment) {
-      const diff = Math.abs(pt.latitude);
-      if (diff < minDiff) {
-        minDiff = diff;
-        best = pt;
-      }
-    }
-    return best;
-  }, []);
-
   // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
   const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
   const language = useCelestialStore(st => st.language);
@@ -698,107 +581,33 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   const sunrisePath = useMemo(() => makeTerminatorPath(terminator.sunrise), [terminator.sunrise, makeTerminatorPath]);
   const sunsetPath = useMemo(() => makeTerminatorPath(terminator.sunset), [terminator.sunset, makeTerminatorPath]);
 
-  // 메인 일출/일몰선 시간 라벨 위치 — 우주모드에서는 대기 광채 가장자리를 피해 지구 안쪽에 놓습니다.
-  const pickMainLabelPt = useCallback((segments: IsochronePoint[][]) => {
-    if (!segments || segments.length === 0) return null;
-    const allPts = segments.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
-    if (allPts.length === 0) return null;
-    if (morph >= 0.9 && RADIUS > 1) {
-      let bestPos: { x: number; y: number } | null = null;
-      let bestAbsLat = Infinity;
-      const maxInnerR = RADIUS * 0.84;
-      for (let i = 0; i < allPts.length; i++) {
-        const pt = allPts[i];
-        const dist = d3.geoDistance([pt.longitude, pt.latitude], [-rotate[0], -rotate[1]]);
-        if (dist >= Math.PI / 2 * 0.92) continue;
-        const pos = projection([pt.longitude, pt.latitude]);
-        if (!pos) continue;
-        if (Math.hypot(pos[0] - CX, pos[1] - CY) > maxInnerR) continue;
-        const aLat = Math.abs(pt.latitude);
-        if (aLat < bestAbsLat) {
-          bestAbsLat = aLat;
-          bestPos = { x: pos[0], y: pos[1] };
-        }
-      }
-      if (bestPos) return bestPos;
-    }
-    const eqPt = getEquatorPoint(allPts);
-    if (eqPt) {
-      const dist = d3.geoDistance([eqPt.longitude, eqPt.latitude], [-rotate[0], -rotate[1]]);
-      if (dist < Math.PI / 2) {
-        const pos = projection([eqPt.longitude, eqPt.latitude]);
-        if (pos) return { x: pos[0], y: pos[1] };
-      }
-    }
-    return null;
-  }, [getEquatorPoint, rotate, projection, morph, RADIUS, CX, CY]);
-
-  const mainSunriseLabelPt = useMemo(() => pickMainLabelPt(terminator.sunrise), [terminator.sunrise, pickMainLabelPt]);
-  const mainSunsetLabelPt = useMemo(() => pickMainLabelPt(terminator.sunset), [terminator.sunset, pickMainLabelPt]);
+  const mainSunriseLabelPt = useMemo(
+    () => pickTerminatorMainLabelPt(terminator.sunrise, projection, rotate, morph, RADIUS, CX, CY),
+    [terminator.sunrise, projection, rotate, morph, RADIUS, CX, CY],
+  );
+  const mainSunsetLabelPt = useMemo(
+    () => pickTerminatorMainLabelPt(terminator.sunset, projection, rotate, morph, RADIUS, CX, CY),
+    [terminator.sunset, projection, rotate, morph, RADIUS, CX, CY],
+  );
 
   const showSubTerminators = settled && !isInteracting && visible;
-  const subTerminatorPaths = useMemo(() => {
-    if (!allTerminators || !showSubTerminators) return [];
-    const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
-    const mainW = morph >= 0.9 ? 48 : 28;
-    if (mainSunriseLabelPt) placed.push({ x: mainSunriseLabelPt.x, y: mainSunriseLabelPt.y, w: mainW, h: 16 });
-    if (mainSunsetLabelPt) placed.push({ x: mainSunsetLabelPt.x, y: mainSunsetLabelPt.y, w: mainW, h: 16 });
-
-    const canPlace = (x: number, y: number, w: number, h: number) => {
-      if (morph >= 0.92 && Math.hypot(x - CX, y - CY) > RADIUS * 0.84) return false;
-      for (let i = 0; i < placed.length; i++) {
-        const b = placed[i];
-        if (Math.abs(x - b.x) < (w + b.w) * 0.5 + 3 && Math.abs(y - b.y) < (h + b.h) * 0.5 + 2) {
-          return false;
-        }
-      }
-      return true;
-    };
-
-    const pickLabelPt = (segs: IsochronePoint[][]): { x: number; y: number } | null => {
-      if (!segs || segs.length === 0) return null;
-      const allPts = segs.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
-      if (allPts.length === 0) return null;
-      const candLats = [0, 14, -14, 26, -26];
-      for (let c = 0; c < candLats.length; c++) {
-        const targetLat = candLats[c];
-        let best: IsochronePoint | null = null;
-        let minDiff = 6.5;
-        for (let i = 0; i < allPts.length; i++) {
-          const diff = Math.abs(allPts[i].latitude - targetLat);
-          if (diff < minDiff) {
-            minDiff = diff;
-            best = allPts[i];
-          }
-        }
-        if (!best) continue;
-        const dist = d3.geoDistance([best.longitude, best.latitude], [-rotate[0], -rotate[1]]);
-        if (dist >= Math.PI / 2 * 0.95) continue;
-        const pos = projection([best.longitude, best.latitude]);
-        if (!pos) continue;
-        if (canPlace(pos[0], pos[1], 24, 11)) {
-          placed.push({ x: pos[0], y: pos[1], w: 24, h: 11 });
-          return { x: pos[0], y: pos[1] };
-        }
-      }
-      return null;
-    };
-
-    return allTerminators.map((term, idx) => {
-      const sunrise = makeTerminatorPath(term.sunrise);
-      const sunset = makeTerminatorPath(term.sunset);
-      const sunriseLabelPt = pickLabelPt(term.sunrise);
-      const sunsetLabelPt = pickLabelPt(term.sunset);
-      return {
-        sunrise,
-        sunset,
-        sunriseLabelPt,
-        sunsetLabelPt,
-        label: formatTime(term.time),
-        key: `sub-term-paths-${idx}`
-      };
-    });
-  }, [allTerminators, showSubTerminators, makeTerminatorPath, rotate, projection, formatTime, mainSunriseLabelPt, mainSunsetLabelPt, morph, CX, CY, RADIUS]);
+  const subTerminatorPaths = useMemo(
+    () => buildSubTerminatorPaths({
+      allTerminators,
+      showSubTerminators,
+      makeTerminatorPath,
+      rotate,
+      projection,
+      formatTime,
+      mainSunriseLabelPt,
+      mainSunsetLabelPt,
+      morph,
+      cx: CX,
+      cy: CY,
+      radius: RADIUS,
+    }),
+    [allTerminators, showSubTerminators, makeTerminatorPath, rotate, projection, formatTime, mainSunriseLabelPt, mainSunsetLabelPt, morph, CX, CY, RADIUS],
+  );
 
   const sunMarker = useMemo(() => {
     const pt: [number, number] = [subsolar.longitude, subsolar.latitude];
@@ -812,237 +621,31 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return { x: 0, y: 0, visible: false };
   }, [subsolar, rotate, projection]);
 
-  /**
-   * 달 — 직하점에 위상 모양으로. 밝은 쪽은 **해 직하점 쪽**(달에서 해 쪽으로 가는 대원 방향)을 봅니다.
-   * 화면에서의 그 방향은 달 자리에서 해 쪽으로 대원을 따라 조금 간 점을 투영해 얻습니다.
-   * 밝은 부분: 해 쪽 반원 + 명암 경계 반타원(가로 반지름 r·|2f−1|, 반달보다 차면 어두운 쪽으로 부풂).
-   */
-  const spaceBodies = useMemo(() => {
-    if (morph < 0.9 || RADIUS <= 1) return null;
-    const cLat = -rotate[1];
-    const cLon = -rotate[0];
-    const RAD = Math.PI / 180;
-    const f = Math.max(width, height) * 0.9;
-    const camZ = f / RADIUS;
-
-    const projectBody = (lat: number, lon: number, distR: number, radR: number) => {
-      const dLon = (lon - cLon) * RAD;
-      const cosLat = Math.cos(lat * RAD), sinLat = Math.sin(lat * RAD);
-      const cosCLat = Math.cos(cLat * RAD), sinCLat = Math.sin(cLat * RAD);
-      const x = cosLat * Math.sin(dLon);
-      const y = cosCLat * sinLat - sinCLat * cosLat * Math.cos(dLon);
-      const z = sinCLat * sinLat + cosCLat * cosLat * Math.cos(dLon);
-      const cz = camZ - z * distR;
-      if (cz <= 0.1) return null;
-      const sx = CX + ((x * distR) / cz) * f;
-      const sy = CY - ((y * distR) / cz) * f;
-      const sr = Math.max(1.5, (radR / cz) * f);
-      if (sx < -sr - 50 || sx > width + sr + 50 || sy < -sr - 50 || sy > height + sr + 50) return null;
-      return { sx, sy, sr, inFront: z >= 0, px: x * distR, py: y * distR, pz: z * distR };
-    };
-
-    const sun = projectBody(subsolar.latitude, subsolar.longitude, 23480, 109.2);
-    const moonRaw = sublunar ? projectBody(sublunar.latitude, sublunar.longitude, 60.3, 0.2725) : null;
-    let moon: (NonNullable<typeof moonRaw> & { litFrac: number; angleDeg: number; shadowPath: string | 'full' | null }) | null = null;
-    if (moonRaw) {
-      // 달 → 태양 벡터와 달 → 카메라 벡터로 실제 3D 위상 및 태양 방향 각도 계산
-      const sLonR = (subsolar.longitude - cLon) * RAD;
-      const sLatR = subsolar.latitude * RAD;
-      const cLatR = cLat * RAD;
-      const sx3 = Math.cos(sLatR) * Math.sin(sLonR) * 23480;
-      const sy3 = (Math.cos(cLatR) * Math.sin(sLatR) - Math.sin(cLatR) * Math.cos(sLatR) * Math.cos(sLonR)) * 23480;
-      const sz3 = (Math.sin(cLatR) * Math.sin(sLatR) + Math.cos(cLatR) * Math.cos(sLatR) * Math.cos(sLonR)) * 23480;
-      let lx = sx3 - moonRaw.px, ly = sy3 - moonRaw.py, lz = sz3 - moonRaw.pz;
-      const lLen = Math.hypot(lx, ly, lz) || 1;
-      lx /= lLen; ly /= lLen; lz /= lLen;
-
-      let vx = -moonRaw.px, vy = -moonRaw.py, vz = camZ - moonRaw.pz;
-      const vLen = Math.hypot(vx, vy, vz) || 1;
-      vx /= vLen; vy /= vLen; vz /= vLen;
-
-      const litFrac = Math.max(0, Math.min(1, (1 + (lx * vx + ly * vy + lz * vz)) * 0.5));
-      // 카메라 시선 V 에 수직인 화면 기저 (U: 오른쪽, W: 위쪽)
-      const upX = Math.abs(vy) > 0.99 ? 0 : 0, upY = Math.abs(vy) > 0.99 ? 0 : 1, upZ = Math.abs(vy) > 0.99 ? -1 : 0;
-      let ux = upY * vz - upZ * vy, uy = upZ * vx - upX * vz, uz = upX * vy - upY * vx;
-      const uLen = Math.hypot(ux, uy, uz) || 1;
-      ux /= uLen; uy /= uLen; uz /= uLen;
-      const wx = vy * uz - vz * uy, wy = vz * ux - vx * uz, wz = vx * uy - vy * ux;
-      const lu = lx * ux + ly * uy + lz * uz;
-      const lw = lx * wx + ly * wy + lz * wz;
-      const angleDeg = (Math.atan2(-lw, lu) * 180) / Math.PI;
-
-      const r = moonRaw.sr;
-      const rx = Math.abs(2 * litFrac - 1) * r;
-      const shadowPath = litFrac > 0.995
-        ? null
-        : litFrac < 0.005
-          ? 'full'
-          : `M0 ${r} A${r} ${r} 0 0 1 0 ${-r} A${rx} ${r} 0 0 ${litFrac > 0.5 ? 0 : 1} 0 ${r} Z`;
-      moon = { ...moonRaw, litFrac, angleDeg, shadowPath };
-    }
-    return { sun, moon };
-  }, [morph, RADIUS, rotate, width, height, CX, CY, subsolar, sublunar]);
+  const spaceBodies = useMemo(
+    () => computeSpaceBodies({ morph, radius: RADIUS, rotate, width, height, cx: CX, cy: CY, subsolar, sublunar }),
+    [morph, RADIUS, rotate, width, height, CX, CY, subsolar, sublunar],
+  );
 
   const gmstMin = Math.floor((selectedDate?.getTime() ?? Date.now()) / 60000);
-  const spaceStars = useMemo(() => {
-    if (morph < 0.9 || RADIUS <= 1) return null;
-    const morphFade = Math.min(1, (morph - 0.9) / 0.1);
-    const stars = getSpaceStars();
-    const gmstDeg = getGMSTDeg(new Date(gmstMin * 60000));
-    const cLat = -rotate[1];
-    const cLon = -rotate[0];
-    const RAD = Math.PI / 180;
-    const cosCLat = Math.cos(cLat * RAD);
-    const sinCLat = Math.sin(cLat * RAD);
-    const f = Math.max(width, height) * 0.9;
-    const earthOccR2 = morph >= 0.999 ? (RADIUS - 1.5) * (RADIUS - 1.5) : 0;
-    const sun = spaceBodies?.sun;
-    const out: Array<{ sx: number; sy: number; r: number; op: number; color: string; halo: boolean }> = [];
-    for (let i = 0; i < stars.length; i++) {
-      const st = stars[i];
-      const dLon = (st.raDeg - gmstDeg - cLon) * RAD;
-      const cosDLon = Math.cos(dLon);
-      const x = st.cosDec * Math.sin(dLon);
-      const y = cosCLat * st.sinDec - sinCLat * st.cosDec * cosDLon;
-      const z = sinCLat * st.sinDec + cosCLat * st.cosDec * cosDLon;
-      if (z >= -0.08) continue;
-      const invZ = 1 / -z;
-      const sx = CX + x * invZ * f;
-      const sy = CY - y * invZ * f;
-      if (sx < -4 || sx > width + 4 || sy < -4 || sy > height + 4) continue;
-      if (earthOccR2 > 0) {
-        const dxE = sx - CX;
-        const dyE = sy - CY;
-        if (dxE * dxE + dyE * dyE < earthOccR2) continue;
-      }
-      let glareFade = 1;
-      if (sun) {
-        const dSun = Math.hypot(sx - sun.sx, sy - sun.sy);
-        if (dSun < sun.sr * 7) {
-          glareFade = Math.max(0.08, (dSun - sun.sr * 1.2) / (sun.sr * 5.8));
-        }
-      }
-      out.push({ sx, sy, r: st.r, op: st.op * morphFade * glareFade, color: st.color, halo: st.halo });
-    }
-    return out;
-  }, [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies]);
+  const spaceStars = useMemo(
+    () => projectSpaceStars({ morph, radius: RADIUS, rotate, width, height, cx: CX, cy: CY, gmstMin, spaceBodies }),
+    [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies],
+  );
 
-  const spaceMilkyWay = useMemo(() => {
-    if (morph < 0.9 || RADIUS <= 1) return null;
-    const morphFade = Math.min(1, (morph - 0.9) / 0.1);
-    const nodes = getSpaceMilkyWayNodes();
-    const gmstDeg = getGMSTDeg(new Date(gmstMin * 60000));
-    const cLat = -rotate[1];
-    const cLon = -rotate[0];
-    const RAD = Math.PI / 180;
-    const cosCLat = Math.cos(cLat * RAD);
-    const sinCLat = Math.sin(cLat * RAD);
-    const f = Math.max(width, height) * 0.9;
-    const sun = spaceBodies?.sun;
-    const out: Array<{ sx: number; sy: number; r: number; op: number; isCore: boolean; hasDust: boolean }> = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const nd = nodes[i];
-      const dLon = (nd.raDeg - gmstDeg - cLon) * RAD;
-      const cosDLon = Math.cos(dLon);
-      const x = nd.cosDec * Math.sin(dLon);
-      const y = cosCLat * nd.sinDec - sinCLat * nd.cosDec * cosDLon;
-      const z = sinCLat * nd.sinDec + cosCLat * nd.cosDec * cosDLon;
-      if (z >= -0.08) continue;
-      const invZ = 1 / -z;
-      const sx = CX + x * invZ * f;
-      const sy = CY - y * invZ * f;
-      const r = nd.angRad * invZ * f;
-      if (sx < -r || sx > width + r || sy < -r || sy > height + r) continue;
-      let earthFade = 1;
-      if (morph >= 0.999) {
-        const edgeDist = Math.hypot(sx - CX, sy - CY) - RADIUS;
-        if (edgeDist < -r * 0.2) continue;
-        if (edgeDist < r * 0.55) earthFade = Math.max(0, (edgeDist + r * 0.2) / (r * 0.75));
-      }
-      let glareFade = 1;
-      if (sun) {
-        const dSun = Math.hypot(sx - sun.sx, sy - sun.sy);
-        if (dSun < sun.sr * 9) {
-          glareFade = Math.max(0.15, dSun / (sun.sr * 9));
-        }
-      }
-      const op = (0.34 + 0.56 * nd.coreWeight) * morphFade * glareFade * earthFade;
-      out.push({ sx, sy, r, op, isCore: nd.isCore, hasDust: nd.hasDust });
-    }
-    return out;
-  }, [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies]);
+  const spaceMilkyWay = useMemo(
+    () => projectSpaceMilkyWay({ morph, radius: RADIUS, rotate, width, height, cx: CX, cy: CY, gmstMin, spaceBodies }),
+    [morph, RADIUS, rotate, width, height, CX, CY, gmstMin, spaceBodies],
+  );
 
-  const spaceAtmosphere = useMemo(() => {
-    if (morph < 0.5 || RADIUS <= 1) return null;
-    const op = Math.min(1, (morph - 0.5) / 0.45);
-    const RAD = Math.PI / 180;
-    const dLon = (subsolar.longitude - (-rotate[0])) * RAD;
-    const sLatR = subsolar.latitude * RAD;
-    const cLatR = (-rotate[1]) * RAD;
-    const sx = Math.cos(sLatR) * Math.sin(dLon);
-    const sy = -(Math.cos(cLatR) * Math.sin(sLatR) - Math.sin(cLatR) * Math.cos(sLatR) * Math.cos(dLon));
-    const sz = Math.sin(cLatR) * Math.sin(sLatR) + Math.cos(cLatR) * Math.cos(sLatR) * Math.cos(dLon);
-    const len = Math.hypot(sx, sy) || 1;
-    // 태양-시선 하프벡터 H = normalize(S + V), V = (0, 0, 1) -> 바다 Sun Glint 중심
-    const hx = sx;
-    const hy = sy;
-    const hz = sz + 1;
-    const hLen = Math.hypot(hx, hy, hz) || 1;
-    const glintCxPct = `${(50 + (hx / hLen) * 50).toFixed(1)}%`;
-    const glintCyPct = `${(50 + (hy / hLen) * 50).toFixed(1)}%`;
-    const glintOp = sz > -0.25 ? Math.max(0, Math.min(1, (sz + 0.25) / 1.15)) : 0;
-    return {
-      op,
-      cxPct: `${(50 + (sx / len) * 16).toFixed(1)}%`,
-      cyPct: `${(50 + (sy / len) * 16).toFixed(1)}%`,
-      sunDirX: sx / len,
-      sunDirY: sy / len,
-      glintCxPct,
-      glintCyPct,
-      glintOp,
-    };
-  }, [morph, RADIUS, rotate, subsolar]);
+  const spaceAtmosphere = useMemo(
+    () => computeSpaceAtmosphere({ morph, radius: RADIUS, rotate, subsolar }),
+    [morph, RADIUS, rotate, subsolar],
+  );
 
-  const orbitalSunrise = useMemo(() => {
-    if (morph < 0.9 || RADIUS <= 1 || !spaceBodies?.sun || spaceBodies.sun.inFront) return null;
-    const sun = spaceBodies.sun;
-    const dx = sun.sx - CX;
-    const dy = sun.sy - CY;
-    const d = Math.hypot(dx, dy);
-    const limbGap = d - RADIUS;
-    if (limbGap < -sun.sr * 2.6 || limbGap > sun.sr * 3.6) return null;
-    const rawArc = limbGap < 0
-      ? Math.max(0, 1 + limbGap / (sun.sr * 2.6))
-      : Math.max(0, 1 - limbGap / (sun.sr * 2.8));
-    const arcStrength = rawArc * rawArc * (3 - 2 * rawArc);
-    const rawFlare = limbGap < sun.sr * 0.2
-      ? Math.max(0, (limbGap + sun.sr * 1.1) / (sun.sr * 1.3))
-      : Math.max(0, 1 - (limbGap - sun.sr * 0.2) / (sun.sr * 3.0));
-    const flareStrength = rawFlare * rawFlare * (3 - 2 * rawFlare);
-    const angRad = Math.atan2(dy, dx);
-    const angDeg = (angRad * 180) / Math.PI;
-    const lx = CX + RADIUS * Math.cos(angRad);
-    const ly = CY + RADIUS * Math.sin(angRad);
-    const makeArc = (rad: number, halfSpanDeg: number) => {
-      const span = (halfSpanDeg * Math.PI) / 180;
-      const a1 = angRad - span;
-      const a2 = angRad + span;
-      return `M ${(CX + rad * Math.cos(a1)).toFixed(2)} ${(CY + rad * Math.sin(a1)).toFixed(2)} A ${rad.toFixed(2)} ${rad.toFixed(2)} 0 0 1 ${(CX + rad * Math.cos(a2)).toFixed(2)} ${(CY + rad * Math.sin(a2)).toFixed(2)}`;
-    };
-    return {
-      arcStrength,
-      flareStrength,
-      angDeg,
-      lx,
-      ly,
-      flareR: Math.max(22, sun.sr * 4.6),
-      rayTangential: Math.max(26, sun.sr * 6.5),
-      rayNormal: Math.max(18, sun.sr * 4.0),
-      blueArc: makeArc(RADIUS + 1.6, 22),
-      amberArc: makeArc(RADIUS + 0.7, 17),
-      redArc: makeArc(RADIUS + 0.1, 12),
-    };
-  }, [morph, RADIUS, CX, CY, spaceBodies]);
+  const orbitalSunrise = useMemo(
+    () => computeOrbitalSunrise({ morph, radius: RADIUS, cx: CX, cy: CY, spaceBodies }),
+    [morph, RADIUS, CX, CY, spaceBodies],
+  );
 
   const renderSpaceSun = (sun: { sx: number; sy: number; sr: number }) => {
     const r = sun.sr;
@@ -1739,17 +1342,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   );
 }));
 
-/**
- * 형태 `morph` 의 투영. 1 이면 d3 정사영 그대로, 그 밖이면 메르카토르와 섞은 raw(§153, `globeMorph.ts`).
- * 구는 보이는 반구로, 섞인 형태는 극 바로 앞에서 자릅니다(`morphClipAngle`).
- */
-function makeProjection(morph: number, rotate: [number, number], radius: number, cx: number, cy: number) {
-  const base = morph >= 1 ? d3.geoOrthographic() : d3.geoProjection(morphRaw(morph, -rotate[1]) as any);
-  return base.scale(radius).translate([cx, cy]).rotate(rotate).clipAngle(morphClipAngle(morph, -rotate[1]));
-}
-function geoPathFor(projection: d3.GeoProjection) {
-  return d3.geoPath().projection(projection);
-}
+/** `makeProjection`, `geoPathFor` — `globeGeometry.ts`로 추출. */
 
 const styles = StyleSheet.create({
   container: {

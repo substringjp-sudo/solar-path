@@ -23,6 +23,7 @@
  * 넓은 커널로는 수렴하지 않고(전체 평균이 밀림) 좁은 커널로는 표본 자리마다 점 무늬를 남겨 넣지 않았습니다(단위 테스트로 확인).
  */
 import { fft2 } from '../components/VolumetricProbe/cloudFlow';
+import { mulberry32 } from './math';
 
 export interface MacroSample {
   /** 관측점 기준 동(+)·북(+) km */
@@ -98,18 +99,6 @@ export const TAU_REF_MIN = 30, LAMBDA_REF_KM = 10;
 
 /** 옥타브 띠(파장 km, 하한 포함~상한 제외). 6 km 는 3 km 칸의 나이퀴스트. */
 const BANDS_KM: Array<[number, number]> = [[6, 12], [12, 24], [24, 48], [48, 96], [96, 192], [192, 1e9]];
-
-// ───────── 난수(결정론) ─────────
-function mulberry32(s: number): () => number {
-  let a = s >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 // ───────── 1. 가변 반경 Barnes ─────────
 /**
@@ -212,6 +201,77 @@ function applyWeightPatches(
   }
 }
 
+interface SampleKdNode {
+  idx: number;
+  xKm: number;
+  yKm: number;
+  axis: 0 | 1;
+  left: SampleKdNode | null;
+  right: SampleKdNode | null;
+}
+
+function buildSampleKdTree(samples: MacroSample[], indices: number[], depth: number): SampleKdNode | null {
+  if (indices.length === 0) return null;
+  const axis: 0 | 1 = (depth & 1) as 0 | 1;
+  indices.sort((a, b) => (axis === 0 ? samples[a].xKm - samples[b].xKm : samples[a].yKm - samples[b].yKm));
+  const mid = indices.length >> 1;
+  const idx = indices[mid];
+  return {
+    idx,
+    xKm: samples[idx].xKm,
+    yKm: samples[idx].yKm,
+    axis,
+    left: buildSampleKdTree(samples, indices.slice(0, mid), depth + 1),
+    right: buildSampleKdTree(samples, indices.slice(mid + 1), depth + 1),
+  };
+}
+
+function queryNearestSample(
+  root: SampleKdNode | null,
+  px: number,
+  py: number,
+  spacing: Float64Array,
+  stackNode: (SampleKdNode | null)[],
+  stackPlaneD2: Float64Array,
+): number {
+  if (!root) return 10;
+  let best = Infinity;
+  let bestIdx = 0;
+  let bs = 10;
+  let sp = 0;
+  stackNode[0] = root;
+  stackPlaneD2[0] = 0;
+  sp = 1;
+  while (sp > 0) {
+    sp--;
+    const node = stackNode[sp];
+    if (!node || stackPlaneD2[sp] > best) continue;
+    const dx = node.xKm - px;
+    const dy = node.yKm - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best || (d2 === best && node.idx < bestIdx)) {
+      best = d2;
+      bestIdx = node.idx;
+      bs = spacing[node.idx];
+    }
+    const diff = node.axis === 0 ? px - node.xKm : py - node.yKm;
+    const nearChild = diff <= 0 ? node.left : node.right;
+    const farChild = diff <= 0 ? node.right : node.left;
+    const planeD2 = diff * diff;
+    if (farChild && planeD2 <= best) {
+      stackNode[sp] = farChild;
+      stackPlaneD2[sp] = planeD2;
+      sp++;
+    }
+    if (nearChild) {
+      stackNode[sp] = nearChild;
+      stackPlaneD2[sp] = 0;
+      sp++;
+    }
+  }
+  return bs;
+}
+
 function getBarnesPlan(
   samples: MacroSample[],
   n: number,
@@ -245,15 +305,15 @@ function getBarnesPlan(
 
   const lambdaRes = new Float32Array(n * n);
   const half = (n * cellKm) / 2;
+  const kdRoot = buildSampleKdTree(samples, samples.map((_, i) => i), 0);
+  const stackCap = Math.max(32, samples.length + 2);
+  const stackNode = new Array<SampleKdNode | null>(stackCap);
+  const stackPlaneD2 = new Float64Array(stackCap);
   for (let y = 0; y < n; y++) {
     const py = (y + 0.5) * cellKm - half;
     for (let x = 0; x < n; x++) {
       const px = (x + 0.5) * cellKm - half;
-      let best = Infinity, bs = 10;
-      for (let i = 0; i < samples.length; i++) {
-        const d2 = (samples[i].xKm - px) ** 2 + (samples[i].yKm - py) ** 2;
-        if (d2 < best) { best = d2; bs = spacing[i]; }
-      }
+      const bs = queryNearestSample(kdRoot, px, py, spacing, stackNode, stackPlaneD2);
       lambdaRes[y * n + x] = 2 * bs;
     }
   }

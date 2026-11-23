@@ -22,11 +22,11 @@
  * 열역학 입력이 없으면 표준대기(지표 15 °C, 6.5 K/km)로 물러납니다.
  */
 import type { GenusKey } from './cloudGenus';
+import { clamp } from '../../utils/math';
 
 const G = 9.80665, RD = 287.05, CP = 1004.6, EPS = 0.622, RHO_W = 1000, RHO_I = 917;
 const GAMMA_D = G / CP;
 const lv = (tC: number) => 2.501e6 - 2370 * tC;
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** 물 위 포화수증기압(hPa, Bolton 1980). */
 export function esatWater(tC: number): number {

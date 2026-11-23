@@ -87,7 +87,6 @@ export interface UpcomingTimelineEvent {
   topic: LearnTopic;
 }
 
-const RAD = Math.PI / 180;
 const DEG = 180 / Math.PI;
 
 /** 바람이 불어오는 방위(0~360°)를 8방위 풍향 이름으로 바꿉니다. */
@@ -174,217 +173,195 @@ export const formatRelativeAfter = (fromMs: number, toMs: number, lang: Language
   return L3(lang, `${h}시간 ${m}분 뒤`, `in ${h}h ${m}m`, `${h}時間${m}分後`);
 };
 
-/**
- * 현재 선택된 시각(`selectedTime`)의 기상 · 대기 · 천체 종합 브리핑을 생성합니다.
- */
-export const buildTimeBriefing = (args: {
-  selectedTime: Date;
-  lat: number;
-  lon: number;
-  elevM: number;
-  language: Language;
-  ringFor: (d: Date) => CloudPathData[] | null;
-  forecast: CloudPathData[] | null;
-  days: ForecastDay[];
-  lightPollutionMag: number | null;
-}): TimeBriefing => {
-  const { selectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag } = args;
-  const timeMs = selectedTime.getTime();
+const radToCompassDeg = (rad: number): number => ((rad * DEG + 180) % 360 + 360) % 360;
 
-  // 1) 태양 위치 및 하늘 단계
-  const sunPos = sunPosition(selectedTime, lat, lon);
-  const sunAltDeg = sunPos.altitude * DEG;
-  const sunAzDeg = ((sunPos.azimuth * DEG + 180) % 360 + 360) % 360;
-  const sunDir = skyDirection(sunAzDeg, language);
-  const phase = classifySkyPhase(sunAltDeg, language);
+const extractCloudCover = (obs: CloudData) => {
+  const low = Math.round(obs.low);
+  const mid = Math.round(obs.mid);
+  const high = Math.round(obs.high);
+  const total = Math.round(
+    typeof obs.total === 'number' && Number.isFinite(obs.total) ? obs.total : Math.max(low, mid, high),
+  );
+  return { low, mid, high, total };
+};
 
-  // 2) 달 위치 및 위상
-  const moonPos = getMoonPositionPrecise(selectedTime, lat, lon, elevM);
-  const moonAltDeg = moonPos.altitude * DEG;
-  const moonAzDeg = ((moonPos.azimuth * DEG + 180) % 360 + 360) % 360;
-  const moonDir = skyDirection(moonAzDeg, language);
-  const moonIllum = SunCalc.getMoonIllumination(selectedTime);
-  const moonPct = Math.round(moonIllum.fraction * 100);
-  const moonName = moonPhaseWord(moonIllum.phase, moonIllum.fraction, language);
+interface WeatherBriefingSection {
+  hasWeather: boolean;
+  weatherSummaryTitle: string;
+  weatherNarrative: string;
+  weatherMetrics: BriefingMetric[];
+}
 
-  // 3) 선택 시각의 기상 데이터
-  const { obs, path } = weatherAtTime(selectedTime, ringFor, forecast);
-  const hasWeather = obs != null;
+function buildWeatherBriefingSection(obs: CloudData | null, language: Language): WeatherBriefingSection {
+  if (!obs) {
+    return {
+      hasWeather: false,
+      weatherSummaryTitle: L3(language, '시간별 기상 예보 범위 밖의 시각', 'Outside hourly weather forecast range', '時間別気象予報の範囲外の時刻'),
+      weatherNarrative: L3(language,
+        '선택한 시각이 시간별 예보 범위 밖. 기온·구름 없이 천체 위치만으로 해설.',
+        'The selected time is outside the downloaded hourly weather window, so commentary is based on precise astronomical positions of the Sun, Moon, stars, and planets.',
+        '選択された時刻は時間別気象予報の範囲外のため、太陽・月・星・惑星の精密な天文位置に基づいて解説します。'),
+      weatherMetrics: [],
+    };
+  }
 
-  const low = obs ? Math.round(obs.low) : 0;
-  const mid = obs ? Math.round(obs.mid) : 0;
-  const high = obs ? Math.round(obs.high) : 0;
-  const total = obs
-    ? Math.round(typeof obs.total === 'number' && Number.isFinite(obs.total) ? obs.total : Math.max(low, mid, high))
-    : 0;
-
-  const t2m = obs && typeof obs.t2mC === 'number' && Number.isFinite(obs.t2mC) ? obs.t2mC : null;
-  const td2m = obs && typeof obs.td2mC === 'number' && Number.isFinite(obs.td2mC) ? obs.td2mC : null;
-  const rh = obs && typeof obs.humidity === 'number' && Number.isFinite(obs.humidity) ? Math.round(obs.humidity) : null;
-  const visKm = obs && typeof obs.visibility === 'number' && Number.isFinite(obs.visibility) ? obs.visibility / 1000 : null;
-  const precip = obs && typeof obs.precipitation === 'number' && Number.isFinite(obs.precipitation) ? obs.precipitation : 0;
-  const aod = obs && typeof obs.aod550 === 'number' && Number.isFinite(obs.aod550) ? obs.aod550 : null;
-  const pm25 = obs && typeof obs.pm25 === 'number' && Number.isFinite(obs.pm25) ? Math.round(obs.pm25) : null;
+  const { low, mid, high, total } = extractCloudCover(obs);
+  const t2m = typeof obs.t2mC === 'number' && Number.isFinite(obs.t2mC) ? obs.t2mC : null;
+  const td2m = typeof obs.td2mC === 'number' && Number.isFinite(obs.td2mC) ? obs.td2mC : null;
+  const rh = typeof obs.humidity === 'number' && Number.isFinite(obs.humidity) ? Math.round(obs.humidity) : null;
+  const visKm = typeof obs.visibility === 'number' && Number.isFinite(obs.visibility) ? obs.visibility / 1000 : null;
+  const precip = typeof obs.precipitation === 'number' && Number.isFinite(obs.precipitation) ? obs.precipitation : 0;
+  const aod = typeof obs.aod550 === 'number' && Number.isFinite(obs.aod550) ? obs.aod550 : null;
+  const pm25 = typeof obs.pm25 === 'number' && Number.isFinite(obs.pm25) ? Math.round(obs.pm25) : null;
   const winds = layerWindsFrom(obs);
 
-  // 기상 해설 문장 조립
-  let weatherSummaryTitle = '';
-  let weatherNarrative = '';
-  const weatherMetrics: BriefingMetric[] = [];
+  const cSum = cloudSummary({ low, mid, high }, language);
+  const weatherSummaryTitle = precip >= 0.2
+    ? L3(language, `${cSum} · 시간당 ${precip.toFixed(1)}mm 강수`, `${cSum} · ${precip.toFixed(1)}mm/h rain`, `${cSum} · 時間${precip.toFixed(1)}mmの降水`)
+    : `${cSum} (${L3(language, `총운량 ${total}%`, `Total ${total}%`, `全雲量 ${total}%`)})`;
 
-  if (obs) {
-    const cSum = cloudSummary({ low, mid, high }, language);
-    weatherSummaryTitle = precip >= 0.2
-      ? L3(language, `${cSum} · 시간당 ${precip.toFixed(1)}mm 강수`, `${cSum} · ${precip.toFixed(1)}mm/h rain`, `${cSum} · 時間${precip.toFixed(1)}mmの降水`)
-      : `${cSum} (${L3(language, `총운량 ${total}%`, `Total ${total}%`, `全雲量 ${total}%`)})`;
-
-    const sentences: string[] = [];
-    // 구름 층별 구조 해설
-    if (total < 15) {
+  const sentences: string[] = [];
+  if (total < 15) {
+    sentences.push(L3(language,
+      `구름 거의 없음 (하 ${low} · 중 ${mid} · 상 ${high}%). 하늘이 트임.`,
+      `Low (${low}%), mid (${mid}%), and high (${high}%) cloud layers are almost clear, leaving an open sky.`,
+      `下層(${low}%)・中層(${mid}%)・上層(${high}%)ともに雲がほとんどなく、澄み渡っています。`));
+  } else {
+    if (low >= 25 || mid >= 25 || high >= 25) {
       sentences.push(L3(language,
-        `구름 거의 없음 (하 ${low} · 중 ${mid} · 상 ${high}%). 하늘이 트임.`,
-        `Low (${low}%), mid (${mid}%), and high (${high}%) cloud layers are almost clear, leaving an open sky.`,
-        `下層(${low}%)・中層(${mid}%)・上層(${high}%)ともに雲がほとんどなく、澄み渡っています。`));
-    } else {
-      const layerParts: string[] = [];
-      if (low >= 25) {
-        layerParts.push(L3(language,
-          `지표면 가까운 하층운(${low}%)이 시야와 낮은 지평선을 가리고`,
-          `low clouds (${low}%) near the surface obscure the lower horizon`,
-          `地表近くの下層雲(${low}%)が低い地平線を遮り`));
-      }
-      if (mid >= 25) {
-        layerParts.push(L3(language,
-          `중층운(${mid}%)이 하늘 허리에 퍼져 있으며`,
-          `mid-level clouds (${mid}%) spread across the mid-sky`,
-          `中層雲(${mid}%)が空の中ほどに広がり`));
-      }
-      if (high >= 25) {
-        layerParts.push(L3(language,
-          `높은 상층운(${high}%)이 얇게 깔려 있습니다`,
-          `high-altitude clouds (${high}%) form an upper veil`,
-          `高い上層雲(${high}%)が薄く広がっています`));
-      }
-      if (layerParts.length > 0) {
-        sentences.push(L3(language,
-          `총운량 ${total}%.`,
-          `Total cloud cover is ${total}% (low ${low}% · mid ${mid}% · high ${high}%).`,
-          `現在の全雲量は${total}%(下層${low}%・中層${mid}%・上層${high}%)です。`));
-      }
-      if (low >= 50) {
-        sentences.push(L3(language,
-          '낮은 구름이 두꺼워 햇빛·별빛이 막힘.',
-          'Thick low clouds block direct sunlight and starlight from reaching the ground.',
-          '厚い下層雲が多く、日差しや星明かりが雲の下へ届きにくい状態です。'));
-      } else if (mid >= 30 || high >= 30) {
-        sentences.push(L3(language,
-          '중·상층 구름이 많음. 박명엔 노을빛을 받고 밤엔 별을 일부 가림.',
-          'With few low clouds and mid/high clouds overhead, they catch twilight colors at dusk/dawn while dimming fainter stars at night.',
-          '下層は比較的開けており中・上層雲が浮かんでいるため、薄明時は夕焼けを映すスクリーンになり、夜は暗い星を少し遮ります。'));
-      }
+        `총운량 ${total}%.`,
+        `Total cloud cover is ${total}% (low ${low}% · mid ${mid}% · high ${high}%).`,
+        `現在の全雲量は${total}%(下層${low}%・中層${mid}%・上層${high}%)です。`));
     }
-
-    // 강수 해설
-    if (precip >= 0.2) {
+    if (low >= 50) {
       sentences.push(L3(language,
-        `시간당 약 ${precip.toFixed(1)}mm 강수 예보. 방수 대비 필요.`,
-        `About ${precip.toFixed(1)} mm/h of precipitation is expected, so weather protection is needed outdoors.`,
-        `時間あたり約${precip.toFixed(1)}mmの降水が予想されるため、屋外での撮影・観測には雨対策が必要です。`));
+        '낮은 구름이 두꺼워 햇빛·별빛이 막힘.',
+        'Thick low clouds block direct sunlight and starlight from reaching the ground.',
+        '厚い下層雲が多く、日差しや星明かりが雲の下へ届きにくい状態です。'));
+    } else if (mid >= 30 || high >= 30) {
+      sentences.push(L3(language,
+        '중·상층 구름이 많음. 박명엔 노을빛을 받고 밤엔 별을 일부 가림.',
+        'With few low clouds and mid/high clouds overhead, they catch twilight colors at dusk/dawn while dimming fainter stars at night.',
+        '下層は比較的開けており中・上層雲が浮かんでいるため、薄明時は夕焼けを映すスクリーンになり、夜は暗い星を少し遮ります。'));
     }
+  }
 
-    // 기온 · 이슬점 · 습도 해설
-    if (t2m != null) {
-      const spread = td2m != null ? t2m - td2m : null;
-      const closeDew = spread != null && spread <= 2.5;
-      const dewNote = closeDew
-        ? L3(language,
-          ` 이슬점 ${td2m!.toFixed(1)}°C, 차이 ${spread!.toFixed(1)}°C로 좁음. 안개·렌즈 결로 쉬움.`,
-          ` The dew point (${td2m!.toFixed(1)}°C) is within ${spread!.toFixed(1)}°C of air temperature, so mist or lens condensation can form easily.`,
-          ` 露点(${td2m!.toFixed(1)}°C)と気温の差が${spread!.toFixed(1)}°Cと小さく、霧やカメラレンズの結露が発生しやすい状態です。`)
-        : (td2m != null
-          ? L3(language, ` (이슬점 ${td2m.toFixed(1)}°C)`, ` (dew point ${td2m.toFixed(1)}°C)`, ` (露点 ${td2m.toFixed(1)}°C)`)
-          : '');
-      sentences.push(language === 'ko'
-        ? `기온 ${t2m.toFixed(1)}°C${closeDew ? '' : dewNote}${rh != null ? ` · 습도 ${rh}%` : ''}.${closeDew ? dewNote : ''}`
-        : L3(language,
-          '',
-          `Air temperature is ${t2m.toFixed(1)}°C${dewNote}${rh != null ? ` with ${rh}% relative humidity.` : '.'}`,
-          `気温は${t2m.toFixed(1)}°C${dewNote}${rh != null ? `、相対湿度は${rh}%です。` : 'です。'}`));
-    }
+  if (precip >= 0.2) {
+    sentences.push(L3(language,
+      `시간당 약 ${precip.toFixed(1)}mm 강수 예보. 방수 대비 필요.`,
+      `About ${precip.toFixed(1)} mm/h of precipitation is expected, so weather protection is needed outdoors.`,
+      `時間あたり約${precip.toFixed(1)}mmの降水が予想されるため、屋外での撮影・観測には雨対策が必要です。`));
+  }
 
-    // 시정 · 에어로졸 · 바람 해설
-    const airParts: string[] = [];
-    if (visKm != null) {
-      const visWord = visKm >= 20
-        ? L3(language, '매우 맑음', 'crystal clear', '非常に澄んでいる')
-        : visKm >= 10
-          ? L3(language, '양호', 'good', '良好')
-          : L3(language, '연무·습기로 뿌옇음', 'reduced by haze', '靄や湿気でやや霞んでいる');
-      airParts.push(L3(language, `시정 ${visKm.toFixed(1)}km, ${visWord}.`, `Visibility ${visKm.toFixed(1)} km (${visWord}).`, `視程${visKm.toFixed(1)}km(${visWord})。`));
-    }
-    if (winds) {
-      const wDir = windDirectionWord(winds.low.bearingDeg, language);
-      const wSpd = Math.round(winds.low.speedKmh);
-      const hiSpd = Math.round(winds.high.speedKmh);
-      airParts.push(L3(language,
-        `하층 ${wDir} ${wSpd}km/h (상층 ${hiSpd}km/h).`,
-        `Low-level ${wDir} wind ${wSpd} km/h (upper ${hiSpd} km/h).`,
-        `下層は${wDir}${wSpd}km/h(上層${hiSpd}km/h)。`));
-    }
-    sentences.push(...airParts);
+  if (t2m != null) {
+    const spread = td2m != null ? t2m - td2m : null;
+    const closeDew = spread != null && spread <= 2.5;
+    const dewNote = closeDew
+      ? L3(language,
+        ` 이슬점 ${td2m!.toFixed(1)}°C, 차이 ${spread!.toFixed(1)}°C로 좁음. 안개·렌즈 결로 쉬움.`,
+        ` The dew point (${td2m!.toFixed(1)}°C) is within ${spread!.toFixed(1)}°C of air temperature, so mist or lens condensation can form easily.`,
+        ` 露点(${td2m!.toFixed(1)}°C)と気温の差が${spread!.toFixed(1)}°Cと小さく、霧やカメラレンズの結露が発生しやすい状態です。`)
+      : (td2m != null
+        ? L3(language, ` (이슬점 ${td2m.toFixed(1)}°C)`, ` (dew point ${td2m.toFixed(1)}°C)`, ` (露点 ${td2m.toFixed(1)}°C)`)
+        : '');
+    sentences.push(language === 'ko'
+      ? `기온 ${t2m.toFixed(1)}°C${closeDew ? '' : dewNote}${rh != null ? ` · 습도 ${rh}%` : ''}.${closeDew ? dewNote : ''}`
+      : L3(language,
+        '',
+        `Air temperature is ${t2m.toFixed(1)}°C${dewNote}${rh != null ? ` with ${rh}% relative humidity.` : '.'}`,
+        `気温は${t2m.toFixed(1)}°C${dewNote}${rh != null ? `、相対湿度は${rh}%です。` : 'です。'}`));
+  }
 
-    weatherNarrative = sentences.filter(Boolean).join(' ');
+  const airParts: string[] = [];
+  if (visKm != null) {
+    const visWord = visKm >= 20
+      ? L3(language, '매우 맑음', 'crystal clear', '非常に澄んでいる')
+      : visKm >= 10
+        ? L3(language, '양호', 'good', '良好')
+        : L3(language, '연무·습기로 뿌옇음', 'reduced by haze', '靄や湿気でやや霞んでいる');
+    airParts.push(L3(language, `시정 ${visKm.toFixed(1)}km, ${visWord}.`, `Visibility ${visKm.toFixed(1)} km (${visWord}).`, `視程${visKm.toFixed(1)}km(${visWord})。`));
+  }
+  if (winds) {
+    const wDir = windDirectionWord(winds.low.bearingDeg, language);
+    const wSpd = Math.round(winds.low.speedKmh);
+    const hiSpd = Math.round(winds.high.speedKmh);
+    airParts.push(L3(language,
+      `하층 ${wDir} ${wSpd}km/h (상층 ${hiSpd}km/h).`,
+      `Low-level ${wDir} wind ${wSpd} km/h (upper ${hiSpd} km/h).`,
+      `下層は${wDir}${wSpd}km/h(上層${hiSpd}km/h)。`));
+  }
+  sentences.push(...airParts);
 
-    // 지표 카드 구성
-    weatherMetrics.push({
+  const weatherMetrics: BriefingMetric[] = [
+    {
       id: 'cloud',
       label: L3(language, '구름 (총운량)', 'Cloud cover', '雲量 (全雲量)'),
       value: `${total}%`,
       sub: L3(language, `하 ${low} · 중 ${mid} · 상 ${high}%`, `L ${low} · M ${mid} · H ${high}%`, `下 ${low} · 中 ${mid} · 上 ${high}%`),
-    });
-    weatherMetrics.push({
+    },
+    {
       id: 'temp',
       label: L3(language, '기온 · 이슬점', 'Temp · Dew point', '気温・露点'),
       value: t2m != null ? `${t2m.toFixed(1)}°C` : '—',
       sub: td2m != null ? L3(language, `이슬점 ${td2m.toFixed(1)}°C`, `Dew ${td2m.toFixed(1)}°C`, `露点 ${td2m.toFixed(1)}°C`) : L3(language, '자료 없음', 'N/A', 'なし'),
-    });
-    weatherMetrics.push({
+    },
+    {
       id: 'humidity',
       label: L3(language, '습도 · 강수량', 'Humidity · Rain', '湿度・降水量'),
       value: rh != null ? `${rh}%` : '—',
       sub: precip > 0 ? `${precip.toFixed(1)} mm/h` : L3(language, '강수 없음 (0mm)', 'Dry (0mm)', '降水なし (0mm)'),
-    });
-    weatherMetrics.push({
+    },
+    {
       id: 'vis',
       label: L3(language, '시정 · 투명도', 'Visibility · AOD', '視程・透明度'),
       value: visKm != null ? `${visKm.toFixed(1)} km` : '—',
       sub: aod != null
         ? `AOD ${aod.toFixed(2)}${pm25 != null ? ` · PM2.5 ${pm25}` : ''}`
         : (pm25 != null ? `PM2.5 ${pm25} µg/m³` : L3(language, '표준 대기', 'Standard air', '標準大気')),
-    });
-    if (winds) {
-      weatherMetrics.push({
+    },
+  ];
+  if (winds) {
+    weatherMetrics.push(
+      {
         id: 'wind_low',
         label: L3(language, '하층 바람 (850hPa)', 'Low-level wind', '下層風 (850hPa)'),
         value: `${Math.round(winds.low.speedKmh)} km/h`,
         sub: windDirectionWord(winds.low.bearingDeg, language),
-      });
-      weatherMetrics.push({
+      },
+      {
         id: 'wind_high',
         label: L3(language, '상층 바람 (250hPa)', 'Upper-level wind', '上層風 (250hPa)'),
         value: `${Math.round(winds.high.speedKmh)} km/h`,
         sub: windDirectionWord(winds.high.bearingDeg, language),
-      });
-    }
-  } else {
-    weatherSummaryTitle = L3(language, '시간별 기상 예보 범위 밖의 시각', 'Outside hourly weather forecast range', '時間別気象予報の範囲外の時刻');
-    weatherNarrative = L3(language,
-      '선택한 시각이 시간별 예보 범위 밖. 기온·구름 없이 천체 위치만으로 해설.',
-      'The selected time is outside the downloaded hourly weather window, so commentary is based on precise astronomical positions of the Sun, Moon, stars, and planets.',
-      '選択された時刻は時間別気象予報の範囲外のため、太陽・月・星・惑星の精密な天文位置に基づいて解説します。');
+      },
+    );
   }
 
-  // 4) 태양 · 박명 · 노을 해설
+  return {
+    hasWeather: true,
+    weatherSummaryTitle,
+    weatherNarrative: sentences.filter(Boolean).join(' '),
+    weatherMetrics,
+  };
+}
+
+function buildSunBriefingSection(args: {
+  selectedTime: Date;
+  lat: number;
+  lon: number;
+  elevM: number;
+  language: Language;
+  phaseKind: SkyPhaseKind;
+  sunAltRad: number;
+  sunAltDeg: number;
+  sunAzDeg: number;
+  sunDir: string | null;
+  obs: CloudData | null;
+  path: CloudPathData[] | null;
+  days: ForecastDay[];
+}) {
+  const { selectedTime, lat, lon, elevM, language, phaseKind, sunAltRad, sunAltDeg, sunAzDeg, sunDir, obs, path, days } = args;
+  const timeMs = selectedTime.getTime();
   const sunTitle = L3(language,
     `태양 · ${sunDir} 방위 ${sunAzDeg.toFixed(0)}° / 고도 ${sunAltDeg >= 0 ? `+${sunAltDeg.toFixed(1)}` : sunAltDeg.toFixed(1)}°`,
     `Sun · ${sunDir} AZ ${sunAzDeg.toFixed(0)}° / Alt ${sunAltDeg >= 0 ? `+${sunAltDeg.toFixed(1)}` : sunAltDeg.toFixed(1)}°`,
@@ -392,15 +369,7 @@ export const buildTimeBriefing = (args: {
 
   let glowVerdict: TimeBriefing['glowVerdict'] = null;
   if (path && obs && sunAltDeg >= -8 && sunAltDeg <= 12) {
-    const livePred = scenePrediction({
-      pathData: path,
-      time: selectedTime,
-      sunAltDeg,
-      sunAzDeg,
-      obs,
-      latitude: lat,
-      observerElevM: elevM,
-    });
+    const livePred = scenePrediction({ pathData: path, time: selectedTime, sunAltDeg, sunAzDeg, obs, latitude: lat, observerElevM: elevM });
     if (livePred) {
       const st = sunTimes(selectedTime, lat, lon);
       const isMorning = Math.abs(timeMs - st.sunrise.getTime()) < Math.abs(timeMs - st.sunset.getTime());
@@ -414,31 +383,31 @@ export const buildTimeBriefing = (args: {
   }
 
   let sunNarrative = '';
-  if (phase.kind === 'day') {
+  if (phaseKind === 'day') {
     const dni = obs?.directNormalIrradiance != null && Number.isFinite(obs.directNormalIrradiance)
       ? Math.round(obs.directNormalIrradiance)
       : null;
-    const shadowRatio = sunAltDeg > 2 ? (1 / Math.tan(sunPos.altitude)).toFixed(1) : null;
+    const shadowRatio = sunAltDeg > 2 ? (1 / Math.tan(sunAltRad)).toFixed(1) : null;
     sunNarrative = L3(language,
       `태양 고도 ${sunAltDeg.toFixed(1)}° (${sunDir}).${dni != null ? ` 직달일사 약 ${dni} W/m².` : ''}${shadowRatio != null ? ` 그림자 길이는 키의 ${shadowRatio}배.` : ''}`,
       `The Sun is ${sunAltDeg.toFixed(1)}° above the horizon (${sunDir}).${dni != null ? ` Direct normal irradiance is ~${dni} W/m²,` : ''}${shadowRatio != null ? ` casting shadows ~${shadowRatio}× object height.` : ''}`,
       `太陽が地平線上${sunAltDeg.toFixed(1)}°(${sunDir})にある昼の時間帯です。${dni != null ? `直達日射量は約${dni} W/m²で、` : ''}${shadowRatio != null ? `物体の約${shadowRatio}倍の長さの影が伸びます。` : ''}`);
-  } else if (phase.kind === 'golden') {
+  } else if (phaseKind === 'golden') {
     sunNarrative = L3(language,
       `골든아워, 고도 ${sunAltDeg.toFixed(1)}°. 빛이 대기를 길게 지나 푸른빛은 흩어지고 주황·황금빛이 남음.${glowVerdict && glowVerdict.score != null ? ` 노을 ${glowVerdict.score}점${glowVerdict.reason ? ` (${glowVerdict.reason})` : ''}.` : ''}`,
       `Golden Hour with the Sun low at ${sunAltDeg.toFixed(1)}°. Sunlight travels through a long atmospheric path, bathing the scene in warm golden tones.${glowVerdict ? ` Current glow score is ${glowVerdict.score} (${glowVerdict.reason}).` : ''}`,
       `太陽高度が${sunAltDeg.toFixed(1)}°まで下がり、暖かい黄金色の光が差すゴールデンアワーです。${glowVerdict ? `現在の焼けスコアは${glowVerdict.score}点(${glowVerdict.reason})です。` : ''}`);
-  } else if (phase.kind === 'civil') {
+  } else if (phaseKind === 'civil') {
     sunNarrative = L3(language,
       `시민 박명(블루아워), 고도 ${sunAltDeg.toFixed(1)}°. 땅은 그늘, 중·상층 구름은 아직 붉게 물듦. 하늘은 짙은 푸른빛.${glowVerdict && glowVerdict.reason ? ` (${glowVerdict.reason})` : ''}`,
       `Civil Twilight (Blue Hour) with the Sun just below the horizon (${sunAltDeg.toFixed(1)}°). The ground is in shadow while mid/high clouds still catch direct red afterglow against a deep blue sky.${glowVerdict ? ` (${glowVerdict.reason})` : ''}`,
       `太陽が地平線直下(${sunAltDeg.toFixed(1)}°)にある市民薄明(ブルーアワー)です。地上は影に入りますが、中・上層雲はまだ赤い残照を受け、空全体が深い青色に染まります。${glowVerdict ? ` (${glowVerdict.reason})` : ''}`);
-  } else if (phase.kind === 'nautical') {
+  } else if (phaseKind === 'nautical') {
     sunNarrative = L3(language,
       `항해 박명, 고도 ${sunAltDeg.toFixed(1)}°. 수평선 윤곽과 밝은 별·행성이 뚜렷해짐. 야경과 별을 함께 담기 좋음.`,
       `Nautical Twilight (Sun at ${sunAltDeg.toFixed(1)}°). The horizon outline remains visible while bright stars and planets emerge, ideal for blending cityscapes and twilight sky.`,
       `太陽高度${sunAltDeg.toFixed(1)}°の航海薄明です。水平線の輪郭と明るい一等星や惑星が見え始め、夜景と星空を一緒に収めやすい時間帯です。`);
-  } else if (phase.kind === 'astronomical') {
+  } else if (phaseKind === 'astronomical') {
     sunNarrative = L3(language,
       `천문 박명, 고도 ${sunAltDeg.toFixed(1)}°. 육안으론 거의 밤. 해 쪽 지평선에 옅은 산란광이 남아 장노출에 찍힐 수 있음.`,
       `Astronomical Twilight (Sun at ${sunAltDeg.toFixed(1)}°). The sky looks dark to the eye, though faint twilight glow can still register near the horizon in long-exposure astrophotography.`,
@@ -450,7 +419,41 @@ export const buildTimeBriefing = (args: {
       `太陽が地平線下${sunAltDeg.toFixed(1)}°にある完全な天文夜です。太陽の散乱光が完全に消え、月明かりと雲がなければ天の川や星雲の観測に最も暗い状態です。`);
   }
 
-  // 5) 달 해설
+  const matchedDay = days.find(d => Math.abs(d.noonMs - timeMs) < 14 * 3600_000) ?? null;
+  if (!glowVerdict && matchedDay) {
+    const nearSunrise = matchedDay.sunrise && Math.abs(matchedDay.sunrise.at.getTime() - timeMs) <= 90 * 60_000 ? matchedDay.sunrise : null;
+    const nearSunset = matchedDay.sunset && Math.abs(matchedDay.sunset.at.getTime() - timeMs) <= 90 * 60_000 ? matchedDay.sunset : null;
+    const ev = nearSunset ?? nearSunrise;
+    if (ev && ev.quality) {
+      glowVerdict = {
+        quality: ev.quality,
+        score: ev.score != null ? Math.round(ev.score) : null,
+        side: ev.side,
+        reason: ev.description ? translateSunsetDesc(ev.description, language) : '',
+      };
+    }
+  }
+
+  return { sunTitle, sunNarrative, glowVerdict };
+}
+
+function buildMoonBriefingSection(args: {
+  selectedTime: Date;
+  lat: number;
+  lon: number;
+  elevM: number;
+  sunAltDeg: number;
+  language: Language;
+}) {
+  const { selectedTime, lat, lon, elevM, sunAltDeg, language } = args;
+  const moonPos = getMoonPositionPrecise(selectedTime, lat, lon, elevM);
+  const moonAltDeg = moonPos.altitude * DEG;
+  const moonAzDeg = radToCompassDeg(moonPos.azimuth);
+  const moonDir = skyDirection(moonAzDeg, language);
+  const moonIllum = SunCalc.getMoonIllumination(selectedTime);
+  const moonPct = Math.round(moonIllum.fraction * 100);
+  const moonName = moonPhaseWord(moonIllum.phase, moonIllum.fraction, language);
+
   const moonAbove = moonAltDeg > 0;
   const moonTitle = L3(language,
     `달 · ${moonName} ${moonPct}% · ${moonAbove ? `${moonDir} 고도 +${moonAltDeg.toFixed(1)}°` : `지평선 아래 (${moonAltDeg.toFixed(1)}°)`}`,
@@ -480,13 +483,24 @@ export const buildTimeBriefing = (args: {
       `${moonDir}の高度${moonAltDeg.toFixed(1)}°に穏やかな${moonName}(輝面${moonPct}%)が浮かんでおり、星座と調和しています。`);
   }
 
-  // 6) 별 · 은하수 관측 한계등급 해설
+  return { moonAltDeg, moonIllumFraction: moonIllum.fraction, moonTitle, moonNarrative };
+}
+
+function buildStarBriefingSection(args: {
+  obs: CloudData | null;
+  sunAltDeg: number;
+  moonAltDeg: number;
+  moonIllumFraction: number;
+  lightPollutionMag: number | null;
+  language: Language;
+}) {
+  const { obs, sunAltDeg, moonAltDeg, moonIllumFraction, lightPollutionMag, language } = args;
   const starW = obs ? starWeatherOf(obs) : null;
   const limit = starLimit({
     cloudPct: starW?.cloudPct ?? 0,
     sunAltDeg,
     moonAltDeg,
-    moonIllum: moonIllum.fraction,
+    moonIllum: moonIllumFraction,
     lightPollutionMag: lightPollutionMag ?? null,
     aod550: starW?.aod550,
     visibilityM: starW?.visibilityM,
@@ -505,41 +519,55 @@ export const buildTimeBriefing = (args: {
         : L3(language, '별 관측 어려움', 'Stars not visible', '星の観測困難');
 
   const starTitle = sunAltDeg > -6
-    ? L3(language, `별 · 은하수 — 낮/박명으로 별 관측 불가`, `Stars · Too bright for stargazing`, `星・天の川 — 昼・薄明のため観測不可`)
+    ? L3(language, '별 · 은하수 — 낮/박명으로 별 관측 불가', 'Stars · Too bright for stargazing', '星・天の川 — 昼・薄明のため観測不可')
     : L3(language, `별 · 은하수 — 한계등급 ${limitMag.toFixed(1)}등급 (${levelWord})`, `Stars · Limiting mag ${limitMag.toFixed(1)} (${levelWord})`, `星・天の川 — 限界等級 ${limitMag.toFixed(1)}等 (${levelWord})`);
 
-  let starNarrative = '';
   if (sunAltDeg > -6) {
-    starNarrative = L3(language,
-      `태양 고도 ${sunAltDeg.toFixed(1)}°, 하늘이 밝아 별이 안 보임. 해가 -12° 아래로 내려가야 별자리가 드러남.`,
-      `With the Sun at ${sunAltDeg.toFixed(1)}°, the sky is too bright for stars. Constellations emerge once the Sun drops below -12° (Nautical Twilight).`,
-      `太陽高度が${sunAltDeg.toFixed(1)}°で空が明るいため星は見えません。太陽が-12°(航海薄明)以下になると星座が現れます。`);
-  } else {
-    const reasons: string[] = [];
-    const twilightLoss = limit.twilight ? Math.max(0, -limit.twilight.deltaMag) : 0;
-    const moonLoss = Math.max(0, -limit.moon.deltaMag);
-    const lightLoss = Math.max(0, -limit.light.deltaMag);
-    const hazeLoss = Math.max(0, -limit.haze.deltaMag);
-    const cloudPctVal = limit.cloud.pct;
-    if (twilightLoss > 0.4) reasons.push(L3(language, `박명 잔광(-${twilightLoss.toFixed(1)}등급)`, `twilight (-${twilightLoss.toFixed(1)} mag)`, `薄明かり(-${twilightLoss.toFixed(1)}等)`));
-    if (moonLoss > 0.3) reasons.push(L3(language, `달빛(-${moonLoss.toFixed(1)}등급)`, `moonlight (-${moonLoss.toFixed(1)} mag)`, `月明かり(-${moonLoss.toFixed(1)}等)`));
-    if (lightLoss > 0.4) reasons.push(L3(language, `도심 광공해(-${lightLoss.toFixed(1)}등급)`, `light pollution (-${lightLoss.toFixed(1)} mag)`, `光害(-${lightLoss.toFixed(1)}等)`));
-    if (hazeLoss > 0.25) reasons.push(L3(language, `대기 연무·습기(-${hazeLoss.toFixed(1)}등급)`, `haze/humidity (-${hazeLoss.toFixed(1)} mag)`, `靄・湿気(-${hazeLoss.toFixed(1)}等)`));
-    if (cloudPctVal >= 30) reasons.push(L3(language, `구름 가림(${Math.round(cloudPctVal)}%)`, `cloud cover (${Math.round(cloudPctVal)}%)`, `雲(${Math.round(cloudPctVal)}%)`));
-
-    const factorText = reasons.length > 0
-      ? L3(language, `주요 감점: ${reasons.join(' · ')}.`, `Main limiting factors: ${reasons.join(', ')}.`, `主な減点要因は${reasons.join('、')}です。`)
-      : L3(language, '박명·달빛·구름 방해가 적은 이상적인 밤하늘.', 'Minimal twilight, moonlight, or cloud interference — ideal dark sky.', '薄明・月明かり・雲の妨げがすべて少なく理想的な夜空です。');
-
-    starNarrative = L3(language,
-      `맨눈 한계 약 ${limitMag.toFixed(1)}등급 (${levelWord}). ${factorText}`,
-      `The faintest stars visible to the naked eye right now are around magnitude ${limitMag.toFixed(1)} (${levelWord}). ${factorText}`,
-      `現在肉眼で見える最も暗い星は約${limitMag.toFixed(1)}等級(${levelWord})です。${factorText}`);
+    return {
+      limitMag,
+      starTitle,
+      starNarrative: L3(language,
+        `태양 고도 ${sunAltDeg.toFixed(1)}°, 하늘이 밝아 별이 안 보임. 해가 -12° 아래로 내려가야 별자리가 드러남.`,
+        `With the Sun at ${sunAltDeg.toFixed(1)}°, the sky is too bright for stars. Constellations emerge once the Sun drops below -12° (Nautical Twilight).`,
+        `太陽高度が${sunAltDeg.toFixed(1)}°で空が明るいため星は見えません。太陽が-12°(航海薄明)以下になると星座が現れます。`),
+    };
   }
 
-  // 7) 지평선 위 행성 해설
-  const rawPlanets = getCalculatedPlanets(lat, lon, selectedTime);
-  const visiblePlanets: VisiblePlanetItem[] = rawPlanets
+  const reasons: string[] = [];
+  const twilightLoss = limit.twilight ? Math.max(0, -limit.twilight.deltaMag) : 0;
+  const moonLoss = Math.max(0, -limit.moon.deltaMag);
+  const lightLoss = Math.max(0, -limit.light.deltaMag);
+  const hazeLoss = Math.max(0, -limit.haze.deltaMag);
+  const cloudPctVal = limit.cloud.pct;
+  if (twilightLoss > 0.4) reasons.push(L3(language, `박명 잔광(-${twilightLoss.toFixed(1)}등급)`, `twilight (-${twilightLoss.toFixed(1)} mag)`, `薄明かり(-${twilightLoss.toFixed(1)}等)`));
+  if (moonLoss > 0.3) reasons.push(L3(language, `달빛(-${moonLoss.toFixed(1)}등급)`, `moonlight (-${moonLoss.toFixed(1)} mag)`, `月明かり(-${moonLoss.toFixed(1)}等)`));
+  if (lightLoss > 0.4) reasons.push(L3(language, `도심 광공해(-${lightLoss.toFixed(1)}등급)`, `light pollution (-${lightLoss.toFixed(1)} mag)`, `光害(-${lightLoss.toFixed(1)}等)`));
+  if (hazeLoss > 0.25) reasons.push(L3(language, `대기 연무·습기(-${hazeLoss.toFixed(1)}등급)`, `haze/humidity (-${hazeLoss.toFixed(1)} mag)`, `靄・湿気(-${hazeLoss.toFixed(1)}等)`));
+  if (cloudPctVal >= 30) reasons.push(L3(language, `구름 가림(${Math.round(cloudPctVal)}%)`, `cloud cover (${Math.round(cloudPctVal)}%)`, `雲(${Math.round(cloudPctVal)}%)`));
+
+  const factorText = reasons.length > 0
+    ? L3(language, `주요 감점: ${reasons.join(' · ')}.`, `Main limiting factors: ${reasons.join(', ')}.`, `主な減点要因は${reasons.join('、')}です。`)
+    : L3(language, '박명·달빛·구름 방해가 적은 이상적인 밤하늘.', 'Minimal twilight, moonlight, or cloud interference — ideal dark sky.', '薄明・月明かり・雲の妨げがすべて少なく理想的な夜空です。');
+
+  return {
+    limitMag,
+    starTitle,
+    starNarrative: L3(language,
+      `맨눈 한계 약 ${limitMag.toFixed(1)}등급 (${levelWord}). ${factorText}`,
+      `The faintest stars visible to the naked eye right now are around magnitude ${limitMag.toFixed(1)} (${levelWord}). ${factorText}`,
+      `現在肉眼で見える最も暗い星は約${limitMag.toFixed(1)}等級(${levelWord})です。${factorText}`),
+  };
+}
+
+function buildPlanetsBriefingSection(args: {
+  selectedTime: Date;
+  lat: number;
+  lon: number;
+  sunAltDeg: number;
+  language: Language;
+}) {
+  const { selectedTime, lat, lon, sunAltDeg, language } = args;
+  const visiblePlanets: VisiblePlanetItem[] = getCalculatedPlanets(lat, lon, selectedTime)
     .filter(p => p.altitude > 0)
     .sort((a, b) => b.altitude - a.altitude)
     .map(p => ({
@@ -577,54 +605,13 @@ export const buildTimeBriefing = (args: {
       `現在の空では${visiblePlanets.map(p => `${p.name}(${p.direction} 高度${p.altitudeDeg}°、${p.magnitude.toFixed(1)}等)`).join('、')}が見えています。`);
   }
 
-  // 종합 한 줄 요약 헤드라인
-  const headline = hasWeather
-    ? `${phase.badge} · ${weatherSummaryTitle}`
-    : `${phase.badge} · ${L3(language, `태양 고도 ${sunAltDeg.toFixed(1)}°`, `Sun Alt ${sunAltDeg.toFixed(1)}°`, `太陽高度 ${sunAltDeg.toFixed(1)}°`)}`;
-
-  const matchedDay = days.find(d => Math.abs(d.noonMs - timeMs) < 14 * 3600_000) ?? null;
-  if (!glowVerdict && matchedDay) {
-    const nearSunrise = matchedDay.sunrise && Math.abs(matchedDay.sunrise.at.getTime() - timeMs) <= 90 * 60_000 ? matchedDay.sunrise : null;
-    const nearSunset = matchedDay.sunset && Math.abs(matchedDay.sunset.at.getTime() - timeMs) <= 90 * 60_000 ? matchedDay.sunset : null;
-    const ev = nearSunset ?? nearSunrise;
-    if (ev && ev.quality) {
-      glowVerdict = {
-        quality: ev.quality,
-        score: ev.score != null ? Math.round(ev.score) : null,
-        side: ev.side,
-        reason: ev.description ? translateSunsetDesc(ev.description, language) : '',
-      };
-    }
-  }
-
-  return {
-    timeMs,
-    phaseKind: phase.kind,
-    phaseBadge: phase.badge,
-    headline,
-    hasWeather,
-    weatherSummaryTitle,
-    weatherNarrative,
-    weatherMetrics,
-    sunTitle,
-    sunNarrative,
-    glowVerdict,
-    moonTitle,
-    moonNarrative,
-    starTitle,
-    starNarrative,
-    limitMag,
-    planetsTitle,
-    planetsNarrative,
-    visiblePlanets,
-  };
-};
+  return { planetsTitle, planetsNarrative, visiblePlanets };
+}
 
 /**
- * 선택한 시각(`selectedTime`) 직후부터 앞으로 24시간 동안 발생할
- * 모든 기상 변화 + 태양/박명/노을 + 달 + 별/은하수 + 행성 이벤트를 시간순으로 생성합니다.
+ * 현재 선택된 시각(`selectedTime`)의 기상 · 대기 · 천체 종합 브리핑을 생성합니다.
  */
-export const buildUpcomingTimeline = (args: {
+export const buildTimeBriefing = (args: {
   selectedTime: Date;
   lat: number;
   lon: number;
@@ -634,279 +621,278 @@ export const buildUpcomingTimeline = (args: {
   forecast: CloudPathData[] | null;
   days: ForecastDay[];
   lightPollutionMag: number | null;
+}): TimeBriefing => {
+  const { selectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag } = args;
+  const timeMs = selectedTime.getTime();
+
+  const sunPos = sunPosition(selectedTime, lat, lon);
+  const sunAltDeg = sunPos.altitude * DEG;
+  const sunAzDeg = radToCompassDeg(sunPos.azimuth);
+  const sunDir = skyDirection(sunAzDeg, language);
+  const phase = classifySkyPhase(sunAltDeg, language);
+
+  const { obs, path } = weatherAtTime(selectedTime, ringFor, forecast);
+  const weatherSec = buildWeatherBriefingSection(obs, language);
+  const sunSec = buildSunBriefingSection({
+    selectedTime, lat, lon, elevM, language,
+    phaseKind: phase.kind, sunAltRad: sunPos.altitude, sunAltDeg, sunAzDeg, sunDir,
+    obs, path, days,
+  });
+  const moonSec = buildMoonBriefingSection({ selectedTime, lat, lon, elevM, sunAltDeg, language });
+  const starSec = buildStarBriefingSection({
+    obs, sunAltDeg, moonAltDeg: moonSec.moonAltDeg, moonIllumFraction: moonSec.moonIllumFraction, lightPollutionMag, language,
+  });
+  const planetSec = buildPlanetsBriefingSection({ selectedTime, lat, lon, sunAltDeg, language });
+
+  const headline = weatherSec.hasWeather
+    ? `${phase.badge} · ${weatherSec.weatherSummaryTitle}`
+    : `${phase.badge} · ${L3(language, `태양 고도 ${sunAltDeg.toFixed(1)}°`, `Sun Alt ${sunAltDeg.toFixed(1)}°`, `太陽高度 ${sunAltDeg.toFixed(1)}°`)}`;
+
+  return {
+    timeMs,
+    phaseKind: phase.kind,
+    phaseBadge: phase.badge,
+    headline,
+    ...weatherSec,
+    ...sunSec,
+    moonTitle: moonSec.moonTitle,
+    moonNarrative: moonSec.moonNarrative,
+    starTitle: starSec.starTitle,
+    starNarrative: starSec.starNarrative,
+    limitMag: starSec.limitMag,
+    ...planetSec,
+  };
+};
+
+interface TimelineCollectContext {
+  startMs: number;
+  horizonMs: number;
+  lat: number;
+  lon: number;
+  elevM: number;
+  language: Language;
+  ringFor: (d: Date) => CloudPathData[] | null;
+  forecast: CloudPathData[] | null;
+  days: ForecastDay[];
+  lightPollutionMag: number | null;
   fmtTime: (ms: number) => string;
-}): UpcomingTimelineEvent[] => {
-  const { selectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag, fmtTime } = args;
-  const startMs = selectedTime.getTime();
-  const horizonMs = startMs + 24 * 3600_000;
-  const events: UpcomingTimelineEvent[] = [];
+  inWindow: (d: Date | null | undefined) => d is Date;
+  weatherBriefAt: (ms: number) => { obs: CloudData | null; note: string };
+  pushUnique: (ev: UpcomingTimelineEvent) => void;
+}
 
-  const inWindow = (d: Date | null | undefined): d is Date => {
-    if (!d) return false;
-    const ms = d.getTime();
-    return Number.isFinite(ms) && ms > startMs + 60_000 && ms <= horizonMs;
+function summarizeWeatherBrief(
+  ms: number,
+  ringFor: (d: Date) => CloudPathData[] | null,
+  forecast: CloudPathData[] | null,
+  language: Language,
+): { obs: CloudData | null; note: string } {
+  const { obs } = weatherAtTime(new Date(ms), ringFor, forecast);
+  if (!obs) return { obs: null, note: '' };
+  const { low, mid, high, total } = extractCloudCover(obs);
+  const cSum = cloudSummary({ low, mid, high }, language);
+  const temp = typeof obs.t2mC === 'number' && Number.isFinite(obs.t2mC) ? `${obs.t2mC.toFixed(1)}°C` : null;
+  const rain = typeof obs.precipitation === 'number' && obs.precipitation >= 0.2
+    ? L3(language, ` · 강수 ${obs.precipitation.toFixed(1)}mm/h`, ` · rain ${obs.precipitation.toFixed(1)}mm/h`, ` · 降水${obs.precipitation.toFixed(1)}mm/h`)
+    : '';
+  return {
+    obs,
+    note: L3(language,
+      `예보: ${cSum} · 총운량 ${total}%${temp ? ` · ${temp}` : ''}${rain}`,
+      `Forecast: ${cSum} · cloud ${total}%${temp ? ` · ${temp}` : ''}${rain}`,
+      `予報: ${cSum} · 全雲量${total}%${temp ? ` · ${temp}` : ''}${rain}`),
   };
+}
 
-  // 해당 시각의 기상 요약 한 줄 도우미
-  const weatherBriefAt = (ms: number): { obs: CloudData | null; note: string } => {
-    const { obs } = weatherAtTime(new Date(ms), ringFor, forecast);
-    if (!obs) return { obs: null, note: '' };
-    const low = Math.round(obs.low);
-    const mid = Math.round(obs.mid);
-    const high = Math.round(obs.high);
-    const total = Math.round(typeof obs.total === 'number' && Number.isFinite(obs.total) ? obs.total : Math.max(low, mid, high));
-    const cSum = cloudSummary({ low, mid, high }, language);
-    const t = typeof obs.t2mC === 'number' && Number.isFinite(obs.t2mC) ? `${obs.t2mC.toFixed(1)}°C` : null;
-    const rain = typeof obs.precipitation === 'number' && obs.precipitation >= 0.2
-      ? L3(language, ` · 강수 ${obs.precipitation.toFixed(1)}mm/h`, ` · rain ${obs.precipitation.toFixed(1)}mm/h`, ` · 降水${obs.precipitation.toFixed(1)}mm/h`)
-      : '';
-    return {
-      obs,
-      note: L3(language,
-        `예보: ${cSum} · 총운량 ${total}%${t ? ` · ${t}` : ''}${rain}`,
-        `Forecast: ${cSum} · cloud ${total}%${t ? ` · ${t}` : ''}${rain}`,
-        `予報: ${cSum} · 全雲量${total}%${t ? ` · ${t}` : ''}${rain}`),
-    };
-  };
+function findNearestForecastEvent(days: ForecastDay[], side: 'sunrise' | 'sunset', atMs: number): ForecastEvent | null {
+  for (const d of days) {
+    const ev = side === 'sunrise' ? d.sunrise : d.sunset;
+    if (ev && Math.abs(ev.at.getTime() - atMs) < 3 * 3600_000) return ev;
+  }
+  return null;
+}
 
-  // 날짜별로(선택 시각 당일과 다음날) 천체 시각들을 스캔합니다.
-  const scanDates = [
-    new Date(startMs),
-    new Date(startMs + 24 * 3600_000),
-  ];
+function collectSolarAndTwilightEvents(ctx: TimelineCollectContext, baseDate: Date) {
+  const { startMs, lat, lon, elevM, language, days, lightPollutionMag, fmtTime, inWindow, weatherBriefAt, pushUnique } = ctx;
+  const st = sunTimes(baseDate, lat, lon);
 
-  // 가장 가까운 ForecastDay의 일출/일몰 예측 찾기
-  const findForecastEvent = (side: 'sunrise' | 'sunset', atMs: number): ForecastEvent | null => {
-    for (const d of days) {
-      const ev = side === 'sunrise' ? d.sunrise : d.sunset;
-      if (ev && Math.abs(ev.at.getTime() - atMs) < 3 * 3600_000) return ev;
-    }
-    return null;
-  };
+  if (inWindow(st.nightEnd)) {
+    const ms = st.nightEnd.getTime();
+    const wb = weatherBriefAt(ms);
+    pushUnique({
+      id: `nightEnd_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'twilight',
+      categoryLabel: L3(language, '박명 · 밤 경계', 'Twilight', '薄明'),
+      title: L3(language, '새벽 천문 박명 시작 (완전한 밤 종료)', 'Astronomical Dawn (Dark Night Ends)', '天文薄明の始まり (完全な夜の終了)'),
+      badge: L3(language, '태양 -18°', 'Sun -18°', '太陽 -18°'),
+      description: L3(language,
+        `태양 -18°. 동쪽 하늘 끝에서 옅은 산란광이 시작됨. 은하수·딥스카이 촬영은 이 전에 마무리.${wb.note ? ` · ${wb.note}` : ''}`,
+        `The Sun reaches -18°, beginning faint upper-atmosphere scattering in the east. Wrap up deep-sky astrophotography before this time.${wb.note ? ` · ${wb.note}` : ''}`,
+        `太陽が高度-18°に達し、東の空からわずかな散乱光が始まります。天の川撮影はこの時刻前までに終えるのが理想です。${wb.note ? ` · ${wb.note}` : ''}`),
+      topic: 'sunrise',
+    });
+  }
 
-  const addedKeys = new Set<string>();
-  const pushUnique = (ev: UpcomingTimelineEvent) => {
-    // 같은 종류 이벤트가 15분 이내 중복 등록되지 않도록 방지
-    const bucket = `${ev.id.split('_')[0]}_${Math.round(ev.timeMs / (15 * 60_000))}`;
-    if (addedKeys.has(bucket)) return;
-    addedKeys.add(bucket);
-    events.push(ev);
-  };
+  if (inWindow(st.dawn)) {
+    const ms = st.dawn.getTime();
+    const wb = weatherBriefAt(ms);
+    pushUnique({
+      id: `dawn_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'twilight',
+      categoryLabel: L3(language, '블루아워 · 여명', 'Blue Hour', 'ブルーアワー'),
+      title: L3(language, '아침 블루아워 · 시민 박명 시작', 'Morning Blue Hour · Civil Dawn', '朝のブルーアワー・市民薄明'),
+      badge: L3(language, '태양 -6°', 'Sun -6°', '太陽 -6°'),
+      description: L3(language,
+        `태양 -6°. 하늘이 푸른 여명빛, 상·중층 구름에 첫 붉은빛이 닿기 시작.${wb.note ? ` · ${wb.note}` : ''}`,
+        `The Sun reaches -6° below the horizon. The sky turns deep blue and upper clouds begin catching early pre-sunrise red light.${wb.note ? ` · ${wb.note}` : ''}`,
+        `太陽が地平線下-6°まで上がり、空が青い黎明に染まり、上・中層雲に日の出前の赤い光が差し始めます。${wb.note ? ` · ${wb.note}` : ''}`),
+      topic: 'score',
+    });
+  }
 
-  for (const baseDate of scanDates) {
-    const st = sunTimes(baseDate, lat, lon);
+  for (const side of ['sunrise', 'sunset'] as const) {
+    const dt = st[side];
+    if (!inWindow(dt)) continue;
+    const ms = dt.getTime();
+    const fe = findNearestForecastEvent(days, side, ms);
+    const wb = weatherBriefAt(ms);
+    const sunAz = radToCompassDeg(sunPosition(dt, lat, lon).azimuth);
+    const dir = skyDirection(sunAz, language);
+    const peakStr = fe?.peakAt ? fmtTime(fe.peakAt.getTime()) : null;
+    const reason = fe?.description ? translateSunsetDesc(fe.description, language).replace(/[.。]\s*$/, '') : '';
+    const scoreVal = fe?.score != null ? Math.round(fe.score) : null;
+    const isRise = side === 'sunrise';
 
-    // 1) 새벽 천문 박명 시작 (밤 끝)
-    if (inWindow(st.nightEnd)) {
-      const ms = st.nightEnd.getTime();
-      const wb = weatherBriefAt(ms);
-      pushUnique({
-        id: `nightEnd_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'twilight',
-        categoryLabel: L3(language, '박명 · 밤 경계', 'Twilight', '薄明'),
-        title: L3(language, '새벽 천문 박명 시작 (완전한 밤 종료)', 'Astronomical Dawn (Dark Night Ends)', '天文薄明の始まり (完全な夜の終了)'),
-        badge: L3(language, '태양 -18°', 'Sun -18°', '太陽 -18°'),
-        description: L3(language,
-          `태양 -18°. 동쪽 하늘 끝에서 옅은 산란광이 시작됨. 은하수·딥스카이 촬영은 이 전에 마무리.${wb.note ? ` · ${wb.note}` : ''}`,
-          `The Sun reaches -18°, beginning faint upper-atmosphere scattering in the east. Wrap up deep-sky astrophotography before this time.${wb.note ? ` · ${wb.note}` : ''}`,
-          `太陽が高度-18°に達し、東の空からわずかな散乱光が始まります。天の川撮影はこの時刻前までに終えるのが理想です。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'sunrise',
-      });
-    }
-
-    // 2) 새벽 시민 박명 시작 (아침 블루아워)
-    if (inWindow(st.dawn)) {
-      const ms = st.dawn.getTime();
-      const wb = weatherBriefAt(ms);
-      pushUnique({
-        id: `dawn_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'twilight',
-        categoryLabel: L3(language, '블루아워 · 여명', 'Blue Hour', 'ブルーアワー'),
-        title: L3(language, '아침 블루아워 · 시민 박명 시작', 'Morning Blue Hour · Civil Dawn', '朝のブルーアワー・市民薄明'),
-        badge: L3(language, '태양 -6°', 'Sun -6°', '太陽 -6°'),
-        description: L3(language,
-          `태양 -6°. 하늘이 푸른 여명빛, 상·중층 구름에 첫 붉은빛이 닿기 시작.${wb.note ? ` · ${wb.note}` : ''}`,
-          `The Sun reaches -6° below the horizon. The sky turns deep blue and upper clouds begin catching early pre-sunrise red light.${wb.note ? ` · ${wb.note}` : ''}`,
-          `太陽が地平線下-6°まで上がり、空が青い黎明に染まり、上・中層雲に日の出前の赤い光が差し始めます。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'score',
-      });
-    }
-
-    // 3) 일출 (Sunrise)
-    if (inWindow(st.sunrise)) {
-      const ms = st.sunrise.getTime();
-      const fe = findForecastEvent('sunrise', ms);
-      const wb = weatherBriefAt(ms);
-      const sunAz = ((sunPosition(st.sunrise, lat, lon).azimuth * DEG + 180) % 360 + 360) % 360;
-      const dir = skyDirection(sunAz, language);
-      const peakStr = fe?.peakAt ? fmtTime(fe.peakAt.getTime()) : null;
-      const reason = fe?.description ? translateSunsetDesc(fe.description, language).replace(/[.。]\s*$/, '') : '';
-      const scoreVal = fe?.score != null ? Math.round(fe.score) : null;
-
-      pushUnique({
-        id: `sunrise_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'sun',
-        categoryLabel: L3(language, '태양 · 일출 노을', 'Sunrise & Glow', '日の出・朝焼け'),
-        title: L3(language, `일출 (${dir} ${sunAz.toFixed(0)}°)`, `Sunrise (${dir} ${sunAz.toFixed(0)}°)`, `日の出 (${dir} ${sunAz.toFixed(0)}°)`),
-        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `朝焼け ${scoreVal}点`) : (dir ?? undefined),
-        quality: fe?.quality ?? null,
-        score: scoreVal,
-        description: L3(language,
+    pushUnique({
+      id: `${side}_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'sun',
+      categoryLabel: isRise ? L3(language, '태양 · 일출 노을', 'Sunrise & Glow', '日の出・朝焼け') : L3(language, '태양 · 일몰 노을', 'Sunset & Glow', '日の入り・夕焼け'),
+      title: isRise ? L3(language, `일출 (${dir} ${sunAz.toFixed(0)}°)`, `Sunrise (${dir} ${sunAz.toFixed(0)}°)`, `日の出 (${dir} ${sunAz.toFixed(0)}°)`) : L3(language, `일몰 (${dir} ${sunAz.toFixed(0)}°)`, `Sunset (${dir} ${sunAz.toFixed(0)}°)`, `日の入り (${dir} ${sunAz.toFixed(0)}°)`),
+      badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, isRise ? `朝焼け ${scoreVal}点` : `夕焼け ${scoreVal}点`) : (dir ?? undefined),
+      quality: fe?.quality ?? null,
+      score: scoreVal,
+      description: isRise
+        ? L3(language,
           `${dir} 지평선에서 해가 뜸.${peakStr ? ` 가장 붉은 시각 ${peakStr} 무렵.` : ''}${reason ? ` ${reason}.` : ''}${wb.note ? ` · ${wb.note}` : ''}`,
           `The Sun rises on the ${dir} horizon.${peakStr ? ` Peak glow around ${peakStr}.` : ''}${reason ? ` ${reason}.` : ''}${wb.note ? ` · ${wb.note}` : ''}`,
-          `${dir}の地平線から太陽が昇ります。${peakStr ? `最も赤く染まるのは${peakStr}頃です。` : ''}${reason ? ` ${reason}。` : ''}${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'score',
-      });
-    }
-
-    // 4) 저녁 골든아워 시작
-    if (inWindow(st.goldenHour)) {
-      const ms = st.goldenHour.getTime();
-      const wb = weatherBriefAt(ms);
-      pushUnique({
-        id: `goldenHour_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'twilight',
-        categoryLabel: L3(language, '골든아워', 'Golden Hour', 'ゴールデンアワー'),
-        title: L3(language, '저녁 골든아워 시작', 'Evening Golden Hour Begins', '夕方のゴールデンアワー開始'),
-        badge: L3(language, '태양 +6°', 'Sun +6°', '太陽 +6°'),
-        description: L3(language,
-          `태양 고도 6° 아래. 부드럽고 긴 황금빛 그림자, 노을 전조 시작. 인물·풍경 촬영에 입체적인 빛.${wb.note ? ` · ${wb.note}` : ''}`,
-          `The Sun drops below +6°, casting warm golden light and long shadows ahead of sunset.${wb.note ? ` · ${wb.note}` : ''}`,
-          `太陽高度が6°を下回り、柔らかい黄金色の光と長い影が始まります。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'score',
-      });
-    }
-
-    // 5) 일몰 (Sunset)
-    if (inWindow(st.sunset)) {
-      const ms = st.sunset.getTime();
-      const fe = findForecastEvent('sunset', ms);
-      const wb = weatherBriefAt(ms);
-      const sunAz = ((sunPosition(st.sunset, lat, lon).azimuth * DEG + 180) % 360 + 360) % 360;
-      const dir = skyDirection(sunAz, language);
-      const peakStr = fe?.peakAt ? fmtTime(fe.peakAt.getTime()) : null;
-      const reason = fe?.description ? translateSunsetDesc(fe.description, language).replace(/[.。]\s*$/, '') : '';
-      const scoreVal = fe?.score != null ? Math.round(fe.score) : null;
-
-      pushUnique({
-        id: `sunset_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'sun',
-        categoryLabel: L3(language, '태양 · 일몰 노을', 'Sunset & Glow', '日の入り・夕焼け'),
-        title: L3(language, `일몰 (${dir} ${sunAz.toFixed(0)}°)`, `Sunset (${dir} ${sunAz.toFixed(0)}°)`, `日の入り (${dir} ${sunAz.toFixed(0)}°)`),
-        badge: scoreVal != null ? L3(language, `노을 ${scoreVal}점`, `Glow ${scoreVal}`, `夕焼け ${scoreVal}点`) : (dir ?? undefined),
-        quality: fe?.quality ?? null,
-        score: scoreVal,
-        description: L3(language,
+          `${dir}の地平線から太陽が昇ります。${peakStr ? `最も赤く染まるのは${peakStr}頃です。` : ''}${reason ? ` ${reason}。` : ''}${wb.note ? ` · ${wb.note}` : ''}`)
+        : L3(language,
           `${dir} 지평선 아래로 해가 짐.${peakStr ? ` 가장 붉은 시각 ${peakStr} 무렵.` : ''}${reason ? ` ${reason}.` : ''}${wb.note ? ` · ${wb.note}` : ''}`,
           `The Sun sets on the ${dir} horizon.${peakStr ? ` Peak glow around ${peakStr}.` : ''}${reason ? ` ${reason}.` : ''}${wb.note ? ` · ${wb.note}` : ''}`,
           `${dir}の地平線へ太陽が沈みます。${peakStr ? `最も赤く焼けるのは${peakStr}頃です。` : ''}${reason ? ` ${reason}。` : ''}${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'score',
-      });
-    }
+      topic: 'score',
+    });
+  }
 
-    // 6) 저녁 시민 박명 종료 (블루아워 마감 & 별 출현 시작)
-    if (inWindow(st.dusk)) {
-      const ms = st.dusk.getTime();
+  if (inWindow(st.goldenHour)) {
+    const ms = st.goldenHour.getTime();
+    const wb = weatherBriefAt(ms);
+    pushUnique({
+      id: `goldenHour_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'twilight',
+      categoryLabel: L3(language, '골든아워', 'Golden Hour', 'ゴールデンアワー'),
+      title: L3(language, '저녁 골든아워 시작', 'Evening Golden Hour Begins', '夕方のゴールデンアワー開始'),
+      badge: L3(language, '태양 +6°', 'Sun +6°', '太陽 +6°'),
+      description: L3(language,
+        `태양 고도 6° 아래. 부드럽고 긴 황금빛 그림자, 노을 전조 시작. 인물·풍경 촬영에 입체적인 빛.${wb.note ? ` · ${wb.note}` : ''}`,
+        `The Sun drops below +6°, casting warm golden light and long shadows ahead of sunset.${wb.note ? ` · ${wb.note}` : ''}`,
+        `太陽高度が6°を下回り、柔らかい黄金色の光と長い影が始まります。${wb.note ? ` · ${wb.note}` : ''}`),
+      topic: 'score',
+    });
+  }
+
+  if (inWindow(st.dusk)) {
+    const ms = st.dusk.getTime();
+    const wb = weatherBriefAt(ms);
+    pushUnique({
+      id: `dusk_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'twilight',
+      categoryLabel: L3(language, '블루아워 · 박명', 'Blue Hour', 'ブルーアワー'),
+      title: L3(language, '시민 박명 종료 · 항해 박명 진입', 'Civil Dusk · Blue Hour Transitions to Night', '市民薄明終了・航海薄明へ'),
+      badge: L3(language, '태양 -6°', 'Sun -6°', '太陽 -6°'),
+      description: L3(language,
+        `태양 -6° 아래. 붉은 잔광이 끝나고 금성·목성 같은 밝은 행성과 1등성이 보이기 시작.${wb.note ? ` · ${wb.note}` : ''}`,
+        `The Sun drops below -6°, concluding the red afterglow as bright planets and first-magnitude stars emerge.${wb.note ? ` · ${wb.note}` : ''}`,
+        `太陽が-6°を下回り赤い残照が終わり、金星や木星などの明るい惑星と一等星が見え始めます。${wb.note ? ` · ${wb.note}` : ''}`),
+      topic: 'sunrise',
+    });
+  }
+
+  if (inWindow(st.night)) {
+    const ms = st.night.getTime();
+    const wb = weatherBriefAt(ms);
+    const mPos = getMoonPositionPrecise(st.night, lat, lon, elevM);
+    const mAlt = mPos.altitude * DEG;
+    const mIllum = SunCalc.getMoonIllumination(st.night);
+    const sW = wb.obs ? starWeatherOf(wb.obs) : null;
+    const lim = starLimit({
+      cloudPct: sW?.cloudPct ?? 0, sunAltDeg: -19, moonAltDeg: mAlt, moonIllum: mIllum.fraction,
+      lightPollutionMag: lightPollutionMag ?? null, aod550: sW?.aod550, visibilityM: sW?.visibilityM,
+      humidityPct: sW?.humidityPct, pm25: sW?.pm25,
+    });
+    const magStr = (Math.round(lim.limitMag * 10) / 10).toFixed(1);
+    pushUnique({
+      id: `night_${ms}`,
+      timeMs: ms,
+      relativeLabel: formatRelativeAfter(startMs, ms, language),
+      category: 'star',
+      categoryLabel: L3(language, '별 · 은하수 관측', 'Stargazing', '星・天の川観測'),
+      title: L3(language, '완전한 밤 시작 · 별/은하수 관측 개시', 'Astronomical Night Begins · Stargazing Window', '完全な夜の始まり・星空観測開始'),
+      badge: L3(language, `한계 ${magStr}등급`, `Mag ${magStr}`, `限界 ${magStr}等`),
+      description: L3(language,
+        `태양 -18° 아래, 산란광이 완전히 사라짐. 예상 한계등급 약 ${magStr}등급, ${mAlt > 0 ? `달 고도 +${mAlt.toFixed(0)}° (${Math.round(mIllum.fraction * 100)}%).` : '달도 지평선 아래라 매우 어두움.'}${wb.note ? ` · ${wb.note}` : ''}`,
+        `The Sun drops below -18° for complete astronomical darkness. Expected limiting magnitude is ~${magStr}, and ${mAlt > 0 ? `the Moon is at +${mAlt.toFixed(0)}° (${Math.round(mIllum.fraction * 100)}%).` : 'the Moon is below the horizon for maximum darkness.'}${wb.note ? ` · ${wb.note}` : ''}`,
+        `太陽が-18°を下回り完全な夜になります。予想限界等級は約${magStr}等で、${mAlt > 0 ? `月が高度+${mAlt.toFixed(0)}°(${Math.round(mIllum.fraction * 100)}%)にあります。` : '月も地平線下にあり非常に暗い夜空になります。'}${wb.note ? ` · ${wb.note}` : ''}`),
+      topic: 'stars',
+    });
+  }
+
+  const planetCheckTime = st.dusk && Number.isFinite(st.dusk.getTime())
+    ? new Date(st.dusk.getTime() + 30 * 60_000)
+    : null;
+  if (inWindow(planetCheckTime)) {
+    const ms = planetCheckTime.getTime();
+    const pls = getCalculatedPlanets(lat, lon, planetCheckTime)
+      .filter(p => p.altitude >= 10)
+      .sort((a, b) => b.altitude - a.altitude);
+    if (pls.length > 0) {
       const wb = weatherBriefAt(ms);
+      const names = pls.map(p => `${planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)}(${skyDirection(p.azimuth, language)} ${Math.round(p.altitude)}°)`).join(' · ');
       pushUnique({
-        id: `dusk_${ms}`,
+        id: `planets_${ms}`,
         timeMs: ms,
         relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'twilight',
-        categoryLabel: L3(language, '블루아워 · 박명', 'Blue Hour', 'ブルーアワー'),
-        title: L3(language, '시민 박명 종료 · 항해 박명 진입', 'Civil Dusk · Blue Hour Transitions to Night', '市民薄明終了・航海薄明へ'),
-        badge: L3(language, '태양 -6°', 'Sun -6°', '太陽 -6°'),
+        category: 'planet',
+        categoryLabel: L3(language, '행성 관측', 'Planets', '惑星観測'),
+        title: L3(language, `초저녁 행성 관측 적기 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('·')})`, `Evening Planets Visible (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join(' · ')})`, `宵の惑星観測好機 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('・')})`),
+        badge: L3(language, `${pls.length}개 행성`, `${pls.length} planets`, `${pls.length}惑星`),
         description: L3(language,
-          `태양 -6° 아래. 붉은 잔광이 끝나고 금성·목성 같은 밝은 행성과 1등성이 보이기 시작.${wb.note ? ` · ${wb.note}` : ''}`,
-          `The Sun drops below -6°, concluding the red afterglow as bright planets and first-magnitude stars emerge.${wb.note ? ` · ${wb.note}` : ''}`,
-          `太陽が-6°を下回り赤い残照が終わり、金星や木星などの明るい惑星と一等星が見え始めます。${wb.note ? ` · ${wb.note}` : ''}`),
-        topic: 'sunrise',
-      });
-    }
-
-    // 7) 저녁 천문 박명 종료 (완전한 밤 시작 & 별/은하수 관측 개시)
-    if (inWindow(st.night)) {
-      const ms = st.night.getTime();
-      const wb = weatherBriefAt(ms);
-      const mPos = getMoonPositionPrecise(st.night, lat, lon, elevM);
-      const mAlt = mPos.altitude * DEG;
-      const mIllum = SunCalc.getMoonIllumination(st.night);
-      const sW = wb.obs ? starWeatherOf(wb.obs) : null;
-      const lim = starLimit({
-        cloudPct: sW?.cloudPct ?? 0,
-        sunAltDeg: -19,
-        moonAltDeg: mAlt,
-        moonIllum: mIllum.fraction,
-        lightPollutionMag: lightPollutionMag ?? null,
-        aod550: sW?.aod550,
-        visibilityM: sW?.visibilityM,
-        humidityPct: sW?.humidityPct,
-        pm25: sW?.pm25,
-      });
-      const magStr = (Math.round(lim.limitMag * 10) / 10).toFixed(1);
-
-      pushUnique({
-        id: `night_${ms}`,
-        timeMs: ms,
-        relativeLabel: formatRelativeAfter(startMs, ms, language),
-        category: 'star',
-        categoryLabel: L3(language, '별 · 은하수 관측', 'Stargazing', '星・天の川観測'),
-        title: L3(language, '완전한 밤 시작 · 별/은하수 관측 개시', 'Astronomical Night Begins · Stargazing Window', '完全な夜の始まり・星空観測開始'),
-        badge: L3(language, `한계 ${magStr}등급`, `Mag ${magStr}`, `限界 ${magStr}等`),
-        description: L3(language,
-          `태양 -18° 아래, 산란광이 완전히 사라짐. 예상 한계등급 약 ${magStr}등급, ${mAlt > 0 ? `달 고도 +${mAlt.toFixed(0)}° (${Math.round(mIllum.fraction * 100)}%).` : '달도 지평선 아래라 매우 어두움.'}${wb.note ? ` · ${wb.note}` : ''}`,
-          `The Sun drops below -18° for complete astronomical darkness. Expected limiting magnitude is ~${magStr}, and ${mAlt > 0 ? `the Moon is at +${mAlt.toFixed(0)}° (${Math.round(mIllum.fraction * 100)}%).` : 'the Moon is below the horizon for maximum darkness.'}${wb.note ? ` · ${wb.note}` : ''}`,
-          `太陽が-18°を下回り完全な夜になります。予想限界等級は約${magStr}等で、${mAlt > 0 ? `月が高度+${mAlt.toFixed(0)}°(${Math.round(mIllum.fraction * 100)}%)にあります。` : '月も地平線下にあり非常に暗い夜空になります。'}${wb.note ? ` · ${wb.note}` : ''}`),
+          `고도 10° 이상: ${names}. 맨눈·망원경 관측에 좋음.${wb.note ? ` · ${wb.note}` : ''}`,
+          `Above 10° altitude in the evening sky: ${names}.${wb.note ? ` · ${wb.note}` : ''}`,
+          `夕闇の空に${names}が高度10°以上に昇り、肉眼や望遠鏡での観測に最適です。${wb.note ? ` · ${wb.note}` : ''}`),
         topic: 'stars',
       });
     }
-
-    // 8) 저녁 행성 관측 적기 (항해 박명 직후 지평선 위 10° 이상 행성들)
-    const planetCheckTime = st.dusk && Number.isFinite(st.dusk.getTime())
-      ? new Date(st.dusk.getTime() + 30 * 60_000)
-      : null;
-    if (inWindow(planetCheckTime)) {
-      const ms = planetCheckTime.getTime();
-      const pls = getCalculatedPlanets(lat, lon, planetCheckTime)
-        .filter(p => p.altitude >= 10)
-        .sort((a, b) => b.altitude - a.altitude);
-      if (pls.length > 0) {
-        const wb = weatherBriefAt(ms);
-        const names = pls.map(p => `${planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)}(${skyDirection(p.azimuth, language)} ${Math.round(p.altitude)}°)`).join(' · ');
-        pushUnique({
-          id: `planets_${ms}`,
-          timeMs: ms,
-          relativeLabel: formatRelativeAfter(startMs, ms, language),
-          category: 'planet',
-          categoryLabel: L3(language, '행성 관측', 'Planets', '惑星観測'),
-          title: L3(language, `초저녁 행성 관측 적기 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('·')})`, `Evening Planets Visible (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join(' · ')})`, `宵の惑星観測好機 (${pls.map(p => planetDisplayName(p.key, language === 'en' ? p.nameEn : p.nameKo, language)).join('・')})`),
-          badge: L3(language, `${pls.length}개 행성`, `${pls.length} planets`, `${pls.length}惑星`),
-          description: L3(language,
-            `고도 10° 이상: ${names}. 맨눈·망원경 관측에 좋음.${wb.note ? ` · ${wb.note}` : ''}`,
-            `Above 10° altitude in the evening sky: ${names}.${wb.note ? ` · ${wb.note}` : ''}`,
-            `夕闇の空に${names}が高度10°以上に昇り、肉眼や望遠鏡での観測に最適です。${wb.note ? ` · ${wb.note}` : ''}`),
-          topic: 'stars',
-        });
-      }
-    }
   }
+}
 
-  // 9) 앞으로 24시간 내 월출(Moonrise) 및 월몰(Moonset)
+function collectMoonRiseSetEvents(ctx: TimelineCollectContext) {
+  const { startMs, lat, lon, elevM, language, inWindow, weatherBriefAt, pushUnique } = ctx;
   const moonEvents = moonRiseSet(startMs, lat, lon, 24);
   if (inWindow(moonEvents.rise)) {
     const ms = moonEvents.rise.getTime();
     const mPos = getMoonPositionPrecise(moonEvents.rise, lat, lon, elevM);
-    const mAz = ((mPos.azimuth * DEG + 180) % 360 + 360) % 360;
+    const mAz = radToCompassDeg(mPos.azimuth);
     const mDir = skyDirection(mAz, language);
     const mIllum = SunCalc.getMoonIllumination(moonEvents.rise);
     const mPct = Math.round(mIllum.fraction * 100);
@@ -932,7 +918,7 @@ export const buildUpcomingTimeline = (args: {
   if (inWindow(moonEvents.set)) {
     const ms = moonEvents.set.getTime();
     const mPos = getMoonPositionPrecise(moonEvents.set, lat, lon, elevM);
-    const mAz = ((mPos.azimuth * DEG + 180) % 360 + 360) % 360;
+    const mAz = radToCompassDeg(mPos.azimuth);
     const mDir = skyDirection(mAz, language);
     const mIllum = SunCalc.getMoonIllumination(moonEvents.set);
     const mPct = Math.round(mIllum.fraction * 100);
@@ -955,131 +941,172 @@ export const buildUpcomingTimeline = (args: {
       topic: 'stars',
     });
   }
+}
 
-  // 10) 시간별 기상 변화 이벤트 (강수 시작/종료, 구름 크게 걷힘/두꺼워짐)
+function collectHourlyWeatherShifts(ctx: TimelineCollectContext, selectedTime: Date) {
+  const { startMs, horizonMs, language, ringFor, forecast, pushUnique } = ctx;
   const { obs: curObs, path: activePath } = weatherAtTime(selectedTime, ringFor, forecast);
-  if (curObs && activePath) {
-    let prevRain = (curObs.precipitation ?? 0) >= 0.25;
-    let prevCloud = typeof curObs.total === 'number' && Number.isFinite(curObs.total)
-      ? curObs.total
-      : Math.max(curObs.low, curObs.mid, curObs.high);
-    let rainEventAdded = false;
-    let cloudEventAdded = false;
+  if (!curObs || !activePath) return;
 
-    for (let h = 1; h <= 24; h++) {
-      const probeMs = Math.ceil(startMs / 3600_000) * 3600_000 + (h - 1) * 3600_000;
-      if (probeMs <= startMs || probeMs > horizonMs) continue;
-      const { obs: pObs } = weatherAtTime(new Date(probeMs), ringFor, forecast);
-      if (!pObs) continue;
+  let prevRain = (curObs.precipitation ?? 0) >= 0.25;
+  let prevCloud = extractCloudCover(curObs).total;
+  let rainEventAdded = false;
+  let cloudEventAdded = false;
 
-      const rainAmt = pObs.precipitation ?? 0;
-      const isRain = rainAmt >= 0.25;
-      const cloudPct = Math.round(typeof pObs.total === 'number' && Number.isFinite(pObs.total)
-        ? pObs.total
-        : Math.max(pObs.low, pObs.mid, pObs.high));
+  for (let h = 1; h <= 24; h++) {
+    const probeMs = Math.ceil(startMs / 3600_000) * 3600_000 + (h - 1) * 3600_000;
+    if (probeMs <= startMs || probeMs > horizonMs) continue;
+    const { obs: pObs } = weatherAtTime(new Date(probeMs), ringFor, forecast);
+    if (!pObs) continue;
 
-      if (!rainEventAdded && isRain !== prevRain) {
-        rainEventAdded = true;
-        if (isRain) {
-          pushUnique({
-            id: `weather_rain_start_${probeMs}`,
-            timeMs: probeMs,
-            relativeLabel: formatRelativeAfter(startMs, probeMs, language),
-            category: 'weather',
-            categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
-            title: L3(language, `강수 시작 예보 (시간당 ${rainAmt.toFixed(1)}mm)`, `Precipitation Expected (${rainAmt.toFixed(1)}mm/h)`, `降水開始の予報 (${rainAmt.toFixed(1)}mm/h)`),
-            badge: L3(language, `운량 ${cloudPct}%`, `Cloud ${cloudPct}%`, `雲量 ${cloudPct}%`),
-            description: L3(language,
-              `시간당 약 ${rainAmt.toFixed(1)}mm 강수 시작 예보. 촬영·관측은 앞당기거나 방수 장비 준비.`,
-              `Precipitation (~${rainAmt.toFixed(1)} mm/h) is forecast to begin around this hour.`,
-              `この時刻頃から時間約${rainAmt.toFixed(1)}mmの降水が始まる予報です。`),
-            topic: 'cloud',
-          });
-        } else {
-          pushUnique({
-            id: `weather_rain_stop_${probeMs}`,
-            timeMs: probeMs,
-            relativeLabel: formatRelativeAfter(startMs, probeMs, language),
-            category: 'weather',
-            categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
-            title: L3(language, '강수 그침 예보', 'Precipitation Ends', '降水終了の予報'),
-            badge: L3(language, `운량 ${cloudPct}%`, `Cloud ${cloudPct}%`, `雲量 ${cloudPct}%`),
-            description: L3(language,
-              `강수 그침. 먼지가 씻겨 시정이 맑아지고 젖은 지면 반영 촬영에 좋음.`,
-              `Precipitation is forecast to taper off, often leaving washed, high-clarity air and wet ground reflections.`,
-              `降水が止み、大気中の塵が洗い流されて視程が澄みやすくなります。`),
-            topic: 'cloud',
-          });
-        }
-      }
-      prevRain = isRain;
+    const rainAmt = pObs.precipitation ?? 0;
+    const isRain = rainAmt >= 0.25;
+    const { low, mid, high, total: cloudPct } = extractCloudCover(pObs);
 
-      if (!cloudEventAdded) {
-        if (prevCloud >= 60 && cloudPct <= 25) {
-          cloudEventAdded = true;
-          pushUnique({
-            id: `weather_clear_${probeMs}`,
-            timeMs: probeMs,
-            relativeLabel: formatRelativeAfter(startMs, probeMs, language),
-            category: 'weather',
-            categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
-            title: L3(language, `구름 걷히고 하늘 맑아짐 (총운량 ${cloudPct}%)`, `Clouds Clearing (${cloudPct}% cover)`, `雲が晴れて快晴へ (全雲量 ${cloudPct}%)`),
-            badge: L3(language, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`),
-            description: L3(language,
-              `구름이 걷혀 총운량 ${cloudPct}% (하 ${Math.round(pObs.low)} · 중 ${Math.round(pObs.mid)} · 상 ${Math.round(pObs.high)}%). 천체 관측·맑은 하늘 촬영에 좋은 시간.`,
-              `Cloud cover drops sharply to ${cloudPct}%, opening a clear window for observation and photography.`,
-              `厚い雲が抜けて全雲量が${cloudPct}%まで減少し、観測や撮影に好条件の窓が開きます。`),
-            topic: 'cloud',
-          });
-        } else if (prevCloud <= 30 && cloudPct >= 75) {
-          cloudEventAdded = true;
-          pushUnique({
-            id: `weather_overcast_${probeMs}`,
-            timeMs: probeMs,
-            relativeLabel: formatRelativeAfter(startMs, probeMs, language),
-            category: 'weather',
-            categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
-            title: L3(language, `구름 유입으로 하늘 흐려짐 (총운량 ${cloudPct}%)`, `Clouds Thickening (${cloudPct}% cover)`, `雲の流入で曇天へ (全雲量 ${cloudPct}%)`),
-            badge: L3(language, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`),
-            description: L3(language,
-              `구름이 몰려 총운량 ${cloudPct}% (하 ${Math.round(pObs.low)} · 중 ${Math.round(pObs.mid)} · 상 ${Math.round(pObs.high)}%). 별 관측은 이 전에.`,
-              `Cloud cover thickens to ${cloudPct}% (low ${Math.round(pObs.low)} · mid ${Math.round(pObs.mid)} · high ${Math.round(pObs.high)}%).`,
-              `雲が流入し全雲量が${cloudPct}%まで増加します。星空観測はこの時刻より前に行うのが有利です。`),
-            topic: 'cloud',
-          });
-        }
-      }
-      prevCloud = cloudPct;
+    if (!rainEventAdded && isRain !== prevRain) {
+      rainEventAdded = true;
+      pushUnique(isRain ? {
+        id: `weather_rain_start_${probeMs}`,
+        timeMs: probeMs,
+        relativeLabel: formatRelativeAfter(startMs, probeMs, language),
+        category: 'weather',
+        categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
+        title: L3(language, `강수 시작 예보 (시간당 ${rainAmt.toFixed(1)}mm)`, `Precipitation Expected (${rainAmt.toFixed(1)}mm/h)`, `降水開始の予報 (${rainAmt.toFixed(1)}mm/h)`),
+        badge: L3(language, `운량 ${cloudPct}%`, `Cloud ${cloudPct}%`, `雲量 ${cloudPct}%`),
+        description: L3(language,
+          `시간당 약 ${rainAmt.toFixed(1)}mm 강수 시작 예보. 촬영·관측은 앞당기거나 방수 장비 준비.`,
+          `Precipitation (~${rainAmt.toFixed(1)} mm/h) is forecast to begin around this hour.`,
+          `この時刻頃から時間約${rainAmt.toFixed(1)}mmの降水が始まる予報です。`),
+        topic: 'cloud',
+      } : {
+        id: `weather_rain_stop_${probeMs}`,
+        timeMs: probeMs,
+        relativeLabel: formatRelativeAfter(startMs, probeMs, language),
+        category: 'weather',
+        categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
+        title: L3(language, '강수 그침 예보', 'Precipitation Ends', '降水終了の予報'),
+        badge: L3(language, `운량 ${cloudPct}%`, `Cloud ${cloudPct}%`, `雲量 ${cloudPct}%`),
+        description: L3(language,
+          '강수 그침. 먼지가 씻겨 시정이 맑아지고 젖은 지면 반영 촬영에 좋음.',
+          'Precipitation is forecast to taper off, often leaving washed, high-clarity air and wet ground reflections.',
+          '降水が止み、大気中の塵が洗い流されて視程が澄みやすくなります。'),
+        topic: 'cloud',
+      });
     }
-  }
+    prevRain = isRain;
 
-  // 11) 향후 16일 내 개기/부분 월식 안내
+    if (!cloudEventAdded && prevCloud >= 60 && cloudPct <= 25) {
+      cloudEventAdded = true;
+      pushUnique({
+        id: `weather_clear_${probeMs}`,
+        timeMs: probeMs,
+        relativeLabel: formatRelativeAfter(startMs, probeMs, language),
+        category: 'weather',
+        categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
+        title: L3(language, `구름 걷히고 하늘 맑아짐 (총운량 ${cloudPct}%)`, `Clouds Clearing (${cloudPct}% cover)`, `雲が晴れて快晴へ (全雲量 ${cloudPct}%)`),
+        badge: L3(language, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`),
+        description: L3(language,
+          `구름이 걷혀 총운량 ${cloudPct}% (하 ${low} · 중 ${mid} · 상 ${high}%). 천체 관측·맑은 하늘 촬영에 좋은 시간.`,
+          `Cloud cover drops sharply to ${cloudPct}%, opening a clear window for observation and photography.`,
+          `厚い雲が抜けて全雲量が${cloudPct}%まで減少し、観測や撮影に好条件の窓が開きます。`),
+        topic: 'cloud',
+      });
+    } else if (!cloudEventAdded && prevCloud <= 30 && cloudPct >= 75) {
+      cloudEventAdded = true;
+      pushUnique({
+        id: `weather_overcast_${probeMs}`,
+        timeMs: probeMs,
+        relativeLabel: formatRelativeAfter(startMs, probeMs, language),
+        category: 'weather',
+        categoryLabel: L3(language, '기상 변화', 'Weather Shift', '気象変化'),
+        title: L3(language, `구름 유입으로 하늘 흐려짐 (총운량 ${cloudPct}%)`, `Clouds Thickening (${cloudPct}% cover)`, `雲の流入で曇天へ (全雲量 ${cloudPct}%)`),
+        badge: L3(language, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`, `${Math.round(prevCloud)}% → ${cloudPct}%`),
+        description: L3(language,
+          `구름이 몰려 총운량 ${cloudPct}% (하 ${low} · 중 ${mid} · 상 ${high}%). 별 관측은 이 전에.`,
+          `Cloud cover thickens to ${cloudPct}% (low ${low} · mid ${mid} · high ${high}%).`,
+          `雲が流入し全雲量が${cloudPct}%まで増加します。星空観測はこの時刻より前に行うのが有利です。`),
+        topic: 'cloud',
+      });
+    }
+    prevCloud = cloudPct;
+  }
+}
+
+function collectUpcomingEclipseEvent(ctx: TimelineCollectContext) {
+  const { startMs, lat, lon, elevM, language, pushUnique } = ctx;
   const eclipse = nextLunarEclipse(startMs);
   const eclipsePlan = eclipse && eclipse.greatestMs - startMs <= 16 * 86400_000
     ? planEclipse(eclipse, lat, lon)
     : null;
-  if (eclipse && eclipsePlan && eclipsePlan.visible && eclipse.greatestMs > startMs) {
-    const ms = eclipse.greatestMs;
-    const peakDate = new Date(ms);
-    const moonAltAtPeak = getMoonPositionPrecise(peakDate, lat, lon, elevM).altitude * DEG;
-    const kindWord = eclipse.kind === 'total'
-      ? L3(language, '개기월식 (블러드문)', 'Total Lunar Eclipse (Blood Moon)', '皆既月食 (ブラッドムーン)')
-      : L3(language, '부분월식', 'Partial Lunar Eclipse', '部分月食');
-    pushUnique({
-      id: `eclipse_${ms}`,
-      timeMs: ms,
-      relativeLabel: formatRelativeAfter(startMs, ms, language),
-      category: 'eclipse',
-      categoryLabel: L3(language, '특이 천문 현상', 'Lunar Eclipse', '月食'),
-      title: `${kindWord} · ${peakDate.getMonth() + 1}/${peakDate.getDate()}`,
-      badge: `${moonAltAtPeak.toFixed(0)}°`,
-      description: L3(language,
-        `달이 지구 본그림자에 들어가 붉게 물드는 ${kindWord} 예정 (최대 식 때 고도 ${moonAltAtPeak.toFixed(0)}°).`,
-        `An upcoming ${kindWord} with peak altitude ${moonAltAtPeak.toFixed(0)}°.`,
-        `月が地球の本影に入る${kindWord}が予定されています(最大食時の高度${moonAltAtPeak.toFixed(0)}°)。`),
-      topic: 'stars',
-    });
+  if (!eclipse || !eclipsePlan || !eclipsePlan.visible || eclipse.greatestMs <= startMs) return;
+
+  const ms = eclipse.greatestMs;
+  const peakDate = new Date(ms);
+  const moonAltAtPeak = getMoonPositionPrecise(peakDate, lat, lon, elevM).altitude * DEG;
+  const kindWord = eclipse.kind === 'total'
+    ? L3(language, '개기월식 (블러드문)', 'Total Lunar Eclipse (Blood Moon)', '皆既月食 (ブラッドムーン)')
+    : L3(language, '부분월식', 'Partial Lunar Eclipse', '部分月食');
+  pushUnique({
+    id: `eclipse_${ms}`,
+    timeMs: ms,
+    relativeLabel: formatRelativeAfter(startMs, ms, language),
+    category: 'eclipse',
+    categoryLabel: L3(language, '특이 천문 현상', 'Lunar Eclipse', '月食'),
+    title: `${kindWord} · ${peakDate.getMonth() + 1}/${peakDate.getDate()}`,
+    badge: `${moonAltAtPeak.toFixed(0)}°`,
+    description: L3(language,
+      `달이 지구 본그림자에 들어가 붉게 물드는 ${kindWord} 예정 (최대 식 때 고도 ${moonAltAtPeak.toFixed(0)}°).`,
+      `An upcoming ${kindWord} with peak altitude ${moonAltAtPeak.toFixed(0)}°.`,
+      `月が地球の本影に入る${kindWord}が予定されています(最大食時の高度${moonAltAtPeak.toFixed(0)}°)。`),
+    topic: 'stars',
+  });
+}
+
+/**
+ * 선택한 시각(`selectedTime`) 직후부터 앞으로 24시간 동안 발생할
+ * 모든 기상 변화 + 태양/박명/노을 + 달 + 별/은하수 + 행성 이벤트를 시간순으로 생성합니다.
+ */
+export const buildUpcomingTimeline = (args: {
+  selectedTime: Date;
+  lat: number;
+  lon: number;
+  elevM: number;
+  language: Language;
+  ringFor: (d: Date) => CloudPathData[] | null;
+  forecast: CloudPathData[] | null;
+  days: ForecastDay[];
+  lightPollutionMag: number | null;
+  fmtTime: (ms: number) => string;
+}): UpcomingTimelineEvent[] => {
+  const { selectedTime, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag, fmtTime } = args;
+  const startMs = selectedTime.getTime();
+  const horizonMs = startMs + 24 * 3600_000;
+  const events: UpcomingTimelineEvent[] = [];
+  const addedKeys = new Set<string>();
+
+  const ctx: TimelineCollectContext = {
+    startMs, horizonMs, lat, lon, elevM, language, ringFor, forecast, days, lightPollutionMag, fmtTime,
+    inWindow: (d): d is Date => {
+      if (!d) return false;
+      const ms = d.getTime();
+      return Number.isFinite(ms) && ms > startMs + 60_000 && ms <= horizonMs;
+    },
+    weatherBriefAt: (ms) => summarizeWeatherBrief(ms, ringFor, forecast, language),
+    pushUnique: (ev) => {
+      // 같은 종류 이벤트가 15분 이내 중복 등록되지 않도록 방지
+      const bucket = `${ev.id.split('_')[0]}_${Math.round(ev.timeMs / (15 * 60_000))}`;
+      if (addedKeys.has(bucket)) return;
+      addedKeys.add(bucket);
+      events.push(ev);
+    },
+  };
+
+  for (const baseDate of [new Date(startMs), new Date(startMs + 24 * 3600_000)]) {
+    collectSolarAndTwilightEvents(ctx, baseDate);
   }
+  collectMoonRiseSetEvents(ctx);
+  collectHourlyWeatherShifts(ctx, selectedTime);
+  collectUpcomingEclipseEvent(ctx);
 
   return events.sort((a, b) => a.timeMs - b.timeMs);
 };

@@ -19,8 +19,11 @@ import {
   type Intrinsics,
 } from './arVision';
 import { getLMSTDeg } from './celestialCoords';
+import { D2R, clamp } from './math';
 
-const D2R = Math.PI / 180;
+function peakBucketKey(gx: number, gy: number): number {
+  return ((gx + 32768) << 16) | ((gy + 32768) & 0xffff);
+}
 
 export type Mat3 = [
   number, number, number,
@@ -59,10 +62,6 @@ export interface AlignmentResult {
   residualRotDeg: number;
   matchedStars: number;
   meanErrorPx: number;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 export function mat3Identity(): Mat3 {
@@ -401,11 +400,29 @@ export function detectStarPeaks(params: {
 
   candidates.sort((a, b) => b.flux - a.flux);
 
-  // 인접 중복(반경 5px 내 같은 성단/이중봉) 제거
+  // 인접 중복(반경 5px 내 같은 성단/이중봉) 제거 — 5px 공간 해시로 O(N) 억제
   const picked: StarPeak[] = [];
+  const nmsGrid = new Map<number, StarPeak[]>();
   for (const c of candidates) {
-    if (picked.some((p) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2 < 25)) continue;
+    const gx = Math.floor(c.x / 5);
+    const gy = Math.floor(c.y / 5);
+    let near = false;
+    for (let dx = -1; dx <= 1 && !near; dx++) {
+      for (let dy = -1; dy <= 1 && !near; dy++) {
+        const list = nmsGrid.get(peakBucketKey(gx + dx, gy + dy));
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i];
+          if ((p.x - c.x) ** 2 + (p.y - c.y) ** 2 < 25) { near = true; break; }
+        }
+      }
+    }
+    if (near) continue;
     picked.push(c);
+    const key = peakBucketKey(gx, gy);
+    let cell = nmsGrid.get(key);
+    if (!cell) { cell = []; nmsGrid.set(key, cell); }
+    cell.push(c);
     if (picked.length >= maxStars) break;
   }
   return picked;
@@ -452,13 +469,31 @@ export function estimateResidualAlignment(params: {
   }
   const pairs: Pair[] = [];
   const r2 = searchRadiusPx * searchRadiusPx;
+  const matchCell = Math.max(1, searchRadiusPx);
+  const frameGrid = new Map<number, (typeof projFrame0)[number][]>();
+  for (let i = 0; i < projFrame0.length; i++) {
+    const item = projFrame0[i];
+    const key = peakBucketKey(Math.floor(item.p0.x / matchCell), Math.floor(item.p0.y / matchCell));
+    let cell = frameGrid.get(key);
+    if (!cell) { cell = []; frameGrid.set(key, cell); }
+    cell.push(item);
+  }
 
   for (const r of refStars) {
+    const gx = Math.floor(r.x / matchCell);
+    const gy = Math.floor(r.y / matchCell);
     let best: { d2: number; item: (typeof projFrame0)[number] } | null = null;
-    for (const item of projFrame0) {
-      const d2 = (item.p0.x - r.x) ** 2 + (item.p0.y - r.y) ** 2;
-      if (d2 <= r2 && (!best || d2 < best.d2)) {
-        best = { d2, item };
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const list = frameGrid.get(peakBucketKey(gx + dx, gy + dy));
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const item = list[i];
+          const d2 = (item.p0.x - r.x) ** 2 + (item.p0.y - r.y) ** 2;
+          if (d2 <= r2 && (!best || d2 < best.d2)) {
+            best = { d2, item };
+          }
+        }
       }
     }
     if (best) {

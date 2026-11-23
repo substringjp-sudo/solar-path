@@ -9,6 +9,7 @@
  */
 import { ClampToEdgeWrapping, Data3DTexture, DataUtils, HalfFloatType, LinearFilter, RedFormat, RepeatWrapping, Vector2, Vector4 } from 'three';
 import { computeRawWaveOnWorklet } from './skyWorklet';
+import { mulberry32 as rng } from '../../utils/math';
 
 export interface WaveParams {
   /** 경계층 높이(m) — 가장 큰 파장 λ0 = 2.5 z_i */
@@ -93,11 +94,6 @@ export interface WaveField {
 const OCT = 6, PER = 12, NSMALL = 3 * PER;
 /** 단계별 세기 a_j ∝ 2^(−j·h), 제곱합 1. h = 1/3 은 난류 속도 비율(첫 시제품: 조각으로 흩어짐), h = 1 은 큰 덩어리가 앞섬. */
 const ampOf = (h: number) => { const a = Array.from({ length: OCT }, (_, j) => Math.pow(2, -j * h)); const s = Math.sqrt(a.reduce((p, x) => p + x * x, 0)); return a.map(x => x / s); };
-
-const rng = (seed: number) => () => {
-  seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 
 interface Wave { kx: number; ky: number; kz: number; ph: number; ex: number; ey: number; ez: number }
 

@@ -715,16 +715,34 @@ export interface DecodedStars {
   count: number;
 }
 
+let _b64Lut: Int8Array | null = null;
+function getB64Lut(): Int8Array {
+  if (_b64Lut) return _b64Lut;
+  const lut = new Int8Array(128).fill(-1);
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  for (let i = 0; i < chars.length; i++) lut[chars.charCodeAt(i)] = i;
+  _b64Lut = lut;
+  return lut;
+}
+
 function base64ToBytes(b64: string): Uint8Array {
-  // atob은 RN Hermes에도 있지만, 없을 경우를 대비해 수동 디코더를 둡니다.
-  const table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  if (typeof globalThis.atob === 'function') {
+    const bin = globalThis.atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  const lut = getB64Lut();
   const clean = b64.replace(/=+$/, '');
   const out = new Uint8Array((clean.length * 3) >> 2);
   let acc = 0;
   let bits = 0;
   let o = 0;
   for (let i = 0; i < clean.length; i++) {
-    acc = (acc << 6) | table.indexOf(clean[i]);
+    const code = clean.charCodeAt(i);
+    const val = code < 128 ? lut[code] : -1;
+    if (val < 0) continue;
+    acc = (acc << 6) | val;
     bits += 6;
     if (bits >= 8) {
       bits -= 8;

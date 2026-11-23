@@ -94,23 +94,22 @@ export const LAYER_TERRAIN_DIST = 7;
  */
 export const LAYER_TERRAIN_LIT = 8;
 
-/**
- * 지형 거리의 부호화(§117). 8비트 RGBA 두 칸(R·G)에 16비트로 log2 거리를 담습니다 — 1m ~ 1048km 를
- * 20옥타브로, 한 칸 0.02%. 부동소수 렌더 타깃은 GLES2 기기에서 갈리므로 쓰지 않습니다. 지운 값(1,1)은
- * "지형 없음" 입니다(`terrainDistDecodeKm` 가 1e9 를 냄).
- */
-export const TERRAIN_DIST_GLSL = `
-vec4 terrainDistEncode(float km){
-  float t = clamp(log2(max(km, 1e-3) / 1e-3) / 20.0, 0.0, 0.9999);
-  float v = floor(t * 65535.0 + 0.5);
-  float hi = floor(v / 256.0);
-  return vec4(hi / 255.0, (v - hi * 256.0) / 255.0, 0.0, 1.0);
-}
-float terrainDistDecodeKm(vec4 c){
-  float t = (floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5)) / 65535.0;
-  return t > 0.99995 ? 1e9 : 1e-3 * exp2(t * 20.0);
-}
-`;
+import {
+  TERRAIN_DIST_GLSL,
+  BLIT_VERT,
+  makeBlitFrag,
+  makeExtMaskFrag,
+  makeExtFrontFrag,
+  makeUpscaleFrag,
+  BRIGHT_FRAG,
+  BLUR_FRAG,
+  RAY_FRAG,
+  BLOOM_COMPOSITE_FRAG,
+  PIXEL_COPY_FRAG,
+  ACCUM_BLEND_FRAG,
+  ACCUM_RESOLVE_FRAG,
+} from './SceneComposerShaders';
+export { TERRAIN_DIST_GLSL };
 
 /**
  * 저해상도 배율의 기본값.
@@ -123,15 +122,6 @@ float terrainDistDecodeKm(vec4 c){
  *   ×4     5.8 px/°   경계밀도 1.85%   뭉갬
  */
 export const DEFAULT_SOFT_SCALE = 2;
-
-const BLIT_VERT = `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  // 전체화면 사각형 — 변환 없이 클립 공간에 그대로 놓습니다.
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}
-`;
 
 /**
  * **Catmull-Rom 재구성 (5탭)** — 저해상도 버퍼를 원해상도로 늘릴 때 씁니다.
@@ -221,302 +211,10 @@ vec4 skyDenoise(sampler2D tex, vec2 uv, vec2 texSize){
 }
 `;
 
-const BLIT_FRAG = `
-precision highp float;
-uniform sampler2D uTex;
-uniform vec2 uTexSize;
-/**
- * §117 깊이를 아는 확대. 구름은 절반 해상도로, 지형 거리 판은 원해상도로 그립니다. 그냥 늘리면 능선에서
- * "산 뒤라 구름 없음" 표본이 하늘 쪽으로 번져 틈이 생기고(요네자와 해돋이: 능선 위로 해가 42화소 샘),
- * 하늘 쪽 구름은 산 쪽으로 번집니다. 이 화소와 **같은 쪽**(지형 거리가 비슷한) 저해상도 표본만 섞습니다
- * — 이웃 넷이 다 같은 쪽이면 예전 재구성 그대로입니다.
- */
-uniform sampler2D uDist;
-uniform float uDistOn;
-varying vec2 vUv;
-${CATMULL_GLSL}
-${TERRAIN_DIST_GLSL}
-float distClass(vec2 uv){
-  float km = terrainDistDecodeKm(texture2D(uDist, uv));
-  return km > 1e8 ? 40.0 : log2(km);          // 하늘(지형 없음)은 멀리 떨어진 한 값
-}
-void main() {
-  vec4 base = catmullRom(uTex, vUv, uTexSize);
-  if (uDistOn < 0.5) { gl_FragColor = base; return; }
-  float here = distClass(vUv);
-  vec2 p = vUv * uTexSize - 0.5;
-  vec2 f = fract(p), i0 = floor(p);
-  vec4 acc = vec4(0.0);
-  float wsum = 0.0;
-  bool mismatch = false;
-  for (int k = 0; k < 4; k++) {
-    vec2 o = vec2(mod(float(k), 2.0), floor(float(k) / 2.0));
-    vec2 uvT = (i0 + o + 0.5) / uTexSize;
-    bool same = abs(distClass(uvT) - here) < 0.5;   // 거리 41% 안 — 같은 사면·같은 하늘
-    if (!same) mismatch = true;
-    float w = (o.x > 0.5 ? f.x : 1.0 - f.x) * (o.y > 0.5 ? f.y : 1.0 - f.y) * (same ? 1.0 : 0.0);
-    acc += w * texture2D(uTex, uvT);
-    wsum += w;
-  }
-  if (!mismatch) { gl_FragColor = base; return; }
-  gl_FragColor = wsum > 1e-4 ? acc / wsum : texture2D(uTex, (floor(vUv * uTexSize) + 0.5) / uTexSize);
-}
-`;
-
-/**
- * §127 선형 → sRGB 부호화. 볼륨 하늘 텍스처(postprocessing 의 반정밀도 버퍼)는 톤매핑 뒤 **선형** 값입니다 — 화면에 바로
- * 그릴 때만 postprocessing 이 sRGB 로 바꿉니다. §126.8 은 그것을 표시 값으로 그대로 깔아 하늘 화면의 볼륨 하늘이 어둡고
- * 채도가 높았습니다(같은 장면 바로 그리기와 최대 135 단계 차, 노을 '가장 붉은 곳' G/R 0.43 대 0.72).
- */
-const SRGB_ENCODE_GLSL = `
-vec3 linearToSrgb(vec3 c) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
-}
-`;
-
-/**
- * §127 볼륨 하늘(밖에서 그린 하늘 텍스처) 전용 두 패스. 그 텍스처는 rgb = 선형 색(하늘 + 구름, 톤매핑 뒤),
- * **알파 = 구름 불투명도**(`volumetricScene.renderToTexture`)이고, 지형 화소에서는 하늘을 검게 비우고 지형 앞 구름만 담습니다.
- * 두 패스 모두 sRGB 로 부호화해 얹습니다.
- *
- * - 천체 가리기(EXT_MASK): 천체(해·달·별·은하수)를 하늘 위에 그린 뒤, 같은 하늘 텍스처를 알파(불투명도)만큼 다시
- *   덮습니다 — 결과 = 천체가 얹힌 하늘 × 투과율 + 하늘 × 불투명도. 천체가 더하기로 그려졌든 덮어 그려졌든
- *   "천체가 보탠 몫 × 투과율" 이 됩니다(해 원반이 두꺼운 구름을 뚫던 것, 별이 구름 위에 뜨던 것).
- * - 지형 앞 구름(EXT_FRONT): 지형을 그린 뒤 지형 화소에만 그 텍스처를 미리곱 over 로 다시 얹습니다.
- *   구름 행진은 지형 거리에서 멈췄으므로 여기 담긴 것은 지형 **앞** 구름뿐입니다.
- */
-const EXT_MASK_FRAG = `
-precision highp float;
-uniform sampler2D uTex;
-uniform vec2 uTexSize;
-varying vec2 vUv;
-${CATMULL_GLSL}
-${DENOISE_GLSL}
-${SRGB_ENCODE_GLSL}
-void main() {
-  vec4 t = texture2D(uTex, vUv);
-  gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
-}
-`;
-const EXT_FRONT_FRAG = `
-precision highp float;
-uniform sampler2D uTex;
-uniform vec2 uTexSize;
-uniform sampler2D uDist;
-varying vec2 vUv;
-${TERRAIN_DIST_GLSL}
-${CATMULL_GLSL}
-${DENOISE_GLSL}
-${SRGB_ENCODE_GLSL}
-void main() {
-  if (terrainDistDecodeKm(texture2D(uDist, vUv)) > 1e8) discard;
-  vec4 t = texture2D(uTex, vUv);
-  gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
-}
-`;
-
-/**
- * 디더 — 8비트로 내려앉을 때 생기는 **밴딩**을 흩습니다.
- *
- * 넓고 완만한 그라데이션(노을 하늘이 정확히 그것입니다)에서는 인접한
- * 두 픽셀의 참값 차이가 1/255보다 작습니다. 그러면 여러 픽셀이 같은
- * 정수로 내려앉아 평평한 띠가 되고, 띠와 띠 사이에 눈에 띄는 계단이
- * 생깁니다. 양자화 직전에 1단계 미만의 잡음을 얹으면 그 경계가 픽셀마다
- * 다른 곳에서 갈려 계단이 흩어집니다.
- *
- * ⚠ **마지막 패스에서 해야 합니다.** 예전에는 스카이돔 셰이더가 자기
- * 디더를 뿌렸는데, 분리 해상도 합성이 들어오면서 스카이돔이 절반
- * 해상도로 그려지게 됐습니다. 절반에서 뿌린 디더는 쌍선형 확대에 섞여
- * 2×2 덩어리 잡음이 되고, 정작 화면 양자화는 확대 **뒤**에 일어나므로
- * 밴딩은 그대로 남습니다. 잡음만 얹고 문제는 못 잡는 상태였습니다.
- *
- * 해시는 sin 대신 Jimenez의 interleaved gradient noise를 씁니다. GLES2
- * mediump에서 `fract(sin(...))`는 기기마다 값이 갈려 디더가 줄무늬로
- * 뭉치는 일이 있습니다.
- */
-const DITHER_GLSL = `
-float ditherNoise(vec2 p) {
-  return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-}
-`;
-
-/**
- * 저해상도 배경을 원해상도로 올리면서 디더를 겁니다.
- *
- * ⚠ **여기가 유일하게 맞는 자리입니다.** 세 군데를 재 보고 알았습니다.
- *
- *  - **후처리 마지막 패스**: 아무 일도 안 합니다. 중간 렌더 타깃이 8비트라
- *    합성이 읽는 값은 이미 정수로 내려앉아 있고, 거기에 ±0.5단계를 얹고
- *    다시 반올림하면 같은 정수로 돌아옵니다 (평탄구간 30.37 → 30.36).
- *  - **스카이돔 셰이더 안**: 듣기는 듣지만(30.37 → 5.85) 절반 해상도에서
- *    뿌린 잡음이라 쌍선형 확대에 절반쯤 깎이고, 세기를 3배로 올려도
- *    평탄구간이 3.13에서 더 안 내려갑니다. 원해상도 두 픽셀이 같은
- *    텍셀 쌍에서 나오는 한 구조적으로 못 내려갑니다.
- *  - **확대하는 이 패스**: 쌍선형 보간이 두 텍셀을 섞어 준 **연속값**을
- *    원해상도로 다시 양자화하는 지점입니다. 값이 아직 연속이고 해상도가
- *    이미 원해상도인 곳은 여기뿐입니다.
- */
-const UPSCALE_FRAG = `
-precision highp float;
-uniform sampler2D uTex;
-uniform vec2 uTexSize;
-uniform float uDither;
-/** 1 이면 선형 값을 sRGB 로 부호화(§127 볼륨 하늘 텍스처). 하늘돔 버퍼는 이미 표시 값이라 0. */
-uniform float uEncodeSrgb;
-varying vec2 vUv;
-${DITHER_GLSL}
-${CATMULL_GLSL}
-${DENOISE_GLSL}
-${SRGB_ENCODE_GLSL}
-void main() {
-  vec3 c = (uEncodeSrgb > 0.5 && uDenoise < 0.5)
-    ? texture2D(uTex, vUv).rgb
-    : skyDenoise(uTex, vUv, uTexSize).rgb;
-  if (uEncodeSrgb > 0.5) c = linearToSrgb(c);
-  c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
-  gl_FragColor = vec4(c, 1.0);
-}
-`;
-
-/**
- * 밝은 부분만 뽑아내기 — 부드러운 무릎(soft knee).
- *
- * 딱딱한 문턱으로 자르면 밝기가 문턱을 넘나드는 경계에서 블룸이 **깜빡입니다**
- * (구름이 흐르거나 시각이 바뀔 때). 무릎 구간에서 이차로 올라오게 하면
- * 그 전이가 매끄럽습니다.
- *
- * ⚠ **이 파이프라인은 톤매핑 뒤(LDR)에서 블룸합니다.** 물리적으로는 톤매핑
- * 전 HDR에서 하는 것이 맞지만, 그러려면 렌더 타깃이 half-float 이어야 하고
- * GLES2 기기에서 색 버퍼로 쓸 수 있는지가 갈립니다. 대가는 태양 원반처럼
- * 이미 1.0에 포화된 것과 거의 흰 구름이 **같은 세기로** 번진다는 점입니다.
- * 문턱을 높게 잡아 정말 밝은 것만 걸리게 해 그 대가를 줄입니다.
- */
-const BRIGHT_FRAG = `
-precision mediump float;
-uniform sampler2D uTex;
-uniform float uThreshold;
-uniform float uKnee;
-varying vec2 vUv;
-void main() {
-  vec3 c = texture2D(uTex, vUv).rgb;
-  float l = max(max(c.r, c.g), c.b);
-  float soft = clamp(l - uThreshold + uKnee, 0.0, 2.0 * uKnee);
-  soft = soft * soft / (4.0 * uKnee + 1e-5);
-  float contrib = max(soft, l - uThreshold) / max(l, 1e-5);
-  gl_FragColor = vec4(c * contrib, 1.0);
-}
-`;
-
-/**
- * 분리 가능 가우시안 — 선형 표본 5탭으로 9픽셀 폭을 냅니다.
- *
- * 텍스처 필터가 두 텍셀을 섞어 주므로, 오프셋을 텍셀 중간에 두면 표본
- * 하나가 두 개 몫을 합니다. 블룸 버퍼는 어차피 1/4 해상도라 이 정도면
- * 화면에서 충분히 넓게 번집니다.
- */
-const BLUR_FRAG = `
-precision mediump float;
-uniform sampler2D uTex;
-uniform vec2 uStep;
-varying vec2 vUv;
-void main() {
-  vec3 c = texture2D(uTex, vUv).rgb * 0.2270270270;
-  c += texture2D(uTex, vUv + uStep * 1.3846153846).rgb * 0.3162162162;
-  c += texture2D(uTex, vUv - uStep * 1.3846153846).rgb * 0.3162162162;
-  c += texture2D(uTex, vUv + uStep * 3.2307692308).rgb * 0.0702702703;
-  c += texture2D(uTex, vUv - uStep * 3.2307692308).rgb * 0.0702702703;
-  gl_FragColor = vec4(c, 1.0);
-}
-`;
-
-/**
- * 박명광선 — **빛을 더하지 않고 그늘을 뺍니다.**
- *
- * 처음에는 교과서대로 짰습니다: 밝은 부분을 뽑아 태양에서 바깥으로 방사형
- * 블러를 걸고 더하기. 재어 보니 살이 서지 않았습니다.
- *
- *   태양 +2°, 세기 0.5 → 이방성 1.075 → 0.991 (**떨어짐**), 포화 6.1% → 12.9%
- *
- * 이유가 둘 다 구조적이었습니다.
- *
- *  - 이 파이프라인은 **톤매핑 뒤(LDR)** 입니다. 태양 둘레는 이미 1.0에
- *    붙어 있어서, 무엇을 더하든 남는 것은 포화뿐입니다.
- *  - 노을에서 **태양 둘레에는 구름이 없습니다.** 덱은 위쪽에 뜨고 태양은
- *    그 아래 트인 띠에 놓입니다. 뚫을 구멍이 없으니 매끈한 밝은 판을
- *    흐린 결과, 즉 그냥 넓은 글로우가 나옵니다 — 그건 블룸이 이미 합니다.
- *
- * 그런데 실제 사진에서 빛내림이 읽히는 것은 밝은 살보다 **어두운 쐐기**
- * 쪽입니다. 그래서 뒤집었습니다. 구름 덱의 알파(=가림)를 태양에서 바깥으로
- * 방사형으로 번지게 해 **그늘 지도**를 만들고, 화면에 곱합니다.
- *
- * 더하기가 아니라 곱하기라 포화가 늘지 않습니다. 그리고 그늘은 하늘이
- * 밝을수록 뚜렷해지므로, 정작 필요한 노을에서 가장 잘 보입니다.
- *
- * ⚠ 두 가지를 셰이더 안에서 막습니다.
- *
- *  - **화면 밖 표본.** 렌더 타깃 랩이 ClampToEdge라 밖을 읽으면 가장자리
- *    픽셀이 복제되어 화면 끝에서 굵은 줄무늬가 뻗습니다.
- *  - **가림물 자신을 어둡게 하기.** 그늘은 구름과 눈 사이의 공기에 지는
- *    것입니다. 구름 자체를 또 어둡게 하면 덱이 두 번 그늘집니다. 도착
- *    픽셀의 가림값으로 나누듯 빼서, 트인 하늘에만 그늘이 앉게 합니다.
- */
-const RAY_FRAG = `
-precision mediump float;
-uniform sampler2D uTex;
-uniform vec2 uSunUv;
-uniform vec2 uAspect;
-uniform float uDensity;
-uniform float uDecay;
-uniform float uMaskInner;
-uniform float uMaskOuter;
-varying vec2 vUv;
-
-const int RAY_SAMPLES = 12;
-
-void main() {
-  vec2 delta = (vUv - uSunUv) * (uDensity / float(RAY_SAMPLES));
-  vec2 uv = vUv;
-  float illum = 1.0;
-  float acc = 0.0;
-  float wsum = 0.0;
-  for (int i = 0; i < RAY_SAMPLES; i++) {
-    uv -= delta;
-    float inside = step(0.0, uv.x) * step(uv.x, 1.0)
-                 * step(0.0, uv.y) * step(uv.y, 1.0);
-    acc += texture2D(uTex, uv).a * illum * inside;
-    wsum += illum;
-    illum *= uDecay;
-  }
-  float shade = acc / max(wsum, 1e-4);
-  // 태양에서 멀어지면 잦아듭니다 — 화면 반대편까지 그늘이 가면 그건
-  // 광선이 아니라 비네팅입니다.
-  float d = length((vUv - uSunUv) * uAspect);
-  shade *= 1.0 - smoothstep(uMaskInner, uMaskOuter, d);
-  // 구름 자신은 빼둡니다.
-  shade *= 1.0 - texture2D(uTex, vUv).a;
-  gl_FragColor = vec4(vec3(shade), 1.0);
-}
-`;
-
-/** (원본 + 블룸) × 그늘. 디더는 여기가 아니라 확대 패스가 겁니다. */
-const BLOOM_COMPOSITE_FRAG = `
-precision mediump float;
-uniform sampler2D uTex;
-uniform sampler2D uBloom;
-uniform sampler2D uRay;
-uniform float uStrength;
-uniform float uRayStrength;
-varying vec2 vUv;
-void main() {
-  vec3 base = texture2D(uTex, vUv).rgb;
-  vec3 glow = texture2D(uBloom, vUv).rgb;
-  float shade = texture2D(uRay, vUv).r;
-  // 그늘은 **곱합니다**. 더하기였다면 이미 1.0에 붙은 노을 하늘에서
-  // 포화만 늘었습니다 (파일 위 RAY_FRAG 주석의 측정값).
-  gl_FragColor = vec4((base + glow * uStrength) * (1.0 - shade * uRayStrength), 1.0);
-}
-`;
+const BLIT_FRAG = makeBlitFrag(CATMULL_GLSL);
+const EXT_MASK_FRAG = makeExtMaskFrag(CATMULL_GLSL, DENOISE_GLSL);
+const EXT_FRONT_FRAG = makeExtFrontFrag(CATMULL_GLSL, DENOISE_GLSL);
+const UPSCALE_FRAG = makeUpscaleFrag(CATMULL_GLSL, DENOISE_GLSL);
 
 /** 블룸 설정. `strength: 0`이면 체인 전체를 건너뜁니다. */
 export interface BloomConfig {
@@ -995,16 +693,7 @@ export function createSceneComposer(
     },
     vertexShader: BLIT_VERT,
     // 화면 화소를 배율로 나눈 칸의 **가운데**를 읽습니다 — 모든 도트가 정확히 배율 × 배율.
-    fragmentShader: `
-      precision highp float;
-      uniform sampler2D uTex;
-      uniform vec2 uTexSize;
-      uniform float uFactor;
-      void main() {
-        vec2 t = (floor(gl_FragCoord.xy / uFactor) + 0.5) / uTexSize;
-        gl_FragColor = texture2D(uTex, t);
-      }
-    `,
+    fragmentShader: PIXEL_COPY_FRAG,
     depthTest: false,
     depthWrite: false,
   });
@@ -1022,78 +711,6 @@ export function createSceneComposer(
   overQuad.frustumCulled = false;
 
   // ── 장노출 시간 누적(Temporal Accumulation) 리소스 — 필요할 때만 지연 할당 ──
-  const ACCUM_BLEND_FRAG = `
-    precision highp float;
-    uniform sampler2D uPrev;
-    uniform sampler2D uTex;
-    uniform sampler2D uDist;
-    uniform float uAlpha;
-    uniform float uEncodePrev;
-    uniform float uPackGroundMask;
-    uniform float uLighten;
-    varying vec2 vUv;
-    float decodeDistKm(vec4 c) {
-      float t = (floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5)) / 65535.0;
-      return t > 0.99995 ? 1e9 : 1e-3 * exp2(t * 20.0);
-    }
-    void main() {
-      vec3 pRaw = texture2D(uPrev, vUv).rgb;
-      vec3 cRaw = texture2D(uTex, vUv).rgb;
-      if (uPackGroundMask > 0.5) {
-        float isGround = decodeDistKm(texture2D(uDist, vUv)) < 5e8 ? 1.0 : 0.0;
-        gl_FragColor = vec4(cRaw, isGround);
-        return;
-      }
-      vec3 pLin = uEncodePrev > 0.5 ? pRaw : pow(max(pRaw, vec3(0.0)), vec3(2.2));
-      vec3 cLin = pow(max(cRaw, vec3(0.0)), vec3(2.2));
-      vec3 outLin = uLighten > 0.5 ? max(pLin, cLin) : mix(pLin, cLin, clamp(uAlpha, 0.0, 1.0));
-      vec3 enc = uEncodePrev > 0.5 ? outLin : pow(clamp(outLin, 0.0, 1.0), vec3(1.0 / 2.2));
-      gl_FragColor = vec4(enc, 1.0);
-    }
-  `;
-  const ACCUM_RESOLVE_FRAG = `
-    precision highp float;
-    uniform sampler2D uTex;
-    uniform sampler2D uBase;
-    uniform float uEncodeAccum;
-    uniform float uGain;
-    uniform float uAsinhK;
-    uniform float uShadowLift;
-    uniform float uUseFixedGround;
-    uniform float uDither;
-    varying vec2 vUv;
-    ${DITHER_GLSL}
-    float asinhS(float x) { return log(x + sqrt(x * x + 1.0)); }
-    vec3 asinhV(vec3 x) { return log(x + sqrt(x * x + 1.0)); }
-    vec3 acesFilm(vec3 x) {
-      const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-      return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-    }
-    void main() {
-      vec3 accRaw = texture2D(uTex, vUv).rgb;
-      vec3 lin = uEncodeAccum > 0.5 ? accRaw : pow(max(accRaw, vec3(0.0)), vec3(2.2));
-      lin *= uGain;
-      // 암부 리프트(미약한 은하수·지상 윤곽을 블랙 위에서 살림)
-      lin = lin + uShadowLift * (1.0 - exp(-lin * 4.0));
-      // 2026-11-18 실제 촬영 합성(AstroStackAccumulator.kt)과 같은 asinh 늘이기 — asinh(k·x)/asinh(k). 예전 ACES 는 어두운 쪽을 오히려 눌러
-      //   (x 0.025 → 0.015) 달빛 장노출이 실제 결과보다 훨씬 어두웠음(사용자 보고). uAsinhK ≤ 0 이면 예전 ACES.
-      vec3 displaySrgb = uAsinhK > 0.0
-        ? pow(clamp(asinhV(uAsinhK * lin) / asinhS(uAsinhK), 0.0, 1.0), vec3(1.0 / 2.2))
-        : pow(acesFilm(lin), vec3(1.0 / 2.2));
-      if (uUseFixedGround > 0.5) {
-        vec4 baseTex = texture2D(uBase, vUv);
-        if (baseTex.a > 0.5) {
-          vec3 baseLin = pow(max(baseTex.rgb, vec3(0.0)), vec3(2.2));
-          baseLin = baseLin * max(1.0, uGain * 0.55) + uShadowLift * 0.5 * (1.0 - exp(-baseLin * 4.0));
-          displaySrgb = uAsinhK > 0.0
-            ? pow(clamp(asinhV(uAsinhK * baseLin) / asinhS(uAsinhK), 0.0, 1.0), vec3(1.0 / 2.2))
-            : pow(acesFilm(baseLin), vec3(1.0 / 2.2));
-        }
-      }
-      displaySrgb += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
-      gl_FragColor = vec4(displaySrgb, 1.0);
-    }
-  `;
   const accumBlendMat = new THREE.ShaderMaterial({
     uniforms: {
       uPrev: { value: null as THREE.Texture | null },

@@ -14,6 +14,8 @@
  * 결정과 무관하게 성립하는 물리량(달)만 다룹니다.
  */
 
+import { D2R, smoothstep } from './math';
+
 /** 보름달이 중천(고도 90°)에 떴을 때 최대로 깎이는 등급. */
 const MAX_MAG_LOSS = 4.0;
 
@@ -39,7 +41,7 @@ export function moonMagLoss(moonAltDeg: number, illumFraction: number): number {
   const moonUp = smoothstep(-2, 8, moonAltDeg);
   if (moonUp <= 0) return 0;
 
-  const airmass = 1 / Math.max(0.09, Math.sin(degToRad(Math.max(moonAltDeg, 3))));
+  const airmass = 1 / Math.max(0.09, Math.sin(Math.max(moonAltDeg, 3) * D2R));
   const extinction = Math.exp(-0.16 * (airmass - 1));
 
   const illum = Math.max(0, Math.min(1, illumFraction));
@@ -56,12 +58,4 @@ export function moonMagLoss(moonAltDeg: number, illumFraction: number): number {
 export function effectiveMagLimit(baseMagLimit: number, moonAltDeg: number, illumFraction: number, floor = 3.0): number {
   const loss = moonMagLoss(moonAltDeg, illumFraction);
   return Math.max(floor, baseMagLimit - loss);
-}
-
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
-}
-function degToRad(deg: number): number {
-  return (deg * Math.PI) / 180;
 }

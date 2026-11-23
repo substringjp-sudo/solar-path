@@ -14,32 +14,12 @@ import {
   type Attitude,
   type Intrinsics,
 } from '../arVision';
-import type { Mat3 } from '../astroStackMath';
-
-const D2R = Math.PI / 180;
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+import { mat3Mul, mat3Transpose, type Mat3 } from '../astroStackMath';
+import { D2R, clamp } from '../math';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 내부 3×3 행렬 유틸 (순수 수학, 의존성 없음)
+// 내부 3×3 행렬·UV 유틸
 // ─────────────────────────────────────────────────────────────────────────────
-
-function mulMat3(a: Mat3, b: Mat3): Mat3 {
-  return [
-    a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
-    a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
-    a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
-    a[3] * b[0] + a[4] * b[3] + a[5] * b[6],
-    a[3] * b[1] + a[4] * b[4] + a[5] * b[7],
-    a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
-    a[6] * b[0] + a[7] * b[3] + a[8] * b[6],
-    a[6] * b[1] + a[7] * b[4] + a[8] * b[7],
-    a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
-  ];
-}
-
-function transposeMat3(a: Mat3): Mat3 {
-  return [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
-}
 
 function applyMat3Uv(h: Mat3, u: number, v: number): [number, number] {
   const x = h[0] * u + h[1] * v + h[2];
@@ -115,12 +95,12 @@ export function computeVerticalShiftHomography(
   const rSrc = worldToCamMat3(attitude);
   const rDst = worldToCamMat3(target);
   // dst 카메라 광선 → 월드 → src 카메라 광선: R_src * R_dst^T
-  const rDstToSrc = mulMat3(rSrc, transposeMat3(rDst));
-  const rSrcToDst = transposeMat3(rDstToSrc);
+  const rDstToSrc = mat3Mul(rSrc, mat3Transpose(rDst));
+  const rSrcToDst = mat3Transpose(rDstToSrc);
 
   const { kUv, kUvInv } = uvIntrinsics(intrinsics);
-  const dstToSrcUv = mulMat3(mulMat3(kUv, rDstToSrc), kUvInv);
-  const srcToDstUv = mulMat3(mulMat3(kUv, rSrcToDst), kUvInv);
+  const dstToSrcUv = mat3Mul(mat3Mul(kUv, rDstToSrc), kUvInv);
+  const srcToDstUv = mat3Mul(mat3Mul(kUv, rSrcToDst), kUvInv);
 
   // 원본 4개 모서리를 출력 공간으로 투영해 내접 크롭 사각형 산출
   const c00 = applyMat3Uv(srcToDstUv, 0, 0);
@@ -151,9 +131,9 @@ export function computeGroundStabilizationHomography(
 ): Mat3 {
   const rRef = worldToCamMat3(refAttitude);
   const rCur = worldToCamMat3(curAttitude);
-  const rRefToCur = mulMat3(rCur, transposeMat3(rRef));
+  const rRefToCur = mat3Mul(rCur, mat3Transpose(rRef));
   const { kUv, kUvInv } = uvIntrinsics(intrinsics);
-  return mulMat3(mulMat3(kUv, rRefToCur), kUvInv);
+  return mat3Mul(mat3Mul(kUv, rRefToCur), kUvInv);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

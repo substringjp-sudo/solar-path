@@ -9,6 +9,9 @@
  * 모든 높이는 지면 위(AGL) 로 셈하고 baseM 만 해발로 돌려줍니다. 날씨 타일은 주기(tileKm)라 자리 좌표는 [0, 1).
  */
 import type { ThermoInput } from './cloudPhysics';
+import { clamp, mulberry32 as skRng } from '../../utils/math';
+
+export { skRng };
 
 export type SkeletonGenus = 'cu' | 'cg' | 'sc';
 
@@ -76,13 +79,6 @@ export const SK = {
 } as const;
 
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-/** 결정적 난수(cloudGenus.rng 와 같은 식) */
-export const skRng = (seed: number) => () => {
-  seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 
 /** 이슬점(°C) — Magnus 역산(RH %). */
 export function dewPointC(tC: number, rhPct: number): number {

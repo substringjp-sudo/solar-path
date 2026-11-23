@@ -8,19 +8,17 @@ import Constants from 'expo-constants';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { localDateString } from '../utils/localDate';
 import { weatherCacheKey, findEntry, findNearestEntry } from '../utils/cachePolicy';
-import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { findPresetTerrain } from '../utils/presetTerrains';
 import { scenePrediction } from '../utils/scenePrediction';
 import { canGlow, lowCloudWindow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
-import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, predictSkyline, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
 import { loadHorizon, loadTerrainSampler, frameFromPhoto, hfovFromExif, type TerrainSamplerData } from '../utils/arVisionNative';
 import * as MediaLibrary from 'expo-media-library';
-import { Magnetometer, DeviceMotion } from 'expo-sensors';
-import * as Location from 'expo-location';
+import { useSunCameraSensors } from '../hooks/useSunCameraSensors';
 import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode, Moon, Lock, Unlock, Layers, Compass, Timer } from 'lucide-react-native';
-import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
+import { stampPhoto } from './SunCameraStamp';
+import { styles, EXPOSURE_TRACK_H } from './SunCamera.styles';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
 import { SimReportQR } from './SkyScreen/SimReportQR';
@@ -37,12 +35,12 @@ import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchDayWeatherRing } from '../utils/weather';
-import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
+import { t, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { type SkyRenderState } from './SkyScene3D';
 import { getPrimarySky } from './SkyScene3D/primarySky';
 import { PressScale } from './ui';
-import { color, radius, space, type, TOUCH } from '../theme/tokens';
+import { color, space } from '../theme/tokens';
 import { SunPathOverlay } from './SunPathOverlay';
 import { hapticShutter, hapticError } from '../utils/haptics';
 import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
@@ -87,7 +85,7 @@ import { clockLabel, planTimelapse, savedSoFar, shotPlan, type TimelapseKind, ty
 import { FrameAccumulator } from '../utils/frameComposite';
 import { RunExtras, ScreenOffCover } from './AstroCamera/RunExtras';
 import { TimelapseRunCard } from './AstroCamera/TimelapseRunCard';
-import { GlassSurface, glassTextShadow } from './glass/GlassSurface';
+import { GlassSurface } from './glass/GlassSurface';
 import { useRunDevice } from '../hooks/useRunDevice';
 import { readSmallRgba } from '../utils/imageZones';
 import { lumaFromRgba, photoStops } from '../utils/runCurve';
@@ -153,107 +151,6 @@ interface SunCameraProps {
   onViewModeChange?: (mode: CameraViewMode) => void;
   onOpenData?: () => void;
 }
-
-const stampPhoto = async (
-  uri: string,
-  lat: number,
-  lon: number,
-  sunAlt: number,
-  humidity: number,
-  pm25: number | null,
-  description: string,
-  lang: Language,
-  exposure: number = 0
-): Promise<string> => {
-  try {
-    const data = await Skia.Data.fromURI(uri);
-    const image = Skia.Image.MakeImageFromEncoded(data);
-    if (!image) return uri;
-
-    const w = image.width();
-    const h = image.height();
-
-    const surface = Skia.Surface.Make(w, h);
-    if (!surface) return uri;
-
-    const canvas = surface.getCanvas();
-    canvas.drawImage(image, 0, 0);
-
-    // 소프트웨어 노출 보정 처리 (사진 저장물에 오버레이 합성)
-    if (exposure !== 0) {
-      const paintExposure = Skia.Paint();
-      if (exposure < 0) {
-        paintExposure.setColor(Skia.Color(`rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})`));
-      } else {
-        paintExposure.setColor(Skia.Color(`rgba(255, 255, 255, ${exposure * 0.4})`));
-      }
-      canvas.drawRect(rect(0, 0, w, h), paintExposure);
-    }
-
-    const fontSize = Math.max(14, w * 0.016);
-    const fontMgr = Skia.FontMgr.System();
-    const fontSystem = fontMgr.matchFamilyStyle('sans-serif', { weight: 700 });
-    
-    if (fontSystem) {
-      const font = Skia.Font(fontSystem, fontSize);
-      const fontHeader = Skia.Font(fontSystem, fontSize * 1.25);
-      
-      const paintText = Skia.Paint();
-      paintText.setAntiAlias(true);
-
-      const boxW = w * 0.38;
-      const boxH = fontSize * 7.5;
-      const boxX = w - boxW - (w * 0.04);
-      const boxY = h - boxH - (h * 0.05);
-
-      const paintBox = Skia.Paint();
-      paintBox.setColor(Skia.Color('rgba(5, 5, 12, 0.65)'));
-      canvas.drawRRect(Skia.RRectXY(rect(boxX, boxY, boxW, boxH), 16, 16), paintBox);
-
-      const paintBorder = Skia.Paint();
-      paintBorder.setStyle(PaintStyle.Stroke);
-      paintBorder.setStrokeWidth(2);
-      paintBorder.setColor(Skia.Color(color.sun));
-      canvas.drawRRect(Skia.RRectXY(rect(boxX, boxY, boxW, boxH), 16, 16), paintBorder);
-
-      let currY = boxY + fontSize * 1.8;
-      const stepY = fontSize * 1.35;
-
-      paintText.setColor(Skia.Color(color.sun));
-      canvas.drawText('SOLAR PATH HUD', boxX + 16, currY, paintText, fontHeader);
-
-      currY += stepY * 1.1;
-      paintText.setColor(Skia.Color(color.text));
-      const locLabel = L3(lang, '위치', 'Location', '位置');
-      canvas.drawText(`${locLabel}: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
-
-      currY += stepY;
-      const altLabel = L3(lang, '태양 고도', 'Sun Alt', '太陽高度');
-      canvas.drawText(`${altLabel}: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, paintText, font);
-
-      currY += stepY;
-      const humLabel = L3(lang, '습도', 'Humidity', '湿度');
-      const dustLabel = L3(lang, '초미세먼지', 'PM2.5', 'PM2.5');
-      canvas.drawText(`${humLabel}: ${humidity}%  |  ${dustLabel}: ${pm25 != null ? `${pm25}㎍` : '—'}`, boxX + 16, currY, paintText, font);
-
-      currY += stepY;
-      paintText.setColor(Skia.Color('#00FFCC'));
-      const condLabel = L3(lang, '하늘 상태', 'Sky Condition', '空の状態');
-      const translatedDesc = translateSunsetDesc(description, lang);
-      canvas.drawText(`${condLabel}: ${translatedDesc}`, boxX + 16, currY, paintText, font);
-    }
-
-    const snapshot = surface.makeImageSnapshot();
-    const base64Bytes = snapshot.encodeToBase64(ImageFormat.JPEG, 90);
-    return `data:image/jpeg;base64,${base64Bytes}`;
-  } catch (err) {
-    console.error('Failed to stamp photo with Skia:', err);
-    return uri;
-  }
-};
-
-/** 노출 막대 길이(px) — 끌기 계산과 스타일이 같은 값. */
-const EXPOSURE_TRACK_H = 160;
 
 export const SunCamera: React.FC<SunCameraProps> = ({
   visible,
@@ -451,50 +348,36 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }), []);
 
-  // ── 센서 융합: Rotation Matrix 기반 정밀 Heading + Pitch 동시 추출 ──
-  // Why: Heading(Location.watchHeadingAsync)과 Pitch(DeviceMotion.beta)를
-  //      별도 센서 소스에서 비동기 수집하면 타이밍 디싱크로 AR 위치가 어긋남.
-  //      DeviceMotion의 Euler angles(α,β,γ)에서 Rotation Matrix를 재구성하여
-  //      카메라 전방 벡터를 직접 추출 → 동일 샘플에서 heading + pitch 동시 계산.
-  const [deviceAzimuth, setDeviceAzimuth] = useState(0);
-  const [devicePitch, setDevicePitch] = useState(0);
-  const [hasInterference, setHasInterference] = useState(false);
+  // ── 센서 융합: Rotation Matrix 기반 정밀 Heading + Pitch + One Euro Filter (`useSunCameraSensors.ts`) ──
+  const handleMotionSample = useCallback((azDeg: number, pitchDeg: number, aRad: number, bRad: number, gRad: number) => {
+    // 'blend' / 'sim' 모드에서 방향 고정이 켜져 있지 않으면 60fps로 SkyScene3D 시선 즉시 동기화
+    if (viewModeRef.current !== 'camera' && !frozenViewRef.current) {
+      const liveAz = cameraFacingRef.current === 'front' ? (azDeg + 180) % 360 : azDeg;
+      const liveEl = cameraFacingRef.current === 'front' ? -pitchDeg : pitchDeg;
+      const liveRoll = attitudeFromEuler(aRad, bRad, gRad).rollDeg;
+      getPrimarySky()?.setCameraView?.(liveAz, liveEl, opticsRef.current.simVFovDeg, {
+        rollDeg: liveRoll,
+        centerOffsetYFrac: centerOffsetYFracRef.current,
+      });
+    }
+  }, []);
 
-  // 센서 실시간 Ref (리렌더 없이 최신값 유지)
-  const deviceAzimuthRef = useRef(0);
-  const devicePitchRef = useRef(0);
-  const deviceRotationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
-  /**
-   * 가장 최근 기기 자세. 나침반 값을 **카메라 기준**으로 옮기는 데 씁니다 —
-   * `watchHeadingAsync` 는 상단 모서리 방위를 주므로 그대로 쓰면 하늘을 겨눌 때
-   * 180° 뒤집힙니다(`utils/devicePose.ts`).
-   */
-  const posePoseRef = useRef<DevicePose | null>(null);
+  const {
+    deviceAzimuth,
+    devicePitch,
+    hasInterference,
+    headingStatus,
+    setHeadingStatus,
+    deviceAzimuthRef,
+    devicePitchRef,
+    deviceRotationRef,
+    fusionRef,
+    rawRotationRef,
+    angularSpeedRef,
+    gyroBurstPeakRef,
+    handleCalibrate,
+  } = useSunCameraSensors({ visible, language, onMotionSample: handleMotionSample });
 
-  // 자기계 raw Ref
-  const magRef = useRef({ x: 0, y: 0, z: 0 });
-
-  // ── 자이로·자기 방위 융합 ────────────────────────────────────────────
-  //
-  // ⚠ 예전에는 이 논리가 여기 흩어져 있었고 결함이 넷 있었습니다:
-  //   ① rawGyroHeadingRef 가 0 으로 시작하는데 자기 콜백이 자이로 도착을
-  //      확인 안 하고 첫 표본으로 오프셋을 확정 — 자기 쪽이 먼저 오면
-  //      통째로 어긋납니다(판정에서 46.4° 재현).
-  //   ② 폰이 누워 있어 방위가 무의미한 자세도 그대로 씨앗으로 씀.
-  //   ③ 표본 하나로 확정.
-  //   ④ 보정률 0.001 — 잘못 잡히면 표본 1000개(2~3분) 동안 그대로.
-  //      "8자로 흔들어도 잘 안 맞는다" 가 이것입니다.
-  // 이제 utils/headingFusion 이 맡고, 가짜 센서 열로 판정합니다
-  // (verify-heading-fusion.js).
-  const fusionRef = useRef(createHeadingFusion());
-  // ── 화면 인식 보정 (docs/AR_VISION_PLAN.md) ──
-  // 원시 회전값(보정 전 α)과 자이로 속도 — 사진을 찍는 순간의 센서 자세를 기록하려고 둡니다.
-  const rawRotationRef = useRef<{ a: number; b: number; g: number } | null>(null);
-  const angularSpeedRef = useRef(0);
-  const gyroBaselineRef = useRef(0);
-  const smoothedGyroRef = useRef(0);
-  const gyroBurstPeakRef = useRef(0);
-  const lastUiSensorMsRef = useRef(0);
   const horizonRef = useRef<HorizonProfile | null>(null);
   const terrainSamplerRef = useRef<TerrainSamplerData | null>(null);
   const [gearBag, setGearBag] = useState<CameraGearBagState>(() => createDefaultGearBag());
@@ -510,16 +393,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [isVisionRunning, setIsVisionRunning] = useState(false);
   /** 사진 EXIF 로 잰 이 폰 카메라의 가로 화각(세로로 든 사진 기준). 표시만 합니다. */
   const [measuredHfov, setMeasuredHfov] = useState<number | null>(null);
-  const [headingStatus, setHeadingStatus] = useState<HeadingFusionStatus | null>(null);
-
-  // One Euro Filter 상태 Ref
-  const filterRef = useRef({
-    prevAzX: 1, prevAzY: 0,   // cos(0), sin(0)
-    prevAzDx: 0, prevAzDy: 0,
-    prevPitch: 0, prevPitchD: 0,
-    lastTime: 0,
-    initialized: false,
-  });
 
   // 촬영 상태
   const [isCapturing, setIsCapturing] = useState(false);
@@ -849,222 +722,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       null,
     );
   }, [sunPos.altitude, goldenTimeInfo.minutesToEvent]);
-
-  // ── DeviceMotion: Rotation Matrix로 Heading + Pitch 동시 추출 ──────────────
-  // Why: β 하나만 쓰면 roll(γ)을 무시하여 폰을 옆으로 기울이면 pitch가 부정확.
-  //      Euler angles → Rotation Matrix 재구성하여 카메라 전방 벡터(-Z)의
-  //      방위각과 앙각을 직접 계산 → 폰 회전 방향과 무관하게 정확한 pitch 유지.
-  useEffect(() => {
-    if (!visible) return;
-
-    DeviceMotion.setUpdateInterval(16); // 60Hz 갱신
-    const sub = DeviceMotion.addListener((dm) => {
-      if (!dm.rotation) return;
-      const { alpha: aRad, beta: bRad, gamma: gRad } = dm.rotation;
-      rawRotationRef.current = { a: aRad, b: bRad, g: gRad };
-      const rr = dm.rotationRate;
-      if (rr) {
-        const inst = Math.hypot(rr.alpha ?? 0, rr.beta ?? 0, rr.gamma ?? 0);
-        angularSpeedRef.current = inst;
-        // 정지 상태 MEMS 자이로 DC 오프셋을 천천히 추적해 순수 충격분만 추출
-        if (inst < 1.8) {
-          gyroBaselineRef.current = gyroBaselineRef.current * 0.96 + inst * 0.04;
-        }
-        const netSpeed = Math.max(0, inst - gyroBaselineRef.current);
-        smoothedGyroRef.current = smoothedGyroRef.current * 0.7 + netSpeed * 0.3;
-        if (smoothedGyroRef.current > gyroBurstPeakRef.current) {
-          gyroBurstPeakRef.current = smoothedGyroRef.current;
-        }
-      }
-
-      // W3C Rotation Matrix: R = Rz(α) * Rx(β) * Ry(γ)
-      const sa = Math.sin(aRad), ca = Math.cos(aRad);
-      const sb = Math.sin(bRad), cb = Math.cos(bRad);
-      const sg = Math.sin(gRad), cg = Math.cos(gRad);
-
-      // 카메라 전방 벡터 (화면 반대쪽 = -Z축)
-      const fwdX = -(ca * sg + sa * sb * cg);
-      const fwdY = -(sa * sg - ca * sb * cg);
-      const fwdZ = -(cb * cg);
-
-      // 나침반 값을 옮길 때 쓰도록 자세를 담아 둡니다.
-      posePoseRef.current = poseFromRotation(aRad, bRad, gRad);
-
-      // Raw heading (자이로 기준, 0=북, 시계방향)
-      const rawHeading = (Math.atan2(fwdX, fwdY) * 180 / Math.PI + 360) % 360;
-      // 전방 벡터의 **수평 길이** — 이게 짧으면(폰을 눕혀 천정·바닥을 보면)
-      // 방위가 수치적으로 무의미하므로 융합이 그 표본을 씨앗으로 안 씁니다.
-      const horiz = Math.sqrt(fwdX * fwdX + fwdY * fwdY);
-      fusionRef.current.pushGyro(rawHeading, horiz);
-
-      // 진북 보정 적용
-      const calibratedHeading = fusionRef.current.heading() ?? rawHeading;
-
-      // Raw pitch: 카메라 전방 벡터의 수평면 대비 앙각
-      const horizDist = Math.sqrt(fwdX * fwdX + fwdY * fwdY);
-      const rawPitch = Math.atan2(fwdZ, horizDist) * 180 / Math.PI;
-
-      // --- One Euro Filter ---
-      const now = Date.now();
-      const state = filterRef.current;
-
-      if (!state.initialized) {
-        state.prevAzX = Math.cos(calibratedHeading * Math.PI / 180);
-        state.prevAzY = Math.sin(calibratedHeading * Math.PI / 180);
-        state.prevAzDx = 0;
-        state.prevAzDy = 0;
-        state.prevPitch = rawPitch;
-        state.prevPitchD = 0;
-        state.lastTime = now;
-        state.initialized = true;
-
-        deviceAzimuthRef.current = calibratedHeading;
-        setDeviceAzimuth(calibratedHeading);
-        devicePitchRef.current = rawPitch;
-        setDevicePitch(rawPitch);
-        return;
-      }
-
-      const dt = Math.max((now - state.lastTime) / 1000, 0.001);
-      state.lastTime = now;
-
-      // --- Azimuth filter ---
-      const minCutoff_az = 0.15;
-      const beta_az = 0.05;
-      const dcutoff = 1.0;
-
-      const tx = Math.cos(calibratedHeading * Math.PI / 180);
-      const ty = Math.sin(calibratedHeading * Math.PI / 180);
-
-      const dxX = (tx - state.prevAzX) / dt;
-      const dyY = (ty - state.prevAzY) / dt;
-      const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
-      state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
-      state.prevAzDy += (dyY - state.prevAzDy) * alphaDx;
-
-      const speedAz = Math.sqrt(state.prevAzDx * state.prevAzDx + state.prevAzDy * state.prevAzDy);
-      const cutoffAz = minCutoff_az + beta_az * speedAz;
-      const alphaX = (2 * Math.PI * dt * cutoffAz) / (1 + 2 * Math.PI * dt * cutoffAz);
-      const alphaY = (2 * Math.PI * dt * cutoffAz) / (1 + 2 * Math.PI * dt * cutoffAz);
-
-      state.prevAzX += (tx - state.prevAzX) * alphaX;
-      state.prevAzY += (ty - state.prevAzY) * alphaY;
-
-      const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
-
-      // --- Pitch filter ---
-      const minCutoff_p = 0.15;
-      const beta_p = 0.05;
-
-      const dxP = (rawPitch - state.prevPitch) / dt;
-      const alphaDxP = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
-      state.prevPitchD += (dxP - state.prevPitchD) * alphaDxP;
-
-      const cutoffP = minCutoff_p + beta_p * Math.abs(state.prevPitchD);
-      const alphaP = (2 * Math.PI * dt * cutoffP) / (1 + 2 * Math.PI * dt * cutoffP);
-      state.prevPitch += (rawPitch - state.prevPitch) * alphaP;
-
-      const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
-
-      // 60Hz Ref 는 즉시 갱신하고, 무거운 React UI 트리는 ~15Hz(66ms)로만 반영해 뷰파인더 버벅임을 차단
-      deviceAzimuthRef.current = filteredAz;
-      devicePitchRef.current = filteredPitch;
-      if (now - lastUiSensorMsRef.current >= 66) {
-        lastUiSensorMsRef.current = now;
-        setDeviceAzimuth(filteredAz);
-        setDevicePitch(filteredPitch);
-      }
-
-      // 진북 보정 각도로 보정된 3D Rotation Matrix 각도 세트 전개
-      const radOffset = (((fusionRef.current.status().offsetDeg) * Math.PI) / 180);
-      const calibratedAlpha = (aRad + radOffset + 2 * Math.PI) % (2 * Math.PI);
-      
-      const currentRotation = {
-        alpha: calibratedAlpha,
-        beta: bRad,
-        gamma: gRad,
-      };
-      deviceRotationRef.current = currentRotation;
-
-      // 'blend' / 'sim' 모드에서 방향 고정이 켜져 있지 않으면 60fps로 SkyScene3D 시선 즉시 동기화
-      if (viewModeRef.current !== 'camera' && !frozenViewRef.current) {
-        const liveAz = cameraFacingRef.current === 'front' ? (filteredAz + 180) % 360 : filteredAz;
-        const liveEl = cameraFacingRef.current === 'front' ? -filteredPitch : filteredPitch;
-        const liveRoll = attitudeFromEuler(aRad, bRad, gRad).rollDeg;
-        getPrimarySky()?.setCameraView?.(liveAz, liveEl, opticsRef.current.simVFovDeg, {
-          rollDeg: liveRoll,
-          centerOffsetYFrac: centerOffsetYFracRef.current,
-        });
-      }
-    });
-    return () => sub.remove();
-  }, [visible]);
-
-  // ── Magnetometer 수집 (자기장 왜곡만 감지) ──────────────────────────────────
-  useEffect(() => {
-    if (!visible) return;
-    Magnetometer.setUpdateInterval(100); // 왜곡 검출은 10Hz 정도로 충분
-    const sub = Magnetometer.addListener((data) => {
-      magRef.current = data;
-      const { x: Mx, y: My, z: Mz } = data;
-      
-      // 자기장 왜곡 감지 (지구 자기장 정상 범위: 25~65 μT)
-      const magNorm = Math.sqrt(Mx * Mx + My * My + Mz * Mz);
-      setHasInterference(magNorm > 0 && (magNorm < 22 || magNorm > 68));
-    });
-    return () => sub.remove();
-  }, [visible]);
-
-  // ── Location Heading: 진북 보정 오프셋만 계산 ─────────────────────────────────
-  // Why: DeviceMotion alpha가 진북 기준이 아닌 플랫폼을 대비하여
-  //      자기계 heading과의 차이(offset)를 천천히 추적. 자이로 장기 드리프트도 교정.
-  //      heading 자체는 DeviceMotion에서 이미 추출하므로 여기서는 보정만 수행.
-  useEffect(() => {
-    if (!visible) return;
-
-    let subscription: Location.LocationSubscription | null = null;
-
-    const startWatching = async () => {
-      try {
-        subscription = await Location.watchHeadingAsync((data) => {
-          // ⚠ trueHeading 을 못 받으면 **자북**입니다 — 한국에서 약 8° 어긋
-          //   납니다. 융합에 그 사실을 그대로 넘겨 화면이 알릴 수 있게 합니다.
-          const isTrue = data.trueHeading !== -1;
-          const rawCompass = isTrue ? data.trueHeading : data.magHeading;
-
-          // ⚠ 이 값은 **기기 상단 모서리**의 방위입니다(expo-location 이
-          //   getOrientation()[0] 을 그대로 넘깁니다). 카메라가 지평선 위를
-          //   보면 상단 모서리가 뒤로 넘어가 180° 뒤집히므로, 자세에서 두 방위의
-          //   차이를 꺼내 **카메라 기준으로 옮겨** 넣습니다. 폰을 정확히 세워
-          //   나침반이 0/0 이 되는 자세면 null 이고, 그때는 아예 안 씁니다.
-          const pose = posePoseRef.current;
-          const camHeading = pose ? compassToCameraHeading(rawCompass, pose) : null;
-          if (camHeading !== null) {
-            fusionRef.current.pushMagnetic(camHeading, isTrue);
-            setHeadingStatus(fusionRef.current.status());
-          }
-        });
-      } catch (err) {
-        console.warn('[SunCamera] watchHeadingAsync error:', err);
-      }
-    };
-
-    startWatching();
-
-    return () => {
-      if (subscription) {
-        subscription.remove();
-      }
-    };
-  }, [visible]);
-
-  // 센서 캘리브레이션 초기화 (기본)
-  const handleCalibrate = useCallback(() => {
-    filterRef.current.initialized = false;
-    fusionRef.current.reset();
-    setHeadingStatus(fusionRef.current.status());
-    Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
-  }, [language]);
 
   // ── 화면 인식 보정 — 산 능선·해·달로 방위를 맞춥니다 (docs/AR_VISION_PLAN.md) ─────────
   // 화면이 열리면 카메라 프리뷰 마운트 직후 여유 프레임에 DEM 지평선을 미리 구해 둡니다.
@@ -3222,340 +2879,3 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     </View>
   );
 };
-
-
-
-const styles = StyleSheet.create({
-  overlayRoot: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 500,
-    backgroundColor: '#000',
-  },
-  // ── 전체 화면 카메라(2026-10-25) ──
-  liveRoot: { flex: 1, backgroundColor: '#000' },
-  stage: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: '#000' },
-  countdownInline: {
-    height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
-    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
-  },
-  countdownInlineLabel: { ...type.micro, color: color.textDim },
-  countdownInlineVal: { ...type.label, color: color.text },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  manualFrameOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1.5,
-    borderColor: 'rgba(56, 189, 248, 0.35)',
-    margin: 4,
-    borderRadius: radius.md,
-  },
-  cornerBracket: {
-    position: 'absolute',
-    width: 18,
-    height: 18,
-    borderColor: color.accent,
-  },
-  cornerTL: { top: -1.5, left: -1.5, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: radius.md },
-  cornerTR: { top: -1.5, right: -1.5, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: radius.md },
-  cornerBL: { bottom: -1.5, left: -1.5, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: radius.md },
-  cornerBR: { bottom: -1.5, right: -1.5, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: radius.md },
-  liveCrosshairWrap: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  liveCrosshairH: {
-    position: 'absolute',
-    width: 22,
-    height: 1,
-    backgroundColor: 'rgba(74, 222, 128, 0.55)',
-  },
-  liveCrosshairV: {
-    position: 'absolute',
-    width: 1,
-    height: 22,
-    backgroundColor: 'rgba(74, 222, 128, 0.55)',
-  },
-  liveCrosshairDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: color.success,
-  },
-  microText: { ...type.micro, color: color.textDim },
-  statusCol: { position: 'absolute', left: space.md, right: TOUCH + space.md * 2, gap: space.xs, alignItems: 'flex-start' },
-  badge: {
-    height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
-    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
-  },
-  badgeText: { ...type.label, color: color.text },
-  banner: {
-    paddingHorizontal: space.sm, paddingVertical: space.xs,
-    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
-  },
-  bannerText: { ...type.label, color: color.text },
-  // 타임랩스 미리보기 띠(유리, 2026-11-21)
-  glassBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: space.sm, paddingVertical: space.xs + 2, borderRadius: radius.md },
-  glassBannerText: { ...type.label, color: TEXT, flexShrink: 1, ...glassTextShadow },
-  exposure: {
-    position: 'absolute', right: space.md, width: TOUCH, paddingVertical: space.sm, gap: space.sm, alignItems: 'center',
-    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
-  },
-  exposureTrackBox: { height: EXPOSURE_TRACK_H, width: TOUCH, alignItems: 'center' },
-  exposureLine: { position: 'absolute', top: 0, bottom: 0, width: 4, borderRadius: 2, backgroundColor: color.border },
-  exposureFill: { position: 'absolute', bottom: 0, width: 4, borderRadius: 2, backgroundColor: color.sun },
-  exposureThumb: {
-    position: 'absolute', width: 20, height: 20, marginBottom: -10, borderRadius: 10,
-    borderWidth: 2, borderColor: color.sun, backgroundColor: color.panelRaised,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  permissionContainer: {
-    flex: 1,
-    backgroundColor: color.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-    gap: 16,
-  },
-  permissionTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: color.text,
-    marginTop: 16,
-  },
-  permissionDesc: {
-    fontSize: 13,
-    color: color.textDim,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  permissionBtn: {
-    backgroundColor: color.sun,
-    paddingVertical: 14,
-    paddingHorizontal: 40,
-    borderRadius: 30,
-    marginTop: 12,
-  },
-  permissionBtnText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  closeTextBtn: {
-    marginTop: 12,
-    padding: 12,
-  },
-  closeTextBtnText: {
-    color: color.textDim,
-    fontSize: 13,
-  },
-  previewScrollContent: {
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  previewTitle: {
-    color: color.text,
-    fontSize: 16,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 16,
-    letterSpacing: 0.5,
-  },
-  simBufBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  simBufBadgeText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 9,
-    fontFamily: 'monospace',
-  },
-  compareImageMissing: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    gap: 6,
-  },
-  compareImageMissingText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  compareImageMissingReason: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 9,
-    textAlign: 'center',
-  },
-  weatherQrCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    borderRadius: 20,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 229, 255, 0.25)',
-    marginVertical: 10,
-    gap: 10,
-  },
-  weatherQrHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  weatherQrTitle: {
-    color: color.accent,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  // QR 을 위, 설명을 아래로 둡니다 — QR 에 시선·구름판 상태가 실려 촘촘해져서, 옆줄에 두던
-  // 128pt 로는 줄어든 캡처에서 못 읽었습니다(QR_RESULT_SIZE_PT).
-  weatherQrBody: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
-  },
-  qrPlateWrapper: {
-    backgroundColor: color.text,
-    padding: 4,
-    borderRadius: 8,
-    shadowColor: '#00E5FF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  weatherQrMetaList: {
-    alignSelf: 'stretch',
-    gap: 5,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: color.fill,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 6,
-  },
-  metaLabel: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  metaValue: {
-    color: color.text,
-    fontSize: 11,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  qrExplanationText: {
-    color: 'rgba(255, 255, 255, 0.45)',
-    fontSize: 9,
-    lineHeight: 12.5,
-    marginTop: 2,
-  },
-  scoreCard: {
-    backgroundColor: color.fill,
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: color.border,
-    gap: 18,
-    marginVertical: 12,
-  },
-  scoreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  scoreLabel: {
-    color: color.text,
-    fontSize: 13,
-    fontWeight: '800',
-    minWidth: 70,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  scoreNumberText: {
-    color: color.sun,
-    fontSize: 13,
-    fontWeight: '800',
-    minWidth: 40,
-    textAlign: 'right',
-  },
-  weatherSummary: {
-    marginTop: 6,
-    paddingTop: 12,
-    borderTopWidth: 0.5,
-    borderColor: color.borderStrong,
-    alignItems: 'center',
-  },
-  weatherSummaryText: {
-    color: color.textDim,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  previewBtnRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 12,
-  },
-  previewRetakeBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: color.borderStrong,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewRetakeText: {
-    color: color.text,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  previewUploadBtn: {
-    flex: 2,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: color.sun,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewUploadText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  privacyNoticeContainer: {
-    backgroundColor: 'rgba(255, 82, 82, 0.1)',
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: color.dangerSoft,
-    marginVertical: 10,
-  },
-  privacyNoticeText: {
-    color: '#FF8A80',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  alignPopover: { position: 'absolute', right: space.md, borderRadius: radius.sm, padding: 6, gap: 4, zIndex: 40 },
-  alignPopoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, minHeight: TOUCH, borderRadius: radius.xs },
-  alignPopoverText: { fontSize: 12, fontWeight: '700', color: TEXT, ...glassTextShadow },
-});

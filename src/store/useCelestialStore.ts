@@ -738,9 +738,9 @@ export const useCelestialStore = create<CelestialState>()(
             
             // 로컬에만 떠 있는 isPending: true인 항목들이 Firestore 동기화 스냅샷 갱신 시 날아가지 않도록 보존합니다.
             set((state) => {
-              const localPending = state.myPhotos.filter(p => p.isPending);
+              const syncedIds = new Set(photosList.map(p => p.id));
               // Firestore 동기화 목록에 이미 들어온 건 대기 큐에서 제외
-              const filteredPending = localPending.filter(lp => !photosList.some(p => p.id === lp.id));
+              const filteredPending = state.myPhotos.filter(p => p.isPending && !syncedIds.has(p.id));
               const merged = [...filteredPending, ...photosList];
               merged.sort((a, b) => b.timestamp - a.timestamp);
               return { myPhotos: merged };
@@ -1038,13 +1038,15 @@ export const useCelestialStore = create<CelestialState>()(
           photosRef,
           (snapshot) => {
             const now = Date.now();
+            const { hiddenPhotoIds, blockedUserIds } = get();
+            const hiddenSet = new Set(hiddenPhotoIds);
+            const blockedSet = new Set(blockedUserIds);
             const photosList: GlobalPhoto[] = [];
             snapshot.forEach((doc) => {
               const data = doc.data() as GlobalPhoto;
               // scheduledUploadTime이 없거나, 이미 서버 시각 기준 1시간이 경과한 것만 전역 사진으로 채택
               // 신고로 가린 사진·차단한 사용자의 사진은 빼고(출시 점검 2026-09-30)
-              const { hiddenPhotoIds, blockedUserIds } = get();
-              if (hiddenPhotoIds.includes(data.id) || (data.userId && blockedUserIds.includes(data.userId))) return;
+              if (hiddenSet.has(data.id) || (data.userId && blockedSet.has(data.userId))) return;
               if (!data.scheduledUploadTime || data.scheduledUploadTime <= now) {
                 photosList.push(data);
               }

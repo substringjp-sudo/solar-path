@@ -30,6 +30,10 @@
  *   한 프레임에 돌았습니다.
  */
 
+import { D2R as RAD, clamp01, smoothstep01 as smoothstep, wrap180 } from './math';
+
+export { clamp01, smoothstep, wrap180 };
+
 /** 0~1: 지상 시야각 30° → 120°. */
 export const P_FOV_END = 1.0;
 /** 이 진행도에서 내려다보기(시선 −90°·시야각 90°·북쪽 위)가 끝납니다. */
@@ -49,13 +53,7 @@ export const NADIR_FOV_DEG = 90;
 /** 진행도 끝(P_MAX)의 지도 폭(경도, °) — 지구본을 더 멀리 줌아웃해 우주 거리 천체를 볼 수 있게 260°까지 허용. */
 export const MAX_LON_DELTA = 260;
 
-const RAD = Math.PI / 180;
 const KM_PER_DEG = 111.32;
-
-export const clamp01 = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x);
-export const smoothstep = (x: number) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
-/** (−180, 180] 로 감습니다. */
-export const wrap180 = (deg: number) => { const d = ((deg + 180) % 360 + 360) % 360 - 180; return d === -180 ? 180 : d; };
 
 const cosLat = (latDeg: number) => Math.max(0.1, Math.cos(latDeg * RAD));
 

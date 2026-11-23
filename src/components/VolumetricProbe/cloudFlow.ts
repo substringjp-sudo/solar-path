@@ -26,6 +26,7 @@
  * 시제품: scratchpad/flowB/flowcore.js(승자 B 핵)를 그대로 옮겼습니다.
  */
 import type { GenusKey } from './cloudGenus';
+import { mulberry32 as rng } from '../../utils/math';
 
 const TWO_PI = 2 * Math.PI;
 
@@ -258,11 +259,6 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   cbanvil: { flow: 0, flowDensityScale: 0.03, flowErode: 0.3, flowTilt: 0 },
 };
 
-// ───── 난수(mulberry32, cloudGenus.ts 와 동일) ─────
-const rng = (seed: number) => () => {
-  seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 const gauss = (r: () => number) => { const u = Math.max(1e-12, r()), v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TWO_PI * v); };
 
 /**

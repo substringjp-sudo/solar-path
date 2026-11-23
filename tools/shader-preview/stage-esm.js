@@ -18,6 +18,8 @@ const OUT = path.join(SCRATCH, 'esmbuild');
 const APP = path.join(PREVIEW, 'app');
 
 const ENTRIES = [
+  'src/utils/math.ts',
+  'src/utils/galacticCoords.ts',
   'src/components/SkyScene3D/StarField.ts',
   'src/components/SkyScene3D/MilkyWayBand.ts',
   'src/components/SkyScene3D/CelestialPathMesh.ts',
@@ -25,7 +27,9 @@ const ENTRIES = [
   'src/components/SkyScene3D/cloudAtlas.ts',
   'src/components/SkyScene3D/CloudField.ts',
   'src/components/SkyScene3D/CloudDeck.ts',
+  'src/components/SkyScene3D/SceneComposerShaders.ts',
   'src/components/SkyScene3D/SceneComposer.ts',
+  'src/components/SkyScene3D/CloudSlabShaders.ts',
   'src/components/SkyScene3D/CloudSlab.ts',
   // §120 B — 위에서 본 구름. 슬랩 셰이더를 그대로 불러 씁니다.
   'src/components/SkyScene3D/CloudTopView.ts',
@@ -37,6 +41,7 @@ const ENTRIES = [
   'src/components/SkyScene3D/Skydome.ts',
   'src/components/SkyScene3D/TerrainRing.ts',
   'src/components/SkyScene3D/groundProjection.ts',
+  'src/components/SkyScene3D/TerrainFieldShaders.ts',
   'src/components/SkyScene3D/TerrainField.ts',
   'src/components/SkyScene3D/BuildingField.ts',
   'src/components/SkyScene3D/SeaPlane.ts',

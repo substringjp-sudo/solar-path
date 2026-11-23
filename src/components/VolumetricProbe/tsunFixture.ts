@@ -59,8 +59,8 @@ export interface TsunFixture {
 }
 
 /** λ₁₀ 규칙의 문턱: τ ≤ ln(1e4) 인 가장 긴 L ≤ 10 km (머리말 rules.lambda10 과 같은 값) */
-const LAM_TAU_OK = Math.log(1e4);
-const LAM_L_MAX = 10;
+export const LAM_TAU_OK = Math.log(1e4);
+export const LAM_L_MAX = 10;
 
 export function parseTsunFixture(header: TsunFixtureHeader, bytes: Uint8Array): TsunFixture {
   if (bytes.byteLength !== header.binBytes) throw new Error(`tsunFixture: bin 길이 ${bytes.byteLength} ≠ 머리말 ${header.binBytes}`);
@@ -158,9 +158,9 @@ function cellTau(fx: TsunFixture, base: number, Lkm: number): number {
  * τ 선형은 과대(+0.5 ln), T 선형은 과소였고 기하 평균이 무차별 값에 가장 가까웠습니다 [measured, fixture-test 개발 diag2].
  * ε = 0.01 은 τ → 0 근처에서 선형으로 넘어가게 합니다.
  */
-const GEO_EPS = 0.01;
-interface Blend { w0: number; cells: [number, number][] } // [칸 첨자, 0 아닌 칸 안에서 정규화한 무게]
-function blendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): Blend {
+export const TSUN_GEO_EPS = 0.01;
+export interface TsunFixtureBlend { w0: number; cells: [number, number][] } // [칸 첨자, 0 아닌 칸 안에서 정규화한 무게]
+export function tsunBlendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): TsunFixtureBlend {
   const E = fx.header.entries[e], g = fx.header.grids, hfG = E.hf ?? g.hf, nH = hfG.length, nP = g.phi.length;
   let w0 = 0;
   const cells: [number, number][] = [];
@@ -180,31 +180,31 @@ function blendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: 
   if (sw > 0) for (const c of cells) c[1] /= sw;
   return { w0, cells };
 }
-function blendTau(fx: TsunFixture, e: number, b: Blend, Lkm: number): number {
+export function tsunBlendTau(fx: TsunFixture, e: number, b: TsunFixtureBlend, Lkm: number): number {
   if (!b.cells.length || b.w0 >= 1 || !(Lkm > 0)) return 0;
   const base = fx.header.entries[e].tauOffset, nL = fx.header.grids.L.length;
   let s = 0;
-  for (const [k, w] of b.cells) s += w * Math.log(cellTau(fx, base + k * nL, Lkm) + GEO_EPS);
-  return (1 - b.w0) * Math.max(0, Math.exp(s) - GEO_EPS);
+  for (const [k, w] of b.cells) s += w * Math.log(cellTau(fx, base + k * nL, Lkm) + TSUN_GEO_EPS);
+  return (1 - b.w0) * Math.max(0, Math.exp(s) - TSUN_GEO_EPS);
 }
 /** 섞은 곡선에서 λ₁₀ 규칙(연속형): τ(10) ≤ K 면 τ(10)/10, 아니면 τ(L_K) = K 인 L_K 로 K/L_K (K = ln 1e4) */
-function blendLambda(fx: TsunFixture, e: number, b: Blend): number {
-  const t10 = blendTau(fx, e, b, LAM_L_MAX);
+export function tsunBlendLambda(fx: TsunFixture, e: number, b: TsunFixtureBlend): number {
+  const t10 = tsunBlendTau(fx, e, b, LAM_L_MAX);
   if (!(t10 > 0)) return 0;
   if (t10 <= LAM_TAU_OK) return t10 / LAM_L_MAX;
   let lo = 0, hi = LAM_L_MAX;
-  for (let it = 0; it < 40; it++) { const m = 0.5 * (lo + hi); if (blendTau(fx, e, b, m) > LAM_TAU_OK) hi = m; else lo = m; }
+  for (let it = 0; it < 40; it++) { const m = 0.5 * (lo + hi); if (tsunBlendTau(fx, e, b, m) > LAM_TAU_OK) hi = m; else lo = m; }
   return LAM_TAU_OK / Math.max(hi, 1e-6);
 }
 
 /** 균일 운량 수평선 L km 의 법칙 τ_x(L) — 칸 곡선의 같은 L 에서의 섞음(위 규칙). */
 export function tsunLawTau(fx: TsunFixture, e: number, Lkm: number, cover: number, hf: number, phiDeg: number): number {
-  return blendTau(fx, e, blendOf(fx, e, cover, hf, phiDeg), Lkm);
+  return tsunBlendTau(fx, e, tsunBlendOf(fx, e, cover, hf, phiDeg), Lkm);
 }
 
 /** 명목 소광률 λ₁₀(c, hf, φ) [1/km] — 빌더가 줄을 따라 Λ = ∫ λ₁₀ ds 로 쌓는 값(섞은 곡선에서 연속 규칙) */
 export function tsunLambda10(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): number {
-  return blendLambda(fx, e, blendOf(fx, e, cover, hf, phiDeg));
+  return tsunBlendLambda(fx, e, tsunBlendOf(fx, e, cover, hf, phiDeg));
 }
 
 /**
@@ -213,9 +213,9 @@ export function tsunLambda10(fx: TsunFixture, e: number, cover: number, hf: numb
  */
 export function tsunCurveOfGrowth(fx: TsunFixture, e: number, Lambda: number, cover: number, hf: number, phiDeg: number): number {
   if (!(Lambda > 0)) return 0;
-  const b = blendOf(fx, e, cover, hf, phiDeg);
-  const lam = blendLambda(fx, e, b);
-  return lam > 0 ? blendTau(fx, e, b, Lambda / lam) : 0;
+  const b = tsunBlendOf(fx, e, cover, hf, phiDeg);
+  const lam = tsunBlendLambda(fx, e, b);
+  return lam > 0 ? tsunBlendTau(fx, e, b, Lambda / lam) : 0;
 }
 
 /**

@@ -9,6 +9,7 @@
  * billowOn 0 이면 셰이더는 원래 경로 그대로입니다.
  */
 import { Vector4 } from 'three';
+import { mulberry32 as rng } from '../../utils/math';
 
 const PER = 12, OCT = 3, N = PER * OCT;
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
@@ -16,11 +17,6 @@ type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { va
 const ST_GENUS = 'struct WeatherSample {\n  vec4 heightFraction;\n  vec4 density;\n  vec4 depth;\n};';
 const MIX_ANCHOR = '  weather.density = mix(weather.density, gDensity, genusOn);';
 const MEDIA_ANCHOR = '  vec4 density = weather.density;\n';
-
-const rng = (seed: number) => () => {
-  seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 
 /** 단위 방향 36 개(구 위 고르게)와 위상. 파장은 셰이더에서 단계별로 곱함. */
 function directions(seed: number): Vector4[] {

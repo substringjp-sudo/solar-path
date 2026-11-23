@@ -16,6 +16,7 @@
  * ⚠ 계수는 손값(사진·눈으로 맞출 대상)입니다. 입력이 물리량이라는 것이지 식이 물리 법칙이라는 뜻이 아닙니다.
  */
 import { iceFraction, thermoAt, type ThermoInput } from './cloudPhysics';
+import { clamp, lerp, smoothstep as smooth } from '../../utils/math';
 
 export interface MorphParams {
   c: number;
@@ -39,9 +40,6 @@ export interface MorphLayerInput {
 }
 
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const smooth = (e0: number, e1: number, x: number) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const q = (v: number, step: number) => Math.round(v / step) * step;
 const bearing = (u: number, v: number) => (((Math.atan2(u, v) * 180) / Math.PI) + 360) % 360;
 

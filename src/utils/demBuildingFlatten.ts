@@ -21,6 +21,7 @@
  */
 import * as THREE from 'three';
 import type { DemPatch } from './demTiles';
+import { smoothstep } from './math';
 
 /** demTiles.ts 의 DEM_TILE_SIZE_PX 와 같음(그 모듈은 앱 의존성을 끌어와 시험에서 못 읽으므로 값만). */
 const DEM_TILE_SIZE_PX = 256;
@@ -67,10 +68,27 @@ export const FLATTEN_DENSITY_HALF_M = 100;
 /** 건물 밀도(덮개 비율) → 깎는 정도. 이 사이에서 0 → 1. */
 export const FLATTEN_DENSITY_RAMP: [number, number] = [0.06, 0.2];
 
-const smoothstep = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+/** 제자리 Hoare Quickselect (O(R) 평균으로 단일 분위수 추출). */
+function quickSelect(arr: number[], len: number, k: number): number {
+  let lo = 0, hi = len - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const pivot = arr[mid];
+    let i = lo, j = hi;
+    while (i <= j) {
+      while (arr[i] < pivot) i++;
+      while (arr[j] > pivot) j--;
+      if (i <= j) {
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+        i++; j--;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else break;
+  }
+  return arr[k];
+}
 
 /** 분리 가능한 정사각형 창 최솟값/최댓값(반폭 r 칸). 경계는 안쪽 값만. */
 function rankFilter(src: Float32Array, n: number, r: number, useMin: boolean, y0: number, y1: number, x0: number, x1: number): Float32Array {
@@ -250,8 +268,7 @@ export function flattenFootprints(
       }
     }
     if (ring.length < 6) continue;
-    ring.sort((a, b) => a - b);
-    const pad = ring[Math.min(ring.length - 1, Math.floor(ring.length * FOOTPRINT_LOW_Q))];
+    const pad = quickSelect(ring, ring.length, Math.min(ring.length - 1, Math.floor(ring.length * FOOTPRINT_LOW_Q)));
     pads[k] = Math.min(pad, inMax);
   }
   const out = new Float32Array(h);

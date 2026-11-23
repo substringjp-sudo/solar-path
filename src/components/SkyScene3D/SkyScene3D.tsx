@@ -28,10 +28,9 @@ if (Platform.OS !== 'web') {
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
-import { targetPointAt, type HeightSampler, type PickedTarget, type TargetPoint } from '../../utils/demPick';
+import { targetPointAt, type PickedTarget } from '../../utils/demPick';
 import { targetPointOf } from '../../utils/pickedTarget';
 import { pickTargetAt } from '../../utils/pickTarget';
-import { makeDemSampler } from '../../utils/demSampler';
 import { buildHorizonProfile, skylineAngleDeg, type HorizonProfile } from '../../utils/horizon';
 import { offsetLatLon, localOffsetM } from '../../utils/geoMove';
 import { blockCovers, denseRadiusM, moveObserver } from '../../utils/demGeometry';
@@ -39,7 +38,47 @@ import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
-import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
+import {
+  VOLUMETRIC_SKY_ENABLED,
+  REMOTE_SETTLE_FRAMES,
+  FAR_MAX_BUILDINGS_SHOWN,
+  PIXEL_ART_CHOICES,
+  flattenDemForBuildings,
+  sceneHeightSampler,
+  mergeBuildings,
+  dayOfYearOf,
+  computeSkyAtmosphereMeans,
+  computeMoonGroundLighting,
+  computeTrackingStep,
+  projectCelestialScreenLabels,
+  resolveCelestialLabelY,
+  type LayerState,
+  type SkySettings,
+  type LongExposureSimMode,
+  type LongExposureSimOptions,
+  type LongExposureSimResult,
+  type EyeState,
+  type SkyScene3DHandle,
+  type FarBuildingsResult,
+  type VolumetricPhaseOf,
+  type VolumetricSceneState,
+  type SkyRenderState,
+} from './SkyScene3DHelpers';
+export {
+  PIXEL_ART_CHOICES,
+  type LayerState,
+  type SkySettings,
+  type LongExposureSimMode,
+  type LongExposureSimOptions,
+  type LongExposureSimResult,
+  type EyeState,
+  type SkyScene3DHandle,
+  type FarBuildingsResult,
+  type VolumetricPhaseOf,
+  type VolumetricSceneState,
+  type SkyRenderState,
+};
+import { styles } from './SkyScene3D.styles';
 
 import {
   createTerrainRing,
@@ -85,22 +124,9 @@ import {
 } from './BuildingField';
 import { fetchNearbyBuildings, buildMergedBuildingGeometry, BUILDING_RADIUS_M, type BuildingMeshData } from '../../utils/buildingTiles';
 import type { LoadProgress } from '../../utils/loadProgress';
-import { loadFarBuildings, picksToElements, concatBuildingMeshData, type FarTileData } from '../../utils/farBuildingsLoad';
-import { FAR_OUTER_M } from '../../utils/farBuildings';
+import { loadFarBuildings, type FarTileData } from '../../utils/farBuildingsLoad';
 import { fetchUrbanMask } from '../../utils/mvtTiles';
-import { flattenDemPatchUnderBuildings, type BuildingCover } from '../../utils/demBuildingFlatten';
-
-/** 건물 자리 고도 깎기 — 바뀌었으면 true(호출부가 패치를 다시 꽂음). */
-function flattenDemForBuildings(renderer: any, patch: DemPatch, cover: BuildingCover): boolean {
-  try {
-    const st = flattenDemPatchUnderBuildings(renderer, patch, cover);
-    if (__DEV__ && st) console.log('[DEM] 건물 자리 고도 깎기', st.touched, '칸, 평균', st.meanDropM.toFixed(1), 'm, 최대', st.maxDropM.toFixed(1), 'm 낮춤');
-    return !!st && st.touched > 0;
-  } catch (e) {
-    if (__DEV__) console.warn('[DEM] 건물 자리 고도 깎기 실패', e);
-    return false;
-  }
-}
+import { type BuildingCover } from '../../utils/demBuildingFlatten';
 import {
   createSeaPlane,
   SEA_MASK_RADIUS_M,
@@ -127,9 +153,6 @@ import {
   type VolDateSyncState,
 } from '../../utils/sliderSettle';
 // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 경로로 활성화
-const VOLUMETRIC_SKY_ENABLED = true;
-/** 볼륨 하늘 기본 활성화 */
-const VOLUMETRIC_SKY_DEFAULT_ON = true;
 const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
 const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
@@ -196,103 +219,17 @@ import {
 } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
 import { getApparentAltitude } from '../../utils/sunsetPhysics';
 import { DEFAULT_TUNING, getTuning, subscribeTuning } from '../../utils/skyTuning';
-import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { subscribeScrubTime } from '../../utils/liveClock';
 import { L3 } from '../../utils/i18n';
 import { isReducedMotion } from '../../theme/motion';
-import { isSunVisibleAboveHorizon, terrainHorizonDegAtAz } from '../../utils/terrainPick';
 
-// 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
-const tempPlanetVec = new THREE.Vector3();
-const projTempVec = new THREE.Vector3();
-const trackingMwVec = new THREE.Vector3();
-const sunDirDeckVec = new THREE.Vector3();
 /** 박명광선의 기준점. 렌더 루프에서 매 프레임 다시 채웁니다. */
 const sunDirRayVec = new THREE.Vector3();
-const tempMoonDirVec = new THREE.Vector3();
-
-function getPlanetDirectionVector(
-  key: PlanetKey,
-  date: Date,
-  targetVec: THREE.Vector3 = tempPlanetVec
-): THREE.Vector3 {
-  const eq = getPlanetEquatorialCoord(key, date);
-  const raRad = (eq.raHours / 24) * Math.PI * 2;
-  const decRad = (eq.decDeg * Math.PI) / 180;
-  const cd = Math.cos(decRad);
-  return targetVec.set(cd * Math.cos(raRad), cd * Math.sin(raRad), Math.sin(decRad)).normalize();
-}
-
-export interface LayerState {
-  labels: boolean;
-  sun: boolean;
-  moon: boolean;
-  stars: boolean;
-  milkyway: boolean;
-  planets: boolean;
-  clouds: boolean;
-  paths: boolean;
-  cityLights: boolean;
-  buildings?: boolean;
-}
-
-/** 별 표현을 사용자가 조절하는 값 (레이어 ON/OFF와 달리 연속값이라 따로 둡니다) */
-export interface SkySettings {
-  /** 밝기 배율 0~2 */
-  starBrightness: number;
-  /** 표시 한계 등급 (3 = 도심, 6.5 = 완전한 암천) */
-  starMagLimit: number;
-  /** 도트 모드(§97) — 화면을 이 줄 수로 그려 네모 화소 그대로 늘립니다. 0 = 끔. */
-  pixelArtRows: number;
-  /**
-   * §126.7 볼륨 하늘 — 하늘돔·구름 슬랩 대신 takram 대기+볼륨 구름(종류별 모형, 지금 예보)을 하늘 층으로 씁니다.
-   * 개발 빌드에서만 동작(출시 번들에는 takram 경로가 들어가지 않음). 지형·바다·해·달·별은 그대로입니다.
-   */
-  volumetricSky?: boolean;
-  /** §127 볼륨 하늘 품질 단계(takram 행진 걸음 수) — 기본 low. */
-  volumetricQuality?: 'low' | 'medium' | 'high';
-  /** §127 볼륨 구름 해상도 최대 배율(화면 대비) — 기본 0.5. 자동 조절은 이 값 아래에서만 움직입니다. */
-  volumetricRes?: number;
-  /** §127 프레임 간격을 보고 구름 해상도를 자동으로 내리고 올림 — 기본 켬. */
-  volumetricAutoRes?: boolean;
-  /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 기본 켬. */
-  volumetricFlow?: boolean;
-  volumetricFlowUv?: boolean;
-  /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
-  volumetricPhysics?: boolean;
-  volumetricPhysicsIce?: boolean;
-  /** §156 거시 운량 격자 — 0 끔(기울기 두 수) · 1 Barnes 격자(RULER-macro 판정으로 기본) · 2 스펙트럼 잡음까지(개발 패널 MAC 칩). */
-  volumetricMacro?: 0 | 1 | 2;
-  /** 연속 형태 생성기(morph) — 저층 무늬를 종류 프리셋 대신 예보 연속량으로 만듦 (개발 패널 MORPH 칩). */
-  volumetricMorph?: boolean;
-  /** 뭉게구름 표면 혹 + 촘촘한 해 쪽 추적(기본 켬) */
-  volumetricBillow?: boolean;
-  /** 흐린 날 높이별 채우기(파동 장, 기본 켬) */
-  volumetricFill?: boolean;
-  /** 해가 낮을 때(15° 아래) 구름 위치마다 햇빛 계산(지구 그림자·붉어짐, 기본 켬) */
-  volumetricAccurateSun?: boolean;
-  /** 노을 그림자: 층 그림자 지도를 해 −4° 까지 켬(끄면 예전처럼 12° 아래 끔 — 예전 웹 시제품 NaN 대비) */
-  volumetricLowSunShadow?: boolean;
-  /** 먼 구름 햇빛 가림 지도(farSun.ts, 시험 — 기본 끔): 해 10° 아래에서 고리 예보로 지평선 너머 구름이 해를 가리는 정도 */
-  volumetricFarSun?: boolean;
-  /** 판 구름(st·as·ns·흐린 날 채우기)에 두-흐름 확산광(diffuse 4, 기본 켬) — 흐린 날 덱이 검던 것 */
-  volumetricSheetDiffuse?: boolean;
-  /** 진단: 대기를 입히지 못한 원래 지형 화소를 분홍으로 칠함(기본 끔, 자오산 먼 산 초록 띠 2026-11-13) */
-  diagRawTerrain?: boolean;
-  /**
-   * §178 조명 결함 고침 A/B — 대기 원근 산란을 0 에서 자름(clampInscatter) · 조도 표 μs 로그 보간(irradianceLogMu). 사용자 승인으로 기본 켬,
-   * 개발 패널 CLAMP·LOGμ 칩으로 끄고 비교합니다(끄면 셰이더 글자가 고치기 전과 같음).
-   */
-  volumetricClampInscatter?: boolean;
-  volumetricIrradianceLogMu?: boolean;
-  /** 실험 — 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘을 켭니다(기본 꺼짐: 카메라 스트림과 GPU 를 나눠 써 기기에서 ANR 이 났던 적이 있어 기기 확인 후 켭니다). 메인 시뮬레이션과 같은 구름이 됩니다. */
-  cameraVolumetric?: boolean;
-}
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
   starBrightness: 1.0,
@@ -318,37 +255,6 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricClampInscatter: true,
   volumetricIrradianceLogMu: true,
 };
-
-/**
- * 도트 모드의 굵기 — 화면 세로를 몇 줄로 그리는가. 한 도트는 화면 **정수** 화소입니다
- * (SceneComposer.setPixelArt). 폰 하늘 화면(세로 약 1,200~2,400 물리 화소)에서 256 줄이면
- * 한 도트가 5~9화소로 잔잔하고, 96 줄이면 12~25화소로 또렷한 옛 게임 느낌입니다.
- */
-export const PIXEL_ART_CHOICES: { rows: number; label: string }[] = [
-  { rows: 0, label: '끔' },
-  { rows: 256, label: '가늘게' },
-  { rows: 160, label: '보통' },
-  { rows: 96, label: '굵게' },
-];
-
-/** 장면의 DEM 패치(촘촘한 것 + 광역)를 하나의 높이 표본기로 — 고르기 · 스카이라인 · 먼 건물이 같이 씁니다. */
-function sceneHeightSampler(renderer: THREE.WebGLRenderer, patch: DemPatch, farPatch: DemPatch | null): HeightSampler | null {
-  const fine = makeDemSampler(renderer, patch);
-  const far = farPatch ? makeDemSampler(renderer, farPatch) : null;
-  if (!fine && !far) return null;
-  return (e, s) => fine?.(e, s) ?? far?.(e, s) ?? null;
-}
-
-/** 장면에 올리는 먼 건물 수 한도(farBuildingsLoad.picksToElements 의 기본 한도와 같음) */
-const FAR_MAX_BUILDINGS_SHOWN = 3000;
-
-/** 가까운 건물 병합 기하에 읽은 먼 타일의 보이는 건물을 붙입니다(같은 중심 위경도). 먼 건물이 없으면 가까운 것 그대로. */
-function mergeBuildings(near: BuildingMeshData | null, farTiles: Map<string, FarTileData>, lat: number, lng: number): BuildingMeshData | null {
-  if (farTiles.size === 0) return near;
-  const els = picksToElements(farTiles.values(), FAR_MAX_BUILDINGS_SHOWN);
-  if (els.length === 0) return near;
-  return concatBuildingMeshData(near, buildMergedBuildingGeometry(els, lat, lng, FAR_OUTER_M));
-}
 
 interface SkyScene3DProps {
   sim: any;
@@ -415,188 +321,8 @@ interface SkyScene3DProps {
 }
 
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
-/** 촬영 화면용 한 장(renderRemote)을 찍기 전 새 시선으로 그릴 프레임 수 — 구름 시간 누적 한 바퀴(16) + 여유. */
-const REMOTE_SETTLE_FRAMES = 20;
 /** 망원 배율 상한 — 지상 시야각 30~120° 를 이 값으로 나눕니다(1.5~6°). */
 export const TELE_MAX = 20;
-
-export type LongExposureSimMode = 'trails' | 'tracked' | 'tracked_fixed_ground';
-
-export interface LongExposureSimOptions {
-  /** 'trails': 고정 화각(별 궤적) · 'tracked': 적도의 추적(별 고정·땅 흐름) · 'tracked_fixed_ground': 별 추적+지상 고정 합성 */
-  mode: LongExposureSimMode;
-  /** 노출 시작 시각 (epoch ms). 없으면 현재 씬 시각. */
-  startTimeMs?: number;
-  /** 총 노출 시간 (초). 예: 240(4분) ~ 600(10분). 기본 300초. */
-  durationSec?: number;
-  /** 적분 스텝 수. 기본 20 (궤적 길이와 구름 이동이 매끄럽게 이어지도록 조절). */
-  steps?: number;
-  /** 장노출 밝기 증폭 배율. 없으면 durationSec 기준으로 자동 계산. */
-  exposureGain?: number;
-  /** 암부 리프트(미약한 은하수·지상 윤곽). 기본 0.015. */
-  shadowLift?: number;
-  /** 천체 밝기 추가 배율 (기본 1.25). */
-  starBoost?: number;
-  /** 장노출 누적 전 볼륨 하늘 안정화 프레임 수 (기본 20, 프리뷰 연동 시 4~8로 단축 가능). */
-  settleFrames?: number;
-  /** 볼륨 준비 완료 필수 여부 (기본 true, 뷰파인더 프리뷰 시 false 허용). */
-  requireReady?: boolean;
-  waitMs?: number;
-  format?: 'jpeg' | 'png';
-  compress?: number;
-  /** 진행 중인 장노출 합성을 즉시 중단하기 위한 AbortSignal */
-  signal?: AbortSignal;
-}
-
-export interface LongExposureSimResult {
-  uri: string | null;
-  ready: boolean;
-  error: string | null;
-  mode: LongExposureSimMode;
-  durationSec: number;
-  steps: number;
-  exposureGain: number;
-  state: SkyRenderState | null;
-}
-
-/** `SkyScene3DHandle.getEyeState` 의 값. */
-export interface EyeState {
-  eye: { latitude: number; longitude: number } | null;
-  moving: boolean;
-  obs: Record<string, [number, number] | null>;
-  block: { zoom: number; originTileX: number; originTileY: number; blockTiles: number; tileSpanM: number } | null;
-}
-
-export interface SkyScene3DHandle {
-  takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
-  /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
-  getLastSnapshotError: () => string | null;
-  /**
-   * 마지막 스냅샷 **직전에** GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기
-   * (0~255, −1 = 못 쟀음).
-   *
-   * 왜 필요한가: 저장된 그림이 검을 때 "그린 것이 검다"와 "스냅샷 경로가
-   * 잃는다"를 가릅니다. 이 값이 0 이면 앞쪽, 0 이 아닌데 그림이 검으면
-   * 뒤쪽입니다.
-   */
-  getLastBufferMean: () => number;
-  /**
-   * 이 프레임을 그린 **시선과 구름판 상태**(QR 보고서용). 장면이 아직 없으면 null.
-   *
-   * 예보 입력만으로는 기기 화면을 되살릴 수 없었습니다 — 시선은 센서값이라 QR 에 없고, 층
-   * 높이·운해·안개·운량장은 예보에서 여러 단계를 거쳐 나옵니다(`readCloudSlabState`).
-   */
-  getRenderState: () => SkyRenderState | null;
-  /** §165 볼륨 장면이 적용돼 마지막 프레임에 실제로 그려졌는가 — 카메라가 스냅샷 전에 묻습니다. */
-  isVolumetricReady: () => boolean;
-  /**
-   * 다른 화면(촬영)을 위해 이 장면을 주어진 방위·고도·세로 화각으로 한 장 그려 줍니다 — 이 화면이 비활성이어도 잠깐 그립니다.
-   * 볼륨 하늘이 준비될 때까지 최대 waitMs 기다리고, 끝나면 원래 시선으로 되돌립니다. ready 가 거짓이면 준비 전에 찍은 것(uri 는 null).
-   */
-  renderRemote: (view: { az: number; el: number; fov: number }, opts?: { waitMs?: number; format?: 'jpeg' | 'png'; compress?: number; requireReady?: boolean }) => Promise<{ uri: string | null; ready: boolean; error: string | null; state: SkyRenderState | null }>;
-  /**
-   * 4~10분 야간 장노출 시뮬레이션 결과물 생성: 여러 시간 스텝을 선형 누적·톤매핑해
-   * 별 궤적 또는 적도의 추적 결과와 바람 따라 지나가는 구름의 가림 효과를 미리 그립니다.
-   */
-  renderLongExposure: (
-    view: { az: number; el: number; fov: number; rollDeg?: number },
-    opts: LongExposureSimOptions,
-  ) => Promise<LongExposureSimResult>;
-  /** 진행 중이거나 대기 중인 장노출 합성(renderLongExposure)을 즉시 중단합니다. */
-  cancelLongExposure?: () => void;
-  /** 타임랩스 미리보기용 실시간 누적 시작 / 스텝 / 종료 (궤적 · 별+구름 누적). */
-  beginLiveAccum?: (opts?: { lighten?: boolean; exposureGain?: number; shadowLift?: number; starBoost?: number }) => void;
-  stepLiveAccum?: (timeMs: number) => void;
-  endLiveAccum?: () => void;
-  /**
-   * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
-   * 돌아올 때는 지도 위의 "착륙"을 씁니다.
-   */
-  flyToMap: () => void;
-  /** 카메라 뷰파인더 등에서 3D 씬 시선(방위·고도·화각·기울기·뷰 오프셋)을 즉시 맞출 때 호출합니다. */
-  setCameraView?: (
-    azDeg: number,
-    elDeg: number,
-    fovDeg?: number,
-    opts?: { rollDeg?: number; centerOffsetYFrac?: number },
-  ) => void;
-  /** 카메라 뷰파인더 종료 시 롤 및 뷰 오프셋만 초기화합니다. */
-  clearCameraLensOverride?: () => void;
-  /**
-   * 눈에서 본 땅의 스카이라인(방위 → 앙각, °). 해·달이 능선 뒤에 가리는지 알리는 데 씁니다(해·달 걸기).
-   * 땅 자료가 아직 없으면 null, 땅이 없는 방위는 null. 지형 패치와 눈 높이가 같은 동안은 계산을 다시 하지 않습니다.
-   */
-  getSkyline?: () => ((azDeg: number) => number | null) | null;
-  /**
-   * 눈에서 본 땅 프로필(`utils/horizon.ts`) — 스카이라인과 능선까지의 거리를 다 알 수 있습니다. 계산 과정 보기("해 뜨는 시각")가 씁니다.
-   * 땅 자료가 아직 없으면 null. `getSkyline` 과 같은 캐시를 씁니다.
-   */
-  getHorizonProfile?: () => HorizonProfile | null;
-  /**
-   * 위경도·해발의 한 점을 지금 눈 기준 대상 점으로 만듭니다(방위·앙각·거리·땅이 가리는지). 자리를 옮긴 뒤 같은 대상을 새 자리에서
-   * 다시 잡는 데 씁니다(저장한 장면 열기). 이 자리의 지형이 아직 안 왔으면 null(옛 자리 패치를 쓰면 틀이 어긋납니다).
-   */
-  targetFromLatLon?: (latitude: number, longitude: number, elevM: number) => (TargetPoint & { eyeElevM: number }) | null;
-  /**
-   * 눈을 (latitude, longitude) 으로 옮깁니다(연속 이동 조이스틱, docs/SANDBOX_MODE_PLAN.md 12.2). `location` 은 건드리지 않고 지형 · 바다가 눈을 따라오게만 하므로
-   * 프레임마다 불러도 됩니다. 받아 둔 블록의 가운데 타일을 벗어나면 그 자리의 블록을 받고, 건물은 눈이 떨어져 있는 동안 숨깁니다.
-   * 멈춘 뒤에는 호스트가 `setLocation` 으로 위치를 커밋하고 `clearEyeLocation` 을 부릅니다(눈의 자리는 그대로라 화면이 튀지 않습니다).
-   */
-  setEyeLocation?: (latitude: number, longitude: number) => void;
-  /** 눈의 자리를 `location` 으로 되돌려 따르게 합니다(커밋 뒤, 또는 이동을 취소할 때). */
-  clearEyeLocation?: () => void;
-  /** 하네스 · 판정용: 눈 이동의 지금 상태(눈 자리, 건물 숨김 여부, 지형 · 바다 유니폼의 눈 좌표, 받아 둔 블록). */
-  getEyeState?: () => EyeState;
-  /**
-   * 지금 위치(저장된 위치)의 주변 건물을 받는 진행: 받는 중(끝난 타일 수 / 받을 타일 수), 못 받아 다시 시도하는 중, 아니면 쉼.
-   * 눈이 움직이는 동안에는 받지 않으므로 쉼이고, 멈춰 위치가 확정되면 받기 시작합니다(`SandboxPanel` 의 막대).
-   */
-  getBuildingProgress?: () => LoadProgress;
-  /**
-   * 지금 보는 방향의 먼 건물(1~15 km) 중 **땅에 가리지 않는 것만** 받아 가까운 건물에 붙입니다(샌드박스, 계획 6).
-   * 도심 z14 타일은 한 장이 0.2~0.8 MB 라 사방을 받지 않고 보는 방향(화각 ± 6°)만, 한 번에 12 MB 까지 받습니다.
-   * 한 번 읽은 타일은 위치가 바뀌기 전까지 이어 받습니다(방향을 돌려 다시 부르면 새 방향만 더함). 건물 레이어가 꺼져 있어도
-   * 받아 둡니다(켜면 바로 보임). 지형이 아직 없으면 null.
-   */
-  loadFarBuildings?: (opts?: { onProgress?: (p: { tilesDone: number; tilesTotal: number; bytes: number }) => void }) => Promise<FarBuildingsResult | null>;
-}
-
-export interface FarBuildingsResult {
-  /** 이번 계획 타일 수 · 새로 받은 수 · 실패 수 */
-  planned: number;
-  fetched: number;
-  failed: number;
-  /** 이번에 받은 바이트 */
-  bytes: number;
-  /** 바이트 한도에 닿아 계획을 다 못 받았다 */
-  truncated: boolean;
-  /** 지금까지 읽은 먼 타일 수와 장면에 올린 먼 건물 수 */
-  tilesTotal: number;
-  buildings: number;
-}
-
-/** `SkyScene3DHandle.getRenderState` 의 값. */
-/** §165 이 화면 인스턴스의 볼륨 하늘 상태 — 모듈 저장소(volumetricStatus)는 여러 화면이 함께 쓰므로 인스턴스별로 따로 봅니다. */
-export type VolumetricPhaseOf = 'off' | 'creating' | 'updating' | 'running' | 'failed';
-/** §165 마지막으로 **적용된** 볼륨 장면 — QR 에 실어 "카드가 무엇을 그렸는지" 를 입력과 따로 남깁니다. */
-export interface VolumetricSceneState {
-  /** 장면 시각(ISO) — 카메라 셔터 시각이 아니라 장면이 만들어진 시각 */
-  t: string;
-  /** 장면이 쓴 관측점 운량(%) — METAR 덮어쓰기 뒤의 값 */
-  low: number; mid: number; high: number; total?: number;
-  /** 그려진 종류(승격 적용) 'sc/as/-' */
-  genus: string;
-  /** §158 DNI 광학두께(없으면 undefined) */
-  tau?: number;
-}
-export interface SkyRenderState {
-  /** 시선: 방위(북 0°, 동 90°) · 고도 · 기울임(오른쪽으로 기울면 +) · 세로 화각 · 가로/세로 */
-  view: { az: number; el: number; roll: number; fov: number; aspect: number };
-  slab: null;
-  /** 이 인스턴스의 볼륨 상태 · 마지막 적용 장면(없으면 null). 'running' 이 아니면 화면은 옛 하늘입니다(§165). */
-  volPhase: VolumetricPhaseOf;
-  scene: VolumetricSceneState | null;
-}
 
 const DEFAULT_LAYERS: LayerState = {
   labels: true,
@@ -608,28 +334,8 @@ const DEFAULT_LAYERS: LayerState = {
   clouds: true,
   paths: true,
   cityLights: true,
-  buildings: true,
+  buildings: false,
 };
-
-/** 연중 일수 — 지구·태양 거리 보정에 사용 */
-function dayOfYearOf(d: Date): number {
-  const start = Date.UTC(d.getUTCFullYear(), 0, 0);
-  return Math.floor((d.getTime() - start) / 86400000);
-}
-
-function formatCompassText(azimuth: number): string {
-  const az = ((azimuth % 360) + 360) % 360;
-  let dir = 'N';
-  if (az >= 22.5 && az < 67.5) dir = 'NE';
-  else if (az >= 67.5 && az < 112.5) dir = 'E';
-  else if (az >= 112.5 && az < 157.5) dir = 'SE';
-  else if (az >= 157.5 && az < 202.5) dir = 'S';
-  else if (az >= 202.5 && az < 247.5) dir = 'SW';
-  else if (az >= 247.5 && az < 292.5) dir = 'W';
-  else if (az >= 292.5 && az < 337.5) dir = 'NW';
-
-  return `${dir} ${Math.round(az)}°`;
-}
 
 export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   {
@@ -2961,66 +2667,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         // 3D 천체 카메라 트래킹 (Smooth Celestial Camera Tracking)
         if (trackingTargetRef.current) {
-          let tPos: THREE.Vector3 | null = null;
-          const target = trackingTargetRef.current;
-          if (target === 'sun' && sunRef.current?.mesh) {
-            tPos = sunRef.current.mesh.position;
-          } else if (target === 'moon' && moonRef.current?.group) {
-            tPos = moonRef.current.group.position;
-          } else if (target === 'milkyway') {
-            tPos = trackingMwVec
-              .set(0.5, -0.4, -0.7)
-              .normalize()
-              .multiplyScalar(400)
-              .applyMatrix3(equToHorizonRef.current);
-          } else if (target.startsWith('planet_')) {
-            const idx = parseInt(target.split('_')[1], 10);
-            const keys: PlanetKey[] = ['jupiter', 'saturn', 'venus'];
-            if (keys[idx]) {
-              const dir = getPlanetDirectionVector(keys[idx], frameDate, tempPlanetVec);
-              tPos = dir.multiplyScalar(380).applyMatrix3(equToHorizonRef.current);
-            }
-          }
-
-          if (tPos) {
-            const targetAz = (Math.atan2(tPos.x, -tPos.z) * (180 / Math.PI) + 360) % 360;
-            const horizDist = Math.hypot(tPos.x, tPos.z);
-            const targetElev = Math.atan2(tPos.y, horizDist) * (180 / Math.PI);
-
-            const horizonDeg = (target === 'sun' || target === 'moon')
-              ? terrainHorizonDegAtAz(simRef.current?.terrain, targetAz)
-              : 0;
-            if (target === 'moon' && targetElev < Math.max(0, horizonDeg) - 0.5) {
-              trackingTargetRef.current = null;
-              onSelectTrackingTargetRef.current?.(null);
-            } else {
-            // 땅·산 능선 아래로 태양이 완전히 사라져 화면에 안 보이는 순간부터는 현재 방위·고도에서 정지합니다.
-            const sunVisible = target !== 'sun' || isSunVisibleAboveHorizon(
-              targetElev,
-              sunDiscRadiusDegRef.current,
-              horizonDeg,
-              targetElev > -1.5,
-            );
-
-            if (sunVisible) {
-              let azDiff = targetAz - cameraAzRef.current;
-              while (azDiff > 180) azDiff -= 360;
-              while (azDiff < -180) azDiff += 360;
-
-              const minElev = target === 'sun' ? Math.max(0, horizonDeg) : -20;
-              const clampedTargetElev = Math.max(minElev, targetElev);
-              const elevDiff = clampedTargetElev - cameraElevRef.current;
-
-              if (Math.abs(azDiff) > 0.05 || Math.abs(elevDiff) > 0.05) {
-                isTrackingMoving = true;
-              }
-
-              cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
-              cameraElevRef.current += elevDiff * 0.14;
-              setCameraAzimuth(cameraAzRef.current);
-              setCameraElevation(cameraElevRef.current);
-            }
-            }
+          const step = computeTrackingStep({
+            target: trackingTargetRef.current,
+            sunPos: sunRef.current?.mesh?.position ?? null,
+            moonPos: moonRef.current?.group?.position ?? null,
+            equToHorizon: equToHorizonRef.current,
+            frameDate,
+            terrain: simRef.current?.terrain,
+            sunDiscRadiusDeg: sunDiscRadiusDegRef.current,
+            currentAz: cameraAzRef.current,
+            currentElev: cameraElevRef.current,
+          });
+          if (step.clearTarget) {
+            trackingTargetRef.current = null;
+            onSelectTrackingTargetRef.current?.(null);
+          } else if (step.nextAz !== undefined && step.nextElev !== undefined) {
+            if (step.moving) isTrackingMoving = true;
+            cameraAzRef.current = step.nextAz;
+            cameraElevRef.current = step.nextElev;
+            setCameraAzimuth(step.nextAz);
+            setCameraElevation(step.nextElev);
           }
         }
 
@@ -3673,128 +3339,38 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
         consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
 
-        // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
-        // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
+        // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산 (250ms 스로틀)
         const nowForLabel = Date.now();
         if (layersRef.current.labels !== false && nowForLabel - lastLabelUpdateMsRef.current >= 250) {
           lastLabelUpdateMsRef.current = nowForLabel;
-          const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
-
-          if (zoomProgressRef.current <= P_FOV_END + 0.05) {
-            const ratio = pixelRatioRef.current || 1;
-            const vw = layoutSizeRef.current.w || sceneWidthRef.current || gl.drawingBufferWidth / ratio;
-            const vh = layoutSizeRef.current.h || viewSizeRef.current.h || gl.drawingBufferHeight / ratio;
-            const terrainData = simRef.current?.terrain;
-
-            const proj = (v3: THREE.Vector3) => {
-              projTempVec.copy(v3).project(camera);
-              const visible =
-                projTempVec.z > -1.0 &&
-                projTempVec.z < 1.0 &&
-                projTempVec.x >= -0.96 &&
-                projTempVec.x <= 0.96 &&
-                projTempVec.y >= -0.92 &&
-                projTempVec.y <= 0.96;
-              const px = ((projTempVec.x + 1) * vw) / 2;
-              const py = ((-projTempVec.y + 1) * vh) / 2;
-              return { px, py, visible };
-            };
-            // 천구 위 천체(태양·달·은하수·행성)는 관측자 눈(camera.position) 중심의 반구에 놓이므로 camera.position 을 더해 투영합니다.
-            const projEye = (v3: THREE.Vector3) => {
-              projTempVec.copy(v3).add(camera.position);
-              return proj(projTempVec);
-            };
-
-            const azOf = (v: THREE.Vector3) => ((Math.atan2(v.x, -v.z) * 180) / Math.PI + 360) % 360;
-            // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
-            const lang = useCelestialStore.getState().language;
-
-            // 1. 태양 (Sun) — 지평선·지형 능선 위에 원반 일부라도 보일 때만 표시
-            if (sunRef.current?.mesh && layersRef.current.sun) {
-              const sp = sunRef.current.mesh.position;
-              const sunHoriz = terrainHorizonDegAtAz(terrainData, azOf(sp));
-              const sunAppAlt = getApparentAltitude(sunAltRef.current);
-              if (isSunVisibleAboveHorizon(sunAppAlt, sunDiscRadiusDegRef.current, sunHoriz, sunAppAlt > -0.8)) {
-                const p = projEye(sp);
-                if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
-              }
-            }
-            // 2. 달 (Moon) — 지평선·지형 능선 위이고 맨눈에 보일 때만
-            if (moonRef.current?.group && layersRef.current.moon) {
-              const mp = moonRef.current.group.position;
-              const mLen = mp.length() || 1;
-              const moonAltDeg = (Math.asin(Math.max(-1, Math.min(1, mp.y / mLen))) * 180) / Math.PI;
-              const moonHoriz = terrainHorizonDegAtAz(terrainData, azOf(mp));
-              let sepDeg = 180;
-              if (sunRef.current?.mesh) {
-                const sp = sunRef.current.mesh.position;
-                const sLen = sp.length() || 1;
-                const cos = (mp.x * sp.x + mp.y * sp.y + mp.z * sp.z) / (mLen * sLen);
-                sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
-              }
-              const illum = SunCalc.getMoonIllumination(frameDate).fraction;
-              const eyeOffsetLabelM = Math.max(0, (eyeHeightRef.current ?? 1.6) - 1.6);
-              const seaDipLabelDeg = seaHorizonDipDeg((simRef.current?.terrain?.observerElevation ?? 0) + eyeOffsetLabelM);
-              if (moonAltDeg + 0.26 > Math.max(-seaDipLabelDeg, moonHoriz) && moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
-                const p = projEye(mp);
-                if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
-              }
-            }
-            // 3. 은하수 중심부 (Milky Way Center) — 지평선·지형 능선 위일 때만
-            if (layersRef.current.milkyway) {
-              const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
-              mwPos.applyMatrix3(equToHorizonRef.current);
-              const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
-              const mwHoriz = terrainHorizonDegAtAz(terrainData, azOf(mwPos));
-              if (mwAltDeg > Math.max(0.5, mwHoriz) && milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
-                const p = projEye(mwPos);
-                if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
-              }
-            }
-            // 4. 주요 행성 (Planets: 목성, 토성, 금성) — 지평선·지형 능선 위이고 어두울 때만
-            if (layersRef.current.planets) {
-              const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
-                { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
-                { key: 'saturn', name: L3(lang, '토성', 'Saturn', '土星'), color: '#F59E0B' },
-                { key: 'venus', name: L3(lang, '금성', 'Venus', '金星'), color: '#38BDF8' },
-              ];
-              planetList.forEach((pl, idx) => {
-                const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
-                const pWorld = pDir.multiplyScalar(380);
-                pWorld.applyMatrix3(equToHorizonRef.current);
-                const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
-                const pHoriz = terrainHorizonDegAtAz(terrainData, azOf(pWorld));
-                if (pAltDeg > Math.max(0.5, pHoriz) && planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
-                  const p = projEye(pWorld);
-                  if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
-                }
-              });
-            }
-
-          // 샌드박스: 고른 대상 표시(고리) — 눈에서 그 방향으로 400 떨어진 점을 라벨과 같은 식으로 투영합니다.
-          const pk = pickedTargetRef.current;
-          if (pk && zoomProgressRef.current <= P_FOV_END + 0.05) {
-            const pkEl = pickedViewRef.current?.elDeg ?? pk.elDeg;
-            const pkAz = pickedViewRef.current?.azDeg ?? pk.azDeg;
-            const ce = Math.cos((pkEl * Math.PI) / 180), se = Math.sin((pkEl * Math.PI) / 180);
-            const a = (pkAz * Math.PI) / 180;
-            const pv = new THREE.Vector3(Math.sin(a) * ce * 400, se * 400, -Math.cos(a) * ce * 400).add(camera.position);
-            const pp = proj(pv);
-            if (pp.visible) labs.push({ id: 'pick', name: '', x: pp.px, y: pp.py, color: '#38BDF8' });
-          }
-          }
+          const ratio = pixelRatioRef.current || 1;
+          const labs = zoomProgressRef.current <= P_FOV_END + 0.05
+            ? projectCelestialScreenLabels({
+                camera,
+                vw: layoutSizeRef.current.w || sceneWidthRef.current || gl.drawingBufferWidth / ratio,
+                vh: layoutSizeRef.current.h || viewSizeRef.current.h || gl.drawingBufferHeight / ratio,
+                layers: layersRef.current,
+                sunPos: sunRef.current?.mesh?.position ?? null,
+                moonPos: moonRef.current?.group?.position ?? null,
+                sunAltDeg: sunAltRef.current,
+                sunDiscRadiusDeg: sunDiscRadiusDegRef.current,
+                eyeHeightM: eyeHeightRef.current,
+                terrain: simRef.current?.terrain,
+                equToHorizon: equToHorizonRef.current,
+                frameDate,
+                lang: useCelestialStore.getState().language,
+                pickedTarget: pickedTargetRef.current,
+                pickedView: pickedViewRef.current,
+              })
+            : [];
 
           const prevLabs = prevLabelsRef.current;
-          let labelsChanged = labs.length !== prevLabs.length;
-          if (!labelsChanged) {
-            for (let i = 0; i < labs.length; i++) {
-              const a = labs[i], b = prevLabs[i];
-              if (a.id !== b.id || a.name !== b.name || a.color !== b.color || Math.hypot(a.x - b.x, a.y - b.y) >= 1.5) {
-                labelsChanged = true;
-                break;
-              }
-            }
-          }
+          const labelsChanged =
+            labs.length !== prevLabs.length ||
+            labs.some((a, i) => {
+              const b = prevLabs[i];
+              return a.id !== b.id || a.name !== b.name || a.color !== b.color || Math.hypot(a.x - b.x, a.y - b.y) >= 1.5;
+            });
           if (labelsChanged) {
             prevLabelsRef.current = labs;
             setCelestialLabels(labs);
@@ -3900,29 +3476,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       lastSkyMeanSunAltRef.current = sunAltRef.current;
       lastSkyMeanSunAzRef.current = sunAzRef.current;
       lastSkyMeanAtmosRef.current = atmosphere;
-
-      let sr = 0, sg = 0, sb = 0, sw = 0;
-      for (const elev of [10, 30, 50, 75]) {
-        const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
-        for (let a = 0; a < 6; a++) {
-          const az = (a * 360) / 6;
-          const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
-          const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
-          sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
-        }
-      }
-      cachedSkyMeanRGBRef.current = { r: sr / sw, g: sg / sw, b: sb / sw };
-
-      // 지평선 부근(고도 2°) 하늘빛 — 방위 6곳 균등 평균. 공기원근이 먼
-      // 지형을 이 색으로 끌고 갑니다.
-      let hr = 0, hg = 0, hb = 0;
-      for (let a = 0; a < 6; a++) {
-        const az = (a * 360) / 6;
-        const gamma = angularSeparationDeg(az, 2, sunAzRef.current, sunAltRef.current);
-        const L = skyRadiance(2, gamma, sunAltRef.current, atmosphere);
-        hr += L.r; hg += L.g; hb += L.b;
-      }
-      cachedHorizonRGBRef.current = { r: hr / 6, g: hg / 6, b: hb / 6 };
+      const means = computeSkyAtmosphereMeans(sunAltRef.current, sunAzRef.current, atmosphere);
+      cachedSkyMeanRGBRef.current = means.skyMean;
+      cachedHorizonRGBRef.current = means.horizonMean;
     }
 
     // ── 달빛 조명 연산 (공통) ────────────────────────────────────────────────
@@ -3930,52 +3486,23 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const seaDipDeg = seaHorizonDipDeg(obsElevForMoonM);
     const moonPos = getMoonPositionPrecise(targetDate, lat, lng, obsElevForMoonM);
     const moonIllum = SunCalc.getMoonIllumination(targetDate);
-    // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
-    // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
     const mAltDegG = (moonPos.altitude * 180) / Math.PI;
     const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
-    const mGain = moonLight(sunAltRef.current, mAltDegG + seaDipDeg, moonIllum.fraction, atmosphere).gain;
-    let moonIrr: { r: number; g: number; b: number } | null = null;
-    let moonBeamRadiance: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 };
-    // moonPos.altitude 는 이미 겉보기(굴절 포함)입니다 — 달 원반(MoonMesh)과 같은 자리. 예전엔 여기서 굴절을 한 번 더 더했습니다.
     const moonApparentAltRad = moonPos.altitude;
     const moonAzRad = (mAzDegG * Math.PI) / 180;
-
-    if (mGain > 0 && mAltDegG > -seaDipDeg - 0.3) {
-      const c = moonGroundCacheRef.current;
-      if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
-        let sr = 0, sg = 0, sb = 0, sw = 0;
-        for (const elev of [10, 30, 50, 75]) {
-          const w = Math.sin((elev * Math.PI) / 180);
-          for (let a = 0; a < 6; a++) {
-            const az = (a * 360) / 6;
-            const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG + seaDipDeg, atmosphere);
-            sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
-          }
-        }
-        const beamM = beamAtAltitude(mAltDegG + seaDipDeg, 0, atmosphere);
-        const direct = Math.max(0, Math.sin(((mAltDegG + seaDipDeg) * Math.PI) / 180)) / Math.PI;
-        moonGroundCacheRef.current = {
-          alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
-          sky: { r: sr / sw, g: sg / sw, b: sb / sw },
-          beam: { r: beamM.r * direct, g: beamM.g * direct, b: beamM.b * direct },
-        };
-      }
-      const c2 = moonGroundCacheRef.current!;
-      // 직사 몫은 해처럼 운량만큼 가립니다(하늘 몫은 구름 밑면이 대신 비추므로 그대로).
-      const t = 1 - overcast;
-      moonIrr = {
-        r: (c2.sky.r + c2.beam.r * t) * mGain,
-        g: (c2.sky.g + c2.beam.g * t) * mGain,
-        b: (c2.sky.b + c2.beam.b * t) * mGain,
-      };
-      const beamM = beamAtAltitude(mAltDegG + seaDipDeg, 0, atmosphere);
-      moonBeamRadiance = {
-        r: beamM.r * mGain * t,
-        g: beamM.g * mGain * t,
-        b: beamM.b * mGain * t,
-      };
-    }
+    const moonLit = computeMoonGroundLighting({
+      sunAltDeg: sunAltRef.current,
+      mAltDeg: mAltDegG,
+      mAzDeg: mAzDegG,
+      seaDipDeg,
+      moonFraction: moonIllum.fraction,
+      overcast,
+      atmosphere,
+      cache: moonGroundCacheRef.current,
+    });
+    moonGroundCacheRef.current = moonLit.nextCache;
+    const moonIrr = moonLit.moonIrr;
+    const moonBeamRadiance = moonLit.moonBeamRadiance;
 
     if (groundRef.current) {
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
@@ -5125,36 +4652,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (지상 관측 뷰에서만 표시) */}
       {layers?.labels !== false && zoomProgressState <= P_FOV_END + 0.05 && (() => {
-        // 라벨 크기 추정 (px): 가로 84, 세로 24
         const LBL_W = 84;
         const LBL_H = 24;
         const maxY = Math.max(120, sceneH - 48);
-        // 배치된 라벨 bounding box 목록
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
-
-        const resolveY = (rawX: number, rawY: number): number => {
-          let y = rawY;
-          const MARGIN = 4;
-          // 최대 5번 시도 (위 또는 아래로 밀어내기)
-          for (let attempt = 0; attempt < 5; attempt++) {
-            const overlapping = placed.some(p =>
-              rawX < p.x + p.w + MARGIN &&
-              rawX + LBL_W > p.x - MARGIN &&
-              y < p.y + p.h + MARGIN &&
-              y + LBL_H > p.y - MARGIN
-            );
-            if (!overlapping) break;
-            // 아래로 먼저 밀고, 아래가 화면 밖이면 위로
-            const downY = y + LBL_H + MARGIN;
-            const upY   = y - LBL_H - MARGIN;
-            if (downY + LBL_H <= maxY) {
-              y = downY;
-            } else {
-              y = Math.max(10, upY);
-            }
-          }
-          return y;
-        };
 
         return celestialLabels.map(lbl => {
           if (lbl.id === 'pick') {
@@ -5174,7 +4675,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const rawX = Math.max(8, Math.min(sceneW - LBL_W - 8, lbl.x - 18));
           const preferredY = lbl.y >= 46 ? lbl.y - 34 : lbl.y + 18;
           const rawY = Math.max(8, Math.min(maxY - LBL_H - 6, preferredY));
-          const finalY = resolveY(rawX, rawY);
+          const finalY = resolveCelestialLabelY(rawX, rawY, placed, maxY, LBL_W, LBL_H);
           placed.push({ x: rawX, y: finalY, w: LBL_W, h: LBL_H });
 
           return (
@@ -5344,149 +4845,4 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       )}
     </View>
   );
-});
-
-const styles = StyleSheet.create({
-  container: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-  },
-  glView: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  modeBadge: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    backgroundColor: 'rgba(59, 130, 246, 0.75)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  modeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  pickRing: {
-    position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: '#38BDF8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-  },
-  pickDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#38BDF8' },
-  celestialLabelPin: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.58)',
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-    zIndex: 30,
-  },
-  labelDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginRight: 3,
-  },
-  labelText: {
-    color: '#F8FAFC',
-    fontSize: 9.5,
-    fontWeight: '700',
-  },
-  radarHudPill: {
-    position: 'absolute',
-    top: 50,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.82)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.6)',
-    shadowColor: '#38bdf8',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 6,
-    zIndex: 50,
-  },
-  radarHudDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#38BDF8',
-    marginRight: 6,
-  },
-  radarHudTitle: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  radarHudResetBtn: {
-    marginLeft: 10,
-    backgroundColor: 'rgba(56, 189, 248, 0.25)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: '#38BDF8',
-  },
-  radarHudResetText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  radarHintToast: {
-    position: 'absolute',
-    bottom: 24,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.78)',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    zIndex: 40,
-  },
-  radarHintText: {
-    color: '#E2E8F0',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  pickCard: {
-    position: 'absolute',
-    bottom: 24,
-    alignSelf: 'center',
-    minWidth: 230,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.45)',
-    zIndex: 45,
-  },
-  pickTitle: { color: '#F1F5F9', fontSize: 13, fontWeight: '700' },
-  pickSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
-  pickRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 },
-  pickCancel: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(148, 163, 184, 0.18)' },
-  pickCancelText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' },
-  pickGo: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#0EA5E9' },
-  pickGoText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 });

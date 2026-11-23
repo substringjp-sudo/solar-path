@@ -5,6 +5,9 @@
 
 import { CloudData, CloudPathData, getInterpolatedWeather } from './weather';
 import { EARTH_RADIUS_KM } from './earth';
+import { clamp01, lerp, smoothstep } from './math';
+
+export { clamp01 };
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다 — 이유는 그 파일 주석 참고.
 
@@ -27,13 +30,6 @@ const ANGSTROM_ALPHA = 1.3;
 const LAMBDA_R = 650;
 const LAMBDA_G = 550;
 const LAMBDA_B = 450;
-
-export const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const smoothstep = (e0: number, e1: number, x: number): number => {
-  const t = clamp01((x - e0) / (e1 - e0));
-  return t * t * (3 - 2 * t);
-};
 
 const toSrgb = (c: number): number => {
   const x = clamp01(c);
@@ -345,10 +341,19 @@ export const alignRingToSun = (path: CloudData[], sunAzimuthDeg: number): CloudD
   for (const [distance, ring] of rings) {
     ring.sort((a, b) => a.azimuthOffset - b.azimuthOffset);
     out.push(...ring);
-    if (ring.some(q => q.azimuthOffset === 0)) continue;
-    // 해 바로 앞(음)·뒤(양) 방위. 한쪽이 없으면 반대 끝으로 돌아 감깁니다.
-    const a = [...ring].reverse().find(q => q.azimuthOffset < 0) ?? ring[ring.length - 1];
-    const b = ring.find(q => q.azimuthOffset > 0) ?? ring[0];
+    // 해 바로 앞(음)·뒤(양) 방위 탐색 (정렬된 배열 1회 스캔으로 불필요한 배열 복사/역전 제거)
+    let hasZero = false;
+    let a: CloudData | undefined;
+    let b: CloudData | undefined;
+    for (let i = 0; i < ring.length; i++) {
+      const q = ring[i];
+      if (q.azimuthOffset === 0) { hasZero = true; break; }
+      if (q.azimuthOffset < 0) a = q;
+      else if (!b) { b = q; break; }
+    }
+    if (hasZero) continue;
+    a = a ?? ring[ring.length - 1];
+    b = b ?? ring[0];
     const da = mod360(-a.azimuthOffset);
     const db = mod360(b.azimuthOffset);
     const t = da + db > 0 ? da / (da + db) : 0;
