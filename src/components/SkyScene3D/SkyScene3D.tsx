@@ -691,6 +691,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
+  const lastTrackingHudSyncMsRef = useRef(0);
+  const trackingActiveUntilRef = useRef(0);
+  const lastVolContWallMsRef = useRef(0);
   const targetTimeMsRef = useRef(currentTime.getTime());
   const lastSyncedPropTimeMsRef = useRef<number | null>(null);
   const lastTargetSyncPerfRef = useRef(performance.now());
@@ -2615,7 +2618,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     };
 
     const applyTrackingStep = (frameDate: Date): boolean => {
-      if (!trackingTargetRef.current) return false;
+      if (!trackingTargetRef.current) {
+        trackingActiveUntilRef.current = 0;
+        return false;
+      }
       const step = computeTrackingStep({
         target: trackingTargetRef.current,
         sunPos: sunRef.current?.mesh?.position ?? null,
@@ -2629,16 +2635,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       });
       if (step.clearTarget) {
         trackingTargetRef.current = null;
+        trackingActiveUntilRef.current = 0;
         onSelectTrackingTargetRef.current?.(null);
         return false;
       }
       if (step.nextAz !== undefined && step.nextElev !== undefined) {
+        const nowPerf = performance.now();
         cameraAzRef.current = step.nextAz;
         cameraElevRef.current = step.nextElev;
-        setCameraAzimuth(step.nextAz);
-        setCameraElevation(step.nextElev);
+        if (step.moving) {
+          trackingActiveUntilRef.current = nowPerf + 160;
+        } else if (!isSlidingRef.current) {
+          trackingActiveUntilRef.current = 0;
+        }
+        // 3D 카메라는 ref로 60fps 즉시 반영하고, HUD 표시용 React state는 쓰로틀해 매 프레임 전체 리렌더를 방지
+        if (!step.moving || nowPerf - lastTrackingHudSyncMsRef.current >= 150) {
+          lastTrackingHudSyncMsRef.current = nowPerf;
+          setCameraAzimuth(step.nextAz);
+          setCameraElevation(step.nextElev);
+        }
         return step.moving;
       }
+      if (!isSlidingRef.current) trackingActiveUntilRef.current = 0;
       return false;
     };
 
@@ -2752,7 +2770,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (!volDrewRef.current) { seaPlaneRef.current.distMesh.visible = false; seaPlaneRef.current.litMesh.visible = false; }
       }
       if (terrainFieldRef.current?.mesh.visible && rendererRef.current) {
-        terrainFieldRef.current.bakeSunShadow(rendererRef.current, isSlidingRef.current);
+        const fastShadow = isSlidingRef.current || performance.now() < trackingActiveUntilRef.current;
+        terrainFieldRef.current.bakeSunShadow(rendererRef.current, fastShadow);
         terrainFieldRef.current.bakeAmbient(rendererRef.current);
       }
       return { altitudeM, effectiveAz, effectiveElev };
@@ -2942,7 +2961,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const eyeKey = curEyeForKey ? `${curEyeForKey.latitude.toFixed(6)},${curEyeForKey.longitude.toFixed(6)}` : '';
         const nowPerf = performance.now();
         const isSlidingNow = !!isSlidingRef.current;
-        const isInteractingNow = isSlidingNow || eyeMovingRef.current || useCelestialStore.getState().isGestureBlocked || settleFrameRef.current !== null || flyFrameRef.current !== null || divingAnimFrameRef.current !== null;
+        const isTrackingActive = nowPerf < trackingActiveUntilRef.current;
+        const isInteractingNow = isSlidingNow || isTrackingActive || eyeMovingRef.current || useCelestialStore.getState().isGestureBlocked || settleFrameRef.current !== null || flyFrameRef.current !== null || divingAnimFrameRef.current !== null;
         const altQuant = altitudeM > 50
           ? Math.round(altitudeM / Math.max(10, altitudeM * (isInteractingNow ? 0.06 : 0.02)))
           : Math.round(altitudeM);
@@ -3064,8 +3084,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           driftAnchorRef.current = syncDecision.nextAnchor;
           lastVolDateSyncRef.current = syncDecision.nextLastSync;
           const curMin = Math.floor(vMs / 60000);
-          if (live && !volPendingRef.current && vol.updateContinuousScene && lastVolContMinRef.current !== curMin) {
+          const contThrottleOk = !isInteractingNow || nowPerf - lastVolContWallMsRef.current >= 150;
+          if (live && !volPendingRef.current && vol.updateContinuousScene && lastVolContMinRef.current !== curMin && contThrottleOk) {
             lastVolContMinRef.current = curMin;
+            lastVolContWallMsRef.current = nowPerf;
             const contWx = vPath.length ? getInterpolatedWeather(vPath, vDate) : (weatherRef.current ?? []);
             if (contWx.length > 0) {
               const contBuilt = live.buildLiveScene({

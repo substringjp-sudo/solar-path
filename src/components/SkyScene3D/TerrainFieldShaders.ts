@@ -953,17 +953,9 @@ void main() {
   gl_FragColor = vec4(sqrt(clamp(outLitAlb, 0.0, 1.0)), litOut);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
   vec4 distOut = terrainDistEncode(vSlantM / 1000.0);
-  // distOut.b: >0.5 는 바다/물, 0.0~0.4 는 평지/도시 마스크 × 빛지도 세기(산 경사면·물·건물 제외, 볼륨 패스 추가 샘플러 0)
-  float cityPatchMrt = 0.0;
-  if (uCityPatchValid > 0.5) {
-    vec2 cUvMrt = vec2(vGround.x + uCityPatchHalfM, -vGround.y + uCityPatchHalfM) / max(1.0, 2.0 * uCityPatchHalfM);
-    if (cUvMrt.x > 0.0 && cUvMrt.x < 1.0 && cUvMrt.y > 0.0 && cUvMrt.y < 1.0) {
-      float cEdgeMrt = 1.0 - smoothstep(0.85, 1.0, max(abs(cUvMrt.x * 2.0 - 1.0), abs(cUvMrt.y * 2.0 - 1.0)));
-      cityPatchMrt = texture2D(uCityPatchTex, cUvMrt).r * 1.25 * cEdgeMrt;
-    }
-  }
+  // distOut.b: >0.5 는 바다/물, 0.0~0.4 는 원거리 야간 도시 불빛이 올라올 수 있는 평지/도시 마스크(산 경사면 제외)
   float flatCitySurface = (1.0 - smoothstep(0.10, 0.26, slope)) * (1.0 - waterMix) * mix(0.68, 1.0, max(urbanMask, paveAny));
-  distOut.b = waterMix > 0.5 ? 1.0 : clamp(flatCitySurface * cityPatchMrt, 0.0, 1.0) * 0.4;
+  distOut.b = waterMix > 0.5 ? 1.0 : clamp(flatCitySurface, 0.0, 1.0) * 0.4;
   pc_fragColor2 = distOut;
   return;
 #endif

@@ -1104,6 +1104,9 @@ export async function createVolumetricScene(
       'uniform float cityAzOn;',
       'uniform vec3 cityNorth;',
       'uniform vec3 cityEast;',
+      'uniform sampler2D cityTex;',
+      'uniform float cityTexOn;',
+      'uniform float cityExtentM;',
       'float volCityAzGain(vec3 rd) {',
       '  if (cityAzOn < 0.5) return 1.0;',
       '  float cA = mod(degrees(atan(dot(rd, cityEast), dot(rd, cityNorth))) + 360.0, 360.0) / 10.0 - 0.5;',
@@ -1226,14 +1229,20 @@ export async function createVolumetricScene(
       '            vtRad = vtAlb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + (vtSky + vtSun * vtSunH * vtFill) * vtAmb);',
       // 야간 스카이글로우 간접광: 암부 바닥을 낮춰 산 실루엣과 건물 외벽 입체 음영을 유지
       '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.04 + 0.96 * pow(clamp(vtAmb, 0.0, 1.5), 1.35));',
-      // 원거리 도시 평지 불빛: 도심 근거리(<450m, 3D 창문·가로등 영역)와 산 경사면(vtDistRaw.b≈0)은 제외하고,
-      // TerrainField MRT(vtDistRaw.b ∈ [0, 0.4])가 실어 보낸 평지×빛지도 밀도로 멀리 있는 도시 평지만 반짝임
-      '            float cMap = clamp(vtDistRaw.b / 0.4, 0.0, 1.0);',
-      '            float farCityW = smoothstep(0.45, 1.40, vtKm) * cMap;',
-      '            if (farCityW > 0.005 && dot(cityGroundIrr, vec3(1.0)) > 1e-6) {',
+      // 원거리 도시 평지 불빛: 도심 근거리(<450m, 3D 창문·가로등 영역)와 산 경사면(vtDistRaw.b≈0)은 제외하고 멀리 있는 도시 평지만 반짝임
+      '            float vtFlatCity = clamp(vtDistRaw.b / 0.4, 0.0, 1.0);',
+      '            float farCityW = smoothstep(0.45, 1.40, vtKm) * vtFlatCity;',
+      '            if (cityTexOn > 0.5 && farCityW > 0.005 && dot(cityGroundIrr, vec3(1.0)) > 1e-6) {',
       '              vec3 dCityM = (vtP - vCameraPosition) * 1000.0;',
       '              vec2 cPosM = vec2(dot(dCityM, cityEast), dot(dCityM, cityNorth));',
-      '              vtRad += cityGroundIrr * farCityW * volCitySparkle(cPosM, vtKm, cMap);',
+      '              vec2 cUv = cPosM / max(1.0, cityExtentM) + 0.5;',
+      '              if (cUv.x > 0.0 && cUv.x < 1.0 && cUv.y > 0.0 && cUv.y < 1.0) {',
+      '                float cEdge = 1.0 - smoothstep(0.85, 1.0, max(abs(cUv.x * 2.0 - 1.0), abs(cUv.y * 2.0 - 1.0)));',
+      '                float cMap = texture(cityTex, cUv).r * cEdge;',
+      '                if (cMap > 0.01) {',
+      '                  vtRad += cityGroundIrr * cMap * farCityW * volCitySparkle(cPosM, vtKm, clamp(cMap, 0.0, 1.0));',
+      '                }',
+      '              }',
       '            }',
       // 젖은 갯벌·모래: 스치는 각일수록 하늘을 비춥니다(물 n=1.33 Schlick — 바다와 같은 식). 물 쪽 되비침과 한 줄로 이어집니다.
       '            if (vtWet > 0.004) {',
@@ -1406,6 +1415,9 @@ export async function createVolumetricScene(
     fx.uniforms.set('cityAir', new Uniform(new Vector3()));
     fx.uniforms.set('cityTerrainIrr', new Uniform(new Vector3()));
     fx.uniforms.set('cityGroundIrr', new Uniform(new Vector3()));
+    fx.uniforms.set('cityTex', new Uniform(null));
+    fx.uniforms.set('cityTexOn', new Uniform(0));
+    fx.uniforms.set('cityExtentM', new Uniform(120000));
     fx.uniforms.set('cityAirOn', new Uniform(0));
     fx.uniforms.set('cloudSkyT', new Uniform(1));
     fx.uniforms.set('cityAz', new Uniform(new Array(36).fill(1)));
@@ -1625,11 +1637,11 @@ export async function createVolumetricScene(
       }
     }
     const draft = isInteracting;
-    const azQ = draft ? Math.round(sunAz * 2) : Math.round(sunAz * 5);
-    const altQ = draft ? Math.round(sunAltDeg * 2.5) : Math.round(sunAltDeg * 10);
+    const azQ = draft ? Math.round(sunAz / 1.5) : Math.round(sunAz * 5);
+    const altQ = draft ? Math.round(sunAltDeg) : Math.round(sunAltDeg * 10);
     const key = `${bands.low[0].toFixed(2)},${bands.low[1].toFixed(2)}|${bands.mid[0].toFixed(2)},${bands.mid[1].toFixed(2)}|${bands.high[0].toFixed(2)},${bands.high[1].toFixed(2)}|${azQ}|${altQ}|${ringSig}|${draft ? 1 : 0}`;
     const reuseFullDuringDraft = draft && farMap && !farMap.draft && farMap.ringSig === ringSig
-      && Math.abs(farMap.altDeg - sunAltDeg) < 0.25 && Math.abs(farMap.azDeg - sunAz) < 0.35;
+      && Math.abs(farMap.altDeg - sunAltDeg) < 0.8 && Math.abs(farMap.azDeg - sunAz) < 1.2;
     if (!farMap || (farMap.key !== key && !reuseFullDuringDraft)) {
       if (!farCover || farCover.ringSig !== ringSig) {
         farCover = { ringSig, grids: buildFarCoverGrids(p.macro) };
@@ -2024,7 +2036,7 @@ export async function createVolumetricScene(
   const applyCityMap = (p: VolumetricSceneInput) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
-    if (!cityMap) { au.get('cityAzOn')!.value = 0; cu.cityTexOn.value = 0; return; }
+    if (!cityMap) { au.get('cityAzOn')!.value = 0; au.get('cityTexOn')!.value = 0; cu.cityTexOn.value = 0; return; }
     const key = `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
     if (!cityField || cityField.key !== key) {
       cityField?.tex.dispose();
@@ -2041,6 +2053,9 @@ export async function createVolumetricScene(
     const e = curNue.elements;
     (au.get('cityNorth')!.value as Vector3).set(e[0], e[1], e[2]).normalize();
     (au.get('cityEast')!.value as Vector3).set(e[8], e[9], e[10]).normalize();
+    au.get('cityTex')!.value = cityField.tex;
+    au.get('cityTexOn')!.value = 1;
+    au.get('cityExtentM')!.value = cityField.f.halfKm * 2000;
     cu.cityTex.value = cityField.tex;
     cu.cityTexOn.value = 1;
     cu.cityExtentM.value = cityField.f.halfKm * 2000;
