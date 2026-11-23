@@ -647,14 +647,17 @@ void main() {
       // 구름 아래 지표면/바다 음영
       col *= (1.0 - cloudAlpha * 0.34 * day);
 
-      float cloudSunAlt = sunAltDeg + 0.833 + 0.45;
-      float cloudDay = smoothstep(-0.6, 2.2, cloudSunAlt);
-      float cloudTw = exp(-pow((cloudSunAlt + 0.6) / 2.4, 2.0));
+      // 일출·일몰선(0°)을 가운데 두고 낮 쪽(금빛) → 경계(주황) → 밤 쪽(어두운 붉은 잔광)으로 3단 전이
+      float cloudDay = smoothstep(-1.4, 1.8, sunAltDeg);
+      float goldBand = exp(-pow((sunAltDeg - 1.6) / 2.2, 2.0));
+      float orangeBand = exp(-pow((sunAltDeg + 0.55) / 1.45, 2.0));
+      float crimsonBand = exp(-pow((sunAltDeg + 2.35) / 1.35, 2.0));
       vec3 cloudDayCol = vec3(0.95, 0.97, 1.0) * (0.35 + 0.65 * max(0.0, ndl));
-      vec3 cloudTwCol = vec3(0.98, 0.54, 0.26);
       vec3 cloudNightCol = vec3(0.007, 0.011, 0.022);
       vec3 cloudCol = mix(cloudNightCol, cloudDayCol, cloudDay);
-      cloudCol = mix(cloudCol, cloudTwCol, cloudTw * 0.72);
+      cloudCol = mix(cloudCol, vec3(1.00, 0.78, 0.46), goldBand * 0.42);
+      cloudCol = mix(cloudCol, vec3(0.98, 0.48, 0.20), orangeBand * 0.74);
+      cloudCol = mix(cloudCol, vec3(0.52, 0.14, 0.16), crimsonBand * 0.58);
       col = mix(col, cloudCol, cloudAlpha);
     }
   }

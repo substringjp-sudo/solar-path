@@ -358,7 +358,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '알림', 'Notifications', '通知')}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                   {([
-                    ['sunsetForecast', L3(language, '노을 예보', 'Sunset forecast', '夕焼け予報'), L3(language, '일몰 2시간 전 · 구름·색 예측과 그림', '2 h before sunset · clouds, colour and a preview', '日没2時間前・雲と色の予測と画像')],
+                    ['sunsetForecast', L3(language, '노을 예보', 'Sunset forecast', '夕焼け予報'), L3(language, '일몰 2시간 전 · 구름·색 예측', '2 h before sunset · clouds and colour', '日没2時間前・雲と色の予測')],
                     ['sunriseForecast', L3(language, '일출 예보', 'Sunrise forecast', '日の出予報'), L3(language, '전날 밤 10시 · 구름·색 예측', '10 pm the night before · clouds and colour', '前夜22時・雲と色の予測')],
                     ['goodOnly', L3(language, '좋음 이상만', 'Good days only', '良い日だけ'), L3(language, '노을·일출 예보를 좋음 이상으로 판정된 날만 · 02 학습과 같은 판정', 'Sunset and sunrise forecasts only when rated Good or better · same verdict as 02 Learn', '夕焼け・日の出予報を「良い」以上の日だけ・02 学習と同じ判定')],
                     ['golden', L3(language, '골든아워', 'Golden hour', 'ゴールデンアワー'), L3(language, '아침 일출 · 저녁 해 6°', 'Sunrise · evening sun at 6°', '朝の日の出・夕方の太陽6°')],
