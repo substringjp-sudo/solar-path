@@ -294,7 +294,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [cameraFacing, setCameraFacing] = useState<CameraType>('back');
   const cameraFacingRef = useRef<CameraType>(cameraFacing);
   cameraFacingRef.current = cameraFacing;
-  const [zoom, setZoom] = useState(0); // 0 (1.0x) ~ 1 (5.0x)
+  const [currentMagnification, setCurrentMagnification] = useState(1.0);
   const [exposure, setExposure] = useState(0); // -1.0 ~ 1.0 (디폴트 0)
 
   // 뷰 모드 ('camera': 실카메라, 'blend': 카메라+3D 반투명 겹쳐보기, 'sim': 60fps 3D 시뮬)
@@ -311,16 +311,41 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   frozenViewRef.current = frozenView;
   const [isInteracting, setIsInteracting] = useState(false);
 
-  // 줌 배율 M: 1.0x (zoom=0) ~ 5.0x (zoom=1)
-  const currentMagnification = useMemo(() => {
-    return 1.0 + zoom * 4.0;
-  }, [zoom]);
+  const [astroCaps, setAstroCaps] = useState<AstroCameraCapabilities>({
+    available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
+    minExposureMs: 100, maxExposureMs: 30000, minIso: 100, maxIso: 6400,
+    focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, minZoomRatio: 1, maxZoomRatio: 5, sensorOrientation: 90,
+    supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
+  });
+  const [rearLenses, setRearLenses] = useState<RearLensInfo[]>([]);
+  const [iosLenses, setIosLenses] = useState<string[]>([]);
+  const [selectedLensId, setSelectedLensId] = useState<string | null>(null);
+  const [androidMaxZoomRatio, setAndroidMaxZoomRatio] = useState(5.0);
+  const hardwareMaxZoomRatio = useMemo(() => {
+    if (Platform.OS !== 'android') return 5.0;
+    const wide = rearLenses.find(l => l.focal35mm >= 18 && l.focal35mm <= 34) ?? rearLenses[0];
+    return Math.max(1.0, wide?.maxZoomRatio ?? astroCaps.maxZoomRatio ?? androidMaxZoomRatio);
+  }, [rearLenses, astroCaps.maxZoomRatio, androidMaxZoomRatio]);
+  const maxUiMag = Platform.OS === 'android'
+    ? Math.max(5, Math.min(10, Math.floor(hardwareMaxZoomRatio)))
+    : 5;
+  const maxUiMagRef = useRef(maxUiMag);
+  maxUiMagRef.current = maxUiMag;
+  const magnificationRef = useRef(currentMagnification);
+  magnificationRef.current = currentMagnification;
 
-  // 배율 직접 설정 헬퍼 (1x, 2x, 3x, 5x)
+  // 배율 직접 설정 (1x ~ 기기 지원 maxUiMag; ExpoCameraView 안드로이드는 zoom = mag / maxZoomRatio 선형 매핑)
   const setMagnification = useCallback((mag: number) => {
-    const clampedMag = Math.max(1.0, Math.min(5.0, mag));
-    setZoom((clampedMag - 1.0) / 4.0);
+    const clampedMag = Math.max(1.0, Math.min(maxUiMagRef.current, mag));
+    setCurrentMagnification(Math.round(clampedMag * 100) / 100);
   }, []);
+  const cameraViewZoom = useMemo(() => {
+    if (Platform.OS === 'android') {
+      if (currentMagnification <= 1.01) return 0;
+      return Math.min(1, currentMagnification / Math.max(1, hardwareMaxZoomRatio));
+    }
+    return Math.max(0, Math.min(1, (currentMagnification - 1.0) / 4.0));
+  }, [currentMagnification, hardwareMaxZoomRatio]);
 
   const initialZoom = useRef(0);
   const initialDistance = useRef(0);
@@ -351,7 +376,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setIsInteracting(true);
       const touches = evt.nativeEvent.touches;
       if (touches.length === 2) {
-        initialZoom.current = zoom;
+        initialZoom.current = magnificationRef.current;
         const dx = touches[0].pageX - touches[1].pageX;
         const dy = touches[0].pageY - touches[1].pageY;
         initialDistance.current = Math.sqrt(dx * dx + dy * dy);
@@ -377,9 +402,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         const dy = touches[0].pageY - touches[1].pageY;
         const distance = Math.sqrt(dx * dx + dy * dy);
         const scale = distance / initialDistance.current;
-        const deltaZoom = (scale - 1) * 0.3;
-        const newZoom = Math.max(0, Math.min(1, initialZoom.current + deltaZoom));
-        setZoom(newZoom);
+        const nextMag = Math.max(1.0, Math.min(maxUiMagRef.current, initialZoom.current * Math.pow(scale, 0.85)));
+        setCurrentMagnification(Math.round(nextMag * 100) / 100);
       } else if (touches.length === 1 && panStartView.current) {
         const degPerPxX = opticsRef.current.hFovDeg / Math.max(1, W);
         const degPerPxY = opticsRef.current.vFovDeg / Math.max(1, stageLayoutHRef.current);
@@ -404,7 +428,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       panStartView.current = null;
       setIsInteracting(false);
     }
-  }), [zoom, W]);
+  }), [W]);
 
   // 2. Exposure Vertical Slider PanResponder
   const EXPOSURE_SLIDER_HEIGHT = EXPOSURE_TRACK_H;
@@ -505,15 +529,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [cameraTab, setCameraTab] = useState<CameraTabMode>('sunset');
   // 새 화면 틀(실험, 설정의 "실험")이 켜져 있으면 셔터 아래에 모드 줄이 섭니다(docs/SANDBOX_MODE_PLAN.md 18 · 21절).
   const [astroSettings, setAstroSettings] = useState<AstroSettingsState>(() => createDefaultAstroSettings());
-  const [astroCaps, setAstroCaps] = useState<AstroCameraCapabilities>({
-    available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
-    minExposureMs: 100, maxExposureMs: 30000, minIso: 100, maxIso: 6400,
-    focalLengthMm: 4.5, focal35mm: 24, hfovDeg: 65, sensorOrientation: 90,
-    supportsFocusDistance: false, rawWidth: 0, rawHeight: 0, yuvWidth: 0, yuvHeight: 0,
-  });
-  const [rearLenses, setRearLenses] = useState<RearLensInfo[]>([]);
-  const [iosLenses, setIosLenses] = useState<string[]>([]);
-  const [selectedLensId, setSelectedLensId] = useState<string | null>(null);
   const [astroNightPhase, setAstroNightPhase] = useState<AstroNightPhase | null>(null);
   const [astroCountdownSec, setAstroCountdownSec] = useState(0);
   const [astroProgress, setAstroProgress] = useState<AstroCaptureProgress | null>(null);
@@ -1085,7 +1100,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     uri: string, exif: Record<string, unknown> | undefined, sensor: Attitude, speedDegS: number, when: Date,
   ): Promise<string> => {
     if (cameraFacing !== 'back') return L3(language, '뒤 카메라에서만 됩니다', 'Works with the back camera only', '背面カメラでのみ使えます');
-    if (zoom > 0.001) return L3(language, '1배율에서만 됩니다', 'Works at 1× zoom only', '1倍ズームでのみ使えます');
+    if (currentMagnification > 1.02) return L3(language, '1배율에서만 됩니다', 'Works at 1× zoom only', '1倍ズームでのみ使えます');
     if (Math.abs(sensor.rollDeg) > 30) return L3(language, '폰을 세로로 들어 주세요', 'Hold the phone upright', 'スマホを縦に持ってください');
     if (speedDegS > 15) return L3(language, '폰을 멈춘 채 찍어 주세요', 'Hold still while shooting', '静止して撮影してください');
     const frame = await frameFromPhoto(uri);
@@ -1116,7 +1131,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const by = a.body ? (a.body.kind === 'sun' ? sunW : moonW) + (r.samples ? ` + ${ridgeW}` : '') : ridgeW;
     const dy = `${r.dYaw >= 0 ? '+' : ''}${r.dYaw.toFixed(1)}°`;
     return L3(language, `${by}으로 방위를 ${dy} 맞췄습니다`, `Heading corrected ${dy} using ${by}`, `${by}で方位を${dy}補正しました`);
-  }, [cameraFacing, zoom, latitude, longitude, language]);
+  }, [cameraFacing, currentMagnification, latitude, longitude, language]);
 
   useEffect(() => {
     if (!visionStatus || isVisionRunning) return;
@@ -1277,31 +1292,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible, viewMode, displayAz, displayEl, simVFovDeg, displayRoll, centerOffsetYFrac]);
 
-  // 기기 후면 렌즈 목록 인식 (Android Camera2 / iOS CameraView)
+  // 기기 후면 렌즈 목록 · 줌 배율 범위 인식 (Android Camera2 / iOS CameraView)
   useEffect(() => {
     if (!visible || Platform.OS !== 'android') return;
     let cancelled = false;
     getRearLensesAsync().then(list => {
       if (cancelled) return;
       setRearLenses(list);
+      const wide = list.find(l => l.focal35mm >= 18 && l.focal35mm <= 34) ?? list[0];
+      if (wide?.maxZoomRatio && wide.maxZoomRatio > 1) {
+        setAndroidMaxZoomRatio(wide.maxZoomRatio);
+      }
       setSelectedLensId(prev => {
         if (prev && list.some(l => l.cameraId === prev)) return prev;
-        const wide = list.find(l => l.focal35mm >= 18 && l.focal35mm <= 32);
-        return (wide ?? list[0])?.cameraId ?? null;
+        return wide?.cameraId ?? null;
       });
     });
     return () => { cancelled = true; };
   }, [visible]);
 
-  // 천체 모드 진입 시 Android Camera2 정적 성능(raw 지원 · 노출/ISO 범위 · 초점거리) 조회
+  // Android Camera2 정적 성능(raw · 노출/ISO · maxZoomRatio · 초점거리) 조회
   useEffect(() => {
-    if (!visible || cameraTab !== 'astro') return;
+    if (!visible || Platform.OS !== 'android') return;
     let cancelled = false;
-    getAstroCapabilitiesAsync('back', Platform.OS === 'android' ? (selectedLensId ?? undefined) : undefined).then(caps => {
-      if (!cancelled) setAstroCaps(caps);
+    getAstroCapabilitiesAsync('back', selectedLensId ?? undefined).then(caps => {
+      if (cancelled) return;
+      setAstroCaps(caps);
+      if (caps.maxZoomRatio && caps.maxZoomRatio > 1 && (!selectedLensId || !selectedLensId.includes('#phys:'))) {
+        setAndroidMaxZoomRatio(prev => Math.max(prev, caps.maxZoomRatio ?? 1));
+      }
     });
     return () => { cancelled = true; };
-  }, [visible, cameraTab, selectedLensId]);
+  }, [visible, selectedLensId]);
 
   // 천체 모드 30분 앞당김 구름 타임라인(3분 간격 11프레임) 계산 — 모드 전환 직후 인터랙션이 끝난 뒤 비동기로 실행
   useEffect(() => {
@@ -2326,12 +2348,23 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return rearLenses.map(l => {
       const role = l.focal35mm < 18
         ? L3(language, '초광각', 'Ultra Wide', '超広角')
-        : l.focal35mm <= 32
+        : l.focal35mm <= 34
           ? L3(language, '광각', 'Wide', '広角')
-          : L3(language, '망원', 'Tele', '望遠');
+          : l.focal35mm <= 85
+            ? L3(language, '망원', 'Tele', '望遠')
+            : L3(language, '초망원', 'Tele+', '超望遠');
       return { id: l.cameraId, label: role, sub: `${Math.round(l.focal35mm)}mm` };
     });
   }, [iosLenses, rearLenses, language]);
+  const handleSelectLens = useCallback((id: string) => {
+    setSelectedLensId(id);
+    if (Platform.OS === 'android') {
+      const target = rearLenses.find(l => l.cameraId === id);
+      if (target?.zoomRatio != null) {
+        setMagnification(target.zoomRatio >= 1.15 ? target.zoomRatio : 1.0);
+      }
+    }
+  }, [rearLenses, setMagnification]);
   const activeLensId = useMemo(() => {
     if (selectedLensId && lensOptions.some(l => l.id === selectedLensId)) return selectedLensId;
     if (Platform.OS === 'ios' && lensOptions.some(l => l.id === 'builtInWideAngleCamera')) return 'builtInWideAngleCamera';
@@ -2392,8 +2425,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       language={language}
       lenses={lensOptions}
       selectedLensId={activeLensId}
-      onSelectLens={setSelectedLensId}
+      onSelectLens={handleSelectLens}
       magnification={currentMagnification}
+      maxMag={maxUiMag}
       onChangeMagnification={setMagnification}
       onOpenCameraBag={() => setGearBagOpen(true)}
       gearActive={gearActive}
@@ -2745,7 +2779,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     facing={cameraFacing}
-                    zoom={zoom}
+                    zoom={cameraViewZoom}
                     selectedLens={Platform.OS === 'ios' && activeLensId ? activeLensId : undefined}
                     onAvailableLensesChanged={e => {
                       const list = e?.lenses ?? [];

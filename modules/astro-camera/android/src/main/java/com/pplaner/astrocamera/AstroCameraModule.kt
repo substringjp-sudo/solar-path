@@ -43,6 +43,7 @@ import kotlin.math.atan
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Android Camera2 기반 수동 장노출 · RAW_SENSOR/YUV 촬영 · 선형 누적 Expo 네이티브 모듈.
@@ -62,6 +63,8 @@ class AstroCameraModule : Module() {
   private var captureSession: CameraCaptureSession? = null
   private var imageReader: ImageReader? = null
   private var activeCameraId: String? = null
+  private var activePhysicalId: String? = null
+  private var activeZoomRatio: Float? = null
   private var activeFormat: Int = ImageFormat.YUV_420_888
   private var activeMaxLongEdge: Int = 2048
   private var activeChars: CameraCharacteristics? = null
@@ -100,13 +103,46 @@ class AstroCameraModule : Module() {
     return cameraHandler!!
   }
 
+  private data class ResolvedCameraTarget(
+    val logicalId: String,
+    val physicalId: String?,
+    val logicalChars: CameraCharacteristics,
+    val lensChars: CameraCharacteristics,
+    val focalOverrideMm: Double?,
+    val zoomRatio: Double?,
+  )
+
   private fun pickCameraId(
     manager: CameraManager,
     facing: String,
     requestedId: String? = null,
-  ): Pair<String, CameraCharacteristics> {
-    if (!requestedId.isNullOrEmpty() && manager.cameraIdList.contains(requestedId)) {
-      return requestedId to manager.getCameraCharacteristics(requestedId)
+  ): ResolvedCameraTarget {
+    if (!requestedId.isNullOrEmpty()) {
+      var logicalId = requestedId
+      var physId: String? = null
+      var zoomOverride: Double? = null
+      var focalOverride: Double? = null
+      if (requestedId.contains("#phys:")) {
+        logicalId = requestedId.substringBefore("#phys:")
+        physId = requestedId.substringAfter("#phys:")
+      } else if (requestedId.contains("#focal:")) {
+        logicalId = requestedId.substringBefore("#focal:")
+        focalOverride = requestedId.substringAfter("#focal:").substringBefore("@z:").toDoubleOrNull()
+        zoomOverride = requestedId.substringAfter("@z:", "").toDoubleOrNull()
+      }
+      if (manager.cameraIdList.contains(logicalId)) {
+        val logCh = manager.getCameraCharacteristics(logicalId)
+        val lensCh = if (!physId.isNullOrEmpty()) {
+          try {
+            manager.getCameraCharacteristics(physId)
+          } catch (_: Throwable) {
+            logCh
+          }
+        } else {
+          logCh
+        }
+        return ResolvedCameraTarget(logicalId, physId, logCh, lensCh, focalOverride, zoomOverride)
+      }
     }
     val wantLens = if (facing == "front") {
       CameraCharacteristics.LENS_FACING_FRONT
@@ -116,12 +152,13 @@ class AstroCameraModule : Module() {
     for (id in manager.cameraIdList) {
       val ch = manager.getCameraCharacteristics(id)
       if (ch.get(CameraCharacteristics.LENS_FACING) == wantLens) {
-        return id to ch
+        return ResolvedCameraTarget(id, null, ch, ch, null, null)
       }
     }
     val fallback = manager.cameraIdList.firstOrNull()
       ?: throw CodedException("ERR_NO_CAMERA", "No Camera2 devices found", null)
-    return fallback to manager.getCameraCharacteristics(fallback)
+    val fbCh = manager.getCameraCharacteristics(fallback)
+    return ResolvedCameraTarget(fallback, null, fbCh, fbCh, null, null)
   }
 
   private fun supportsCapability(ch: CameraCharacteristics, cap: Int): Boolean {
@@ -139,16 +176,32 @@ class AstroCameraModule : Module() {
       .maxByOrNull { it.width.toLong() * it.height.toLong() }
   }
 
-  private fun estimateFocal35AndHfov(ch: CameraCharacteristics): Pair<Double, Double> {
-    val focalMm = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble() ?: 4.5
+  private fun estimateFocal35AndHfov(
+    ch: CameraCharacteristics,
+    focalOverrideMm: Double? = null,
+  ): Pair<Double, Double> {
+    val focalMm = focalOverrideMm
+      ?: ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble()
+      ?: 4.5
     val phys = ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
-    if (phys != null && phys.width > 0f && phys.height > 0f) {
+    if (phys != null && phys.width > 0f && phys.height > 0f && focalMm > 0.1) {
       val diagMm = hypot(phys.width.toDouble(), phys.height.toDouble())
       val focal35 = focalMm * (43.2666 / diagMm)
       val hfovDeg = Math.toDegrees(2.0 * atan(phys.width.toDouble() / (2.0 * focalMm)))
       return focal35 to hfovDeg
     }
     return 24.0 to 65.0
+  }
+
+  private fun estimateZoomRange(ch: CameraCharacteristics): Pair<Double, Double> {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      val range = ch.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+      if (range != null) {
+        return max(0.2, range.lower.toDouble()) to max(1.0, range.upper.toDouble())
+      }
+    }
+    val maxDig = ch.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)?.toDouble() ?: 1.0
+    return 1.0 to max(1.0, maxDig)
   }
 
   private fun buildRawParams(ch: CameraCharacteristics, result: TotalCaptureResult?): AstroStackAccumulator.RawParams {
@@ -189,6 +242,8 @@ class AstroCameraModule : Module() {
     try { imageReader?.close() } catch (_: Throwable) {}
     imageReader = null
     activeCameraId = null
+    activePhysicalId = null
+    activeZoomRatio = null
     activeChars = null
     try { cameraThread?.quitSafely() } catch (_: Throwable) {}
     cameraThread = null
@@ -208,47 +263,137 @@ class AstroCameraModule : Module() {
       val ctx = appContextSafe()
       val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
       val seenFocalBuckets = HashSet<Int>()
-      val out = mutableListOf<Map<String, Any>>()
+      data class RawLens(
+        val cameraId: String,
+        val logicalCameraId: String,
+        val physicalCameraId: String?,
+        val focalLengthMm: Double,
+        val focal35mm: Double,
+        val hfovDeg: Double,
+        val minZoomRatio: Double,
+        val maxZoomRatio: Double,
+      )
+      val rawList = mutableListOf<RawLens>()
+      val topLevelBackIds = mutableListOf<String>()
+
       for (id in manager.cameraIdList) {
         val ch = manager.getCameraCharacteristics(id)
         if (ch.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
-        val focalMm = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble() ?: 4.5
-        val (focal35, hfov) = estimateFocal35AndHfov(ch)
-        val bucket = (focal35 * 2.0).toInt()
-        if (!seenFocalBuckets.add(bucket)) continue
-        out.add(
-          mapOf(
-            "cameraId" to id,
-            "focalLengthMm" to focalMm,
-            "focal35mm" to focal35,
-            "hfovDeg" to hfov,
-          )
-        )
+        topLevelBackIds.add(id)
+        val (minZ, maxZ) = estimateZoomRange(ch)
+        val focals = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        if (focals != null && focals.isNotEmpty()) {
+          val baseFocalMm = focals[0].toDouble()
+          val (baseFocal35, _) = estimateFocal35AndHfov(ch, baseFocalMm)
+          for (idx in focals.indices) {
+            val fMm = focals[idx].toDouble()
+            val (f35, hfov) = estimateFocal35AndHfov(ch, fMm)
+            val bucket = (f35 * 2.0).roundToInt()
+            if (!seenFocalBuckets.add(bucket)) continue
+            val token = if (idx == 0) {
+              id
+            } else {
+              val z = max(0.5, f35 / max(1.0, baseFocal35))
+              "$id#focal:$fMm@z:${((z * 100.0).roundToInt() / 100.0)}"
+            }
+            rawList.add(RawLens(token, id, null, fMm, f35, hfov, minZ, maxZ))
+          }
+        } else {
+          val (f35, hfov) = estimateFocal35AndHfov(ch)
+          val bucket = (f35 * 2.0).roundToInt()
+          if (seenFocalBuckets.add(bucket)) {
+            rawList.add(RawLens(id, id, null, 4.5, f35, hfov, minZ, maxZ))
+          }
+        }
       }
-      out.sortedBy { (it["focal35mm"] as? Double) ?: 24.0 }
+
+      // Android 9(API 28)+ 멀티카메라: 논리 카메라 안에 숨겨진 물리 서브 카메라(초광각·3배·5배 등) 추가 탐색
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        for (logicalId in topLevelBackIds) {
+          val logCh = manager.getCameraCharacteristics(logicalId)
+          val (minZ, maxZ) = estimateZoomRange(logCh)
+          val physIds = logCh.physicalCameraIds
+          for (physId in physIds) {
+            if (physId == logicalId) continue
+            try {
+              val pCh = manager.getCameraCharacteristics(physId)
+              if (pCh.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
+              val fMm = pCh.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble() ?: 4.5
+              val (f35, hfov) = estimateFocal35AndHfov(pCh, fMm)
+              val bucket = (f35 * 2.0).roundToInt()
+              if (!seenFocalBuckets.add(bucket)) continue
+              val directlyOpenable = manager.cameraIdList.contains(physId)
+              val token = if (directlyOpenable) physId else "$logicalId#phys:$physId"
+              rawList.add(
+                RawLens(
+                  cameraId = token,
+                  logicalCameraId = if (directlyOpenable) physId else logicalId,
+                  physicalCameraId = if (directlyOpenable) null else physId,
+                  focalLengthMm = fMm,
+                  focal35mm = f35,
+                  hfovDeg = hfov,
+                  minZoomRatio = minZ,
+                  maxZoomRatio = maxZ,
+                )
+              )
+            } catch (_: Throwable) {
+              // 일부 제조사가 특정 physicalId 특성을 비공개 처리한 경우 안전히 건너뜀
+            }
+          }
+        }
+      }
+
+      // 기준 광각(20~32mm에 가장 가까운 렌즈) 대비 각 렌즈의 상대 배율 산출
+      val wideRef = rawList
+        .filter { it.focal35mm in 20.0..34.0 }
+        .minByOrNull { kotlin.math.abs(it.focal35mm - 24.0) }
+        ?: rawList.firstOrNull()
+      val baseFocal35 = wideRef?.focal35mm ?: 24.0
+
+      rawList
+        .sortedBy { it.focal35mm }
+        .map { item ->
+          val relZoom = max(0.5, item.focal35mm / max(1.0, baseFocal35))
+          mapOf(
+            "cameraId" to item.cameraId,
+            "logicalCameraId" to item.logicalCameraId,
+            "physicalCameraId" to (item.physicalCameraId ?: ""),
+            "focalLengthMm" to item.focalLengthMm,
+            "focal35mm" to item.focal35mm,
+            "hfovDeg" to item.hfovDeg,
+            "zoomRatio" to relZoom,
+            "minZoomRatio" to item.minZoomRatio,
+            "maxZoomRatio" to item.maxZoomRatio,
+          )
+        }
     }
 
     AsyncFunction("getCapabilitiesAsync") { facing: String?, cameraId: String? ->
       val ctx = appContextSafe()
       val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-      val (camId, ch) = pickCameraId(manager, facing ?: "back", cameraId)
+      val target = pickCameraId(manager, facing ?: "back", cameraId)
+      val ch = target.lensChars
+      val streamCh = target.logicalChars
 
       val hwLevel = ch.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL) ?: -1
-      val rawCapable = supportsCapability(ch, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
+      val rawCapable = supportsCapability(streamCh, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
       val manualCapable = supportsCapability(ch, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)
-      val cfgMap = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+      val cfgMap = streamCh.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
       val rawSize = chooseSize(cfgMap?.getOutputSizes(ImageFormat.RAW_SENSOR), null)
       val yuvSize = chooseSize(cfgMap?.getOutputSizes(ImageFormat.YUV_420_888), 2560)
       val expRange: Range<Long>? = ch.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
       val isoRange: Range<Int>? = ch.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
-      val (focal35, hfov) = estimateFocal35AndHfov(ch)
-      val focalMm = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble() ?: 4.5
+      val (focal35, hfov) = estimateFocal35AndHfov(ch, target.focalOverrideMm)
+      val focalMm = target.focalOverrideMm
+        ?: ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()?.toDouble()
+        ?: 4.5
+      val (minZ, maxZ) = estimateZoomRange(streamCh)
       val sensorOrient = ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
       val minFocusDist = ch.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)?.toDouble() ?: 0.0
 
       mapOf(
         "available" to true,
-        "cameraId" to camId,
+        "cameraId" to target.logicalId,
         "hardwareLevel" to hwLevel,
         "rawSupported" to (rawCapable && rawSize != null),
         "manualSensorSupported" to manualCapable,
@@ -259,6 +404,8 @@ class AstroCameraModule : Module() {
         "focalLengthMm" to focalMm,
         "focal35mm" to focal35,
         "hfovDeg" to hfov,
+        "minZoomRatio" to minZ,
+        "maxZoomRatio" to maxZ,
         "sensorOrientation" to sensorOrient,
         "supportsFocusDistance" to (minFocusDist > 0.0),
         "rawWidth" to (rawSize?.width ?: 0),
@@ -286,7 +433,10 @@ class AstroCameraModule : Module() {
           activeMaxLongEdge = ((opts["maxLongEdge"] as? Number)?.toInt() ?: 2048).coerceIn(640, 4096)
 
           val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-          val (camId, ch) = pickCameraId(manager, facing, requestedCameraId)
+          val target = pickCameraId(manager, facing, requestedCameraId)
+          val camId = target.logicalId
+          val ch = target.logicalChars
+          val lensCh = target.lensChars
           val cfgMap = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
           val rawCapable = supportsCapability(ch, CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
           val rawSize = if (preferRaw && rawCapable) chooseSize(cfgMap?.getOutputSizes(ImageFormat.RAW_SENSOR), null) else null
@@ -305,21 +455,32 @@ class AstroCameraModule : Module() {
             return@launch
           }
 
-          Log.i("AstroCamera", "startSession camId=$camId fmt=$chosenFormat size=${chosenSize.width}x${chosenSize.height}")
+          Log.i("AstroCamera", "startSession camId=$camId phys=${target.physicalId} fmt=$chosenFormat size=${chosenSize.width}x${chosenSize.height}")
           val handler = ensureThread()
           val openedDevice = openCameraBlocking(manager, camId, handler)
           val reader = ImageReader.newInstance(chosenSize.width, chosenSize.height, chosenFormat, 2)
-          val session = createSessionBlocking(openedDevice, listOf(reader.surface), handler)
+          val session = try {
+            createSessionBlocking(openedDevice, listOf(reader.surface), handler, target.physicalId)
+          } catch (physErr: Throwable) {
+            if (target.physicalId != null) {
+              Log.w("AstroCamera", "Physical stream rejected (${physErr.message}), falling back to logical zoom")
+              createSessionBlocking(openedDevice, listOf(reader.surface), handler, null)
+            } else {
+              throw physErr
+            }
+          }
           Log.i("AstroCamera", "startSession ready camId=$camId")
 
           cameraDevice = openedDevice
           imageReader = reader
           captureSession = session
           activeCameraId = camId
+          activePhysicalId = target.physicalId
+          activeZoomRatio = target.zoomRatio?.toFloat()
           activeChars = ch
           activeFormat = chosenFormat
 
-          val (focal35, hfov) = estimateFocal35AndHfov(ch)
+          val (focal35, hfov) = estimateFocal35AndHfov(lensCh, target.focalOverrideMm)
           val outW = if (chosenFormat == ImageFormat.RAW_SENSOR) chosenSize.width / 2 else min(chosenSize.width, activeMaxLongEdge)
           val outH = if (chosenFormat == ImageFormat.RAW_SENSOR) chosenSize.height / 2 else ((outW.toDouble() * chosenSize.height) / chosenSize.width).toInt()
 
@@ -403,6 +564,13 @@ class AstroCameraModule : Module() {
               set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF)
               set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX)
               set(CaptureRequest.COLOR_CORRECTION_GAINS, RggbChannelVector(rG, gG, gG, bG))
+            }
+            val reqZoomRatio = (opts["zoomRatio"] as? Number)?.toFloat() ?: activeZoomRatio
+            if (reqZoomRatio != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+              val zRange = ch.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+              if (zRange != null) {
+                set(CaptureRequest.CONTROL_ZOOM_RATIO, zRange.clamp(reqZoomRatio))
+              }
             }
           }
 
@@ -703,6 +871,7 @@ class AstroCameraModule : Module() {
     device: CameraDevice,
     surfaces: List<android.view.Surface>,
     handler: Handler,
+    physicalCameraId: String? = null,
   ): CameraCaptureSession {
     val sesRef = AtomicReference<CameraCaptureSession?>()
     val errRef = AtomicReference<String?>()
@@ -721,7 +890,13 @@ class AstroCameraModule : Module() {
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      val outputs = surfaces.map { OutputConfiguration(it) }
+      val outputs = surfaces.map { s ->
+        OutputConfiguration(s).apply {
+          if (!physicalCameraId.isNullOrEmpty()) {
+            setPhysicalCameraId(physicalCameraId)
+          }
+        }
+      }
       val cfg = SessionConfiguration(
         SessionConfiguration.SESSION_REGULAR,
         outputs,

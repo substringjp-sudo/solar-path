@@ -19,6 +19,8 @@ export interface AstroCameraCapabilities {
   focalLengthMm: number;
   focal35mm: number;
   hfovDeg: number;
+  minZoomRatio?: number;
+  maxZoomRatio?: number;
   sensorOrientation: number;
   supportsFocusDistance: boolean;
   rawWidth: number;
@@ -65,9 +67,14 @@ export interface AstroStackFinalizeResult {
 
 export interface RearLensInfo {
   cameraId: string;
+  logicalCameraId?: string;
+  physicalCameraId?: string;
   focalLengthMm: number;
   focal35mm: number;
   hfovDeg: number;
+  zoomRatio?: number;
+  minZoomRatio?: number;
+  maxZoomRatio?: number;
 }
 
 interface AstroCameraNative {
@@ -86,6 +93,7 @@ interface AstroCameraNative {
     lockFocusInfinity?: boolean;
     deviceRotationDeg?: number;
     wbGains?: [number, number, number];
+    zoomRatio?: number;
   }): Promise<AstroSubFrame>;
   stopSessionAsync(): Promise<void>;
   beginStackAsync(opts: { width: number; height: number }): Promise<{ width: number; height: number }>;
@@ -128,6 +136,8 @@ const UNAVAILABLE_CAPS: AstroCameraCapabilities = {
   focalLengthMm: 0,
   focal35mm: 24,
   hfovDeg: 65,
+  minZoomRatio: 1,
+  maxZoomRatio: 5,
   sensorOrientation: 90,
   supportsFocusDistance: false,
   rawWidth: 0,
@@ -180,6 +190,7 @@ export async function captureAstroSubFrameAsync(opts: {
   lockFocusInfinity?: boolean;
   deviceRotationDeg?: number;
   wbGains?: [number, number, number];
+  zoomRatio?: number;
 }): Promise<AstroSubFrame> {
   if (!NativeAstroCamera) {
     throw new Error('AstroCamera native module is not available in this build');

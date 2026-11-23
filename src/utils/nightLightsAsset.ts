@@ -4,9 +4,18 @@
  * 하네스(웹 묶기)는 react-native·expo 를 대체 모듈로 바꾸므로 이 파일은 앱(SkyScene3D)에서만 부릅니다.
  */
 import { Platform } from 'react-native';
-import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decodeGrayPng, type NightLights } from './cityLightMap';
+
+const { Asset } = require('expo-asset') as {
+  Asset: {
+    fromModule: (moduleId: number) => {
+      downloadAsync: () => Promise<void>;
+      localUri: string | null;
+      uri: string;
+    };
+  };
+};
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const B64_REV = (() => { const t = new Int16Array(128).fill(-1); for (let i = 0; i < 64; i++) t[B64.charCodeAt(i)] = i; return t; })();

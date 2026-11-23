@@ -23,6 +23,7 @@ interface Props {
   selectedLensId: string | null;
   onSelectLens: (id: string) => void;
   magnification: number;
+  maxMag?: number;
   onChangeMagnification: (mag: number) => void;
   onOpenCameraBag?: () => void;
   gearActive?: boolean;
@@ -35,11 +36,17 @@ export const CameraLensZoomSection: React.FC<Props> = ({
   selectedLensId,
   onSelectLens,
   magnification,
+  maxMag = 5,
   onChangeMagnification,
   onOpenCameraBag,
   gearActive = false,
   gearBadge,
 }) => {
+  const presets = maxMag >= 10
+    ? [1, 2, 3, 5, 10]
+    : maxMag >= 7
+      ? [1, 2, 3, 5, Math.floor(maxMag)]
+      : ZOOM_PRESETS.filter(z => z <= maxMag + 0.05);
   return (
     <View style={styles.root}>
       {(lenses.length > 0 || onOpenCameraBag) && (
@@ -82,10 +89,11 @@ export const CameraLensZoomSection: React.FC<Props> = ({
         <View style={styles.row}>
           <ZoomDialPill
             magnification={magnification}
+            maxMag={maxMag}
             onChange={onChangeMagnification}
             language={language}
           />
-          {ZOOM_PRESETS.map(z => (
+          {presets.map(z => (
             <GlassChip
               key={z}
               testID={`zoom-preset-${z}`}

@@ -13,6 +13,7 @@ import { Renderer } from 'expo-three';
 import * as THREE from 'three';
 import { unzlibSync } from 'fflate';
 import { BASE_DEM_PNG_B64 } from '../../utils/baseDemData';
+import { LAND_SDF_PNG_B64 } from '../../utils/landMaskData';
 import { fromBase64, getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import type { NightLights } from '../../utils/cityLightMap';
 import {
@@ -31,7 +32,14 @@ interface DecodedDem {
   elevM: Float32Array;
 }
 
+interface DecodedLandMask {
+  w: number;
+  h: number;
+  rgba: Uint8Array;
+}
+
 let cachedDem: DecodedDem | null = null;
+let cachedLandMask: DecodedLandMask | null = null;
 let cachedSphereGeo: THREE.BufferGeometry | null = null;
 
 function decodePngToRgba(bytes: Uint8Array): { w: number; h: number; rgba: Uint8Array } {
