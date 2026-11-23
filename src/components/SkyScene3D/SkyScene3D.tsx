@@ -2196,9 +2196,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    *   해 자리·밤 그늘이 그대로였고(달은 아예 없었습니다) 다음 상승 때야 바뀌었습니다. 지금은 **고른 시각**
    *   (`currentTime`)을 분 단위로 따라갑니다 — 슬라이더를 미는 동안 1 분보다 잘게 다시 세지 않습니다.
    */
+  const overlayReadyForMap = overlayLive && (zoomProgressState >= P_MAP_MOUNT || overlayWarm);
   const overlayMinute = Math.floor(currentTime.getTime() / 60000);
   const globeCelestialData = useMemo(() => {
-    if (!overlayLive) return null;
+    if (!overlayReadyForMap) return null;
     const date = new Date(overlayMinute * 60000);
     return {
       date,
@@ -2207,13 +2208,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       sublunar: getSublunarPoint(date),
       moonFraction: getMoonPhase(date).fraction,
     };
-  }, [overlayLive, overlayMinute]);
+  }, [overlayReadyForMap, overlayMinute]);
 
   // ── 지도 및 지구본용 등시선(Isochrone) 24시간 일출·일몰 격자선 — 고른 날짜(관측지 현지)가 바뀔 때만 ──
   const overlayTzMs = (useCelestialStore.getState().timezoneOffsetHours ?? 0) * 3600000;
   const overlayDayKey = new Date(overlayMinute * 60000 + overlayTzMs).toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
-    if (!overlayLive) return [];
+    if (!overlayReadyForMap) return [];
     const list = [];
     const base = new Date(new Date(overlayDayKey).getTime() - overlayTzMs);
     const step = 60; // 1시간 간격 등시선
@@ -2228,7 +2229,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       });
     }
     return list;
-  }, [overlayLive, overlayDayKey, overlayTzMs]);
+  }, [overlayReadyForMap, overlayDayKey, overlayTzMs]);
 
   // ── 지구 밤 영역(Night shadow) 2D/3D 폴리곤 ─────────────────────────────────
   const nightPolygonCoords = useMemo(() => {
@@ -2260,7 +2261,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const [cloudRing, setCloudRing] = useState<CloudPathData[] | null>(null);
   const cloudRingFetchRef = useRef<{ lat: number; lon: number; ms: number } | null>(null);
   useEffect(() => {
-    if (!isActive || zoomProgressState <= P_FOV_END) return;
+    if (!isActive || zoomProgressState < P_MAP_MOUNT) return;
     const cLat = location?.coords?.latitude ?? 37.5;
     const cLon = location?.coords?.longitude ?? 127.0;
     // 줌을 오르내릴 때마다 다시 받지 않습니다 — 같은 날씨 칸(0.02°)에서 10 분 안이면 그대로.
@@ -2275,11 +2276,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       })
       .catch((err) => console.warn('지도 구름 탑다운 링 수신 실패:', err));
     return () => { alive = false; };
-  }, [isActive, zoomProgressState > P_FOV_END]);
+  }, [isActive, zoomProgressState >= P_MAP_MOUNT]);
 
   // 고리 중심 — 위에서 본 구름을 그 자리의 해·달 고도로 칠합니다(밤엔 어둡게, 2026-11-18).
   const cloudRingCenter = cloudRingFetchRef.current;
-  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState > P_FOV_END,
+  const topView = useCloudTopView(cloudRing, overlayMinute * 60000, zoomProgressState >= P_FADE_START - 0.08,
     cloudRingCenter ? { lat: cloudRingCenter.lat, lon: cloudRingCenter.lon } : null);
 
   const observerWeather = useCallback(() => {
@@ -3134,10 +3135,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const bc = bldCenterRef.current;
           const bldFresh = buildingLoadedKeyRef.current !== null;
           const bOff = curEye ? localOffsetM({ latitude: bc.lat, longitude: bc.lng }, curEye.latitude, curEye.longitude) : { eastM: 0, northM: 0 };
+          buildingFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
           buildingFieldRef.current.setEyeOffset(bOff.eastM, -bOff.northM);
           const bldInRange = Math.hypot(bOff.eastM, bOff.northM) < 2500;
-          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings) && bldFresh && bldInRange);
-          buildingFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
+          // 상공 900m 이상(직하향 구름 레이더 전이 구간)에서는 1km 건물 군집이 화면 중앙 몇 픽셀로 축소되므로
+          // 멀티패스(MRT×3 + 깊이 + 창문 + 가로등) 정점 과부하를 막기 위해 건물 렌더링을 자동 생략합니다.
+          const bldAerialVisible = altitudeM <= 900;
+          buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings) && bldFresh && bldInRange && bldAerialVisible);
           updateBuildingFieldEye(buildingFieldRef.current, camera);
         }
         if (seaPlaneRef.current) {
@@ -3291,10 +3295,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const volOffY = viewCenterOffsetYFracRef.current;
             const curEyeForKey = eyeCoords();
             const eyeKey = curEyeForKey ? `${curEyeForKey.latitude.toFixed(6)},${curEyeForKey.longitude.toFixed(6)}` : '';
-            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}|${eyeKey}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
-            const isInteractingNow = isSlidingNow || eyeMovingRef.current || useCelestialStore.getState().isGestureBlocked;
+            const isInteractingNow = isSlidingNow || eyeMovingRef.current || useCelestialStore.getState().isGestureBlocked || settleFrameRef.current !== null || flyFrameRef.current !== null || divingAnimFrameRef.current !== null;
+            const altQuant = altitudeM > 50
+              ? Math.round(altitudeM / Math.max(10, altitudeM * (isInteractingNow ? 0.06 : 0.02)))
+              : Math.round(altitudeM);
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${altQuant}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}|${eyeKey}`;
             const isFast = false;
             const needUpgrade = false;
             const volKeyChanged = Boolean(live && (key !== volKeyRef.current || needUpgrade));

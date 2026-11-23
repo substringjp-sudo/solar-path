@@ -1,5 +1,8 @@
 /**
  * VirtualCameraBagModal.tsx — 확장 렌즈 · 전면 필터(최대 2개) · 필름/촬영 백을 조립하는 '가상 광학 가방' 팝업.
+ *
+ * 구구절절한 텍스트 설명 대신 실제 렌즈 경통, 원형 유리 그라데이션 필터, 센서/필름 백 제품 그래픽을 중심으로
+ * 한눈에 보고 장착할 수 있도록 쇼케이스 타일 형태로 구성합니다.
  */
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -19,6 +22,12 @@ import {
   type OpticalLensMount,
 } from '../../utils/photoAlgorithms/cameraGearBag';
 import type { MonochromeOpticalFilter } from '../../utils/photoAlgorithms/opticalFilters';
+import {
+  CircularFilterArtwork,
+  FilmBackArtwork,
+  LensMountArtwork,
+  MonoFilterDiscSvg,
+} from './OpticalGearArtwork';
 
 interface Props {
   visible: boolean;
@@ -30,28 +39,41 @@ interface Props {
   onClose: () => void;
 }
 
-const OptionCard: React.FC<{
+const ProductTile: React.FC<{
+  artwork: React.ReactNode;
   title: string;
-  desc: string;
+  spec: string;
   selected: boolean;
-  badge?: string;
+  slotBadge?: string;
   onPress: () => void;
-}> = ({ title, desc, selected, badge, onPress }) => (
+}> = ({ artwork, title, spec, selected, slotBadge, onPress }) => (
   <Pressable
     onPress={onPress}
     accessibilityRole="button"
     accessibilityState={{ selected }}
     style={({ pressed }) => [
-      styles.card,
-      selected && styles.cardOn,
-      pressed && styles.cardPressed,
+      styles.tile,
+      selected && styles.tileOn,
+      pressed && styles.tilePressed,
     ]}
   >
-    <View style={styles.cardTop}>
-      <Text style={[styles.cardTitle, selected && styles.cardTitleOn]} numberOfLines={1}>{title}</Text>
-      {badge ? <Text style={styles.cardBadge}>{badge}</Text> : selected ? <Check size={14} color={DARK.accent} /> : null}
-    </View>
-    <Text style={styles.cardDesc} numberOfLines={2}>{desc}</Text>
+    {slotBadge ? (
+      <View style={[styles.badgePill, selected && styles.badgePillOn]}>
+        <Text style={[styles.badgePillText, selected && styles.badgePillTextOn]}>{slotBadge}</Text>
+      </View>
+    ) : selected ? (
+      <View style={styles.checkCorner}>
+        <Check size={12} color="#03111B" strokeWidth={3} />
+      </View>
+    ) : null}
+
+    <View style={styles.artWrap}>{artwork}</View>
+    <Text style={[styles.tileTitle, selected && styles.tileTitleOn]} numberOfLines={1}>
+      {title}
+    </Text>
+    <Text style={[styles.tileSpec, selected && styles.tileSpecOn]} numberOfLines={1}>
+      {spec}
+    </Text>
   </Pressable>
 );
 
@@ -67,114 +89,108 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
   const activeSummary = summarizeGearForCell(gear, language);
   const anyActive = hasActiveOpticalGear(gear);
 
-  const lensItems: Array<{ id: OpticalLensMount; title: string; desc: string; tag?: string }> = [
+  const lensItems: Array<{ id: OpticalLensMount; title: string; spec: string }> = [
     {
       id: 'standard',
-      title: L3(language, '표준 렌즈', 'Standard Lens', '標準レンズ'),
-      desc: L3(language, '왜곡이나 특수 워핑 없는 기본 광학 화각', 'Default optical geometry without perspective warp', '歪みのない標準光学画角'),
+      title: L3(language, '표준 광학', 'Standard', '標準レンズ'),
+      spec: L3(language, '무왜곡 기본 화각', '1:1 Native', '標準光学'),
     },
     {
       id: 'scheimpflug',
-      title: L3(language, '3D 샤임플러그 틸트-시프트', '3D Scheimpflug Tilt-Shift', '3Dチルトシフト'),
-      desc: L3(language, 'DEM 거리 기반 3D 기울어진 초점 평면 보케 + 건물 수직선 교정', '3D tilted focal-plane bokeh using DEM depth + vertical keystone shift', 'DEM距離に基づく3D焦点面ボケ＋垂直シフト補正'),
-      tag: '3D DEM · IMU',
+      title: L3(language, '틸트-시프트', 'Tilt-Shift', 'チルトシフト'),
+      spec: L3(language, '3D 초점면 · 수직교정', '3D Plane · PC-E', '3D焦点面・シフト'),
     },
     {
       id: 'dolly',
-      title: L3(language, '공간 원근 압축 (돌리 줌)', 'Depth Perspective (Dolly)', '空間遠近圧縮ドリー'),
-      desc: L3(language, '근경 구도는 유지하고 먼 산 능선과 해·달만 망원처럼 끌어당겨 합성', 'Keep foreground framing while compressing distant ridges and sun/moon', '前景を保ったまま遠景の稜線と太陽・月だけを望遠圧縮'),
-      tag: '3D Z-Warp',
+      title: L3(language, '공간 원근 압축', 'Dolly Compress', '遠近圧縮ドリー'),
+      spec: L3(language, '원경 능선·해·달 확대', 'Far Ridge Zoom', '遠景・天体拡大'),
     },
     {
       id: 'anamorphic',
-      title: L3(language, '2.39:1 아나모픽 시네마', '2.39:1 Anamorphic', '2.39:1 アナモルフィック'),
-      desc: L3(language, '2.39:1 와이드 비율 + 능선 차폐 반응 수평 플레어 & 회절 선스타', '2.39:1 cinema crop with occlusion-aware horizontal flare & sunstar', '2.39:1比率＋稜線遮蔽連動フレア＆サンスタ'),
-      tag: '2.39:1',
+      title: L3(language, '아나모픽 시네마', 'Anamorphic', 'アナモルフィック'),
+      spec: L3(language, '2.39:1 · 수평 플레어', '2.39:1 · Flare', '2.39:1・フレア'),
     },
   ];
 
-  const filterItems: Array<{ id: FrontFilterId; title: string; desc: string }> = [
+  const filterItems: Array<{ id: FrontFilterId; title: string; spec: string }> = [
     {
       id: 'gnd',
-      title: L3(language, '3D 능선 맞춤 Reverse GND', 'Contour Reverse GND', '稜線フィットGND'),
-      desc: L3(language, '산봉우리는 살리고 노을 하늘만 DEM 윤곽선에 1px 밀착 감광', 'Follows 3D ridgeline contour to darken only sky without muting peaks', 'DEM稜線に沿って空だけを減光'),
+      title: L3(language, '능선 Reverse GND', 'Contour GND', '稜線GND'),
+      spec: L3(language, '3D 산봉우리 밀착 감광', '3D Ridge Mask', '3D稜線減光'),
     },
     {
       id: 'cpl',
-      title: L3(language, '90° 물리 레일리 CPL', 'Rayleigh 90° CPL', 'レイリーCPL偏光'),
-      desc: L3(language, '태양 각거리 편광도로 광각 얼룩 없이 하늘 색 깊이와 구름 대비 강화', 'Polarizes sky by sun angular distance without ultra-wide banding', '太陽角距離に基づく物理偏光'),
+      title: L3(language, '90° 레일리 CPL', 'Rayleigh CPL', 'レイリーCPL'),
+      spec: L3(language, '하늘 채도·구름 입체감', '90° Sky Polarizer', '空彩度・雲立体感'),
     },
     {
       id: 'nd1000',
-      title: L3(language, 'ND1000 구름 장노출', 'ND1000 Cloud Flow', 'ND1000雲流し'),
-      desc: L3(language, '지상은 IMU로 고정하고 850/500/300hPa 상층풍 방향으로 구름 결 적분', 'Locks terrain via IMU and flows clouds along real upper-air wind vectors', '地上固定＋上層風ベクトル方向へ雲を積分'),
+      title: L3(language, 'ND1000 장노출', 'ND1000 Flow', 'ND1000雲流し'),
+      spec: L3(language, '상층풍 방향 구름 결', '10-Stop Wind Flow', '10段減光・雲流'),
     },
     {
       id: 'dehaze',
-      title: L3(language, '거리별 연무 제어 (Dehaze·산수화)', 'Koschmieder Dehaze / Haze', '距離別霞・山水画'),
-      desc: L3(language, 'DEM 거리 기반 대기 투과율 역산(연무 제거↔첩첩산중 원근 강조)', 'Inverts physical haze by DEM distance or adds layered mountain ink haze', 'DEM距離別の透過率逆算（除去／山水画強調）'),
+      title: L3(language, '연무 · 산수화', 'Dehaze / Ink', '霞除去・山水'),
+      spec: L3(language, '거리별 투과율 제어', '3D Depth Haze', '距離別透過率'),
     },
     {
       id: 'astroClear',
-      title: L3(language, '도심 광해 노치 (Neodymium)', 'Astro-Clear Light Notch', '光害カット'),
-      desc: L3(language, '저고도 대기질량에 비례한 황색 나트륨등 광해 성분만 선택 감산', 'Subtracts low-altitude yellow sodium glow weighted by air mass', '低高度ナトリウム光害を選択除去'),
+      title: L3(language, '광해 노치 컷', 'Astro-Clear', '光害カット'),
+      spec: L3(language, '589nm 나트륨 황색 차단', 'Neodymium Notch', 'ナトリウム光除去'),
     },
     {
       id: 'proMist',
       title: 'Black Pro-Mist',
-      desc: L3(language, '대기 탁도(AOD)와 태양 휘도에 비례하는 영화적 하이라이트 할레이션', 'Cinematic highlight halation scaled by solar brightness & AOD', '太陽輝度・AOD連動のハレーション'),
+      spec: L3(language, '시네마 광원 할레이션', 'Highlight Glow', 'ハイライト拡散'),
     },
     {
       id: 'ghostClean',
-      title: L3(language, '역광 고스트 클린', 'Anti-Ghost Optics', 'ゴースト抑制'),
-      desc: L3(language, '광축 점대칭 위치의 렌즈 내부 반사 고스트·색 편향 억제', 'Suppresses optical-axis symmetric internal lens ghosting', '光軸点対称のゴーストを抑制'),
+      title: L3(language, '역광 고스트 클린', 'Anti-Ghost', 'ゴースト抑制'),
+      spec: L3(language, '나노 코팅 반사 억제', 'Nano AR Coat', '反射ゴースト除去'),
     },
   ];
 
-  const filmItems: Array<{ id: FilmBackMode; title: string; desc: string; tag?: string }> = [
+  const filmItems: Array<{ id: FilmBackMode; title: string; spec: string }> = [
     {
       id: 'natural',
-      title: L3(language, '표준 디지털 센서', 'Standard Digital', '標準デジタル'),
-      desc: L3(language, '기본 카메라 톤·화이트밸런스 유지', 'Native camera exposure & tone curve', '標準トーン・WBを維持'),
+      title: L3(language, '표준 센서', 'Standard CMOS', '標準センサー'),
+      spec: L3(language, '네이티브 컬러·톤', 'Native Tone', '標準トーン'),
     },
     {
       id: 'sunsetWb',
-      title: L3(language, '노을 색감 락 (Chromaticity Lock)', 'Sunset Spectral Lock', '夕焼け色ロック'),
-      desc: L3(language, '태양 고도·AOD 물리 색도로 AWB 회색화 역보정 + 하이라이트 롤오프', 'Reverses AWB gray-out back to physical sunset chromaticity & roll-off', 'AWBの灰化を物理散乱色度で逆補正'),
-      tag: 'AWB Lock',
+      title: L3(language, '노을 색감 락', 'Sunset Lock', '夕焼け色ロック'),
+      spec: L3(language, 'AWB 회색화 방지', '2800K Spectral', '物理散乱色固定'),
     },
     {
       id: 'monoZone',
-      title: L3(language, '안셀 아담스 Zone 모노크롬', 'Ansel Adams Zone Mono', 'アンセルZone白黒'),
-      desc: L3(language, 'Red 25A 등 대기 산란 흑백 광학 필터 + Zone 0~X 분포 측정', 'Optical Red/Orange sky-darkening B&W filters + Zone 0–X meter', '分光白黒フィルター＋Zone 0〜X'),
-      tag: 'Zone 0-X',
+      title: L3(language, 'Zone 모노크롬', 'Zone B&W', 'Zone白黒'),
+      spec: L3(language, '안셀 아담스 Zone 0–X', 'Red 25A · IR', '分光白黒・0〜X'),
     },
     {
       id: 'astroDual',
-      title: L3(language, '지형·별 분리 야간 스태킹', 'Dual-Layer Astro Stack', '地形・星分離スタック'),
-      desc: L3(language, '능선 고정 + 하늘 지구 자전 역투영(촬영 시 천체 네이티브 스택 실행)', 'Locks DEM ridgeline while de-rotating star field via AstroCamera', '稜線固定＋地球自転逆投影スタック'),
-      tag: 'Native Stack',
+      title: L3(language, '지형+별 분리 스택', 'Astro Dual Stack', '地形+星スタック'),
+      spec: L3(language, '능선 고정·별 자전 추적', 'IMU + Star Track', '稜線固定・星追尾'),
     },
     {
       id: 'luckyTele',
-      title: L3(language, '해·달 럭키 이미징 (Drizzle)', 'Lucky Tele + Drizzle', 'ラッキー望遠Drizzle'),
-      desc: L3(language, '고속 연사 중 아지랑이 멎은 상위 35% 선별 후 2× 서브픽셀 초해상 합성', 'Picks sharpest 35% burst frames & composites 2× subpixel drizzle', '上位35%選別＋2倍超解像合成'),
-      tag: '2× Drizzle',
+      title: L3(language, '해·달 럭키 줌', 'Lucky 2× Drizzle', 'ラッキー超解像'),
+      spec: L3(language, '아지랑이 제거 초해상', 'Top 35% Burst', '揺らぎ除去2×合成'),
     },
     {
       id: 'timeShift',
-      title: L3(language, '블루아워+야간 시간차 정합', 'Blue-Hour + Night Hybrid', '時差ハイブリッド'),
-      desc: L3(language, '블루아워 앵커 능선 저장 → 야간 재정렬 NCC 96%+ 자동 셔터 합성', 'Saves blue-hour ridgeline anchor; auto-triggers & blends night sky at 96% match', '96%稜線一致で自動シャッター合成'),
-      tag: hasTimeShiftAnchor ? L3(language, '앵커 대기', 'Anchor Set', 'アンカー有') : '2-Step',
+      title: L3(language, '시간차 능선 정합', 'Blue+Night Sync', '時差稜線合成'),
+      spec: hasTimeShiftAnchor
+        ? L3(language, '● 앵커 대기 (96% 셔터)', '● Anchor Ready', '● アンカー待機')
+        : L3(language, '블루아워 지형+밤하늘', '2-Step Hybrid', '夕景地形＋星空'),
     },
   ];
 
-  const monoChoices: Array<{ id: MonochromeOpticalFilter; label: string }> = [
-    { id: 'red25A', label: 'Red 25A' },
-    { id: 'orange21', label: 'Orange 21' },
-    { id: 'yellow8', label: 'Yellow 8' },
-    { id: 'deepSky', label: 'Deep IR' },
-    { id: 'neutral', label: 'Neutral' },
+  const monoChoices: Array<{ id: MonochromeOpticalFilter; label: string; sub: string }> = [
+    { id: 'red25A', label: 'Red 25A', sub: L3(language, '칠흑 하늘·강한 대비', 'Deep Sky', '濃黒空') },
+    { id: 'orange21', label: 'Orange 21', sub: L3(language, '구름 입체 강조', 'Cloud Pop', '雲強調') },
+    { id: 'yellow8', label: 'Yellow 8', sub: L3(language, '자연 계조', 'Balanced', '自然階調') },
+    { id: 'deepSky', label: 'IR 720nm', sub: L3(language, '적외선 흑백', 'Infrared', '赤外線調') },
+    { id: 'neutral', label: 'Neutral', sub: L3(language, '무필터', 'Pure', '標準') },
   ];
 
   return (
@@ -212,28 +228,33 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
           </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* 1. 확장 렌즈 마운트 */}
+            {/* 1. 확장 렌즈 마운트 (가로 제품 쇼케이스) */}
             <View style={styles.secHead}>
               <Camera size={13} color={DARK.textDim} />
-              <Text style={styles.secLabel}>{L3(language, '1. 확장 렌즈 마운트 (1개 선택)', '1. OPTICAL LENS MOUNT (PICK 1)', '1. レンズマウント (1つ)')}</Text>
+              <Text style={styles.secLabel}>
+                {L3(language, '1. 렌즈 마운트 (1개 장착)', '1. OPTICAL LENS MOUNT (PICK 1)', '1. レンズマウント (1つ装着)')}
+              </Text>
             </View>
-            <View style={styles.grid}>
-              {lensItems.map(item => (
-                <OptionCard
-                  key={item.id}
-                  title={item.title}
-                  desc={item.desc}
-                  badge={item.tag}
-                  selected={gear.lensMount === item.id}
-                  onPress={() => onChange(s => ({ ...s, lensMount: item.id }))}
-                />
-              ))}
+            <View style={styles.lensGrid}>
+              {lensItems.map(item => {
+                const selected = gear.lensMount === item.id;
+                return (
+                  <ProductTile
+                    key={item.id}
+                    selected={selected}
+                    title={item.title}
+                    spec={item.spec}
+                    artwork={<LensMountArtwork id={item.id} size={66} selected={selected} />}
+                    onPress={() => onChange(s => ({ ...s, lensMount: item.id }))}
+                  />
+                );
+              })}
             </View>
 
             {/* 선택된 렌즈 세부 설정 */}
             {gear.lensMount === 'scheimpflug' && (
               <View style={styles.detailBox}>
-                <Text style={styles.detailTitle}>{L3(language, '틸트-시프트 3D 초점 평면', 'Scheimpflug Plane Settings', 'チルトシフト詳細')}</Text>
+                <Text style={styles.detailTitle}>{L3(language, '틸트-시프트 3D 초점 거리 · 각도 · 조리개', 'Scheimpflug Plane Settings', 'チルトシフト詳細')}</Text>
                 <View style={styles.chipRow}>
                   {[300, 800, 1200, 2500, 5000].map(dist => (
                     <GlassChip
@@ -302,34 +323,40 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
               </View>
             )}
 
-            {/* 2. 전면 필터 슬롯 (최대 2개) */}
+            {/* 2. 전면 원형 필터 슬롯 (최대 2개 — 원 안에 실제 유리 그라데이션·색상 표현) */}
             <View style={[styles.secHead, { marginTop: 14 }]}>
               <Layers size={13} color={DARK.textDim} />
               <Text style={styles.secLabel}>
                 {L3(
                   language,
-                  `2. 전면 필터 슬롯 (${gear.frontFilters.length}/2 장착)`,
-                  `2. FRONT FILTERS (${gear.frontFilters.length}/2 MOUNTED)`,
-                  `2. 前面フィルター (${gear.frontFilters.length}/2 装着)`,
+                  `2. 원형 광학 필터 (${gear.frontFilters.length}/2개 장착)`,
+                  `2. CIRCULAR OPTICAL FILTERS (${gear.frontFilters.length}/2 MOUNTED)`,
+                  `2. 円形光学フィルター (${gear.frontFilters.length}/2 装着)`,
                 )}
               </Text>
             </View>
-            <View style={styles.grid}>
-              {filterItems.map(item => (
-                <OptionCard
-                  key={item.id}
-                  title={item.title}
-                  desc={item.desc}
-                  selected={gear.frontFilters.includes(item.id)}
-                  onPress={() => onChange(s => toggleFrontFilter(s, item.id))}
-                />
-              ))}
+            <View style={styles.filterGrid}>
+              {filterItems.map(item => {
+                const slotIdx = gear.frontFilters.indexOf(item.id);
+                const selected = slotIdx !== -1;
+                return (
+                  <ProductTile
+                    key={item.id}
+                    selected={selected}
+                    title={item.title}
+                    spec={item.spec}
+                    slotBadge={selected ? `SLOT ${slotIdx + 1}` : undefined}
+                    artwork={<CircularFilterArtwork id={item.id} size={66} selected={selected} />}
+                    onPress={() => onChange(s => toggleFrontFilter(s, item.id))}
+                  />
+                );
+              })}
             </View>
 
             {/* 장착된 전면 필터 세부 옵션 */}
             {gear.frontFilters.includes('gnd') && (
               <View style={styles.detailBox}>
-                <Text style={styles.detailTitle}>{L3(language, '능선 GND 설정', 'Contour GND Options', '稜線GND設定')}</Text>
+                <Text style={styles.detailTitle}>{L3(language, '능선 GND 감광 농도', 'Contour GND Density', '稜線GND減光量')}</Text>
                 <View style={styles.chipRow}>
                   <GlassChip
                     label={L3(language, '리버스 (노을용)', 'Reverse (Sunset)', 'リバース')}
@@ -394,7 +421,7 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
 
             {gear.frontFilters.includes('proMist') && (
               <View style={styles.detailBox}>
-                <Text style={styles.detailTitle}>Black Pro-Mist 강도</Text>
+                <Text style={styles.detailTitle}>Black Pro-Mist Diffusion Grade</Text>
                 <View style={styles.chipRow}>
                   {([0.125, 0.25, 0.5, 1] as const).map(gr => (
                     <GlassChip
@@ -409,27 +436,30 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
               </View>
             )}
 
-            {/* 3. 필름 / 촬영 백 */}
+            {/* 3. 필름 / 센서 촬영 백 */}
             <View style={[styles.secHead, { marginTop: 14 }]}>
               <Film size={13} color={DARK.textDim} />
-              <Text style={styles.secLabel}>{L3(language, '3. 필름 / 센서 촬영 모드 (1개 선택)', '3. FILM & CAPTURE BACK (PICK 1)', '3. フィルム・撮影モード (1つ)')}</Text>
+              <Text style={styles.secLabel}>{L3(language, '3. 필름 · 센서 백 (1개 장착)', '3. FILM & SENSOR BACK (PICK 1)', '3. フィルム・センサーバック (1つ)')}</Text>
             </View>
-            <View style={styles.grid}>
-              {filmItems.map(item => (
-                <OptionCard
-                  key={item.id}
-                  title={item.title}
-                  desc={item.desc}
-                  badge={item.tag}
-                  selected={gear.filmBack === item.id}
-                  onPress={() => onChange(s => ({ ...s, filmBack: item.id }))}
-                />
-              ))}
+            <View style={styles.filterGrid}>
+              {filmItems.map(item => {
+                const selected = gear.filmBack === item.id;
+                return (
+                  <ProductTile
+                    key={item.id}
+                    selected={selected}
+                    title={item.title}
+                    spec={item.spec}
+                    artwork={<FilmBackArtwork id={item.id} size={66} selected={selected} />}
+                    onPress={() => onChange(s => ({ ...s, filmBack: item.id }))}
+                  />
+                );
+              })}
             </View>
 
             {gear.filmBack === 'sunsetWb' && (
               <View style={styles.detailBox}>
-                <Text style={styles.detailTitle}>{L3(language, '노을 색감 보정 & 3단 노출', 'Sunset Chromaticity & Bracket', '夕焼け色補正・ブラケット')}</Text>
+                <Text style={styles.detailTitle}>{L3(language, '노을 색감 보정 & 3단 노출 브라켓', 'Sunset Chromaticity & Bracket', '夕焼け色補正・ブラケット')}</Text>
                 <View style={styles.chipRow}>
                   <GlassChip
                     label={L3(language, '1장 고속 촬영', 'Single Shot', '1枚撮影')}
@@ -447,17 +477,22 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
 
             {gear.filmBack === 'monoZone' && (
               <View style={styles.detailBox}>
-                <Text style={styles.detailTitle}>{L3(language, '흑백 광학 필터 색판', 'B&W Optical Spectral Filter', 'モノクロ光学フィルター')}</Text>
-                <View style={styles.chipRow}>
-                  {monoChoices.map(mc => (
-                    <GlassChip
-                      key={mc.id}
-                      label={mc.label}
-                      mono
-                      active={gear.monoFilter === mc.id}
-                      onPress={() => onChange(s => ({ ...s, monoFilter: mc.id }))}
-                    />
-                  ))}
+                <Text style={styles.detailTitle}>{L3(language, '흑백 광학 컬러 필터 디스크', 'B&W Optical Color Filter Disc', 'モノクロ光学カラーフィルター')}</Text>
+                <View style={styles.monoDiscRow}>
+                  {monoChoices.map(mc => {
+                    const active = gear.monoFilter === mc.id;
+                    return (
+                      <Pressable
+                        key={mc.id}
+                        onPress={() => onChange(s => ({ ...s, monoFilter: mc.id }))}
+                        style={[styles.monoDiscBtn, active && styles.monoDiscBtnOn]}
+                      >
+                        <MonoFilterDiscSvg id={mc.id} size={28} active={active} />
+                        <Text style={[styles.monoDiscLabel, active && styles.monoDiscLabelOn]}>{mc.label}</Text>
+                        <Text style={styles.monoDiscSub} numberOfLines={1}>{mc.sub}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
             )}
@@ -533,17 +568,17 @@ const styles = StyleSheet.create({
   fill: { flex: 1, justifyContent: 'flex-end' },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: DARK.scrim },
   sheet: {
-    maxHeight: '85%',
+    maxHeight: '86%',
     backgroundColor: DARK.panel,
     borderColor: DARK.border,
     borderWidth: 1,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    paddingTop: 12,
+    paddingTop: 10,
   },
   handle: {
     alignSelf: 'center',
-    width: 40,
+    width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: DARK.borderStrong,
@@ -582,44 +617,141 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     color: DARK.textDim,
   },
-  grid: {
+  lensGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  card: {
-    width: '48.7%',
-    padding: 10,
+  filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tile: {
+    width: '31.5%',
+    minWidth: 96,
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 9,
+    paddingHorizontal: 6,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: DARK.border,
     backgroundColor: DARK.panelRaised,
-    gap: 4,
+    position: 'relative',
   },
-  cardOn: {
+  tileOn: {
     borderColor: DARK.accent,
     backgroundColor: DARK.accentSoft,
   },
-  cardPressed: { opacity: 0.8 },
-  cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 },
-  cardTitle: { flex: 1, fontSize: 12, fontWeight: '700', color: DARK.text },
-  cardTitleOn: { color: DARK.accent },
-  cardBadge: {
-    fontFamily: mono,
-    fontSize: 9,
-    color: DARK.sun,
-    fontWeight: '700',
+  tilePressed: { opacity: 0.82 },
+  artWrap: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 5,
   },
-  cardDesc: { fontSize: 10.5, lineHeight: 14, color: DARK.textDim },
+  tileTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: DARK.text,
+    textAlign: 'center',
+  },
+  tileTitleOn: {
+    color: DARK.accent,
+  },
+  tileSpec: {
+    fontFamily: mono,
+    fontSize: 9.5,
+    color: DARK.textDim,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  tileSpecOn: {
+    color: '#BAE6FD',
+  },
+  checkCorner: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: DARK.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  badgePill: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderWidth: 1,
+    borderColor: DARK.borderStrong,
+    zIndex: 2,
+  },
+  badgePillOn: {
+    backgroundColor: DARK.accent,
+    borderColor: DARK.accent,
+  },
+  badgePillText: {
+    fontFamily: mono,
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: DARK.textDim,
+  },
+  badgePillTextOn: {
+    color: '#03111B',
+  },
   detailBox: {
     padding: 10,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: DARK.borderStrong,
     backgroundColor: DARK.overlay,
-    gap: 6,
+    gap: 7,
   },
   detailTitle: { fontFamily: mono, fontSize: 10.5, color: DARK.textDim, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   anchorRow: { gap: 6 },
+  monoDiscRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  monoDiscBtn: {
+    flex: 1,
+    minWidth: 60,
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: DARK.border,
+    backgroundColor: DARK.panelRaised,
+    gap: 3,
+  },
+  monoDiscBtnOn: {
+    borderColor: DARK.accent,
+    backgroundColor: DARK.accentSoft,
+  },
+  monoDiscLabel: {
+    fontFamily: mono,
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: DARK.text,
+  },
+  monoDiscLabelOn: {
+    color: DARK.accent,
+  },
+  monoDiscSub: {
+    fontSize: 8.5,
+    color: DARK.textDim,
+  },
 });

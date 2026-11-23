@@ -744,20 +744,22 @@ export async function createVolumetricScene(
   let baseMinStepSize = clouds.clouds.minStepSize;
   let baseMaxIter = clouds.clouds.maxIterationCount;
   let lastViewElDeg = 14;
+  let lastViewAltM = 2;
   /**
    * 천정/고고도 적응형 1차 광선 행진 수 조절(Horizon-Adaptive Step Budget):
    * 지평선 부근(el <= 20°)은 광선이 구름 슬랩을 수십 km 비스듬히 통과하므로 baseMaxIter 100% 유지.
    * 고고도/천정(el > 25°)은 구름 슬랩(두께 1~2km)을 수직에 가깝게 통과해 조기 탈출하므로 상한을 70%까지 줄이고,
-   * 드래그/스크러빙(isInteracting) 중에는 추가로 75%로 낮춰 GPU 프레임 타임을 방어합니다.
+   * 상공 줌아웃(lastViewAltM > 180m) 및 드래그/스크러빙(isInteracting) 중에는 보폭과 행진 횟수를 낮춰 GPU 프레임 드랍을 방어합니다.
    */
   let isAccumulating = false;
   let savedAccumResScale: number | null = null;
   const applyPrimaryMarch = () => {
     const elAbs = Math.abs(lastViewElDeg);
-    const elScale = elAbs <= 20 ? 1.0 : Math.max(0.7, 1.0 - ((elAbs - 20) / 70) * 0.3);
-    const interactScale = isInteracting ? 0.75 : 1.0;
+    const elScale = elAbs <= 20 ? 1.0 : Math.max(0.68, 1.0 - ((elAbs - 20) / 70) * 0.32);
+    const altScale = lastViewAltM <= 180 ? 1.0 : Math.max(0.55, 1.0 - Math.min(1, Math.log(lastViewAltM / 180) / Math.log(12000 / 180)) * 0.45);
+    const interactScale = isInteracting ? 0.68 : 1.0;
     const accumScale = isAccumulating ? 0.48 : 1.0;
-    clouds.clouds.maxIterationCount = Math.max(48, Math.round(baseMaxIter * elScale * interactScale * accumScale));
+    clouds.clouds.maxIterationCount = Math.max(40, Math.round(baseMaxIter * elScale * altScale * interactScale * accumScale));
   };
   const applySunMarch = () => {
     if (!opt.sunMarch) {
@@ -773,8 +775,12 @@ export async function createVolumetricScene(
     clouds.clouds.secondaryStepScale = opt.sunMarch[2];
   };
   const applyInteractionLod = () => {
-    if (isInteracting) {
-      // minStepSize 와 태양 방향 2차 행진 횟수는 유지해 카메라 이동 중 구름과 태양 그림자가 사라지지 않게 합니다.
+    const highAlt = lastViewAltM > 250;
+    if (isInteracting || highAlt) {
+      const stepScale = isInteracting && highAlt ? 1.85 : highAlt ? 1.5 : 1.35;
+      clouds.clouds.minStepSize = Math.round(baseMinStepSize * stepScale);
+      const targetSunSteps = opt.sunMarch ? opt.sunMarch[0] : (baseMarch.n || 6);
+      clouds.clouds.maxIterationCountToSun = Math.max(4, Math.round(targetSunSteps * (isInteracting ? 0.6 : 0.75)));
     } else {
       clouds.clouds.minStepSize = baseMinStepSize;
       applySunMarch();
@@ -1185,7 +1191,7 @@ export async function createVolumetricScene(
       '            // 해 직달(Lambert × 산·구름 그림자) + 하늘빛과 구름을 뚫은 확산 햇빛(수평면 몫) × 하늘 보임·사면 방향.',
       '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
       '            vtRad = vtAlb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + (vtSky + vtSun * vtSunH * vtFill) * vtAmb);',
-      '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.45 + 0.55 * clamp(vtAmb, 0.0, 1.5));',
+      '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.18 + 0.82 * clamp(vtAmb, 0.0, 1.5));',
       // 젖은 갯벌·모래: 스치는 각일수록 하늘을 비춥니다(물 n=1.33 Schlick — 바다와 같은 식). 물 쪽 되비침과 한 줄로 이어집니다.
       '            if (vtWet > 0.004) {',
       '              float wCosV = max(0.02, -dot(rayDirection, vtUp));',
@@ -1221,6 +1227,7 @@ export async function createVolumetricScene(
       '          #endif',
       '          #ifdef INSCATTER',
       '          vtRad += vtIn;',
+      '          vtRad += cityTerrainIrr * (0.042 * (1.0 - exp(-vtKm * 0.35)));',
       '          #endif',
       '          #endif',
       '          outputColor.rgb = vtRad;',
@@ -1899,8 +1906,14 @@ export async function createVolumetricScene(
     else if (camera.view?.enabled) camera.clearViewOffset();
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
+    const prevHighAlt = lastViewAltM > 250;
     lastViewElDeg = p.el;
-    applyPrimaryMarch();
+    lastViewAltM = alt;
+    if ((lastViewAltM > 250) !== prevHighAlt) {
+      applyInteractionLod();
+    } else {
+      applyPrimaryMarch();
+    }
     updateLod();
   };
   /**

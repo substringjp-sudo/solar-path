@@ -1013,7 +1013,14 @@ void main() {
 
   // ── 하늘빛 몫: 지평선 가림(AO) × 사면 방향(반구) × Micro Cavity AO ────────
   // 수평면이 받는 하늘 조도(takram) 에 곱합니다. 직달이 구름에 가려진 날 땅의 형태를 보여 주는 것은 이것뿐입니다.
-  float amb = mix(1.0, aoV, uLookAo) * mix(1.0, 0.5 + 0.5 * n.y, uLookHemi) * uLookAmbGain * microAo;
+  // 야간에는 사면 방위(uCityDirXZ 기준)와 능선 볼록도(convex) 차이를 더해 달이 없는 밤에도 산 능선·계곡 음영이 살도록 합니다.
+  float nightAzW = smoothstep(2.0, -6.0, uSunAltDeg) * smoothstep(0.05, 0.35, slope) * (1.0 - paveAny);
+  vec2 cDirT = normalize(uCityDirXZ + vec2(1e-5));
+  vec2 cPerpT = vec2(-cDirT.y, cDirT.x);
+  vec2 nHorizT = normalize(vec2(n.x, n.z) + vec2(1e-5));
+  float terrainAzWrap = 1.0 + nightAzW * (0.24 * dot(nHorizT, cDirT) + 0.10 * dot(nHorizT, cPerpT));
+  float ridgeOcc = 1.0 + 0.24 * (convex - 0.5) * (1.0 - paveAny);
+  float amb = mix(1.0, aoV, uLookAo) * mix(1.0, 0.5 + 0.5 * n.y, uLookHemi) * uLookAmbGain * microAo * ridgeOcc * terrainAzWrap;
   // 구름 그늘의 땅에 닿는 **구름을 뚫은 햇빛**(확산) — 직달 투과가 막힌 만큼.
   // 구름을 뚫은 햇빛은 **해 쪽이 밝은 넓은 빛**입니다(해 둘레가 가장 밝은 구름 밑면) — 랩 램버트로 사면의 향을 보여 줍니다.
   // 평지의 값으로 나눠 평평한 벌판의 밝기는 그대로 둡니다.
@@ -1096,7 +1103,7 @@ void main() {
   }
   float cityGainHere = uCityTerrainGain + uCityPatchScale * cityPatchVal;
   if (cityGainHere > 1e-5) {
-    float cSlope = 0.70 + 0.30 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
+    float cSlope = 0.42 + 0.58 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
     col += alb * vec3(1.00, 0.787, 0.573) * (cityGainHere * cSlope);
   }
 

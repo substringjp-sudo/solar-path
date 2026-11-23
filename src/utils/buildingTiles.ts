@@ -414,7 +414,8 @@ export function buildMergedBuildingGeometry(
     for (const p of rawPts) { cx += p.x; cz += p.z; }
     cx /= rawPts.length;
     cz /= rawPts.length;
-    if (cx * cx + cz * cz > maxR2) continue;
+    const distSq = cx * cx + cz * cz;
+    if (distSq > maxR2) continue;
     // 자기 바로 발밑(< 3m) 또는 관측점을 둘러싼 건물 내부 가림 방지
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const p of rawPts) {
@@ -423,7 +424,7 @@ export function buildMergedBuildingGeometry(
       if (p.z < minZ) minZ = p.z;
       if (p.z > maxZ) maxZ = p.z;
     }
-    if (cx * cx + cz * cz < 9 || (minX <= 2.5 && maxX >= -2.5 && minZ <= 2.5 && maxZ >= -2.5)) continue;
+    if (distSq < 9 || (minX <= 2.5 && maxX >= -2.5 && minZ <= 2.5 && maxZ >= -2.5)) continue;
 
     const topH = estimateBuildingHeightM(el.tags);
     const minH = estimateBuildingMinHeightM(el.tags);
@@ -433,13 +434,23 @@ export function buildMergedBuildingGeometry(
     const rawArea = signedAreaXZ(rawPts);
     const ccw = rawArea >= 0;
     const areaM2 = Math.abs(rawArea);
+    // 550m 밖의 아주 작은 부속 건물(창고·가건물 < 26m², 높이 < 6m)은 서브픽셀이므로 정점 폭증을 막기 위해 생략
+    if (distSq > 550 * 550 && areaM2 < 26 && topH < 6) continue;
     const styleId = classifyBuildingStyle(el.tags, topH, areaM2, cx, cz);
     const oriented = ccw ? rawPts : [...rawPts].reverse();
-    const ring = subdivideFootprintXZ(oriented);
+    // 근거리(320m 이내)는 곡률 보정을 위해 18m 간격 분할을 유지하고, 중거리(320~550m)는 36m, 원거리(>550m)는 원본 정점을 그대로 써 정점 수를 절감
+    const ring = distSq <= 320 * 320
+      ? subdivideFootprintXZ(oriented, WALL_SUBDIV_M)
+      : distSq <= 550 * 550
+        ? subdivideFootprintXZ(oriented, WALL_SUBDIV_M * 2)
+        : oriented;
     const roofTris = triangulatePolygonXZ(oriented);
     if (roofTris.length < 3) continue;
 
-    let roofShape = classifyRoofShape(el.tags, styleId, topH, areaM2, cx, cz);
+    // 420m 밖의 원거리 건물은 명시적 roof:shape 태그가 없으면 평지붕으로 단순화해 박공/모임지붕 정점 수를 절약
+    let roofShape: RoofShape = (distSq > 420 * 420 && !el.tags?.['roof:shape'])
+      ? 'flat'
+      : classifyRoofShape(el.tags, styleId, topH, areaM2, cx, cz);
     const span = Math.min(maxX - minX, maxZ - minZ);
     const explicitRoofH = parseLengthM(el.tags?.['roof:height']);
     let ridgeH = explicitRoofH ?? (

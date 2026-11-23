@@ -19,9 +19,6 @@ import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './Scen
 import { LIT2_ENCODE_GLSL } from './terrainLook';
 import { createBuildingThreeGeometry, WINDOW_CELL_M, type BuildingMeshData } from '../../utils/buildingTiles';
 
-/** 중성 밝은 석재/콘크리트 회색 건축 매스 알베도 (도시 포장 지반보다 밝게 구분) */
-const BUILDING_ALBEDO = { r: 0.125, g: 0.130, b: 0.140 };
-
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const smooth01 = (x: number) => {
   const t = clamp01(x);
@@ -280,6 +277,8 @@ void main() {
 const BUILDING_FRAG = /* glsl */ `
 precision highp float;
 
+uniform float uEyeHeightM;
+
 varying vec3  vNormalW;
 varying float vDistM;
 varying float vSlantM;
@@ -289,6 +288,150 @@ varying vec3  vViewDir;
 varying vec2  vBuildPos;
 varying vec4  vWallCoord;
 varying float vStyle;
+
+float bf_hash13(vec3 p3) {
+  p3 = fract(p3 * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+/**
+ * 2026-11-23 볼륨(TERRAIN_LIT_OUT) · 직접(#else) 패스 공용 외장/지붕 질감 계산.
+ * 밤에도 맨박스처럼 보이지 않도록 스타일별 창틀·멀리언·벽돌 줄눈·골강판·파라펫 테두리를 생성합니다.
+ */
+void bf_facadeMaterial(
+  vec3 n,
+  vec2 bSeed,
+  float bTone,
+  float bWarm,
+  float detailFade,
+  out vec3 outMatAlb,
+  out float outGlassMask,
+  out float outGroundAo
+) {
+  outMatAlb = vec3(0.20, 0.205, 0.215);
+  outGlassMask = 0.0;
+  outGroundAo = 1.0;
+
+  if (abs(n.y) > 0.5) {
+    // 옥상/지붕면: 경사 지붕(n.y < 0.99)은 기와·슬레이트·금속, 평지붕은 방수 아스팔트 + 미세 입자 질감
+    float isSloped = step(n.y, 0.99);
+    float roofGrain = detailFade > 0.01
+      ? (0.92 + 0.16 * bf_hash13(vec3(floor(vBuildPos * 0.8), bTone * 13.0)))
+      : 1.0;
+    vec3 flatRoofTone = vStyle < 0.5
+      ? mix(vec3(0.11, 0.12, 0.125), vec3(0.10, 0.13, 0.115), bWarm)
+      : (vStyle < 1.5
+        ? vec3(0.115, 0.12, 0.13)
+        : (vStyle < 2.5 ? vec3(0.12, 0.11, 0.10) : vec3(0.095, 0.10, 0.11)));
+    vec3 slopedRoofTone = vStyle < 0.5
+      ? mix(vec3(0.19, 0.11, 0.085), vec3(0.12, 0.125, 0.135), bWarm)
+      : (vStyle < 2.5
+        ? mix(vec3(0.17, 0.10, 0.08), vec3(0.13, 0.145, 0.13), bWarm)
+        : vec3(0.135, 0.145, 0.16));
+    outMatAlb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.92 + 0.16 * bTone) * roofGrain;
+    return;
+  }
+
+  // 지면 접지 음영(1~3층 가로 협곡 그늘)
+  outGroundAo = 0.54 + 0.46 * smoothstep(0.0, 10.5, max(0.0, vWallCoord.y));
+
+  // 원거리(>680m) 또는 상공 조감도(uEyeHeightM > 320m)에서는 서브픽셀 창틀·벽돌 줄눈 연산을 즉시 생략
+  if (detailFade <= 0.005) {
+    if (vStyle < 0.5) {
+      outMatAlb = mix(vec3(0.245, 0.24, 0.225), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
+    } else if (vStyle < 1.5) {
+      vec3 mullion = vec3(0.165, 0.175, 0.19) * (0.9 + 0.2 * bTone);
+      vec3 curtainGlass = mix(vec3(0.048, 0.072, 0.105), vec3(0.052, 0.084, 0.095), bWarm);
+      outMatAlb = mix(mullion, curtainGlass, 0.60);
+    } else if (vStyle < 2.5) {
+      outMatAlb = mix(vec3(0.225, 0.145, 0.112), vec3(0.24, 0.20, 0.158), bWarm) * (0.88 + 0.24 * bTone);
+    } else {
+      outMatAlb = vec3(0.125, 0.13, 0.14) * (0.90 + 0.20 * bTone);
+    }
+    return;
+  }
+
+  float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
+  float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
+  float colIdx = floor(cellU);
+  float rowIdx = floor(cellV);
+  float uF = fract(cellU);
+  float vF = fract(cellV);
+  float inGrid = step(0.0, vWallCoord.x) * step(0.0, vWallCoord.y)
+    * step(cellU, vWallCoord.z) * step(cellV, vWallCoord.w);
+
+  // 상단 옥상 파라펫/처마 띠(앞뒤 건물 실루엣 분리)
+  float wallH = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
+  float topDist = max(0.0, wallH - max(0.0, vWallCoord.y));
+  float parapetRim = 1.0 - smoothstep(0.0, 0.42, topDist);
+  float corniceShadow = smoothstep(0.35, 0.55, topDist) * (1.0 - smoothstep(0.65, 1.15, topDist));
+
+  if (vStyle < 0.5) {
+    // 0: 아파트·주거 — 콘크리트 패널 이음새 + 미세 표면 입자 + 펀치드 윈도우 창틀 음영
+    float micro = 0.93 + 0.14 * bf_hash13(vec3(floor(vWallCoord.x * 2.2), floor(vWallCoord.y * 2.2), bSeed.x));
+    float jointX = 1.0 - smoothstep(0.0, 0.04, abs(fract(cellU * 0.5) - 0.5));
+    float slabLine = 1.0 - smoothstep(0.0, 0.13, vF);
+    vec3 aptWall = mix(vec3(0.245, 0.24, 0.225), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
+    aptWall *= mix(1.0, micro * (1.0 - 0.14 * slabLine - 0.08 * jointX), detailFade);
+    float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
+    float wx = smoothstep(0.22 - aa, 0.22 + aa, uF) * (1.0 - smoothstep(0.78 - aa, 0.78 + aa, uF));
+    float wy = smoothstep(0.28 - aa, 0.28 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
+    float frameX = smoothstep(0.16 - aa, 0.16 + aa, uF) * (1.0 - smoothstep(0.84 - aa, 0.84 + aa, uF));
+    float frameY = smoothstep(0.22 - aa, 0.22 + aa, vF) * (1.0 - smoothstep(0.80 - aa, 0.80 + aa, vF));
+    float frameRing = max(0.0, frameX * frameY - wx * wy) * inGrid * detailFade;
+    outGlassMask = wx * wy * inGrid * detailFade;
+    vec3 glassCol = vec3(0.045, 0.062, 0.085);
+    outMatAlb = mix(aptWall * (1.0 - 0.24 * frameRing), glassCol, outGlassMask);
+  } else if (vStyle < 1.5) {
+    // 1: 오피스·타워 — 유리 커튼월 + 층간 스팬드럴 띠 + 칸별 유리 톤 편차 + 알루미늄 멀리언
+    vec3 mullion = vec3(0.165, 0.175, 0.19) * (0.9 + 0.2 * bTone);
+    float paneVar = 0.84 + 0.32 * bf_hash13(vec3(colIdx + 3.0, rowIdx + 11.0, bSeed.y));
+    vec3 curtainGlass = mix(vec3(0.048, 0.072, 0.105), vec3(0.052, 0.084, 0.095), bWarm) * paneVar;
+    float spandrel = 1.0 - smoothstep(0.15, 0.23, vF);
+    float aa = clamp(vDistM * 0.00055, 0.02, 0.18);
+    float wx = smoothstep(0.09 - aa, 0.09 + aa, uF) * (1.0 - smoothstep(0.91 - aa, 0.91 + aa, uF));
+    float wy = smoothstep(0.22 - aa, 0.22 + aa, vF) * (1.0 - smoothstep(0.89 - aa, 0.89 + aa, vF));
+    outGlassMask = wx * wy * inGrid * detailFade;
+    vec3 spandrelCol = mullion * 0.68;
+    vec3 frameCol = mix(mullion, spandrelCol, spandrel * detailFade);
+    outMatAlb = mix(frameCol, curtainGlass, mix(0.60, outGlassMask, detailFade));
+  } else if (vStyle < 2.5) {
+    // 2: 저층 상가·벽돌/석재 — 영식/이식 벽돌·석재 줄눈 질감 + 1층 쇼윈도
+    float brickRow = floor(vWallCoord.y * 4.5);
+    float brickCol = floor(vWallCoord.x * 2.0 + mod(brickRow, 2.0) * 0.5);
+    float bVar = 0.86 + 0.28 * bf_hash13(vec3(brickCol, brickRow, bSeed.x));
+    float mortarH = 1.0 - smoothstep(0.0, 0.14, abs(fract(vWallCoord.y * 4.5) - 0.5));
+    float mortarV = 1.0 - smoothstep(0.0, 0.10, abs(fract(vWallCoord.x * 2.0 + mod(brickRow, 2.0) * 0.5) - 0.5));
+    float mortar = max(mortarH, mortarV) * detailFade;
+    vec3 brickBase = mix(vec3(0.225, 0.145, 0.112), vec3(0.24, 0.20, 0.158), bWarm) * (0.88 + 0.24 * bTone);
+    vec3 brickWall = brickBase * mix(1.0, bVar * (1.0 - 0.22 * mortar), detailFade);
+    float isGround = 1.0 - smoothstep(3.0, 3.6, vWallCoord.y);
+    float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
+    float wx = mix(
+      smoothstep(0.24 - aa, 0.24 + aa, uF) * (1.0 - smoothstep(0.76 - aa, 0.76 + aa, uF)),
+      smoothstep(0.08 - aa, 0.08 + aa, uF) * (1.0 - smoothstep(0.92 - aa, 0.92 + aa, uF)),
+      isGround
+    );
+    float wy = mix(
+      smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF)),
+      smoothstep(0.10 - aa, 0.10 + aa, vF) * (1.0 - smoothstep(0.90 - aa, 0.90 + aa, vF)),
+      isGround
+    );
+    outGlassMask = wx * wy * inGrid * detailFade;
+    outMatAlb = mix(brickWall, vec3(0.042, 0.056, 0.076), outGlassMask);
+  } else {
+    // 3: 산업·창고 — 골강판 리브 + 수평 패널 이음새 + 상부 채광창
+    vec3 metalWall = vec3(0.125, 0.13, 0.14) * (0.90 + 0.20 * bTone);
+    float rib = sin(vWallCoord.x * 6.28318 * 2.0) * 0.11 * detailFade;
+    float seam = (1.0 - smoothstep(0.0, 0.06, fract(vWallCoord.y * 0.4))) * 0.15 * detailFade;
+    float clerestory = smoothstep(0.72, 0.78, vF) * (1.0 - smoothstep(0.88, 0.92, vF)) * inGrid * detailFade * 0.65;
+    outGlassMask = clerestory;
+    outMatAlb = mix(metalWall * (1.0 + rib - seam), vec3(0.055, 0.066, 0.082), clerestory);
+  }
+
+  outMatAlb *= (1.0 + 0.14 * parapetRim * detailFade - 0.14 * corniceShadow * detailFade);
+}
 
 #ifdef TERRAIN_DIST_OUT
 ${TERRAIN_DIST_GLSL}
@@ -304,14 +447,8 @@ uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 
-float bf_hash13(vec3 p3) {
-  p3 = fract(p3 * 0.1031);
-  p3 += dot(p3, p3.zyx + 31.32);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
 void main() {
-  if (uWinGlow <= 0.001 || uWinRate <= 0.0) discard;
+  if (uWinGlow <= 0.001 || uWinRate <= 0.0 || vDistM > 1020.0 || uEyeHeightM > 650.0) discard;
   if (vWallCoord.x < 0.0 || vWallCoord.y < 0.0 || abs(vNormalW.y) > 0.5) discard;
   // 창고/산업 시설(style 3)은 야간 창문 점등 대폭 축소
   float styleRate = vStyle > 2.5 ? uWinRate * 0.15 : uWinRate;
@@ -358,7 +495,10 @@ ${LIT2_ENCODE_GLSL}
 
 uniform float uSunAzRad;
 uniform float uSunAltRad;
+uniform float uMoonAzRad;
+uniform float uMoonAltRad;
 uniform float uOvercast;
+uniform vec2  uCityDirXZ;
 
 layout(location = 1) out highp vec4 pc_fragColor1;
 layout(location = 2) out highp vec4 pc_fragColor2;
@@ -369,26 +509,42 @@ void main() {
                   sin(uSunAltRad),
                  -cos(uSunAltRad) * cos(uSunAzRad));
   float ndl = max(0.0, dot(n, sun));
+  vec3 moon = vec3(cos(uMoonAltRad) * sin(uMoonAzRad),
+                   sin(uMoonAltRad),
+                  -cos(uMoonAltRad) * cos(uMoonAzRad));
+  float ndlMoon = uMoonAltRad > -0.02 ? max(0.0, dot(n, moon)) : 0.0;
   float cloudT = clamp(1.0 - uOvercast, 0.05, 1.0);
-  float skyHemi = 0.60 + 0.40 * n.y;
-  float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
-  float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
-  float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
+
   vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
   float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
-  vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
-  vec3 litAlb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)}) * (0.90 + 0.16 * n.y) * grayShift;
+  float detailFade = (1.0 - smoothstep(320.0, 680.0, vDistM)) * (1.0 - smoothstep(140.0, 340.0, uEyeHeightM));
+
+  vec3 facadeAlb;
+  float glassMask;
+  float groundAo;
+  bf_facadeMaterial(n, bSeed, bTone, bWarm, detailFade, facadeAlb, glassMask, groundAo);
+
+  // 수직 벽면도 방위(도시광 주 방향 + 직교 보조축)와 높이에 따라 밝기가 달라져 꺾인 건물 면과 앞·뒤 건물 실루엣이 분리됩니다.
+  vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
+  vec2 cPerp = vec2(-cDir.y, cDir.x);
+  vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
+  float wallAz = 0.92 + 0.30 * dot(nXZ, cDir) + 0.14 * dot(nXZ, cPerp);
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.86 + 0.22 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float skyHemi = abs(n.y) > 0.5
+    ? (0.98 + 0.14 * n.y)
+    : clamp(0.56 * wallAz * groundAo * heightGrad, 0.22, 1.15);
+
+  float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
+  float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
+  float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
+  vec3 grayShift = vec3(0.92 + 0.16 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.05, 1.0, 1.0 - (bWarm - 0.5) * 0.05);
+  vec3 litAlb = facadeAlb * 0.65 * grayShift;
   if (abs(n.y) > 0.5) {
-    litAlb *= 0.72;
-  } else if (vStyle > 0.5 && vStyle < 1.5) {
-    litAlb *= vec3(0.62, 0.72, 0.86);
-  } else if (vStyle >= 1.5 && vStyle < 2.5) {
-    litAlb *= vec3(1.16, 0.92, 0.78);
-  } else if (vStyle >= 2.5) {
-    litAlb *= vec3(0.76, 0.78, 0.82);
+    litAlb *= 0.84;
   }
-  gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), clamp(ndl * cloudT, 0.0, 1.0));
+  float litDirect = clamp(max(ndl, ndlMoon) * cloudT, 0.0, 1.0);
+  gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), litDirect);
   pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
   pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
 }
@@ -446,83 +602,19 @@ void main() {
   vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
   float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
-  float hemi = 0.72 + 0.28 * n.y;
-  float detailFade = 1.0 - smoothstep(320.0, 720.0, vDistM);
+  float detailFade = (1.0 - smoothstep(320.0, 680.0, vDistM)) * (1.0 - smoothstep(140.0, 340.0, uEyeHeightM));
 
-  vec3 alb = vec3(0.20, 0.205, 0.215);
-  float glassMask = 0.0;
-  float groundAo = 1.0;
+  vec3 alb;
+  float glassMask;
+  float groundAo;
+  bf_facadeMaterial(n, bSeed, bTone, bWarm, detailFade, alb, glassMask, groundAo);
 
-  if (abs(n.y) > 0.5) {
-    // 옥상/지붕면: 경사 지붕(n.y < 0.99)은 기와·테라코타·슬레이트·금속 지붕재, 평지붕은 방수 아스팔트 톤
-    float isSloped = step(n.y, 0.99);
-    vec3 flatRoofTone = vStyle < 0.5
-      ? mix(vec3(0.11, 0.12, 0.125), vec3(0.10, 0.13, 0.115), bWarm)
-      : (vStyle < 1.5
-        ? vec3(0.115, 0.12, 0.13)
-        : (vStyle < 2.5 ? vec3(0.12, 0.11, 0.10) : vec3(0.095, 0.10, 0.11)));
-    vec3 slopedRoofTone = vStyle < 0.5
-      ? mix(vec3(0.19, 0.11, 0.085), vec3(0.12, 0.125, 0.135), bWarm) // 주택: 테라코타 기와 또는 어두운 슬레이트
-      : (vStyle < 2.5
-        ? mix(vec3(0.17, 0.10, 0.08), vec3(0.13, 0.145, 0.13), bWarm) // 상가·종교: 적갈색 기와·청동/슬레이트
-        : vec3(0.135, 0.145, 0.16)); // 창고: 아연 금속 지붕
-    alb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.92 + 0.16 * bTone);
-  } else {
-    float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
-    float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
-    float uF = fract(cellU);
-    float vF = fract(cellV);
-    float inGrid = step(0.0, vWallCoord.x) * step(0.0, vWallCoord.y)
-      * step(cellU, vWallCoord.z) * step(cellV, vWallCoord.w);
-
-    // 지면 접지 음영 (1층 인접부 살짝 어둡게)
-    groundAo = 0.76 + 0.24 * smoothstep(0.0, 5.5, max(0.0, vWallCoord.y));
-
-    if (vStyle < 0.5) {
-      // 0: 아파트·주거 — 밝은 아이보리/크림/연회색 도장 + 층별 펀치드 윈도우 + 슬래브 띠
-      vec3 aptWall = mix(vec3(0.235, 0.23, 0.215), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
-      float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
-      float wx = smoothstep(0.22 - aa, 0.22 + aa, uF) * (1.0 - smoothstep(0.78 - aa, 0.78 + aa, uF));
-      float wy = smoothstep(0.28 - aa, 0.28 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
-      float slabLine = 1.0 - smoothstep(0.0, 0.12, vF);
-      glassMask = wx * wy * inGrid * detailFade;
-      vec3 glassCol = vec3(0.055, 0.072, 0.095);
-      alb = mix(aptWall * (1.0 - 0.10 * slabLine * detailFade), glassCol, glassMask);
-    } else if (vStyle < 1.5) {
-      // 1: 오피스·타워 — 유리 커튼월 + 얇은 알루미늄 멀리언 프레임
-      vec3 mullion = vec3(0.15, 0.16, 0.175) * (0.9 + 0.2 * bTone);
-      vec3 curtainGlass = mix(vec3(0.05, 0.075, 0.105), vec3(0.055, 0.085, 0.095), bWarm);
-      float aa = clamp(vDistM * 0.00055, 0.02, 0.18);
-      float wx = smoothstep(0.09 - aa, 0.09 + aa, uF) * (1.0 - smoothstep(0.91 - aa, 0.91 + aa, uF));
-      float wy = smoothstep(0.16 - aa, 0.16 + aa, vF) * (1.0 - smoothstep(0.88 - aa, 0.88 + aa, vF));
-      glassMask = wx * wy * inGrid * detailFade;
-      alb = mix(mullion, curtainGlass, mix(0.65, glassMask, detailFade));
-    } else if (vStyle < 2.5) {
-      // 2: 저층 상가·벽돌/석재·공공 — 따뜻한 적갈색 벽돌/테라코타/사암 + 1층 쇼윈도
-      vec3 brickWall = mix(vec3(0.215, 0.145, 0.115), vec3(0.23, 0.195, 0.155), bWarm) * (0.88 + 0.24 * bTone);
-      float isGround = 1.0 - smoothstep(3.0, 3.6, vWallCoord.y);
-      float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
-      float wx = mix(
-        smoothstep(0.24 - aa, 0.24 + aa, uF) * (1.0 - smoothstep(0.76 - aa, 0.76 + aa, uF)),
-        smoothstep(0.08 - aa, 0.08 + aa, uF) * (1.0 - smoothstep(0.92 - aa, 0.92 + aa, uF)),
-        isGround
-      );
-      float wy = mix(
-        smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF)),
-        smoothstep(0.10 - aa, 0.10 + aa, vF) * (1.0 - smoothstep(0.90 - aa, 0.90 + aa, vF)),
-        isGround
-      );
-      glassMask = wx * wy * inGrid * detailFade;
-      alb = mix(brickWall, vec3(0.045, 0.06, 0.08), glassMask);
-    } else {
-      // 3: 산업·창고 — 짙은 금속 패널/골강판 + 상부 채광창 최소
-      vec3 metalWall = vec3(0.12, 0.125, 0.135) * (0.90 + 0.20 * bTone);
-      float rib = sin(vWallCoord.x * 6.28318 * 1.2) * 0.04 * detailFade;
-      float clerestory = smoothstep(0.72, 0.78, vF) * (1.0 - smoothstep(0.88, 0.92, vF)) * inGrid * detailFade * 0.65;
-      glassMask = clerestory;
-      alb = mix(metalWall * (1.0 + rib), vec3(0.06, 0.07, 0.085), clerestory);
-    }
-  }
+  vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
+  vec2 cPerp = vec2(-cDir.y, cDir.x);
+  vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
+  float wallAz = abs(n.y) > 0.5 ? 1.0 : (0.92 + 0.30 * dot(nXZ, cDir) + 0.14 * dot(nXZ, cPerp));
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.86 + 0.22 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float hemi = (0.72 + 0.28 * n.y) * wallAz * heightGrad;
 
   vec3 col = alb * hemi * groundAo * (skyIrr + directLit);
 
@@ -541,9 +633,9 @@ void main() {
 
   // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광)
   if (uCityWallGain > 1e-5) {
-    float cDir = 0.35 + 0.65 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
+    float cDirDot = 0.28 + 0.58 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
     float wallSlope = 0.40 + 0.60 * (1.0 - abs(n.y));
-    col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDir * wallSlope);
+    col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDirDot * wallSlope * groundAo * heightGrad);
   }
 
   if (uAerial > 0.5) {
@@ -781,20 +873,82 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   lampMesh3D.visible = false;
 
   let hasLamps = false;
+  let nearLampCount = 0;
+  let rawLampXZ: Float32Array | null = null;
+  let rawLampDirs: Float32Array | null = null;
+  let lastLampFilterEastM = Number.NaN;
+  let lastLampFilterSouthM = Number.NaN;
+  const NEAR_LAMP_RADIUS_M = 435;
 
   let currentGeo = emptyGeo;
   let hasData = false;
   let enabled = false;
   let serial = 0;
 
+  const rebuildNearLamps3D = (eastM: number, southM: number, force = false) => {
+    if (!force && Number.isFinite(lastLampFilterEastM) && Math.hypot(eastM - lastLampFilterEastM, southM - lastLampFilterSouthM) < 25) {
+      return;
+    }
+    lastLampFilterEastM = eastM;
+    lastLampFilterSouthM = southM;
+
+    const old3D = lampMesh3D.geometry;
+    const instGeo = new THREE.InstancedBufferGeometry();
+    instGeo.attributes.position = lampProto.attributes.position;
+    instGeo.attributes.normal = lampProto.attributes.normal;
+    instGeo.attributes.aPart = lampProto.attributes.aPart;
+
+    const xz = rawLampXZ;
+    const dirs = rawLampDirs;
+    const n = xz ? Math.floor(xz.length / 2) : 0;
+    if (n > 0) {
+      const r2 = NEAR_LAMP_RADIUS_M * NEAR_LAMP_RADIUS_M;
+      const keepIdx: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const dx = xz![i * 2] - eastM;
+        const dz = xz![i * 2 + 1] - southM;
+        if (dx * dx + dz * dz <= r2) keepIdx.push(i);
+      }
+      const m = keepIdx.length;
+      nearLampCount = m;
+      if (m > 0) {
+        const xzAttr = new Float32Array(m * 2);
+        const dirAttr = new Float32Array(m * 2);
+        for (let k = 0; k < m; k++) {
+          const i = keepIdx[k];
+          xzAttr[k * 2] = xz![i * 2];
+          xzAttr[k * 2 + 1] = xz![i * 2 + 1];
+          if (dirs && dirs.length >= (i + 1) * 2) {
+            dirAttr[k * 2] = dirs[i * 2];
+            dirAttr[k * 2 + 1] = dirs[i * 2 + 1];
+          } else {
+            dirAttr[k * 2] = 1;
+            dirAttr[k * 2 + 1] = 0;
+          }
+        }
+        instGeo.setAttribute('aLampXZ', new THREE.InstancedBufferAttribute(xzAttr, 2));
+        instGeo.setAttribute('aLampDir', new THREE.InstancedBufferAttribute(dirAttr, 2));
+        instGeo.instanceCount = m;
+      } else {
+        instGeo.instanceCount = 0;
+      }
+    } else {
+      nearLampCount = 0;
+      instGeo.instanceCount = 0;
+    }
+    lampMesh3D.geometry = instGeo;
+    old3D.dispose();
+  };
+
   const syncVisibility = () => {
+    const eyeH = Number(uniforms.uEyeHeightM?.value ?? 1.6);
     const show = enabled && hasData;
     mesh.visible = show;
     distMesh.visible = show;
     litMesh.visible = show;
-    windowMesh.visible = show && Number(uniforms.uWinGlow.value) > 0.001 && Number(uniforms.uWinRate.value) > 0;
-    lampPoints.visible = hasLamps && Number(uniforms.uLampGlow.value) > 0.001;
-    lampMesh3D.visible = hasLamps;
+    windowMesh.visible = show && eyeH <= 650 && Number(uniforms.uWinGlow.value) > 0.001 && Number(uniforms.uWinRate.value) > 0;
+    lampPoints.visible = hasLamps && eyeH <= 850 && Number(uniforms.uLampGlow.value) > 0.001;
+    lampMesh3D.visible = hasLamps && nearLampCount > 0 && eyeH <= 220;
   };
 
   return {
@@ -808,45 +962,24 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     setLamps: (xz, dirs) => {
       const old = lampPoints.geometry;
       const geo = new THREE.BufferGeometry();
-      const old3D = lampMesh3D.geometry;
-      const instGeo = new THREE.InstancedBufferGeometry();
-      instGeo.attributes.position = lampProto.attributes.position;
-      instGeo.attributes.normal = lampProto.attributes.normal;
-      instGeo.attributes.aPart = lampProto.attributes.aPart;
 
       const n = xz ? Math.floor(xz.length / 2) : 0;
+      rawLampXZ = n > 0 && xz ? xz : null;
+      rawLampDirs = n > 0 && dirs ? dirs : null;
       if (n > 0) {
         const pos = new Float32Array(n * 3);
-        const xzAttr = new Float32Array(n * 2);
-        const dirAttr = new Float32Array(n * 2);
         for (let i = 0; i < n; i++) {
-          const lx = xz![i * 2];
-          const lz = xz![i * 2 + 1];
-          pos[i * 3] = lx;
+          pos[i * 3] = xz![i * 2];
           pos[i * 3 + 1] = 8.6;
-          pos[i * 3 + 2] = lz;
-          xzAttr[i * 2] = lx;
-          xzAttr[i * 2 + 1] = lz;
-          if (dirs && dirs.length >= (i + 1) * 2) {
-            dirAttr[i * 2] = dirs[i * 2];
-            dirAttr[i * 2 + 1] = dirs[i * 2 + 1];
-          } else {
-            dirAttr[i * 2] = 1;
-            dirAttr[i * 2 + 1] = 0;
-          }
+          pos[i * 3 + 2] = xz![i * 2 + 1];
         }
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        instGeo.setAttribute('aLampXZ', new THREE.InstancedBufferAttribute(xzAttr, 2));
-        instGeo.setAttribute('aLampDir', new THREE.InstancedBufferAttribute(dirAttr, 2));
-        instGeo.instanceCount = n;
-      } else {
-        instGeo.instanceCount = 0;
       }
       lampPoints.geometry = geo;
-      lampMesh3D.geometry = instGeo;
       old.dispose();
-      old3D.dispose();
       hasLamps = n > 0;
+      const curOff = material.uniforms.uBldEyeOffset?.value as THREE.Vector2 | undefined;
+      rebuildNearLamps3D(curOff?.x ?? 0, curOff?.y ?? 0, true);
       syncVisibility();
     },
     setLampGlow: (glow, pixelRatio) => {
@@ -872,8 +1005,14 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       for (const k of ['dem', 'demEye', 'demFar']) setDemObserver(material.uniforms, k, dp[k], lat, lon);
     },
     setEyeOffset: (eastM, southM) => {
+      const ex = Number.isFinite(eastM) ? eastM : 0;
+      const sz = Number.isFinite(southM) ? southM : 0;
       const v = material.uniforms.uBldEyeOffset?.value as THREE.Vector2 | undefined;
-      if (v) v.set(Number.isFinite(eastM) ? eastM : 0, Number.isFinite(southM) ? southM : 0);
+      if (v) v.set(ex, sz);
+      if (hasLamps) {
+        rebuildNearLamps3D(ex, sz, false);
+        syncVisibility();
+      }
     },
     setPatch: (patch, eyePatch, farPatch) => {
       const dp = (material.userData.demPatches ??= {}) as Record<string, DemPatch | null | undefined>;
