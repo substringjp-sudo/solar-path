@@ -89,6 +89,8 @@ const ENTRIES = [
   // 지형에 가린 일출·일몰(해 뜨는 시각 계산 과정) — verify-terrain-sun.js
   'src/utils/terrainSun.ts',
   'src/utils/calcSteps.ts',
+  // 점수 · 한계등급 가감 막대 — verify-score-waterfall.js
+  'src/utils/scoreWaterfall.ts',
   // 학습 페이지(02 학습)의 접는 규칙 · 고른 날 · 줄 누름 연결 — verify-learn-sections.js
   'src/utils/learnSections.ts',
   'src/utils/calcTopic.ts',

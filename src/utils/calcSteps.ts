@@ -17,6 +17,7 @@ import { refractionDeg } from './moonPosition';
 import type { SunsetScoreBreakdown } from './sunsetPhysics';
 import { starLimit, limitWithoutMoon, seeLevel, type StarInput, type StarResult } from './starVisibility';
 import { cloudSummary } from './skyWords';
+import { sunsetWaterfall, starWaterfall, type Waterfall } from './scoreWaterfall';
 
 type Lang = 'ko' | 'en' | 'ja';
 const L3 = (lang: Lang, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
@@ -238,6 +239,8 @@ export interface SunsetScoreCards {
   score: number;
   /** 결과를 가장 크게 깎은 카드의 id. 해가 노을 창 밖이거나 깎인 게 없으면 null */
   keyId: string | null;
+  /** 100 점에서 단계마다 깎이는 막대(화면 맨 위 그래프와 가감 줄) */
+  waterfall: Waterfall | null;
 }
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
@@ -367,6 +370,7 @@ export function buildSunsetScoreCards(a: BuildSunsetScoreArgs): SunsetScoreCards
     footnote,
     score: Math.round(a.prediction.score),
     keyId,
+    waterfall: sunsetWaterfall(b, L),
   };
 }
 
@@ -397,6 +401,8 @@ export interface StarCards {
   limitMag: number;
   /** 가장 크게 줄인 단계 id (`moon` · `light` · `haze` · `twilight`). 가장 큰 것도 0.3 등급 미만이면 null */
   keyId: StarResult['keyStep'];
+  /** 6.5 등급에서 단계마다 줄어드는 막대 */
+  waterfall: Waterfall;
 }
 
 const fmtMag = (d: number) => `${d <= -0.05 ? '−' : ''}${Math.abs(d).toFixed(1)}`;
@@ -514,6 +520,7 @@ export function buildStarCards(a: BuildStarArgs): StarCards {
     footnote,
     limitMag: limit,
     keyId: r.keyStep,
+    waterfall: starWaterfall(r, L),
   };
 }
 

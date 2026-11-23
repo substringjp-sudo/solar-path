@@ -22,6 +22,7 @@ import {
 } from './calcSteps';
 import { skylineAngleDeg, type HorizonProfile } from './horizon';
 import type { LearnTopic } from './learnSections';
+import type { Waterfall } from './scoreWaterfall';
 
 type Lang = 'ko' | 'en' | 'ja';
 
@@ -32,6 +33,8 @@ export interface TopicResult {
   footnote: string;
   /** "일몰 17:42" 처럼 어느 출몰의 점수인지(노을 점수 · 별 보기에만) */
   eventLabel?: string | null;
+  /** 노을 점수 · 별 보기의 가감 막대(다른 주제는 없음) */
+  waterfall?: Waterfall | null;
 }
 
 export interface TopicInputs {
