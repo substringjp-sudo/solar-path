@@ -175,7 +175,7 @@ export const CLOUD_OWN_SHADOW_R_M = 1500;
  * 밤은 1000 에서 멈춥니다.
  */
 export const AUTO_EXPOSURE_POINTS: [number, number][] = [
-  [50, 5.8], [30, 7.2], [15, 8.0], [8, 9.4], [3, 16.1], [1.1, 30], [-2.7, 220], [-5.0, 950], [-8.0, 2400],
+  [50, 5.8], [30, 7.2], [15, 8.0], [8, 9.4], [3, 16.1], [1.1, 30], [0.0, 85], [-0.8, 130], [-2.7, 220], [-5.0, 950], [-8.0, 2400],
 ];
 export function autoExposure(sunAltDeg: number): number {
   const pts = AUTO_EXPOSURE_POINTS;
@@ -2100,10 +2100,13 @@ export async function createVolumetricScene(
     lastDeckT = T;
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudSkyT')!.value = Math.max(0.05, T);
     (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudSkyTC.value = Math.max(0.05, T);
-    if (!(sunAlt > -6)) return 1;
+    if (!(sunAlt > -8)) return 1;
     const f = Math.min(1, 0.12 + 0.88 * Math.exp(-Math.max(0, sunAlt) / 6));
     const R = T / f;
-    return R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
+    const rawGain = R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
+    const fadeT = Math.max(0, Math.min(1, (sunAlt + 8) / 4));
+    const fade = fadeT * fadeT * (3 - 2 * fadeT);
+    return 1 + (rawGain - 1) * fade;
   };
   let exposureScale = 1;
   const baseExposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
