@@ -2,7 +2,7 @@
  * LearnScreen.tsx — **02 데이터**: 현재 선택된 시각의 기상·천체 해설과 이후 발생할 이벤트,
  * 그리고 16일 예보·근거 데이터·결과가 나온 과정을 한 페이지에서 보여줍니다.
  *
- *   선택 시각 해설 & 이후 이벤트 → 앞으로 16일 → 근거 데이터 → 결과가 나온 과정 → 낮과 밤의 경계
+ *   지금(선택 시각 해설) · 앞으로 24시간(이후 이벤트) → 앞으로 16일 → 원리(결과가 나온 과정) → 근거 데이터 → 낮과 밤의 경계
  *
  * 기본적으로 01 하늘에서 선택한 시각(`currentTime`)을 기준으로 날씨·대기·천체를 해설하고
  * 그 시각 직후부터 이어지는 기상 및 천체 이벤트를 시간순으로 보여줍니다.
@@ -44,6 +44,7 @@ import { TodaySection } from './TodaySection';
 import { ForecastSection, dayLabel, showsScore } from './ForecastSection';
 import { DataSection } from './DataSection';
 import { WhySection } from './WhySection';
+import { ZoneHead } from './ZoneHead';
 
 interface LearnScreenProps {
   /** 탭이 보이는가 — 보일 때만 받고 셉니다. */
@@ -62,8 +63,8 @@ const sectionName = (s: LearnSection, language: Language) => {
   switch (s) {
     case 'today': return L3(language, '지금 해설 · 일정', 'Now & Schedule', '現在解説・予定');
     case 'forecast': return L3(language, '앞으로 16일', 'Next 16 days', 'これから16日');
+    case 'why': return L3(language, '원리', 'How it works', '仕組み');
     case 'data': return L3(language, '근거 데이터', 'Data', '根拠データ');
-    case 'why': return L3(language, '결과가 나온 과정', 'How it is made', '結果が出るまで');
     default: return L3(language, '낮과 밤의 경계', 'Day and night', '昼と夜の境目');
   }
 };
@@ -368,7 +369,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
           <Text style={styles.sub}>{L3(language, '위치를 먼저 정해 주세요. 위쪽 장소 버튼으로 고를 수 있어요.', 'Pick a location first with the place button at the top.', '先に場所を決めてください。上の場所ボタンで選べます。')}</Text>
         )}
 
-        <View onLayout={onLayoutOf('today')}>
+        <View onLayout={onLayoutOf('today')} style={styles.zone}>
+          <ZoneHead zone="today" language={language} />
           <TodaySection
             language={language}
             tz={tz}
@@ -390,14 +392,24 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
           />
         </View>
 
-        <View onLayout={onLayoutOf('forecast')}>
+        <View onLayout={onLayoutOf('forecast')} style={styles.zone}>
+          <ZoneHead zone="forecast" language={language} />
           <ForecastSection
             days={days} load={load} hasForecast={!!forecast} onRetry={() => get(true)}
             pick={pick} onPick={onPickDay} tz={tz} language={language}
           />
         </View>
 
-        <View onLayout={onLayoutOf('data')}>
+        <View onLayout={onLayoutOf('why')} style={styles.zone}>
+          <ZoneHead zone="why" language={language} />
+          <WhySection
+            language={language} results={results} openTopic={topicReq.topic} entryNonce={topicReq.nonce}
+            notes={notes} onOpenData={() => scrollTo('data')}
+          />
+        </View>
+
+        <View onLayout={onLayoutOf('data')} style={styles.zone}>
+          <ZoneHead zone="data" language={language} />
           {hasLocation && (
             <DataSection
               language={language} tz={tz} latitude={lat as number} longitude={lon as number} at={at} path={path}
@@ -411,13 +423,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({ isActive, setCurrentTi
               onForceRefresh={() => get(true)}
             />
           )}
-        </View>
-
-        <View onLayout={onLayoutOf('why')}>
-          <WhySection
-            language={language} results={results} openTopic={topicReq.topic} entryNonce={topicReq.nonce}
-            notes={notes} onOpenData={() => scrollTo('data')}
-          />
         </View>
 
         <View onLayout={onLayoutOf('globe')} style={styles.globe}>
@@ -452,6 +457,7 @@ const useStyles = makeStyles((color) => ({
   pageTitle: { ...type.title, fontSize: 20, color: color.text },
   sub: { ...type.body, color: color.textDim },
   sectionTitle: { ...type.title, color: color.text },
+  zone: { gap: space.sm },
   globe: { gap: space.sm },
   outlineBtn: {
     minHeight: TOUCH, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: space.md,

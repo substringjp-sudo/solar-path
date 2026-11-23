@@ -23,7 +23,23 @@ import type { AccuracyTier } from './timeBar';
 import type { StepCard } from './calcSteps';
 
 export type LearnSection = 'today' | 'forecast' | 'data' | 'why' | 'globe';
-export const LEARN_SECTIONS: readonly LearnSection[] = ['today', 'forecast', 'data', 'why', 'globe'];
+// 순서는 읽는 차례입니다: 지금 → (앞으로 24시간은 오늘 구역 안) → 앞으로 16일 → 결과가 나온 과정(원리) → 근거 데이터 → 낮과 밤.
+export const LEARN_SECTIONS: readonly LearnSection[] = ['today', 'forecast', 'why', 'data', 'globe'];
+
+/** 구역 머리표의 이름. `hours` 는 오늘 구역 안의 "앞으로 24시간" 입니다. */
+export type ZoneKey = LearnSection | 'hours';
+type Lang3 = 'ko' | 'en' | 'ja';
+const ZONES: Record<ZoneKey, { badge: [string, string, string]; range: [string, string, string] }> = {
+  today: { badge: ['지금', 'Now', '今'], range: ['선택 시각 기준', 'At the selected time', '選択時刻の状態'] },
+  hours: { badge: ['앞으로 24시간', 'Next 24 hours', 'これから24時間'], range: ['시간순 일정', 'In time order', '時系列'] },
+  forecast: { badge: ['앞으로 16일', 'Next 16 days', 'これから16日'], range: ['날짜별 경향', 'Trend by day', '日ごとの傾向'] },
+  why: { badge: ['원리', 'How it works', '仕組み'], range: ['점수가 나온 과정', 'How the score is made', 'スコアが出る過程'] },
+  data: { badge: ['근거 데이터', 'Data', '根拠データ'], range: ['원본 값 · 출처', 'Raw values and sources', '元の値・出典'] },
+  globe: { badge: ['낮과 밤', 'Day and night', '昼と夜'], range: ['지구의 경계', "Earth's boundary", '地球の境目'] },
+};
+const pickLang = (t: [string, string, string], l: Lang3) => (l === 'ko' ? t[0] : l === 'ja' ? t[2] : t[1]);
+export const zoneBadge = (z: ZoneKey, l: Lang3) => pickLang(ZONES[z].badge, l);
+export const zoneRange = (z: ZoneKey, l: Lang3) => pickLang(ZONES[z].range, l);
 
 /** 결과가 나온 과정의 주제(`CalcSteps` 의 주제와 같은 이름). */
 export type LearnTopic = 'score' | 'sunrise' | 'sunset' | 'stars' | 'cloud';
