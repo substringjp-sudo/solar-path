@@ -141,8 +141,8 @@ varying float vElevSin;
 void main() {
   vec2 g = vec2(position.x, position.z) - uBldEyeOffset;
   float d = max(length(g), 0.1);
-  // 85 m 이내의 아주 가까운 가로등은 3D 가로등 형태(lampMesh3D)가 전담하므로 점 스프라이트를 그리지 않음
-  if (d < 85.0) {
+  // 240 m 이내의 가까운 가로등은 3D 가로등 형태(lampMesh3D)가 전담하므로 점 스프라이트를 그리지 않음
+  if (d < 240.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
     return;
@@ -168,7 +168,7 @@ uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 void main() {
-  if (vDistM < 85.0 || uLampGlow <= 0.001) discard;
+  if (vDistM < 240.0 || uLampGlow <= 0.001) discard;
   vec2 q = gl_PointCoord * 2.0 - 1.0;
   if (dot(q, q) > 1.0) discard;
   // 지평선 위 하늘과 겹쳐 별과 혼동되는 것을 원천 차단 (지평선 아래 도로만 은은히 표시)
@@ -182,7 +182,7 @@ void main() {
   float intensity = core + halo * 0.7;
   if (intensity <= 0.003) discard;
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
-  float nearIn = smoothstep(85.0, 110.0, vDistM);
+  float nearIn = smoothstep(240.0, 330.0, vDistM);
   float fade = (1.0 - smoothstep(1350.0, 1580.0, vDistM)) * nearIn;
   vec3 col = vec3(1.00, 0.93, 0.78) * core + vec3(1.00, 0.56, 0.16) * halo * 0.7;
   gl_FragColor = vec4(col * uLampGlow * T * fade * skyGuard, 1.0);
@@ -190,8 +190,9 @@ void main() {
 `;
 
 /**
- * 2026-11-23 아주 가까운 거리(95 m 이내)의 3D 가로등(기둥·팔·갓·전구) 셰이더.
- * 밤하늘 배경과 겹쳐도 기둥과 갓 실루엣이 뚜렷이 보여 별과 혼동되지 않습니다.
+ * 2026-11-23 근·중거리(400 m 이내, 300 m 까지 원형 유지)의 3D 가로등(기둥·팔·갓·전구) 셰이더.
+ * 밤하늘 배경과 겹쳐도 기둥과 갓 실루엣이 뚜렷이 보여 별과 혼동되지 않으며,
+ * 먼 거리(300~400 m)에서 서서히 자라나 근거리에서는 바닥에서 자라나는 느낌이 보이지 않습니다.
  */
 const LAMP_3D_VERT = BUILDING_VERT.slice(0, BUILDING_VERT.indexOf('void main() {')) + /* glsl */ `
 attribute vec2 aLampXZ;
@@ -202,11 +203,11 @@ varying float vLocalY;
 void main() {
   vec2 gCenter = aLampXZ - uBldEyeOffset;
   float dCenter = length(gCenter);
-  if (dCenter > 95.0 || dCenter < 0.4) {
+  if (dCenter > 400.0 || dCenter < 0.4) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  float scaleFade = 1.0 - smoothstep(78.0, 95.0, dCenter);
+  float scaleFade = 1.0 - smoothstep(300.0, 400.0, dCenter);
   vec2 fDir = length(aLampDir) > 0.1 ? normalize(aLampDir) : vec2(1.0, 0.0);
   vec2 rDir = vec2(-fDir.y, fDir.x);
   vec3 localPos = position * scaleFade;
@@ -563,7 +564,7 @@ void main() {
 `;
 
 /**
- * 2026-11-23 아주 가까운 거리(95 m 이내)의 가로등을 실제 3D 형태(기둥 · 팔 · 갓 · 전구)로 그리는 프로토타입 기하.
+ * 2026-11-23 근·중거리(400 m 이내, 300 m 까지 원형 유지)의 가로등을 실제 3D 형태(기둥 · 팔 · 갓 · 전구)로 그리는 프로토타입 기하.
  * +X 방향을 도로 안쪽으로 두고(셰이더에서 aLampDir 로 회전), part=0 은 기둥·팔·갓, part=1 은 아래쪽 전구 발광면.
  */
 function createLampPrototypeGeometry(): THREE.BufferGeometry {
@@ -631,7 +632,7 @@ export interface BuildingFieldHandle {
   windowMesh: THREE.Mesh;
   /** 2026-11-18 중·원거리 가로등 점(지평선 아래 도로용). 부르는 쪽이 씬의 LAYER_MID 에 넣습니다. */
   lampPoints: THREE.Points;
-  /** 2026-11-23 아주 가까운 거리(95 m 이내)의 실제 3D 가로등 형태(기둥·팔·갓·전구). */
+  /** 2026-11-23 근·중거리(400 m 이내, 300 m 까지 원형 유지)의 실제 3D 가로등 형태(기둥·팔·갓·전구). */
   lampMesh3D: THREE.Mesh;
   /** 가로등 자리(동 x, 남 z, m) 쌍과 선택적 도로 방향 벡터(dx, dz). null 이면 지웁니다. */
   setLamps: (xz: Float32Array | null | undefined, dirs?: Float32Array | null | undefined) => void;
