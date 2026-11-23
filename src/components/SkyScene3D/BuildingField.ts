@@ -524,11 +524,11 @@ void main() {
   vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
   vec2 cPerp = vec2(-cDir.y, cDir.x);
   vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
-  float wallAz = 0.92 + 0.30 * dot(nXZ, cDir) + 0.14 * dot(nXZ, cPerp);
-  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.86 + 0.22 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float wallAz = 0.72 + 0.42 * dot(nXZ, cDir) + 0.16 * dot(nXZ, cPerp);
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.80 + 0.28 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
   float skyHemi = abs(n.y) > 0.5
-    ? (0.98 + 0.14 * n.y)
-    : clamp(0.56 * wallAz * groundAo * heightGrad, 0.22, 1.15);
+    ? (0.94 + 0.14 * n.y)
+    : clamp(0.48 * wallAz * groundAo * heightGrad, 0.10, 1.15);
 
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
@@ -626,10 +626,10 @@ void main() {
     col += (skyBounce + sunGlint) * glassMask * glassGain;
   }
 
-  // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광)
+  // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광, 암부 대비 유지)
   if (uCityWallGain > 1e-5) {
-    float cDirDot = 0.28 + 0.58 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
-    float wallSlope = 0.40 + 0.60 * (1.0 - abs(n.y));
+    float cDirDot = 0.10 + 0.72 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
+    float wallSlope = 0.30 + 0.70 * (1.0 - abs(n.y));
     col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDirDot * wallSlope * groundAo * heightGrad);
   }
 

@@ -1097,13 +1097,46 @@ export async function createVolumetricScene(
       '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
       '}',
       'uniform vec3 cityTerrainIrr;',
+      'uniform vec3 cityGroundIrr;',
+      'uniform vec3 cityAir;',
+      'uniform float cityAirOn;',
+      'uniform float cityAz[36];',
+      'uniform float cityAzOn;',
+      'uniform vec3 cityNorth;',
+      'uniform vec3 cityEast;',
+      'float volCityAzGain(vec3 rd) {',
+      '  if (cityAzOn < 0.5) return 1.0;',
+      '  float cA = mod(degrees(atan(dot(rd, cityEast), dot(rd, cityNorth))) + 360.0, 360.0) / 10.0 - 0.5;',
+      '  int cI = int(floor(cA)); float cU = cA - floor(cA);',
+      '  return mix(cityAz[(cI + 36) % 36], cityAz[(cI + 37) % 36], cU);',
+      '}',
+      'vec3 volCitySparkle(vec2 posM, float km, float dens) {',
+      '  float cell1 = mix(36.0, 130.0, smoothstep(1.0, 16.0, km));',
+      '  vec2 g1 = posM / cell1; vec2 id1 = floor(g1); vec2 f1 = fract(g1);',
+      '  float h1 = fract(sin(dot(id1, vec2(127.1, 311.7))) * 43758.5453);',
+      '  float h2 = fract(sin(dot(id1, vec2(269.5, 183.3))) * 43758.5453);',
+      '  float h3 = fract(sin(dot(id1, vec2(419.2, 371.9))) * 43758.5453);',
+      '  float r1 = mix(0.22, 0.36, smoothstep(1.0, 14.0, km));',
+      '  float dot1 = smoothstep(r1, 0.02, length(f1 - vec2(0.22 + 0.56 * h1, 0.22 + 0.56 * h2)));',
+      '  float on1 = smoothstep(0.76 - 0.56 * dens, 0.96 - 0.56 * dens, h3);',
+      '  vec2 g2 = posM / (cell1 * 2.65); vec2 id2 = floor(g2); vec2 f2 = fract(g2);',
+      '  float k1 = fract(sin(dot(id2, vec2(113.5, 271.9))) * 43758.5453);',
+      '  float k2 = fract(sin(dot(id2, vec2(337.1, 149.7))) * 43758.5453);',
+      '  float dot2 = smoothstep(0.34, 0.03, length(f2 - vec2(0.25 + 0.50 * k1, 0.25 + 0.50 * k2)));',
+      '  float on2 = smoothstep(0.84 - 0.45 * dens, 0.99 - 0.45 * dens, k2);',
+      '  vec3 tint1 = h2 < 0.55 ? vec3(1.18, 0.72, 0.34) : (h2 < 0.85 ? vec3(1.08, 0.90, 0.68) : vec3(0.88, 0.95, 1.12));',
+      '  vec3 tint2 = k1 < 0.65 ? vec3(1.22, 0.78, 0.40) : vec3(1.05, 0.96, 0.85);',
+      '  vec3 pts = vec3(1.00, 0.78, 0.52) * 0.14 + tint1 * (dot1 * on1 * 2.35) + tint2 * (dot2 * on2 * 1.45);',
+      '  return mix(pts, vec3(1.04, 0.80, 0.52) * 0.68, smoothstep(14.0, 35.0, km));',
+      '}',
       head.replace('void mainImage(', 'void volBaseImage('),
     ].join('\n'));
     src = src.replace(skyA, [
       // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
       'outputColor.a = cloudAlphaOut > 0.5 ? 0.0 : 1.0;',
       '    if (terrainDistOn > 0.5) {',
-      '      float vtKm = terrainDistDecodeKm(texture(terrainDist, uv));',
+      '      vec4 vtDistRaw = texture(terrainDist, uv);',
+      '      float vtKm = terrainDistDecodeKm(vtDistRaw);',
       '      if (vtKm < 1e8) {',
       '        outputColor.rgb = vec3(0.0);',
       // §129 지형 빛 판: 알베도(rgb)·햇빛 몫(a) 위에 takram 의 해·하늘 조도와 대기 원근을 하늘과 같은 값으로 입힙니다.
@@ -1123,7 +1156,7 @@ export async function createVolumetricScene(
       // 구름낌(vtL2.a)만큼 하늘빛을 같은 휘도의 중성으로 섞습니다.
       '          vtSky = mix(vtSky, vec3(dot(vtSky, vec3(0.2126, 0.7152, 0.0722))), 0.75 * max(vtL2.a, cloudAirShade));',
           '          vec3 vtRad;',
-          '          if (texture(terrainDist, uv).b > 0.5) {',
+          '          if (vtDistRaw.b > 0.5) {',
           // 바다(SeaPlane 쌍둥이, B=1): 수체·바닥·포말 = 알베도 × 수평면 조도(직달 × 구름 그림자),
           // 하늘 되비침 = 맑음(takram) → 구름 덮개(volEvalCloudShell) + 입사 경로 연무(volEvalHaze), 윤슬 = 구름 가림 감쇠.
           '            float cosV = max(0.02, -dot(rayDirection, vtUp));',
@@ -1191,7 +1224,17 @@ export async function createVolumetricScene(
       '            // 해 직달(Lambert × 산·구름 그림자) + 하늘빛과 구름을 뚫은 확산 햇빛(수평면 몫) × 하늘 보임·사면 방향.',
       '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
       '            vtRad = vtAlb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + (vtSky + vtSun * vtSunH * vtFill) * vtAmb);',
-      '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.18 + 0.82 * clamp(vtAmb, 0.0, 1.5));',
+      // 야간 스카이글로우 간접광: 암부 바닥을 낮춰 산 실루엣과 건물 외벽 입체 음영을 유지
+      '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.04 + 0.96 * pow(clamp(vtAmb, 0.0, 1.5), 1.35));',
+      // 원거리 도시 평지 불빛: 도심 근거리(<450m, 3D 창문·가로등 영역)와 산 경사면(vtDistRaw.b≈0)은 제외하고,
+      // TerrainField MRT(vtDistRaw.b ∈ [0, 0.4])가 실어 보낸 평지×빛지도 밀도로 멀리 있는 도시 평지만 반짝임
+      '            float cMap = clamp(vtDistRaw.b / 0.4, 0.0, 1.0);',
+      '            float farCityW = smoothstep(0.45, 1.40, vtKm) * cMap;',
+      '            if (farCityW > 0.005 && dot(cityGroundIrr, vec3(1.0)) > 1e-6) {',
+      '              vec3 dCityM = (vtP - vCameraPosition) * 1000.0;',
+      '              vec2 cPosM = vec2(dot(dCityM, cityEast), dot(dCityM, cityNorth));',
+      '              vtRad += cityGroundIrr * farCityW * volCitySparkle(cPosM, vtKm, cMap);',
+      '            }',
       // 젖은 갯벌·모래: 스치는 각일수록 하늘을 비춥니다(물 n=1.33 Schlick — 바다와 같은 식). 물 쪽 되비침과 한 줄로 이어집니다.
       '            if (vtWet > 0.004) {',
       '              float wCosV = max(0.02, -dot(rayDirection, vtUp));',
@@ -1227,7 +1270,7 @@ export async function createVolumetricScene(
       '          #endif',
       '          #ifdef INSCATTER',
       '          vtRad += vtIn;',
-      '          vtRad += cityTerrainIrr * (0.042 * (1.0 - exp(-vtKm * 0.35)));',
+      '          vtRad += cityTerrainIrr * (0.018 * volCityAzGain(rayDirection) * (1.0 - exp(-vtKm * 0.12)));',
       '          #endif',
       '          #endif',
       '          outputColor.rgb = vtRad;',
@@ -1248,7 +1291,7 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;',
+      '',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
       // 100km 너머 2D 평면·원고리 덱 원근 투영: 3D 레이마칭이 100km에서 끊긴 뒤 지평선까지 이어지는 층을 높은 층→낮은 층 순으로 적층합니다.
@@ -1362,6 +1405,7 @@ export async function createVolumetricScene(
     fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
     fx.uniforms.set('cityAir', new Uniform(new Vector3()));
     fx.uniforms.set('cityTerrainIrr', new Uniform(new Vector3()));
+    fx.uniforms.set('cityGroundIrr', new Uniform(new Vector3()));
     fx.uniforms.set('cityAirOn', new Uniform(0));
     fx.uniforms.set('cloudSkyT', new Uniform(1));
     fx.uniforms.set('cityAz', new Uniform(new Array(36).fill(1)));
@@ -2016,12 +2060,12 @@ export async function createVolumetricScene(
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     if (!p || cityLight <= 0.01) {
-      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
+      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (au.get('cityGroundIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
     applyCityMap(p);
     const f = cityField?.f ?? null;
     if (f && f.skyGlow <= 1e-4 && f.maxPatch <= 1e-4) {
-      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
+      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (au.get('cityGroundIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
     const m = 6.5 - 3.5 * cityLight, sqm = 14.5 + 1.08 * m;
     const timeF = cityTimeF(date, p.lon);
@@ -2051,7 +2095,10 @@ export async function createVolumetricScene(
     const nightExpBase = autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(adaptCd, 0.0012));
     const curExpBase = Math.max(1e-4, baseExposureFor(lastSunAltForLight, p));
     const terrainIrrScale = ((nightExpBase / MOON_FULL) * sunsetFade) / curExpBase;
-    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((0.55 * artCd + 0.45 * baseCd) * 28.0 * CD_TO_RENDER * cloudBounce * cityTerrainExpScale * terrainIrrScale);
+    // 전역 간접광(산·건물 외벽)은 순수 스카이글로우(artCd) 수준으로 절제해 산 실루엣과 건물 음영을 유지하고,
+    // 원거리 도시 자체 발광(cityGroundIrr)은 cityTex × 평지 마스크 × 거리 페이드로 분리 적용합니다.
+    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(artCd * 4.5 * CD_TO_RENDER * cloudBounce * cityTerrainExpScale * terrainIrrScale);
+    (au.get('cityGroundIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(refBaseCd * 12.0 * CD_TO_RENDER * cityTerrainExpScale * terrainIrrScale);
     au.get('cityAirOn')!.value = glowScale > 1e-4 ? 1 : 0;
   };
   /**

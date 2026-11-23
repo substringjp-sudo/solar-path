@@ -3406,13 +3406,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const nightFade = nightT * nightT * (3 - 2 * nightT);
     const cloudBounce = 1.0 + 0.65 * Math.min(1, Math.max(0, overcast));
     const expComp = cityExpCompRef.current;
-    const baseCityTerrainGain = cityLightsOn ? 0.028 * cloudBounce * nightFade * expComp : 0;
+    const baseCityTerrainGain = cityLightsOn ? 0.008 * cloudBounce * nightFade * expComp : 0;
     const hasCityPatch = Boolean(cityLightsOn && cityField && cityField.patch.length > 0);
-    const cityTerrainGain = hasCityPatch
-      ? baseCityTerrainGain * 0.35 * skyGlow
-      : baseCityTerrainGain * (0.55 * skyGlow + 0.45 * localNorm);
-    const cityPatchScale = hasCityPatch ? baseCityTerrainGain * 0.65 : 0;
-    const cityWallGain = cityLightsOn ? 0.045 * skyGlow * cloudBounce * nightFade * expComp : 0;
+    const cityTerrainGain = baseCityTerrainGain * skyGlow;
+    const cityPatchScale = hasCityPatch ? 0.024 * nightFade * expComp : 0;
+    const cityWallGain = cityLightsOn ? 0.014 * skyGlow * cloudBounce * nightFade * expComp : 0;
 
     if (terrainFieldRef.current) {
       const tf = terrainFieldRef.current;
