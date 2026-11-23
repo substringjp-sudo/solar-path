@@ -1557,20 +1557,44 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           )}
 
           {sunMarker.visible && (
-            <G>
-              <Circle cx={sunMarker.x} cy={sunMarker.y} r={16} fill="url(#sunMarkerGlow)" />
-              <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke={dataColor.sunrise} strokeWidth={1} />
-            </G>
+            morph >= 0.9 ? (
+              <Circle
+                cx={sunMarker.x}
+                cy={sunMarker.y}
+                r={2.4}
+                fill={dataColor.sunrise}
+                opacity={0.8}
+                stroke="rgba(15, 23, 42, 0.5)"
+                strokeWidth={0.6}
+              />
+            ) : (
+              <G>
+                <Circle cx={sunMarker.x} cy={sunMarker.y} r={16} fill="url(#sunMarkerGlow)" />
+                <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke={dataColor.sunrise} strokeWidth={1} />
+              </G>
+            )
           )}
 
           {moonMarker && (
-            <G transform={`translate(${moonMarker.x} ${moonMarker.y}) rotate(${moonMarker.angleDeg})`}>
-              <Circle cx={0} cy={0} r={MOON_R + 5} fill="rgba(226, 232, 240, 0.12)" />
-              <Circle cx={0} cy={0} r={MOON_R} fill="#1E293B" stroke="rgba(226, 232, 240, 0.55)" strokeWidth={0.8} />
-              {moonMarker.lit === 'full'
-                ? <Circle cx={0} cy={0} r={MOON_R} fill="#E2E8F0" />
-                : moonMarker.lit && <Path d={moonMarker.lit} fill="#E2E8F0" />}
-            </G>
+            morph >= 0.9 ? (
+              <Circle
+                cx={moonMarker.x}
+                cy={moonMarker.y}
+                r={2.2}
+                fill="#CBD5E1"
+                opacity={0.75}
+                stroke="rgba(15, 23, 42, 0.5)"
+                strokeWidth={0.6}
+              />
+            ) : (
+              <G transform={`translate(${moonMarker.x} ${moonMarker.y}) rotate(${moonMarker.angleDeg})`}>
+                <Circle cx={0} cy={0} r={MOON_R + 5} fill="rgba(226, 232, 240, 0.12)" />
+                <Circle cx={0} cy={0} r={MOON_R} fill="#1E293B" stroke="rgba(226, 232, 240, 0.55)" strokeWidth={0.8} />
+                {moonMarker.lit === 'full'
+                  ? <Circle cx={0} cy={0} r={MOON_R} fill="#E2E8F0" />
+                  : moonMarker.lit && <Path d={moonMarker.lit} fill="#E2E8F0" />}
+              </G>
+            )
           )}
 
           {myLocationMarker.visible && (

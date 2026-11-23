@@ -204,12 +204,12 @@ void main() {
   float riftLat = exp(-pow((vLatDeg + 1.1 + riftWarp) / 2.2, 2.0));
   float rift = 1.0 - 0.54 * riftLat * clamp(riftLon, 0.0, 1.0);
 
-  // 태양 주변 글레어 감쇠 (태양이 시야에 있을 때 주변 은하수 묻힘)
+  // 태양 주변 글레어 감쇠 (태양 바로 근처만 부드럽게 약화, 전체 은하수는 항상 잘 보이게 유지)
   float sunCos = dot(normalize(vCamDir), normalize(uSunCamDir));
-  float sunGlareFade = 1.0 - uSunVisible * smoothstep(0.90, 0.996, sunCos) * 0.85;
+  float sunGlareFade = 1.0 - uSunVisible * smoothstep(0.92, 0.996, sunCos) * 0.55;
 
-  float expGain = clamp(uExposure, 0.15, 1.5);
-  float a = profile * vBright * mottle * rift * expGain * sunGlareFade * uOpacity * 0.135;
+  float expGain = mix(0.78, 1.18, smoothstep(0.4, 1.25, uExposure));
+  float a = profile * vBright * mottle * rift * expGain * sunGlareFade * uOpacity * 0.145;
   if (a <= 0.002) discard;
 
   float warm = smoothstep(0.14, 0.0, min(vLongT, 1.0 - vLongT));

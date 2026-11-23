@@ -799,19 +799,21 @@ export const EarthGlobeGL: React.FC<Props> = ({
       computeEqToCamMatrix(curDate, p.rotate, eqToCamRef.current);
       updateSpacePlanets(sf, curDate);
 
-      // 우주 카메라 동적 노출: 낮 지구 면적 + 시야 내 비차폐 태양에 따라 노출 자동 조절
+      // 우주 카메라 동적 노출: 낮 지구 면적 + 시야 내 비차폐 태양에 따라 부드럽게 노출 조절 (급격한 on/off 방지)
       const earthFill = Math.max(0.25, Math.min(1.0, p.radius / (Math.min(p.width, p.height) * 0.42)));
       const earthGlare = smoothstepNum(-0.35, 0.55, sunCamZ) * earthFill;
       let sunInView = 0;
-      if (sunCamZ < -0.05) {
+      if (sunCamZ < -0.02) {
+        const zFade = smoothstepNum(-0.02, -0.22, sunCamZ);
         const sunSx = p.cx + (sunCamX / -sunCamZ) * f;
         const sunSy = p.cy - (sunCamY / -sunCamZ) * f;
-        const inFrame = sunSx >= -40 && sunSx <= p.width + 40 && sunSy >= -40 && sunSy <= p.height + 40;
-        const unoccluded = Math.hypot(sunSx - p.cx, sunSy - p.cy) > p.radius * 0.96;
-        if (inFrame && unoccluded) sunInView = 1;
+        const edgeX = Math.min(smoothstepNum(-80, 40, sunSx), smoothstepNum(p.width + 80, p.width - 40, sunSx));
+        const edgeY = Math.min(smoothstepNum(-80, 40, sunSy), smoothstepNum(p.height + 80, p.height - 40, sunSy));
+        const limbClear = smoothstepNum(p.radius * 0.94, p.radius * 1.18, Math.hypot(sunSx - p.cx, sunSy - p.cy));
+        sunInView = zFade * edgeX * edgeY * limbClear;
       }
-      const totalLight = Math.min(1, earthGlare * 0.72 + sunInView * 0.85);
-      const exposure = 1.25 * (1 - totalLight) + 0.28 * totalLight;
+      const totalLight = Math.min(1, earthGlare * 0.45 + sunInView * 0.55);
+      const exposure = 1.25 * (1 - totalLight) + 0.68 * totalLight;
       const dpr = Math.max(1, gl.drawingBufferWidth / Math.max(1, p.width));
 
       (mw.material.uniforms.uEqToCam.value as THREE.Matrix3).copy(eqToCamRef.current);
