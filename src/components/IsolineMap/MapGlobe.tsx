@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback, useImperativeHandle } from 'react';
 import { StyleSheet, View, PanResponder } from 'react-native';
-import Svg, { Circle, Path, G, Defs, RadialGradient, LinearGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
+import Svg, { Circle, Path, G, Defs, RadialGradient, LinearGradient, Stop, Text as SvgText, TSpan, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { EarthGlobeGL } from './EarthGlobeGL';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { L3 } from '../../utils/i18n';
 import { IsochronePoint, getSubsolarPoint, getTerminatorSegments, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 import { subscribeScrubTime } from '../../utils/liveClock';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
@@ -686,6 +687,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
 
   // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
   const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
+  const language = useCelestialStore(st => st.language);
   const formatTime = useCallback((date: Date) => {
     const l = new Date(date.getTime() + tzHours * 3600000);
     const hours = String(l.getUTCHours()).padStart(2, '0');
@@ -696,10 +698,30 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   const sunrisePath = useMemo(() => makeTerminatorPath(terminator.sunrise), [terminator.sunrise, makeTerminatorPath]);
   const sunsetPath = useMemo(() => makeTerminatorPath(terminator.sunset), [terminator.sunset, makeTerminatorPath]);
 
-  // 메인 일출/일몰선의 적도 시간 표시 포인트 계산
-  const mainSunriseLabelPt = useMemo(() => {
-    if (!terminator.sunrise || terminator.sunrise.length === 0) return null;
-    const allPts = terminator.sunrise.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
+  // 메인 일출/일몰선 시간 라벨 위치 — 우주모드에서는 대기 광채 가장자리를 피해 지구 안쪽에 놓습니다.
+  const pickMainLabelPt = useCallback((segments: IsochronePoint[][]) => {
+    if (!segments || segments.length === 0) return null;
+    const allPts = segments.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
+    if (allPts.length === 0) return null;
+    if (morph >= 0.9 && RADIUS > 1) {
+      let bestPos: { x: number; y: number } | null = null;
+      let bestAbsLat = Infinity;
+      const maxInnerR = RADIUS * 0.84;
+      for (let i = 0; i < allPts.length; i++) {
+        const pt = allPts[i];
+        const dist = d3.geoDistance([pt.longitude, pt.latitude], [-rotate[0], -rotate[1]]);
+        if (dist >= Math.PI / 2 * 0.92) continue;
+        const pos = projection([pt.longitude, pt.latitude]);
+        if (!pos) continue;
+        if (Math.hypot(pos[0] - CX, pos[1] - CY) > maxInnerR) continue;
+        const aLat = Math.abs(pt.latitude);
+        if (aLat < bestAbsLat) {
+          bestAbsLat = aLat;
+          bestPos = { x: pos[0], y: pos[1] };
+        }
+      }
+      if (bestPos) return bestPos;
+    }
     const eqPt = getEquatorPoint(allPts);
     if (eqPt) {
       const dist = d3.geoDistance([eqPt.longitude, eqPt.latitude], [-rotate[0], -rotate[1]]);
@@ -709,31 +731,21 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       }
     }
     return null;
-  }, [terminator.sunrise, getEquatorPoint, rotate, projection]);
+  }, [getEquatorPoint, rotate, projection, morph, RADIUS, CX, CY]);
 
-  const mainSunsetLabelPt = useMemo(() => {
-    if (!terminator.sunset || terminator.sunset.length === 0) return null;
-    const allPts = terminator.sunset.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
-    const eqPt = getEquatorPoint(allPts);
-    if (eqPt) {
-      const dist = d3.geoDistance([eqPt.longitude, eqPt.latitude], [-rotate[0], -rotate[1]]);
-      if (dist < Math.PI / 2) {
-        const pos = projection([eqPt.longitude, eqPt.latitude]);
-        if (pos) return { x: pos[0], y: pos[1] };
-      }
-    }
-    return null;
-  }, [terminator.sunset, getEquatorPoint, rotate, projection]);
+  const mainSunriseLabelPt = useMemo(() => pickMainLabelPt(terminator.sunrise), [terminator.sunrise, pickMainLabelPt]);
+  const mainSunsetLabelPt = useMemo(() => pickMainLabelPt(terminator.sunset), [terminator.sunset, pickMainLabelPt]);
 
   const showSubTerminators = settled && !isInteracting && visible;
   const subTerminatorPaths = useMemo(() => {
     if (!allTerminators || !showSubTerminators) return [];
     const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
-    if (mainSunriseLabelPt) placed.push({ x: mainSunriseLabelPt.x, y: mainSunriseLabelPt.y, w: 28, h: 15 });
-    if (mainSunsetLabelPt) placed.push({ x: mainSunsetLabelPt.x, y: mainSunsetLabelPt.y, w: 28, h: 15 });
+    const mainW = morph >= 0.9 ? 48 : 28;
+    if (mainSunriseLabelPt) placed.push({ x: mainSunriseLabelPt.x, y: mainSunriseLabelPt.y, w: mainW, h: 16 });
+    if (mainSunsetLabelPt) placed.push({ x: mainSunsetLabelPt.x, y: mainSunsetLabelPt.y, w: mainW, h: 16 });
 
     const canPlace = (x: number, y: number, w: number, h: number) => {
-      if (morph >= 0.92 && Math.hypot(x - CX, y - CY) > RADIUS * 0.90) return false;
+      if (morph >= 0.92 && Math.hypot(x - CX, y - CY) > RADIUS * 0.84) return false;
       for (let i = 0; i < placed.length; i++) {
         const b = placed[i];
         if (Math.abs(x - b.x) < (w + b.w) * 0.5 + 3 && Math.abs(y - b.y) < (h + b.h) * 0.5 + 2) {
@@ -1107,6 +1119,52 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   }, [pickPin, rotate, projection]);
 
   const strokeColor = theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+  const isSpaceMode = morph >= 0.9;
+  const orbitalStrength = orbitalSunrise ? Math.max(orbitalSunrise.arcStrength, orbitalSunrise.flareStrength) : 0;
+  // 우주모드에서 대기에 태양이 걸릴 때는 선을 더 옅게 눌러 대기 광채가 그대로 살아나게 합니다.
+  const spaceMainLineOp = Math.max(0.10, 0.34 * (1 - 0.72 * orbitalStrength));
+  const spaceSubLineOp = Math.max(0.04, 0.11 * (1 - 0.78 * orbitalStrength));
+
+  const renderMainTerminatorBadge = (
+    pt: { x: number; y: number } | null,
+    sideLabel: string,
+    legacyFill: string,
+    accentHex: string,
+    strokeTint: string,
+  ) => {
+    if (!pt || !selectedDate) return null;
+    const hhmm = formatTime(selectedDate);
+    if (!isSpaceMode) {
+      return (
+        <G>
+          <Rect x={pt.x - 12} y={pt.y - 6} width={24} height={12} rx={3.5} fill={legacyFill} />
+          <SvgText x={pt.x} y={pt.y} fill="#FFFFFF" fontSize="8" fontWeight="bold" textAnchor="middle" dy={3.2}>
+            {hhmm}
+          </SvgText>
+        </G>
+      );
+    }
+    const W_PILL = 46;
+    const H_PILL = 14;
+    return (
+      <G opacity={0.92}>
+        <Rect
+          x={pt.x - W_PILL / 2}
+          y={pt.y - H_PILL / 2}
+          width={W_PILL}
+          height={H_PILL}
+          rx={H_PILL / 2}
+          fill="rgba(7, 11, 22, 0.76)"
+          stroke={strokeTint}
+          strokeWidth={0.75}
+        />
+        <SvgText x={pt.x} y={pt.y} fontSize="7.5" fontWeight="700" textAnchor="middle" dy={2.7}>
+          <TSpan fill={accentHex}>{`${sideLabel} `}</TSpan>
+          <TSpan fill="#F8FAFC">{hhmm}</TSpan>
+        </SvgText>
+      </G>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1422,31 +1480,35 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
                 <Path
                   d={paths.sunrise}
                   fill="none"
-                  stroke="rgba(251, 146, 60, 0.18)"
-                  strokeWidth={0.8}
+                  stroke={isSpaceMode ? '#FDBA74' : 'rgba(251, 146, 60, 0.18)'}
+                  strokeOpacity={isSpaceMode ? spaceSubLineOp : 1}
+                  strokeWidth={isSpaceMode ? 0.65 : 0.8}
+                  strokeDasharray={isSpaceMode ? '2 4' : undefined}
                 />
               )}
               {paths.sunset && (
                 <Path
                   d={paths.sunset}
                   fill="none"
-                  stroke="rgba(248, 113, 113, 0.18)"
-                  strokeWidth={0.8}
+                  stroke={isSpaceMode ? '#F0ABFC' : 'rgba(248, 113, 113, 0.18)'}
+                  strokeOpacity={isSpaceMode ? spaceSubLineOp : 1}
+                  strokeWidth={isSpaceMode ? 0.65 : 0.8}
+                  strokeDasharray={isSpaceMode ? '2 4' : undefined}
                 />
               )}
 
               {/* 시간별 보조 일출선 시간 표시 */}
               {paths.sunriseLabelPt && (
-                <G>
+                <G opacity={isSpaceMode ? Math.max(0.45, 0.78 * (1 - 0.45 * orbitalStrength)) : 1}>
                   <Rect
                     x={paths.sunriseLabelPt.x - 12}
                     y={paths.sunriseLabelPt.y - 5.5}
                     width={24}
                     height={11}
                     rx={3}
-                    fill="rgba(9, 14, 26, 0.78)"
-                    stroke="rgba(251, 146, 60, 0.55)"
-                    strokeWidth={0.6}
+                    fill="rgba(9, 14, 26, 0.72)"
+                    stroke="rgba(251, 146, 60, 0.45)"
+                    strokeWidth={0.5}
                   />
                   <SvgText
                     x={paths.sunriseLabelPt.x}
@@ -1463,16 +1525,16 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               )}
               {/* 시간별 보조 일몰선 시간 표시 */}
               {paths.sunsetLabelPt && (
-                <G>
+                <G opacity={isSpaceMode ? Math.max(0.45, 0.78 * (1 - 0.45 * orbitalStrength)) : 1}>
                   <Rect
                     x={paths.sunsetLabelPt.x - 12}
                     y={paths.sunsetLabelPt.y - 5.5}
                     width={24}
                     height={11}
                     rx={3}
-                    fill="rgba(9, 14, 26, 0.78)"
-                    stroke="rgba(217, 70, 239, 0.55)"
-                    strokeWidth={0.6}
+                    fill="rgba(9, 14, 26, 0.72)"
+                    stroke="rgba(217, 70, 239, 0.45)"
+                    strokeWidth={0.5}
                   />
                   <SvgText
                     x={paths.sunsetLabelPt.x}
@@ -1494,66 +1556,37 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             <Path
               d={sunrisePath}
               fill="none"
-              stroke={dataColor.sunrise}
-              strokeWidth={1.8}
+              stroke={isSpaceMode ? '#FDBA74' : dataColor.sunrise}
+              strokeOpacity={isSpaceMode ? spaceMainLineOp : 1}
+              strokeWidth={isSpaceMode ? 0.9 : 1.8}
+              strokeDasharray={isSpaceMode ? '3 4' : undefined}
             />
           )}
           {sunsetPath && (
             <Path
               d={sunsetPath}
               fill="none"
-              stroke="#BA55D3"
-              strokeWidth={1.8}
+              stroke={isSpaceMode ? '#E879F9' : '#BA55D3'}
+              strokeOpacity={isSpaceMode ? spaceMainLineOp : 1}
+              strokeWidth={isSpaceMode ? 0.9 : 1.8}
+              strokeDasharray={isSpaceMode ? '3 4' : undefined}
             />
           )}
 
-          {/* 메인 일출/일몰선 적도 시간 라벨 */}
-          {mainSunriseLabelPt && selectedDate && (
-            <G>
-              <Rect
-                x={mainSunriseLabelPt.x - 12}
-                y={mainSunriseLabelPt.y - 6}
-                width={24}
-                height={12}
-                rx={3.5}
-                fill="#EA580C"
-              />
-              <SvgText
-                x={mainSunriseLabelPt.x}
-                y={mainSunriseLabelPt.y}
-                fill="#FFFFFF"
-                fontSize="8"
-                fontWeight="bold"
-                textAnchor="middle"
-                dy={3.2}
-              >
-                {formatTime(selectedDate)}
-              </SvgText>
-            </G>
+          {/* 메인 일출/일몰선 시간 라벨 */}
+          {renderMainTerminatorBadge(
+            mainSunriseLabelPt,
+            L3(language, '일출', 'Rise', '出'),
+            '#EA580C',
+            '#FDBA74',
+            'rgba(253, 186, 116, 0.55)',
           )}
-
-          {mainSunsetLabelPt && selectedDate && (
-            <G>
-              <Rect
-                x={mainSunsetLabelPt.x - 12}
-                y={mainSunsetLabelPt.y - 6}
-                width={24}
-                height={12}
-                rx={3.5}
-                fill="#A21CAF"
-              />
-              <SvgText
-                x={mainSunsetLabelPt.x}
-                y={mainSunsetLabelPt.y}
-                fill="#FFFFFF"
-                fontSize="8"
-                fontWeight="bold"
-                textAnchor="middle"
-                dy={3.2}
-              >
-                {formatTime(selectedDate)}
-              </SvgText>
-            </G>
+          {renderMainTerminatorBadge(
+            mainSunsetLabelPt,
+            L3(language, '일몰', 'Set', '入'),
+            '#A21CAF',
+            '#F0ABFC',
+            'rgba(240, 171, 252, 0.55)',
           )}
 
           {sunMarker.visible && (
@@ -1620,42 +1653,51 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
           )}
           {orbitalSunrise && (
-            <G transform={`translate(${orbitalSunrise.lx} ${orbitalSunrise.ly})`} pointerEvents="none">
+            <G pointerEvents="none">
               {orbitalSunrise.arcStrength > 0.01 && (
-                <G transform={`rotate(${orbitalSunrise.angDeg + 90})`} opacity={orbitalSunrise.arcStrength}>
-                  <G transform="scale(3.1, 0.42)">
-                    <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.95} fill="url(#orbitalLimbBlue)" />
-                  </G>
-                  <G transform="scale(2.4, 0.24)">
-                    <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.85} fill="url(#orbitalLimbSunset)" />
-                  </G>
+                <G opacity={orbitalSunrise.arcStrength}>
+                  <Path d={orbitalSunrise.blueArc} fill="none" stroke="#60A5FA" strokeWidth={2.0} strokeOpacity={0.55} strokeLinecap="round" />
+                  <Path d={orbitalSunrise.amberArc} fill="none" stroke="#FBBF24" strokeWidth={1.4} strokeOpacity={0.72} strokeLinecap="round" />
+                  <Path d={orbitalSunrise.redArc} fill="none" stroke="#FB7185" strokeWidth={1.0} strokeOpacity={0.65} strokeLinecap="round" />
                 </G>
               )}
-              {orbitalSunrise.flareStrength > 0.02 && (
-                <G opacity={orbitalSunrise.flareStrength}>
-                  <Circle cx={0} cy={0} r={orbitalSunrise.flareR} fill="url(#orbitalSunriseFlare)" />
-                  <G transform={`rotate(${orbitalSunrise.angDeg + 90})`}>
-                    <Rect
-                      x={-orbitalSunrise.rayTangential}
-                      y={-1.6}
-                      width={orbitalSunrise.rayTangential * 2}
-                      height={3.2}
-                      fill="url(#orbitalRayGrad)"
-                      opacity={0.75}
-                    />
+              <G transform={`translate(${orbitalSunrise.lx} ${orbitalSunrise.ly})`}>
+                {orbitalSunrise.arcStrength > 0.01 && (
+                  <G transform={`rotate(${orbitalSunrise.angDeg + 90})`} opacity={orbitalSunrise.arcStrength}>
+                    <G transform="scale(3.1, 0.42)">
+                      <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.95} fill="url(#orbitalLimbBlue)" />
+                    </G>
+                    <G transform="scale(2.4, 0.24)">
+                      <Circle cx={0} cy={0} r={orbitalSunrise.flareR * 0.85} fill="url(#orbitalLimbSunset)" />
+                    </G>
                   </G>
-                  <G transform={`rotate(${orbitalSunrise.angDeg})`}>
-                    <Rect
-                      x={-orbitalSunrise.rayNormal}
-                      y={-1.2}
-                      width={orbitalSunrise.rayNormal * 2}
-                      height={2.4}
-                      fill="url(#orbitalRayGrad)"
-                      opacity={0.55}
-                    />
+                )}
+                {orbitalSunrise.flareStrength > 0.02 && (
+                  <G opacity={orbitalSunrise.flareStrength}>
+                    <Circle cx={0} cy={0} r={orbitalSunrise.flareR} fill="url(#orbitalSunriseFlare)" />
+                    <G transform={`rotate(${orbitalSunrise.angDeg + 90})`}>
+                      <Rect
+                        x={-orbitalSunrise.rayTangential}
+                        y={-1.6}
+                        width={orbitalSunrise.rayTangential * 2}
+                        height={3.2}
+                        fill="url(#orbitalRayGrad)"
+                        opacity={0.75}
+                      />
+                    </G>
+                    <G transform={`rotate(${orbitalSunrise.angDeg})`}>
+                      <Rect
+                        x={-orbitalSunrise.rayNormal}
+                        y={-1.2}
+                        width={orbitalSunrise.rayNormal * 2}
+                        height={2.4}
+                        fill="url(#orbitalRayGrad)"
+                        opacity={0.55}
+                      />
+                    </G>
                   </G>
-                </G>
-              )}
+                )}
+              </G>
             </G>
           )}
           {spaceBodies?.sun && spaceBodies.sun.inFront && renderSpaceSun(spaceBodies.sun)}
