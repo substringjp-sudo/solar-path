@@ -91,6 +91,8 @@ const ENTRIES = [
   'src/utils/calcSteps.ts',
   // 점수 · 한계등급 가감 막대 — verify-score-waterfall.js
   'src/utils/scoreWaterfall.ts',
+  // 저장 계층(지연 · 중복 쓰기 생략) — verify-startup-trim.js
+  'src/utils/debouncedPersist.ts',
   // 선택 시각 해설 · 이어서 발생할 이벤트 문구 — verify-briefing-text.js
   'src/utils/timeBriefing.ts',
   // 학습 페이지(02 학습)의 접는 규칙 · 고른 날 · 줄 누름 연결 — verify-learn-sections.js

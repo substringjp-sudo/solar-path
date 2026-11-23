@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getSunPosition, getCelestialEvents } from '../utils/celestial';
+import { getCelestialEvents } from '../utils/celestial';
 import { localDayKey, clampMs } from '../utils/timeBar';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { TAB_ORDER, type AppTab } from '../components/AppHeader';
@@ -11,8 +11,6 @@ import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/
 import { auth } from '../config/firebase';
 import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
-import { predictSunset } from '../utils/sunsetPhysics';
-import { scenePrediction } from '../utils/scenePrediction';
 import { cachedSunForecast, eventVerdict, hasDataAt, isGoodOrBetter, observerElevationFrom, type EventSide, type Quality } from '../utils/sunForecast';
 import { fetchDayWeatherRing, getInterpolatedWeather, fetchTerrainProfile, type CloudPathData } from '../utils/weather';
 import { localDateString } from '../utils/localDate';
@@ -22,7 +20,6 @@ import { t, translateSunsetDesc, Language } from '../utils/i18n';
 import { airQualityNote } from '../utils/airQuality';
 
 const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
-import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
 import { springTo, timeTo } from '../theme/motion';
 import { DEFAULT_NOTIF_PREFS, SKY_NOTIF_KINDS, planSkyNotifications } from '../utils/notificationPlan';
@@ -802,7 +799,6 @@ export function useCelestialApp() {
 
             // 예보를 못 받으면 null — 예전에는 '맑음 / 깨끗' 을 기본으로 박아 받지도 않은 예보를 알렸습니다.
             let day0Verdict: NotifVerdict | null = null;
-            let sunsetNotifImageUri: string | null = null;
             let sunsetWeather: CloudPathData[] | null = null;
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunsetTime);
@@ -810,7 +806,7 @@ export function useCelestialApp() {
               if (weatherData && weatherData.length > 0) {
                 day0Verdict = verdictFromWeather(weatherData, sunsetTime, 'sunset', lat, lon, language, timezoneOffsetHours);
                 if (day0Verdict) {
-                  const { prediction, peakTime } = day0Verdict;
+                  const { prediction } = day0Verdict;
 
                   // 앱아이콘: Epic → epic, Overcast → muted, 그 외 → clear
                   try {
@@ -828,31 +824,17 @@ export function useCelestialApp() {
                     console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
                   }
 
-                  // 알림 및 위젯용 시뮬레이션 이미지 생성 → 위젯 데이터 즉시 갱신
+                  // 홈 화면 위젯의 글자 갱신(그림은 위젯이 스스로 기본 그림을 씁니다)
                   try {
-                    const sunAltDeg = getSunPosition(peakTime, lat, lon).altitude;
-                    const overcast = prediction.factors?.overheadOvercast ?? 0.3;
-                    const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
-                    let resImages = null;
-                    if (b64) {
-                      sunsetNotifImageUri = await saveSimulationImageToCache(b64, 'notif_sunset.jpg');
-                      resImages = await compressToWidgetSizes(`data:image/jpeg;base64,${b64}`, 'widget_sunset');
-                    }
-
-                    // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
                     updateSunsetWidgetData({
                       timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
                       eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
                       cloudLabel: day0Verdict.verdictLabel,
                       colorLabel: `${day0Verdict.score}/100`,
-                      simulationUri: sunsetNotifImageUri,
-                      simulationSmallUri: resImages?.small || sunsetNotifImageUri,
-                      simulationMediumUri: resImages?.medium || sunsetNotifImageUri,
-                      simulationLargeUri: resImages?.large || sunsetNotifImageUri,
                       updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     });
-                  } catch (imgErr) {
-                    console.warn('[Notification/Widget] Simulation image generation failed:', imgErr);
+                  } catch (widgetErr) {
+                    console.warn('[Widget] 위젯 글자 갱신 실패:', widgetErr);
                   }
                 }
               }
@@ -883,7 +865,7 @@ export function useCelestialApp() {
                   ? (day0Verdict ?? verdictFromWeather(sunsetWeather, fSunset, 'sunset', lat, lon, language, timezoneOffsetHours))
                   : await sunsetLabelsFor(lat, lon, fSunset, language, timezoneOffsetHours);
                 if (notifPrefs.goodOnly && !v0?.good) continue;
-                await scheduleSunsetNotification(fSunset, v0, language, triggerTime, sunsetNotifImageUri, notifId, v0?.airNote ?? '');
+                await scheduleSunsetNotification(fSunset, v0, language, triggerTime, null, notifId, v0?.airNote ?? '');
               } else {
                 const day = await sunsetLabelsFor(lat, lon, fSunset, language, timezoneOffsetHours);
                 // 예보가 없는 날(day === null)도 "좋음" 이라고 할 수 없으니 보내지 않습니다.
@@ -924,13 +906,12 @@ export function useCelestialApp() {
             }
 
             let sunriseVerdict: NotifVerdict | null = null;
-            let sunriseNotifImageUri: string | null = null;
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunriseTime);
               if (weatherData && weatherData.length > 0 && hasDataAt(weatherData, sunriseTime)) {
                 sunriseVerdict = verdictFromWeather(weatherData, sunriseTime, 'sunrise', lat, lon, language, timezoneOffsetHours);
                 if (sunriseVerdict) {
-                  const { prediction, peakTime } = sunriseVerdict;
+                  const { prediction } = sunriseVerdict;
 
                   try {
                     let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
@@ -948,15 +929,6 @@ export function useCelestialApp() {
                     console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
                   }
 
-                  // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
-                  try {
-                    const sunAltDeg = getSunPosition(peakTime, lat, lon).altitude;
-                    const overcast = prediction.factors?.overheadOvercast ?? 0.3;
-                    const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
-                    sunriseNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunrise.jpg') : null;
-                  } catch (imgErr) {
-                    console.warn('[Notification] Sunrise simulation image generation failed:', imgErr);
-                  }
                 }
               }
             } catch (weatherErr) {
@@ -967,7 +939,7 @@ export function useCelestialApp() {
               await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
               return;
             }
-            await scheduleSunriseNotification(sunriseTime, sunriseVerdict, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, sunriseVerdict?.airNote ?? '');
+            await scheduleSunriseNotification(sunriseTime, sunriseVerdict, language, effectiveSunriseTrigger, null, undefined, sunriseVerdict?.airNote ?? '');
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
             lastSunriseDateRef.current = null;
@@ -976,80 +948,6 @@ export function useCelestialApp() {
         scheduleSunriseAlert();
       }
     }
-
-    // 3) 현재 시각 기준의 시뮬레이션 이미지 사전 생성 및 저장 (디바운스 450ms 적용, 갱신 시 메모리 비우기 및 작업 취소 처리)
-    useCelestialStore.getState().setCurrentSimulationUri(null); // 날짜/위치 갱신 즉시 이전 메모리 캐시를 해제하여 GC 대상화
-
-    let isCancelled = false;
-    let timerId: any = null;
-
-    const generateCurrentSimulation = async () => {
-      try {
-        const now = new Date();
-        const currentSunPos = getSunPosition(now, lat, lon);
-        
-        let prediction: any = null;
-        let cloudRatio = 0.5;
-        
-        const azimuth = currentSunPos.azimuth;
-
-        if (isCancelled) return;
-        const weatherData = await getOrFetchWeatherData(lat, lon, now);
-        
-        if (isCancelled) return;
-        if (weatherData && weatherData.length > 0) {
-          const interpolated = getInterpolatedWeather(weatherData, now);
-          const obs = interpolated[0];
-          if (obs) {
-            prediction = scenePrediction({
-              pathData: weatherData,
-              time: now,
-              sunAltDeg: currentSunPos.altitude,
-              sunAzDeg: azimuth,
-              obs,
-              latitude: lat,
-              observerElevM: elevFor(lat, lon),
-            });
-            const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
-            cloudRatio = maxCloud / 100;
-          }
-        } else {
-          prediction = predictSunset([], now, currentSunPos.altitude, 15000, 50, lat, elevFor(lat, lon));
-        }
-        
-        if (isCancelled) return;
-        if (prediction) {
-          const seed = Math.round(lat * 1000 + lon * 100 + now.getTime() / 60000);
-          const b64 = await generateSimulationImage(
-            currentSunPos.altitude,
-            cloudRatio,
-            seed,
-            prediction
-          );
-          
-          if (isCancelled) return;
-          if (b64) {
-            useCelestialStore.getState().setCurrentSimulationUri(b64);
-            if (__DEV__) console.log('[Background Simulation] Pre-generated current simulation image.');
-          }
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          console.warn('[Background Simulation] Pre-generation failed:', err);
-        }
-      }
-    };
-
-    timerId = setTimeout(() => {
-      generateCurrentSimulation();
-    }, 450);
-
-    return () => {
-      isCancelled = true;
-      if (timerId) {
-        clearTimeout(timerId);
-      }
-    };
   }, [isCacheHydrated, location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast, notifPrefs.goodOnly]);
 
   // 하늘 이벤트 알림(골든아워·블루아워·월출·가는 달·은하수·행성) — 설정·위치·언어·날짜가 바뀌면 다시 계획합니다.

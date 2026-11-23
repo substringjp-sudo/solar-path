@@ -1,9 +1,10 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import { createDebouncedPersistStorage } from '../utils/debouncedPersist';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   loadWeatherCache, loadTerrainCache, loadRingCache,
@@ -330,8 +331,6 @@ interface CelestialState extends ClockState {
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
   initializePendingUploads: () => void;
-  currentSimulationUri: string | null;
-  setCurrentSimulationUri: (uri: string | null) => void;
   isGestureBlocked: boolean;
   setGestureBlocked: (blocked: boolean) => void;
   teleportTarget: TeleportTarget | null;
@@ -360,6 +359,14 @@ export interface TeleportTarget {
   fov?: number;
   nonce: number;
 }
+
+const persistStorage = createDebouncedPersistStorage<any>({
+  raw: AsyncStorage,
+  delayMs: 500,
+  encode: encryptData,
+  decode: decryptData,
+});
+AppState.addEventListener('change', (st) => { if (st !== 'active') void persistStorage.flush(); });
 
 export const useCelestialStore = create<CelestialState>()(
   persist(
@@ -423,7 +430,6 @@ export const useCelestialStore = create<CelestialState>()(
       isCacheHydrated: false,
       initialTab: 'sky',
       selectedCategory: 'sun',
-      currentSimulationUri: null,
       isGestureBlocked: false,
       skyLayers: {
         labels: true, sun: true, moon: true, stars: true, milkyway: true,
@@ -460,7 +466,6 @@ export const useCelestialStore = create<CelestialState>()(
       teleportTarget: null,
 
       setSelectedCategory: (category) => set({ selectedCategory: category }),
-      setCurrentSimulationUri: (uri) => set({ currentSimulationUri: uri }),
       setGestureBlocked: (blocked) => set({ isGestureBlocked: blocked }),
       setTeleportTarget: (target) => set({ teleportTarget: { ...target, nonce: Date.now() } }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
@@ -1419,30 +1424,8 @@ export const useCelestialStore = create<CelestialState>()(
     }),
     {
       name: 'solar-path-storage',
-      storage: createJSONStorage(() => ({
-        getItem: async (name) => {
-          const value = await AsyncStorage.getItem(name);
-          if (!value) return null;
-          try {
-            return decryptData(value);
-          } catch (e) {
-            console.warn('Failed to decrypt storage data:', e);
-            return value;
-          }
-        },
-        setItem: async (name, value) => {
-          try {
-            const encrypted = encryptData(value);
-            await AsyncStorage.setItem(name, encrypted);
-          } catch (e) {
-            console.warn('Failed to encrypt storage data:', e);
-            await AsyncStorage.setItem(name, value);
-          }
-        },
-        removeItem: async (name) => {
-          await AsyncStorage.removeItem(name);
-        }
-      })),
+      // 저장은 모았다가 한 번에, 바뀐 게 없으면 아예 안 씁니다(`debouncedPersist.ts`). 앱이 뒤로 갈 때 바로 씁니다.
+      storage: persistStorage,
       // 저장소에서 읽은 장면은 한 번 더 정리합니다(파일이 깨지거나 앱 버전이 바뀌어도 화면이 망가지지 않게). 나머지는 기본 병합과 같습니다.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<CelestialState>;
