@@ -333,7 +333,7 @@ export default function App() {
           }}
           onOpenDatePicker={() => setShowDatePicker(true)}
           isCameraOverlayActive={isSunCameraVisible}
-          isSuspended={!isAppActive || (isSunCameraVisible && cameraViewMode === 'camera') || isMapVisible || isSettingsVisible || isSavedListVisible}
+          isSuspended={!isAppActive || (isSunCameraVisible && cameraViewMode === 'camera') || isMapVisible || isSettingsVisible || isSavedListVisible || showGuide}
         />
         </Animated.View>
 

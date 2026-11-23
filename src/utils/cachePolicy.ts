@@ -67,6 +67,13 @@ export const MAX_CACHE_ENTRIES = 10;
  */
 export const MAX_RING_ENTRIES = 3;
 
+/**
+ * 링 캐시 파일 이름 → 같은 날 · 같은 격자의 **날씨 캐시** 파일 이름. 링 파일이 아니면 null.
+ * 켤 때 `primeRingCache([...링, ...날씨])` 로 넣는데 같은 키는 날씨가 이기므로, 쌍둥이가 있는 링 파일은 읽을 필요가 없습니다.
+ */
+export const weatherTwinOfRingFile = (fileName: string): string | null =>
+  fileName.startsWith('ring_') ? `w_${fileName.slice(5)}` : null;
+
 export interface CacheEntry<T> {
   key: string;
   data: T;

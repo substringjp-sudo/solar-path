@@ -19,6 +19,14 @@
  *  A7. encode 가 던지면 암호화 없이 그대로 쓴다(옛 동작과 같음). 쓰기 오류는 밖으로 던지지 않는다.
  *  A8. 연결 — 스토어가 이 부품을 쓰고(createJSONStorage 대신), 앱이 뒤로 갈 때 flush 한다.
  *  B1. 소스에 generateSimulationImage · saveSimulationImageToCache · compressToWidgetSizes · setCurrentSimulationUri · currentSimulationUri 가 코드로 남아 있지 않다(주석 제외).
+ *  --- 2단계(2026-11-23, 같은 판정에 이어 붙임) ---
+ *  C1. 링 캐시 파일 이름 → 같은 날 · 같은 격자의 날씨 캐시 쌍둥이 파일 이름(`weatherTwinOfRingFile`): `ring_<격자>_<날짜>.dat` → `w_<격자>_<날짜>.dat`. 링이 아닌 이름은 null.
+ *      (시작할 때 링 캐시와 날씨 캐시를 모두 읽어 `primeRingCache([...링, ...날씨])` 로 넣는데 같은 키는 날씨가 이긴다 → 쌍둥이가 있는 링 파일은 읽을 필요가 없다.)
+ *  C2. 연결 — 링 캐시를 읽을 때 `MAX_RING_ENTRIES`(3) 상한과 쌍둥이 건너뛰기를 쓰고, 파일 읽기는 하나씩이 아니라 한꺼번에(Promise.all) 한다. 스토어의 링 저장은 MAX_RING_ENTRIES 를 쓰고 날씨 쌍둥이가 생겼으면 쓰지 않는다.
+ *  D1. 지형 고도 요청 합치기 — 같은 자리 · 같은 범위의 `fetchTerrainProfile` 을 동시에 둘 부르면 네트워크 요청은 1 번, 두 결과는 같은 값. 끝난 뒤 다시 부르면 캐시로(요청 0 번). 실패는 캐시하지 않고 다음 호출이 다시 시도한다.
+ *  E1. XOR 16진수 암호화 속도 — `xorHex.ts` 의 encode/decode 가 옛 글자별 구현과 **같은 글**을 낸다(유니코드 · 빈 글 · 긴 글 포함, 왕복 동일). 큰 글에서 옛 것보다 느리지 않다(비교 로그만, 시간은 판정에 안 씀).
+ *  F1. 처음 실행 안내가 떠 있는 동안 3D 하늘은 멈춘다(`isSuspended` 에 showGuide).
+ *  F2. 켜는 단계 시간 기록(`startupTrace.ts`) — 표시 · 구간 길이 · 합이 맞고, 개발 빌드에서만 로그를 낸다.
  *  B2. 켤 때 알림 예약이 쓰는 effect 는 남아 있고(알림 · 앱 아이콘 · 위젯 글자 갱신), 위젯 갱신은 그림 없이 글자만 넘긴다.
  */
 const path = require('path');
@@ -121,6 +129,75 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     ok(/scheduleSunsetNotification\(/.test(app) && /scheduleSunriseNotification\(/.test(app) && /setAppIcon\(/.test(app), '알림 예약 · 앱 아이콘 갱신은 남아 있다');
     const upd = app.match(/updateSunsetWidgetData\(\{[\s\S]*?\}\);/g) || [];
     ok(upd.length >= 1 && upd.every(u => !/simulation(Small|Medium|Large)?Uri/.test(u)), `위젯 갱신이 그림 없이 글자만 넘긴다 (${upd.length} 곳)`);
+  }
+
+  console.log('\n[C] 링 캐시 읽기');
+  {
+    const CP = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'cachePolicy.js'));
+    ok(CP.weatherTwinOfRingFile('ring_37.56_126.98_2026-11-23.dat') === 'w_37.56_126.98_2026-11-23.dat', '링 파일 → 날씨 쌍둥이 파일 이름');
+    ok(CP.weatherTwinOfRingFile('w_x_2026-11-23.dat') === null && CP.weatherTwinOfRingFile('t_x.dat') === null, '링이 아닌 이름은 null');
+    const pc = fs.readFileSync(path.join(REPO_ROOT, 'src/utils/persistentCache.ts'), 'utf8');
+    const store = fs.readFileSync(path.join(REPO_ROOT, 'src/store/useCelestialStore.ts'), 'utf8');
+    ok(/MAX_RING_ENTRIES/.test(pc) && /weatherTwinOfRingFile/.test(pc) && /Promise\.all/.test(pc.slice(pc.indexOf('const readFiles'), pc.indexOf('const writeFiles'))), 'persistentCache: 링 상한 · 쌍둥이 건너뛰기 · 한꺼번에 읽기');
+    const pers = store.slice(store.indexOf('setRingPersister('), store.indexOf('setRingPersister(') + 1200);
+    ok(/MAX_RING_ENTRIES/.test(pers) && /(w_|weatherCacheKey|replace\(\/\^ring_)/.test(pers), '스토어 링 저장: 상한 3 + 날씨 쌍둥이가 있으면 쓰지 않음');
+  }
+  console.log('\n[D] 지형 요청 합치기');
+  {
+    globalThis.__DEV__ = false;
+    let reqs = 0, fail = false;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      reqs++; await new Promise(r => setTimeout(r, 20));
+      if (fail) return { ok: false, status: 500, json: async () => ({}), text: async () => '' };
+      const n = (String(url).match(/latitude=([^&]*)/)?.[1] ?? '0').split(',').length;
+      return { ok: true, status: 200, json: async () => ({ elevation: Array.from({ length: n }, (_, i) => 100 + i) }), text: async () => '' };
+    };
+    try {
+      const W = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'weather.js'));
+      const [a, b] = await Promise.all([W.fetchTerrainProfile(10.123, 20.456, 0, 360), W.fetchTerrainProfile(10.123, 20.456, 0, 360)]);
+      const n1 = reqs;
+      ok(n1 >= 1 && a === b, `동시에 둘 불러도 같은 결과 객체 (요청 ${n1} 번)`);
+      const c = await W.fetchTerrainProfile(10.123, 20.456, 0, 360);
+      ok(reqs === n1 && c === a, `끝난 뒤 다시 부르면 캐시 (추가 요청 ${reqs - n1} 번)`);
+      // 요청 수 비교: 한 번 부를 때의 요청 수 k 와 동시 둘의 요청 수가 같아야 한다
+      reqs = 0; await W.fetchTerrainProfile(11.2, 21.4, 0, 360); const single = reqs;
+      reqs = 0; await Promise.all([W.fetchTerrainProfile(12.2, 22.4, 0, 360), W.fetchTerrainProfile(12.2, 22.4, 0, 360)]);
+      ok(reqs === single, `동시 둘의 요청 수(${reqs}) = 하나일 때의 요청 수(${single})`);
+      fail = true; reqs = 0;
+      const f1 = await W.fetchTerrainProfile(13.3, 23.3, 0, 360); const afterFail = reqs;
+      fail = false; const f2 = await W.fetchTerrainProfile(13.3, 23.3, 0, 360);
+      ok(reqs > afterFail && !f2.isFallback, `실패(${f1.isFallback ? '대용값' : '?'})는 캐시하지 않고 다음 호출이 다시 시도한다`);
+    } finally { globalThis.fetch = realFetch; }
+  }
+  console.log('\n[E] XOR 암호화');
+  {
+    const X = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'xorHex.js'));
+    const salt = 'BeforeGlowSecuritySalt_2026_SolarPath_android_34_54';
+    const toHex = (str) => { let r = ''; for (let i = 0; i < str.length; i++) r += ('0' + str.charCodeAt(i).toString(16)).slice(-2); return r; };
+    const fromHex = (hex) => { let r = ''; for (let i = 0; i < hex.length; i += 2) r += String.fromCharCode(parseInt(hex.substring(i, i + 2), 16)); return r; };
+    const refEnc = (text) => { if (!text) return ''; const u = encodeURIComponent(text); let r = ''; for (let i = 0; i < u.length; i++) r += String.fromCharCode(u.charCodeAt(i) ^ salt.charCodeAt(i % salt.length)); return toHex(r); };
+    const refDec = (hex) => { if (!hex) return ''; const t = fromHex(hex); let r = ''; for (let i = 0; i < t.length; i++) r += String.fromCharCode(t.charCodeAt(i) ^ salt.charCodeAt(i % salt.length)); return decodeURIComponent(r); };
+    const samples = ['', 'a', 'hello world', '한글 노을 🌅 점수 72', JSON.stringify({ k: [1, 2, 3], s: '가나다' }), 'x'.repeat(100000), JSON.stringify(Array.from({ length: 5000 }, (_, i) => ({ i, t: '구름 ' + i })))];
+    let bad = 0; for (const t of samples) { const e = X.xorHexEncode(t, salt); if (e !== refEnc(t) || X.xorHexDecode(e, salt) !== t || X.xorHexDecode(refEnc(t), salt) !== refDec(refEnc(t))) bad++; }
+    ok(bad === 0, `옛 구현과 같은 글을 내고 왕복이 같다 (${samples.length} 개 중 어긋남 ${bad})`);
+    const big = JSON.stringify(Array.from({ length: 20000 }, (_, i) => ({ i, t: '구름 ' + i, v: Math.sin(i) }))); const te = refEnc(big);
+    let t0 = Date.now(); refDec(te); const tOld = Date.now() - t0; t0 = Date.now(); X.xorHexDecode(te, salt); const tNew = Date.now() - t0;
+    console.log(`  (참고: ${(big.length / 1024).toFixed(0)} KB 복호화 옛 ${tOld}ms → 새 ${tNew}ms)`);
+  }
+  console.log('\n[F] 켜는 동안 3D · 시간 기록');
+  {
+    const app = fs.readFileSync(path.join(REPO_ROOT, 'src/App.tsx'), 'utf8');
+    ok(/isSuspended=\{[^}]*showGuide/.test(app), '처음 실행 안내가 떠 있으면 3D 하늘을 멈춘다');
+    const T = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'startupTrace.js'));
+    let now = 1000; const lines = [];
+    const tr = T.createStartupTrace({ now: () => now, log: (m) => lines.push(m), enabled: true });
+    tr.mark('start'); now += 40; tr.mark('cache'); now += 250; tr.mark('weather'); now += 10; tr.mark('ready');
+    const sp = tr.spans();
+    ok(sp.map(x => x.label).join() === 'cache,weather,ready' && sp.map(x => x.ms).join() === '40,250,10' && tr.total() === 300, `구간 40 · 250 · 10, 합 300 (${JSON.stringify(sp.map(x => x.ms))}, ${tr.total()})`);
+    ok(lines.length > 0 && /cache/.test(lines.join('')), '켜 두면 로그를 낸다');
+    const off = []; const t2 = T.createStartupTrace({ now: () => now, log: (m) => off.push(m), enabled: false }); t2.mark('a'); t2.mark('b');
+    ok(off.length === 0, '끄면(릴리스) 로그를 내지 않는다');
   }
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
