@@ -11,7 +11,8 @@ export const stampPhoto = async (
   pm25: number | null,
   description: string,
   lang: Language,
-  exposure: number = 0
+  exposure: number = 0,
+  wbTint: string | null = null
 ): Promise<string> => {
   try {
     const data = await Skia.Data.fromURI(uri);
@@ -36,6 +37,13 @@ export const stampPhoto = async (
         paintExposure.setColor(Skia.Color(`rgba(255, 255, 255, ${exposure * 0.4})`));
       }
       canvas.drawRect(rect(0, 0, w, h), paintExposure);
+    }
+
+    // 수동 화이트밸런스(WB) 틴트 보정 (소프트웨어 폴백 및 iOS용)
+    if (wbTint) {
+      const paintWb = Skia.Paint();
+      paintWb.setColor(Skia.Color(wbTint));
+      canvas.drawRect(rect(0, 0, w, h), paintWb);
     }
 
     const fontSize = Math.max(14, w * 0.016);

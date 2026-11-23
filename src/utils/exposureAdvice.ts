@@ -70,3 +70,62 @@ export function wbLabel(wb: WbAdvice, lang: 'ko' | 'en' | 'ja'): string {
   if (wb === 'daylight') return lang === 'en' ? 'Daylight lock' : lang === 'ja' ? '太陽光固定' : '일광 고정';
   return lang === 'en' ? 'Night 4000K' : lang === 'ja' ? '夜 4000K' : '야간 4000K';
 }
+
+export type PhotoWbPreset = 'auto' | 3200 | 4000 | 5200 | 6500 | 7500;
+
+export const PHOTO_ISO_CHOICES: readonly number[] = [100, 200, 400, 800, 1600, 3200];
+export const PHOTO_SHUTTER_CHOICES: readonly number[] = [
+  1 / 2000, 1 / 1000, 1 / 500, 1 / 250, 1 / 125, 1 / 60, 1 / 30, 1 / 15, 1 / 8, 1 / 4, 0.5, 1, 2, 4,
+];
+export const PHOTO_WB_CHOICES: readonly PhotoWbPreset[] = ['auto', 3200, 4000, 5200, 6500, 7500];
+
+const WB_GAINS_MAP: Record<Exclude<PhotoWbPreset, 'auto'>, [number, number, number]> = {
+  3200: [0.82, 1.0, 1.38],
+  4000: [0.91, 1.0, 1.18],
+  5200: [1.0, 1.0, 1.0],
+  6500: [1.16, 1.0, 0.86],
+  7500: [1.30, 1.0, 0.74],
+};
+
+const WB_TINT_MAP: Record<Exclude<PhotoWbPreset, 'auto'>, string | null> = {
+  3200: 'rgba(96, 165, 250, 0.16)',
+  4000: 'rgba(147, 197, 253, 0.09)',
+  5200: null,
+  6500: 'rgba(251, 191, 36, 0.10)',
+  7500: 'rgba(249, 115, 22, 0.16)',
+};
+
+export function photoWbLabel(wb: PhotoWbPreset | null, lang: 'ko' | 'en' | 'ja'): string {
+  if (wb == null || wb === 'auto') return lang === 'en' ? 'Auto' : lang === 'ja' ? 'オート' : '자동';
+  if (wb === 5200) return lang === 'en' ? '5200K Day' : lang === 'ja' ? '5200K 太陽' : '5200K 일광';
+  return `${wb}K`;
+}
+
+export function wbGainsForPreset(wb: PhotoWbPreset | null): [number, number, number] | undefined {
+  if (wb == null || wb === 'auto') return undefined;
+  return WB_GAINS_MAP[wb];
+}
+
+export function wbTintColor(wb: PhotoWbPreset | null): string | null {
+  if (wb == null || wb === 'auto') return null;
+  return WB_TINT_MAP[wb];
+}
+
+export function computeManualEvOffset(
+  advice: ExposureAdvice | null,
+  manualIso: number | null,
+  manualShutterS: number | null,
+): number {
+  if (!advice || (manualIso == null && manualShutterS == null)) return 0;
+  const effIso = manualIso ?? advice.iso;
+  const effShutter = manualShutterS ?? advice.shutterS;
+  const delta = Math.log2(Math.max(1, effIso) / Math.max(1, advice.iso))
+    + Math.log2(Math.max(1e-5, effShutter) / Math.max(1e-5, advice.shutterS));
+  return Math.max(-3, Math.min(3, delta));
+}
+
+export function shutterLevelFor(shutterS: number): ExposureLevel {
+  if (shutterS > TRIPOD_OK_S) return 'astro';
+  if (shutterS > HANDHELD_MAX_S) return 'tripod';
+  return 'ok';
+}

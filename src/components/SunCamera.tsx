@@ -45,10 +45,15 @@ import { SunPathOverlay } from './SunPathOverlay';
 import { hapticShutter, hapticError } from '../utils/haptics';
 import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 import {
+  addAstroStackFrameAsync,
+  beginAstroStackAsync,
+  captureAstroSubFrameAsync,
+  finalizeAstroStackAsync,
   getAstroCapabilitiesAsync,
   getRearLensesAsync,
   isAstroCameraAvailable,
   renderAstroStackPreviewAsync,
+  startAstroSessionAsync,
   stopAstroSessionAsync,
   type AstroCameraCapabilities,
   type RearLensInfo,
@@ -117,7 +122,13 @@ import {
 import { Scrim } from './glass/Scrim';
 import { GlassChip } from './glass/GlassChip';
 import { TEXT } from '../theme/glassTokens';
-import { adviseExposure } from '../utils/exposureAdvice';
+import {
+  adviseExposure,
+  computeManualEvOffset,
+  wbGainsForPreset,
+  wbTintColor,
+  type PhotoWbPreset,
+} from '../utils/exposureAdvice';
 import { autoStartDue, autoStartState } from '../utils/autoStart';
 import { lensLine } from '../utils/lensInfo';
 import { EclipseCard } from './AstroCamera/EclipseCard';
@@ -193,6 +204,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   cameraFacingRef.current = cameraFacing;
   const [currentMagnification, setCurrentMagnification] = useState(1.0);
   const [exposure, setExposure] = useState(0); // -1.0 ~ 1.0 (디폴트 0)
+  const [manualPhotoIso, setManualPhotoIso] = useState<number | null>(null);
+  const [manualPhotoShutterS, setManualPhotoShutterS] = useState<number | null>(null);
+  const [manualPhotoWb, setManualPhotoWb] = useState<PhotoWbPreset | null>(null);
+  const [nativePhotoBusy, setNativePhotoBusy] = useState(false);
 
   // 뷰 모드 ('camera': 실카메라, 'blend': 카메라+3D 반투명 겹쳐보기, 'sim': 60fps 3D 시뮬)
   const [viewMode, setViewMode] = useState<CameraViewMode>('camera');
@@ -1193,6 +1208,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // ── 확장 촬영 모드별 단사 / 연사 촬영 ─────────────────────────────
       let photo: { uri: string; exif?: Record<string, unknown> } | undefined;
       let rawInputUri = '';
+      let usedNativeManual = false;
 
       if (gear.filmBack === 'luckyTele') {
         const burstN = Math.max(4, Math.min(12, gear.luckyBurstCount));
@@ -1237,12 +1253,59 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         }
         rawInputUri = (await mergeAlignedBurstFrames(burstFrames, optics.k, mergeW)) ?? photo?.uri ?? '';
       } else {
-        // 일반 촬영 (EXIF 활성화)
-        photo = await cameraRef.current.takePictureAsync({
-          quality: 1,
-          exif: true,
-        });
-        rawInputUri = photo?.uri ?? '';
+        const hasManualOverride = manualPhotoIso != null
+          || manualPhotoShutterS != null
+          || (manualPhotoWb != null && manualPhotoWb !== 'auto');
+        if (Platform.OS === 'android' && isAstroCameraAvailable() && hasManualOverride && cameraFacing === 'back') {
+          setNativePhotoBusy(true);
+          await new Promise(r => setTimeout(r, 140));
+          try {
+            await startAstroSessionAsync({
+              cameraId: activeLensId || undefined,
+              preferRaw: false,
+              maxLongEdge: 3200,
+            });
+            const frame = await captureAstroSubFrameAsync({
+              exposureMs: (manualPhotoShutterS ?? expoAdvice?.shutterS ?? 1 / 60) * 1000,
+              iso: manualPhotoIso ?? expoAdvice?.iso ?? 400,
+              lockFocusInfinity: false,
+              wbGains: wbGainsForPreset(manualPhotoWb),
+              zoomRatio: currentMagnification,
+            });
+            await beginAstroStackAsync(frame.width, frame.height);
+            await addAstroStackFrameAsync({
+              framePath: frame.framePath,
+              weight: 1.0,
+              homographyUv0ToK: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            });
+            const res = await finalizeAstroStackAsync({
+              format: 'jpeg',
+              stretchGain: 1.0,
+              asinhStrength: 0.5,
+              subtractBlackPercentile: 0.0,
+              jpegQuality: 95,
+            });
+            rawInputUri = res.uri;
+            photo = { uri: res.uri };
+            usedNativeManual = true;
+          } catch (e) {
+            if (__DEV__) console.warn('[ManualPhoto] Native Camera2 fallback to CameraView:', e);
+          } finally {
+            await stopAstroSessionAsync().catch(() => {});
+            setNativePhotoBusy(false);
+          }
+          if (!usedNativeManual) {
+            await new Promise(r => setTimeout(r, 220));
+          }
+        }
+        if (!usedNativeManual && cameraRef.current) {
+          // 일반 촬영 (EXIF 활성화)
+          photo = await cameraRef.current.takePictureAsync({
+            quality: 1,
+            exif: true,
+          });
+          rawInputUri = photo?.uri ?? '';
+        }
       }
 
       if (!photo?.uri || !rawInputUri) {
@@ -1438,7 +1501,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         pm25,
         description,
         language,
-        exposure
+        usedNativeManual ? exposure : effectivePreviewExposure,
+        usedNativeManual ? null : manualWbTint
       );
 
       // EXIF 메타데이터 구성 (태양 위치 물리값 및 이미지 인핸스먼트 지표 결합)
@@ -1995,26 +2059,42 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   useEffect(() => { if (!visible || !cameraScene) setAutoStartAt(null); }, [visible, cameraScene]);
   const autoState = cameraScene ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
   const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
+  const manualEvOffset = useMemo(
+    () => computeManualEvOffset(expoAdvice, manualPhotoIso, manualPhotoShutterS),
+    [expoAdvice, manualPhotoIso, manualPhotoShutterS],
+  );
+  const effectivePreviewExposure = useMemo(
+    () => Math.max(-1, Math.min(1, exposure + manualEvOffset * 0.18)),
+    [exposure, manualEvOffset],
+  );
+  const manualWbTint = useMemo(() => wbTintColor(manualPhotoWb), [manualPhotoWb]);
   const lensInfoText = useMemo(() => lensLine(optics.vFovDeg, W / Math.max(1, stageLayoutH)), [optics.vFovDeg, W, stageLayoutH]);
   const lensOptions = useMemo<LensOption[]>(() => {
     if (Platform.OS === 'ios') {
-      const labelFor = (id: string) => {
-        if (id === 'builtInUltraWideCamera') return L3(language, '초광각', 'Ultra Wide', '超広角');
-        if (id === 'builtInWideAngleCamera') return L3(language, '광각', 'Wide', '広角');
-        if (id === 'builtInTelephotoCamera') return L3(language, '망원', 'Tele', '望遠');
-        return id;
+      const metaFor = (id: string): Pick<LensOption, 'label' | 'kind'> => {
+        if (id === 'builtInUltraWideCamera') return { label: L3(language, '초광각', 'Ultra Wide', '超広角'), kind: 'ultrawide' };
+        if (id === 'builtInWideAngleCamera') return { label: L3(language, '광각', 'Wide', '広角'), kind: 'wide' };
+        if (id === 'builtInTelephotoCamera') return { label: L3(language, '망원', 'Tele', '望遠'), kind: 'tele' };
+        return { label: id, kind: 'wide' };
       };
-      return iosLenses.map(id => ({ id, label: labelFor(id) }));
+      return iosLenses.map(id => ({ id, ...metaFor(id) }));
     }
     return rearLenses.map(l => {
-      const role = l.focal35mm < 18
-        ? L3(language, '초광각', 'Ultra Wide', '超広角')
+      const kind = l.focal35mm < 18
+        ? 'ultrawide'
         : l.focal35mm <= 34
-          ? L3(language, '광각', 'Wide', '広角')
+          ? 'wide'
           : l.focal35mm <= 85
+            ? 'tele'
+            : 'supertele';
+      const role = kind === 'ultrawide'
+        ? L3(language, '초광각', 'Ultra Wide', '超広角')
+        : kind === 'wide'
+          ? L3(language, '광각', 'Wide', '広角')
+          : kind === 'tele'
             ? L3(language, '망원', 'Tele', '望遠')
             : L3(language, '초망원', 'Tele+', '超望遠');
-      return { id: l.cameraId, label: role, sub: `${Math.round(l.focal35mm)}mm` };
+      return { id: l.cameraId, label: role, sub: `${Math.round(l.focal35mm)}mm`, kind };
     });
   }, [iosLenses, rearLenses, language]);
   const handleSelectLens = useCallback((id: string) => {
@@ -2434,7 +2514,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 if (h > 0 && Math.abs(h - stageLayoutH) > 1) setStageLayoutH(h);
               }}
             >
-              {viewMode !== 'sim' && astroNightPhase === null && !astroResult && !previewUri && (
+              {viewMode !== 'sim' && astroNightPhase === null && !astroResult && !previewUri && !nativePhotoBusy && (
                 <View style={[StyleSheet.absoluteFill, viewMode === 'blend' && { opacity: 0.45 }]} pointerEvents="none">
                   <CameraView
                     ref={cameraRef}
@@ -2452,18 +2532,24 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 </View>
               )}
-              {/* 소프트웨어 노출(밝기 부스트) — 카메라/겹쳐보기 그림에만 */}
-              {exposure !== 0 && (
+              {/* 소프트웨어 노출(밝기 부스트) 및 수동 WB 틴트 — 카메라/겹쳐보기 그림에만 */}
+              {effectivePreviewExposure !== 0 && (
                 <View
                   style={[
                     StyleSheet.absoluteFill,
                     {
                       backgroundColor:
-                        exposure < 0
-                          ? `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})`
-                          : `rgba(255, 255, 255, ${exposure * (cameraTab === 'astro' ? 0.28 : 0.4)})`,
+                        effectivePreviewExposure < 0
+                          ? `rgba(0, 0, 0, ${Math.abs(effectivePreviewExposure) * 0.7})`
+                          : `rgba(255, 255, 255, ${effectivePreviewExposure * (cameraTab === 'astro' ? 0.28 : 0.4)})`,
                     },
                   ]}
+                  pointerEvents="none"
+                />
+              )}
+              {manualWbTint && viewMode !== 'sim' && (
+                <View
+                  style={[StyleSheet.absoluteFill, { backgroundColor: manualWbTint }]}
                   pointerEvents="none"
                 />
               )}
@@ -2758,6 +2844,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                               onPressLens={() => setGearBagOpen(true)}
                               gearSummary={gearSummaryText}
                               gearActive={gearActive}
+                              manualIso={manualPhotoIso}
+                              manualShutterS={manualPhotoShutterS}
+                              manualWb={manualPhotoWb}
+                              onChangeIso={setManualPhotoIso}
+                              onChangeShutter={setManualPhotoShutterS}
+                              onChangeWb={setManualPhotoWb}
                             />
                           </>
                         ),
