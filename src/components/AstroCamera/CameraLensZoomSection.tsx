@@ -24,6 +24,9 @@ interface Props {
   onSelectLens: (id: string) => void;
   magnification: number;
   onChangeMagnification: (mag: number) => void;
+  onOpenCameraBag?: () => void;
+  gearActive?: boolean;
+  gearBadge?: string;
 }
 
 export const CameraLensZoomSection: React.FC<Props> = ({
@@ -33,26 +36,45 @@ export const CameraLensZoomSection: React.FC<Props> = ({
   onSelectLens,
   magnification,
   onChangeMagnification,
+  onOpenCameraBag,
+  gearActive = false,
+  gearBadge,
 }) => {
   return (
     <View style={styles.root}>
-      {lenses.length > 0 && (
+      {(lenses.length > 0 || onOpenCameraBag) && (
         <View style={styles.block}>
-          <Text style={styles.label}>
-            {`${L3(language, '카메라 렌즈', 'CAMERA LENS', 'カメラレンズ')} (${lenses.length})`}
-          </Text>
-          <View style={styles.row}>
-            {lenses.map(lens => (
+          <View style={styles.headerRow}>
+            <Text style={styles.label}>
+              {lenses.length > 0
+                ? `${L3(language, '카메라 렌즈', 'CAMERA LENS', 'カメラレンズ')} (${lenses.length})`
+                : L3(language, '확장 광학', 'OPTICAL GEAR', '拡張光学')}
+            </Text>
+            {onOpenCameraBag && (
               <GlassChip
-                key={lens.id}
-                testID={`lens-${lens.id}`}
-                label={lens.sub ? `${lens.label} · ${lens.sub}` : lens.label}
-                mono
-                active={selectedLensId === lens.id}
-                onPress={() => onSelectLens(lens.id)}
+                testID="open-gear-bag-chip"
+                label={gearBadge
+                  ? `${L3(language, '광학 가방', 'Gear Bag', '光学バッグ')} · ${gearBadge}`
+                  : L3(language, '광학 렌즈·필터 ▾', 'Optical Gear ▾', '光学レンズ・フィルター ▾')}
+                active={gearActive}
+                onPress={onOpenCameraBag}
               />
-            ))}
+            )}
           </View>
+          {lenses.length > 0 && (
+            <View style={styles.row}>
+              {lenses.map(lens => (
+                <GlassChip
+                  key={lens.id}
+                  testID={`lens-${lens.id}`}
+                  label={lens.sub ? `${lens.label} · ${lens.sub}` : lens.label}
+                  mono
+                  active={selectedLensId === lens.id}
+                  onPress={() => onSelectLens(lens.id)}
+                />
+              ))}
+            </View>
+          )}
         </View>
       )}
       <View style={styles.block}>
@@ -86,6 +108,12 @@ const styles = StyleSheet.create({
   },
   block: {
     gap: 6,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   label: {
     fontSize: 10,

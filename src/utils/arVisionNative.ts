@@ -12,7 +12,7 @@ import { Skia, AlphaType, ColorType } from '@shopify/react-native-skia';
 import * as ImageManipulator from 'expo-image-manipulator';
 import {
   horizonProfileAsync, hfovFromFocal35,
-  type HorizonProfile, type RgbFrame,
+  type GroundElevation, type HorizonProfile, type RgbFrame,
 } from './arVision';
 import { loadCpuDemBlock, combineSamplers, type TileDecoder } from './demCpu';
 
@@ -45,17 +45,22 @@ export const skiaTileDecoder: TileDecoder = async (url) => {
   return r && r.width === 256 && r.height === 256 ? r.data : null;
 };
 
-const horizonCache = new Map<string, Promise<HorizonProfile | null>>();
+export interface TerrainSamplerData {
+  horizon: HorizonProfile;
+  elev: GroundElevation;
+  eyeElevM: number;
+}
+
+const terrainCache = new Map<string, Promise<TerrainSamplerData | null>>();
 
 /**
- * 이 자리의 DEM 지평선. 같은 자리(소수 셋째 자리, 약 100m)면 다시 안 구합니다.
- * 휴대폰에서 몇 초 걸리므로 화면이 열릴 때 미리 불러 둡니다(쉬어 가며 구해 JS 스레드를 안 막음).
+ * 이 자리의 DEM 지평선 및 고도 샘플러를 함께 로드·캐싱합니다.
  */
-export function loadHorizon(lat: number, lon: number): Promise<HorizonProfile | null> {
+export function loadTerrainSampler(lat: number, lon: number): Promise<TerrainSamplerData | null> {
   const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
-  const hit = horizonCache.get(key);
+  const hit = terrainCache.get(key);
   if (hit) return hit;
-  const job = (async () => {
+  const job = (async (): Promise<TerrainSamplerData | null> => {
     const [fine, coarse] = await Promise.all([
       loadCpuDemBlock(lat, lon, FINE_RADIUS_M, skiaTileDecoder),
       loadCpuDemBlock(lat, lon, COARSE_RADIUS_M, skiaTileDecoder),
@@ -63,13 +68,22 @@ export function loadHorizon(lat: number, lon: number): Promise<HorizonProfile | 
     if (!fine && !coarse) return null;
     const elev = combineSamplers(fine?.elevAtGround ?? null, coarse?.elevAtGround ?? null);
     const ground = elev(0, 0);
-    const eye = Math.max(0, ground ?? 0) + EYE_HEIGHT_M;
-    return horizonProfileAsync(elev, eye);
+    const eyeElevM = Math.max(0, ground ?? 0) + EYE_HEIGHT_M;
+    const horizon = await horizonProfileAsync(elev, eyeElevM);
+    return { horizon, elev, eyeElevM };
   })().catch(() => null);
-  horizonCache.set(key, job);
+  terrainCache.set(key, job);
   // 실패는 캐시에 남기지 않습니다 — 망이 돌아오면 다시 받게.
-  job.then(v => { if (!v) horizonCache.delete(key); });
+  job.then(v => { if (!v) terrainCache.delete(key); });
   return job;
+}
+
+/**
+ * 이 자리의 DEM 지평선. 같은 자리(소수 셋째 자리, 약 100m)면 다시 안 구합니다.
+ * 휴대폰에서 몇 초 걸리므로 화면이 열릴 때 미리 불러 둡니다(쉬어 가며 구해 JS 스레드를 안 막음).
+ */
+export function loadHorizon(lat: number, lon: number): Promise<HorizonProfile | null> {
+  return loadTerrainSampler(lat, lon).then(d => d?.horizon ?? null);
 }
 
 /**

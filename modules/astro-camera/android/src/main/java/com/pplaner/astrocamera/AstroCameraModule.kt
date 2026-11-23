@@ -395,6 +395,15 @@ class AstroCameraModule : Module() {
               set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
               set(CaptureRequest.LENS_FOCUS_DISTANCE, max(0f, focusDistance))
             }
+            val wbList = opts["wbGains"] as? List<*>
+            if (wbList != null && wbList.size >= 3) {
+              val rG = max(0.2f, min(4.0f, (wbList[0] as? Number)?.toFloat() ?: 1.0f))
+              val gG = max(0.2f, min(4.0f, (wbList[1] as? Number)?.toFloat() ?: 1.0f))
+              val bG = max(0.2f, min(4.0f, (wbList[2] as? Number)?.toFloat() ?: 1.0f))
+              set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF)
+              set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX)
+              set(CaptureRequest.COLOR_CORRECTION_GAINS, RggbChannelVector(rG, gG, gG, bG))
+            }
           }
 
           val imageRef = AtomicReference<Image?>()

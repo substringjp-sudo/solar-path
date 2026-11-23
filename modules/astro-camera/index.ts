@@ -85,6 +85,7 @@ interface AstroCameraNative {
     focusDistance?: number;
     lockFocusInfinity?: boolean;
     deviceRotationDeg?: number;
+    wbGains?: [number, number, number];
   }): Promise<AstroSubFrame>;
   stopSessionAsync(): Promise<void>;
   beginStackAsync(opts: { width: number; height: number }): Promise<{ width: number; height: number }>;
@@ -178,6 +179,7 @@ export async function captureAstroSubFrameAsync(opts: {
   focusDistance?: number;
   lockFocusInfinity?: boolean;
   deviceRotationDeg?: number;
+  wbGains?: [number, number, number];
 }): Promise<AstroSubFrame> {
   if (!NativeAstroCamera) {
     throw new Error('AstroCamera native module is not available in this build');

@@ -14,8 +14,8 @@ import { findPresetTerrain } from '../utils/presetTerrains';
 import { scenePrediction } from '../utils/scenePrediction';
 import { canGlow, lowCloudWindow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
-import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
-import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNative';
+import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, predictSkyline, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
+import { loadHorizon, loadTerrainSampler, frameFromPhoto, hfovFromExif, type TerrainSamplerData } from '../utils/arVisionNative';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
@@ -97,6 +97,25 @@ import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CameraFrame } from './AstroCamera/CameraFrame';
 import { CameraLensZoomSection, type LensOption } from './AstroCamera/CameraLensZoomSection';
+import { VirtualCameraBagModal } from './AstroCamera/VirtualCameraBagModal';
+import { ViewfinderOpticsOverlay, ZoneSystemBar } from './AstroCamera/ViewfinderOpticsOverlay';
+import {
+  createDefaultGearBag,
+  createSkylineAnchor,
+  hasActiveOpticalGear,
+  matchSkylineAnchor,
+  summarizeGearForCell,
+  type CameraGearBagState,
+  type SkylineAnchor,
+  type WindLayerInput,
+  type ZoneHistogramResult,
+} from '../utils/photoAlgorithms';
+import {
+  applyOpticalGearToPhoto,
+  blendTimeShiftBlueHourAndNight,
+  mergeAlignedBurstFrames,
+  mergeLuckyDrizzleBurst,
+} from '../utils/photoPipeline';
 import { Scrim } from './glass/Scrim';
 import { GlassChip } from './glass/GlassChip';
 import { TEXT } from '../theme/glassTokens';
@@ -452,6 +471,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const gyroBurstPeakRef = useRef(0);
   const lastUiSensorMsRef = useRef(0);
   const horizonRef = useRef<HorizonProfile | null>(null);
+  const terrainSamplerRef = useRef<TerrainSamplerData | null>(null);
+  const [gearBag, setGearBag] = useState<CameraGearBagState>(() => createDefaultGearBag());
+  const gearBagRef = useRef(gearBag);
+  gearBagRef.current = gearBag;
+  const [gearBagOpen, setGearBagOpen] = useState(false);
+  const [capturedZoneHist, setCapturedZoneHist] = useState<ZoneHistogramResult | null>(null);
+  const [timeShiftAnchor, setTimeShiftAnchor] = useState<{ anchor: SkylineAnchor; uri: string } | null>(null);
+  const timeShiftAnchorRef = useRef(timeShiftAnchor);
+  timeShiftAnchorRef.current = timeShiftAnchor;
+  const autoTriggerCooldownRef = useRef(0);
   const [visionStatus, setVisionStatus] = useState<string | null>(null);
   const [isVisionRunning, setIsVisionRunning] = useState(false);
   /** 사진 EXIF 로 잰 이 폰 카메라의 가로 화각(세로로 든 사진 기준). 표시만 합니다. */
@@ -1028,7 +1057,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     let cancelled = false;
     const task = InteractionManager.runAfterInteractions(() => {
       if (cancelled) return;
-      loadHorizon(latitude, longitude).then(h => { if (!cancelled) horizonRef.current = h; });
+      loadTerrainSampler(latitude, longitude).then(d => {
+        if (!cancelled && d) {
+          terrainSamplerRef.current = d;
+          horizonRef.current = d.horizon;
+        }
+      });
     });
     return () => { cancelled = true; task.cancel(); };
   }, [visible, latitude, longitude]);
@@ -1476,14 +1510,59 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const visionSensor = sensorAttitudeNow();
       const visionSpeed = angularSpeedRef.current;
       const visionWhen = new Date();
+      const gear = gearBagRef.current;
+      const attSnap: Attitude = visionSensor ?? { yawDeg: effectiveAz, pitchDeg: effectivePitch, rollDeg: 0 };
 
-      // EXIF 활성화하여 촬영
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        exif: true,
-      });
+      // ── 확장 촬영 모드별 단사 / 연사 촬영 ─────────────────────────────
+      let photo: { uri: string; exif?: Record<string, unknown> } | undefined;
+      let rawInputUri = '';
 
-      if (!photo?.uri) {
+      if (gear.filmBack === 'luckyTele') {
+        const burstN = Math.max(4, Math.min(12, gear.luckyBurstCount));
+        const burstUris: string[] = [];
+        for (let i = 0; i < burstN; i++) {
+          if (!cameraRef.current) break;
+          const shot = await cameraRef.current.takePictureAsync({
+            quality: 0.92,
+            exif: i === 0,
+            shutterSound: i === 0,
+          });
+          if (shot?.uri) {
+            if (!photo) photo = shot;
+            burstUris.push(shot.uri);
+          }
+        }
+        rawInputUri = (await mergeLuckyDrizzleBurst(burstUris, 0.35)) ?? photo?.uri ?? '';
+      } else if (gear.frontFilters.includes('nd1000') || (gear.filmBack === 'sunsetWb' && gear.sunsetBracket3Shot)) {
+        const count = gear.frontFilters.includes('nd1000') ? 5 : 3;
+        const burstFrames: Array<{ uri: string; attitude: Attitude | null }> = [];
+        for (let i = 0; i < count; i++) {
+          if (!cameraRef.current) break;
+          const shot = await cameraRef.current.takePictureAsync({
+            quality: 0.92,
+            exif: i === 0,
+            shutterSound: i === 0,
+          });
+          if (shot?.uri) {
+            if (!photo) photo = shot;
+            burstFrames.push({ uri: shot.uri, attitude: sensorAttitudeNow() });
+          }
+          if (i + 1 < count && gear.frontFilters.includes('nd1000')) {
+            await new Promise(r => setTimeout(r, 140));
+          }
+        }
+        const mergeW = gear.filmBack === 'sunsetWb' && gear.sunsetBracket3Shot ? [0.34, 0.48, 0.18] : undefined;
+        rawInputUri = (await mergeAlignedBurstFrames(burstFrames, optics.k, mergeW)) ?? photo?.uri ?? '';
+      } else {
+        // 일반 촬영 (EXIF 활성화)
+        photo = await cameraRef.current.takePictureAsync({
+          quality: 1,
+          exif: true,
+        });
+        rawInputUri = photo?.uri ?? '';
+      }
+
+      if (!photo?.uri || !rawInputUri) {
         hapticError();
         Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
         setIsCapturing(false);
@@ -1603,9 +1682,72 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         }
       }
 
+      // Skia GPU 광학 렌즈 · 전면 필터 · 필름 모드 적용
+      const obsForOptics = nearestWeather && nearestWeather.data
+        ? getInterpolatedWeather(nearestWeather.data, captureTime)[0]
+        : undefined;
+      const optWinds = resolveLayerWinds(obsForOptics).winds;
+      const optWindLayers: WindLayerInput[] = [
+        { altitudeM: (obsForOptics?.layerAltLowKm ?? 1.5) * 1000, windFromDeg: optWinds.low.bearingDeg, speedMs: optWinds.low.speedKmh / 3.6, weight: Math.max(0.15, (obsForOptics?.low ?? 30) / 100) },
+        { altitudeM: (obsForOptics?.layerAltMidKm ?? 5.5) * 1000, windFromDeg: optWinds.mid.bearingDeg, speedMs: optWinds.mid.speedKmh / 3.6, weight: Math.max(0.15, (obsForOptics?.mid ?? 30) / 100) },
+        { altitudeM: (obsForOptics?.layerAltHighKm ?? 9.5) * 1000, windFromDeg: optWinds.high.bearingDeg, speedMs: optWinds.high.speedKmh / 3.6, weight: Math.max(0.15, (obsForOptics?.high ?? 30) / 100) },
+      ];
+      const optCloudCover = typeof obsForOptics?.total === 'number' ? obsForOptics.total / 100 : 0.3;
+      const optAod = typeof obsForOptics?.aod550 === 'number' ? obsForOptics.aod550 : 0.25;
+
+      const optResult = await applyOpticalGearToPhoto(rawInputUri, {
+        gear,
+        attitude: attSnap,
+        intrinsics: optics.k,
+        horizon: horizonRef.current ?? terrainSamplerRef.current?.horizon ?? null,
+        elev: terrainSamplerRef.current?.elev ?? null,
+        eyeElevM: terrainSamplerRef.current?.eyeElevM ?? (Number(cameraSimState.terrain?.observerElevation) || 35),
+        sunAzDeg: currentSunPos.azimuth,
+        sunAltDeg: currentSunPos.altitude,
+        aod: optAod,
+        humidityPct: humidity,
+        cloudCover01: optCloudCover,
+        windLayers: optWindLayers,
+      });
+
+      let finalOpticalUri = optResult.uri;
+
+      // 블루아워 + 야간 시간차 정합: 첫 촬영은 앵커 저장 후 뷰파인더 유지, 두 번째 촬영은 3D 능선 경계 합성
+      if (gear.filmBack === 'timeShift') {
+        const cols = 64;
+        const xs = Array.from({ length: cols }, (_, i) => ((i + 0.5) / cols) * optics.k.width);
+        const hProf = horizonRef.current ?? { stepDeg: 5, elevDeg: new Float32Array(72).fill(0) };
+        const skyPx = predictSkyline(hProf, attSnap, optics.k, xs);
+        const yNorm = new Float32Array(cols);
+        for (let i = 0; i < cols; i++) {
+          yNorm[i] = Number.isFinite(skyPx[i]) ? skyPx[i] / Math.max(1, optics.k.height) : Number.NaN;
+        }
+        const savedAnchor = timeShiftAnchorRef.current;
+        if (!savedAnchor) {
+          const anchor = createSkylineAnchor(yNorm, attSnap, captureTime.getTime());
+          setTimeShiftAnchor({ anchor, uri: finalOpticalUri });
+          setIsCapturing(false);
+          Alert.alert(
+            L3(language, '블루아워 앵커 저장됨', 'Blue-Hour Anchor Saved', 'アンカー保存済み'),
+            L3(language, '야간에 같은 장소에서 능선을 96% 이상 맞추면 자동 촬영 후 합성합니다.', 'At night, align the ridgeline to 96%+ to auto-capture & composite.', '夜間同じ場所で稜線を96%以上合わせると自動撮影して合成します。'),
+          );
+          return;
+        }
+        const match = matchSkylineAnchor(savedAnchor.anchor, yNorm, attSnap);
+        finalOpticalUri = await blendTimeShiftBlueHourAndNight(
+          savedAnchor.uri,
+          finalOpticalUri,
+          yNorm,
+          match.alignOffsetUv,
+        );
+        setTimeShiftAnchor(null);
+      }
+
+      setCapturedZoneHist(optResult.zoneHistogram);
+
       // Skia 워터마크 스탬프 찍기
       const stampedUri = await stampPhoto(
-        photo.uri,
+        finalOpticalUri,
         latitude,
         longitude,
         currentSunPos.altitude,
@@ -1740,7 +1882,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState, measuredHfov, currentMagnification]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState, measuredHfov, currentMagnification, optics.k, effectiveAz, effectivePitch, exposure]);
 
   const handleAstroToggleRed = useCallback(() => {
     const next = !astroMonochromeRedRef.current;
@@ -1900,10 +2042,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         finalSimErr = simRes.error;
       }
 
+      const gearPost = gearBagRef.current;
+      let finalAstroResult = runRes;
+      if (hasActiveOpticalGear(gearPost)) {
+        const obsAstro = camInterpolated[0];
+        const aWinds = resolveLayerWinds(obsAstro).winds;
+        const sunNow = getSunPosition(new Date(), latitude, longitude);
+        const optAstro = await applyOpticalGearToPhoto(runRes.uri, {
+          gear: { ...gearPost, filmBack: gearPost.filmBack === 'astroDual' ? 'natural' : gearPost.filmBack },
+          attitude: startAtt,
+          intrinsics: optics.k,
+          horizon: horizonSnap ?? terrainSamplerRef.current?.horizon ?? null,
+          elev: terrainSamplerRef.current?.elev ?? null,
+          eyeElevM: terrainSamplerRef.current?.eyeElevM ?? 35,
+          sunAzDeg: sunNow.azimuth,
+          sunAltDeg: sunNow.altitude,
+          aod: typeof obsAstro?.aod550 === 'number' ? obsAstro.aod550 : 0.25,
+          humidityPct: typeof obsAstro?.humidity === 'number' ? obsAstro.humidity : 55,
+          windLayers: [
+            { altitudeM: 1500, windFromDeg: aWinds.low.bearingDeg, speedMs: aWinds.low.speedKmh / 3.6, weight: 0.34 },
+            { altitudeM: 5500, windFromDeg: aWinds.mid.bearingDeg, speedMs: aWinds.mid.speedKmh / 3.6, weight: 0.33 },
+            { altitudeM: 9500, windFromDeg: aWinds.high.bearingDeg, speedMs: aWinds.high.speedKmh / 3.6, weight: 0.33 },
+          ],
+        }).catch(() => null);
+        if (optAstro?.uri) {
+          finalAstroResult = { ...runRes, uri: optAstro.uri };
+        }
+      }
+
       setSimPreviewUri(finalSimUri);
       setSimPreviewError(finalSimErr);
       setAstroResultIso(summarySnap.clampedIso);
-      setAstroResult(runRes);
+      setAstroResult(finalAstroResult);
       setAstroNightPhase(null);
     } catch (err: any) {
       setAstroNightPhase(null);
@@ -2167,6 +2337,56 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     if (Platform.OS === 'ios' && lensOptions.some(l => l.id === 'builtInWideAngleCamera')) return 'builtInWideAngleCamera';
     return lensOptions[0]?.id ?? null;
   }, [selectedLensId, lensOptions]);
+  const gearActive = useMemo(() => hasActiveOpticalGear(gearBag), [gearBag]);
+  const gearSummaryText = useMemo(() => summarizeGearForCell(gearBag, language), [gearBag, language]);
+
+  const camWindLayers = useMemo<WindLayerInput[]>(() => {
+    const obsData = camInterpolated[0];
+    const w = resolveLayerWinds(obsData).winds;
+    return [
+      { altitudeM: (obsData?.layerAltLowKm ?? 1.5) * 1000, windFromDeg: w.low.bearingDeg, speedMs: w.low.speedKmh / 3.6, weight: Math.max(0.15, (obsData?.low ?? 30) / 100) },
+      { altitudeM: (obsData?.layerAltMidKm ?? 5.5) * 1000, windFromDeg: w.mid.bearingDeg, speedMs: w.mid.speedKmh / 3.6, weight: Math.max(0.15, (obsData?.mid ?? 30) / 100) },
+      { altitudeM: (obsData?.layerAltHighKm ?? 9.5) * 1000, windFromDeg: w.high.bearingDeg, speedMs: w.high.speedKmh / 3.6, weight: Math.max(0.15, (obsData?.high ?? 30) / 100) },
+    ];
+  }, [camInterpolated]);
+
+  const liveAnchorMatch = useMemo(() => {
+    if (
+      gearBag.filmBack !== 'timeShift' ||
+      !timeShiftAnchor ||
+      !horizonRef.current ||
+      viewMode === 'sim' ||
+      !!previewUri
+    ) {
+      return null;
+    }
+    const cols = 64;
+    const xs = Array.from({ length: cols }, (_, i) => ((i + 0.5) / cols) * optics.k.width);
+    const liveAtt: Attitude = { yawDeg: displayAz, pitchDeg: displayEl, rollDeg: displayRoll };
+    const ys = predictSkyline(horizonRef.current, liveAtt, optics.k, xs);
+    const yNorm = new Float32Array(cols);
+    for (let i = 0; i < cols; i++) {
+      yNorm[i] = Number.isFinite(ys[i]) ? ys[i] / Math.max(1, optics.k.height) : Number.NaN;
+    }
+    return matchSkylineAnchor(timeShiftAnchor.anchor, yNorm, liveAtt);
+  }, [gearBag.filmBack, timeShiftAnchor, viewMode, previewUri, optics.k, displayAz, displayEl, displayRoll]);
+
+  useEffect(() => {
+    if (
+      gearBag.filmBack === 'timeShift' &&
+      liveAnchorMatch?.shouldTrigger &&
+      visible &&
+      viewMode === 'camera' &&
+      !isCapturing &&
+      !previewUri &&
+      astroNightPhase === null &&
+      Date.now() - autoTriggerCooldownRef.current > 4000
+    ) {
+      autoTriggerCooldownRef.current = Date.now();
+      handleCaptureRef.current();
+    }
+  }, [gearBag.filmBack, liveAnchorMatch?.shouldTrigger, visible, viewMode, isCapturing, previewUri, astroNightPhase]);
+
   const lensZoomSection = (
     <CameraLensZoomSection
       language={language}
@@ -2175,6 +2395,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       onSelectLens={setSelectedLensId}
       magnification={currentMagnification}
       onChangeMagnification={setMagnification}
+      onOpenCameraBag={() => setGearBagOpen(true)}
+      gearActive={gearActive}
+      gearBadge={gearSummaryText || undefined}
     />
   );
 
@@ -2374,6 +2597,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               )}
               </View>
 
+              {capturedZoneHist && (
+                <ZoneSystemBar histogram={capturedZoneHist} language={language} />
+              )}
+
               {/* 날씨 정보 QR 리포트 카드 */}
               {capturedQrData && (
                 <View style={styles.weatherQrCard}>
@@ -2475,6 +2702,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     setPreviewUri(null);
                     setSimPreviewUri(null);
                     setCapturedQrData(null);
+                    setCapturedZoneHist(null);
                   }}
                   disabled={isUploading}
                 >
@@ -2556,6 +2784,24 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   sunLabel={`${L3(language, '태양', 'Sun', '太陽')} ${apparentAltitude(sunPos.altitude) >= 0 ? '+' : ''}${apparentAltitude(sunPos.altitude).toFixed(1)}°`}
                   event={markerEvent ? { az: markerEvent.az, label: `${t(markerEvent.type, language)} ${hhmmAt(markerEvent.at)}` } : null}
                   rulerY={stageLayoutH - dockInset - RULER_FROM_BOTTOM}
+                />
+              )}
+              {cameraFacing === 'back' && viewMode !== 'sim' && (
+                <ViewfinderOpticsOverlay
+                  width={W}
+                  height={stageLayoutH}
+                  gear={gearBag}
+                  optics={optics}
+                  attitude={overlayAttitude}
+                  horizon={horizonRef.current ?? terrainSamplerRef.current?.horizon ?? null}
+                  elev={terrainSamplerRef.current?.elev ?? null}
+                  eyeElevM={terrainSamplerRef.current?.eyeElevM ?? (Number(cameraSimState.terrain?.observerElevation) || 35)}
+                  sunAzDeg={sunPos.azimuth}
+                  sunAltDeg={sunPos.altitude}
+                  windLayers={camWindLayers}
+                  timeShiftAnchor={timeShiftAnchor?.anchor ?? null}
+                  anchorMatch={liveAnchorMatch}
+                  language={language}
                 />
               )}
 
@@ -2810,7 +3056,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         exposure: (
                           <>
                             {lensZoomSection}
-                            <ExposureCells language={language} advice={expoAdvice} lensMm={lensInfoText.mmText} lensText={lensInfoText.lensText} />
+                            <ExposureCells
+                              language={language}
+                              advice={expoAdvice}
+                              lensMm={lensInfoText.mmText}
+                              lensText={lensInfoText.lensText}
+                              onPressLens={() => setGearBagOpen(true)}
+                              gearSummary={gearSummaryText}
+                              gearActive={gearActive}
+                            />
                           </>
                         ),
                       }
@@ -2874,7 +3128,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   }
                   return;
                 }
-                if (cameraTab === 'astro') handleAstroStart();
+                if (cameraTab === 'astro' || gearBagRef.current.filmBack === 'astroDual') handleAstroStart();
                 else handleCapturePress();
               }}
               stage={camStage}
@@ -2891,6 +3145,25 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             />
           </View>
         )}
+
+        {/* 가상 광학 가방 (렌즈 · 전면 필터 · 필름 모드 선택 팝업) */}
+        <VirtualCameraBagModal
+          visible={gearBagOpen}
+          language={language}
+          gear={gearBag}
+          onChange={(next) => {
+            setGearBag(prev => {
+              const resolved = typeof next === 'function' ? next(prev) : next;
+              if (resolved.filmBack === 'astroDual' && prev.filmBack !== 'astroDual') {
+                setAstroSettings(s => ({ ...s, mode: 'tracked', keepFixedGround: true }));
+              }
+              return resolved;
+            });
+          }}
+          hasTimeShiftAnchor={!!timeShiftAnchor}
+          onClearTimeShiftAnchor={() => setTimeShiftAnchor(null)}
+          onClose={() => setGearBagOpen(false)}
+        />
 
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
         <PostDetailModal
