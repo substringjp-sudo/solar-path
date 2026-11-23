@@ -6,10 +6,9 @@ import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-r
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, L3 } from '../../utils/i18n';
-import { radius, mono, space, type } from '../../theme/tokens';
+import { color as DARK, radius, mono, space, type } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { springTo, timeTo } from '../../theme/motion';
-import { makeStyles, useThemeColors } from '../../theme/useTheme';
 import { useAdministrativeArea } from '../../utils/reverseGeocode';
 
 const { height } = Dimensions.get('window');
@@ -23,8 +22,7 @@ export const MapPicker = ({
   addSavedLocation,
   removeSavedLocation,
 }: any) => {
-  const color = useThemeColors();
-  const styles = useStyles();
+  const color = DARK;
   const { language, homeCoords, setHomeCoords } = useCelestialStore();
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
@@ -238,7 +236,7 @@ export const MapPicker = ({
           ]}
         >
           <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
-            <View style={[styles.dragHandle, { backgroundColor: color.borderStrong }]} />
+            <View style={styles.dragHandle} />
           </View>
 
           {/* 헤더 — SettingsModal 과 동일한 규격 */}
@@ -361,6 +359,7 @@ export const MapPicker = ({
                 <MapView
                   ref={mapRef}
                   provider={PROVIDER_GOOGLE}
+                  userInterfaceStyle="dark"
                   style={StyleSheet.absoluteFillObject}
                   initialRegion={{
                     latitude: location?.coords?.latitude || 37.5665,
@@ -481,7 +480,7 @@ export const MapPicker = ({
   );
 };
 
-const useStyles = makeStyles((color) => ({
+const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -489,13 +488,13 @@ const useStyles = makeStyles((color) => ({
   },
   modalContainer: {
     height: Math.min(height * 0.86, 720),
-    borderTopLeftRadius: radius.xs,
-    borderTopRightRadius: radius.xs,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
     elevation: 20,
   },
   dragHandleWrapper: {
@@ -506,9 +505,10 @@ const useStyles = makeStyles((color) => ({
     paddingTop: 6,
   },
   dragHandle: {
-    width: 32,
-    height: 2,
-    borderRadius: 1,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
   },
   header: {
     flexDirection: 'row',
@@ -534,7 +534,7 @@ const useStyles = makeStyles((color) => ({
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -567,20 +567,20 @@ const useStyles = makeStyles((color) => ({
     gap: 5,
     paddingHorizontal: 10,
     height: 28,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
   },
   myLocChipText: {
     ...type.label,
   },
   card: {
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     overflow: 'hidden',
   },
   emptyCard: {
     height: 44,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -608,7 +608,7 @@ const useStyles = makeStyles((color) => ({
   savedIconBox: {
     width: 30,
     height: 30,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -628,10 +628,10 @@ const useStyles = makeStyles((color) => ({
   applySavedChip: {
     paddingHorizontal: 8,
     height: 26,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
+    borderColor: DARK.accentLine,
+    backgroundColor: DARK.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -647,7 +647,7 @@ const useStyles = makeStyles((color) => ({
   mapWrapper: {
     position: 'relative',
     height: 205,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -669,7 +669,7 @@ const useStyles = makeStyles((color) => ({
     right: 10,
     width: 36,
     height: 36,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -701,7 +701,7 @@ const useStyles = makeStyles((color) => ({
     flex: 1,
     height: 36,
     borderWidth: 1,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
     fontSize: 13,
     fontFamily: mono,
@@ -716,14 +716,14 @@ const useStyles = makeStyles((color) => ({
     flex: 1,
     height: 36,
     borderWidth: 1,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
     fontSize: 13,
   },
   saveBtn: {
     height: 36,
     paddingHorizontal: 12,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -740,7 +740,7 @@ const useStyles = makeStyles((color) => ({
   },
   confirmBtn: {
     height: 44,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -749,4 +749,4 @@ const useStyles = makeStyles((color) => ({
   confirmBtnText: {
     ...type.bodyStrong,
   },
-}));
+});

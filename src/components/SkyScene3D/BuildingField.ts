@@ -61,6 +61,7 @@ ${GROUND_PROJECT_GLSL}
 
 attribute vec2 aGroundPos;
 attribute vec4 aWallCoord;
+attribute float aStyle;
 
 uniform float uObsElevM;
 uniform float uEyeHeightM;
@@ -72,9 +73,8 @@ varying float vDistM;
 varying float vSlantM;
 varying vec3  vViewDir;
 varying vec2  vBuildPos;
-#ifdef TERRAIN_WINDOW_OUT
 varying vec4  vWallCoord;
-#endif
+varying float vStyle;
 
 float bf_groundAtEye() {
   if (uDemEyeValid > 0.5) return demEye_elevationAt(vec2(0.0));
@@ -123,9 +123,8 @@ void main() {
   vNormalW = normalize(normal);
   vViewDir = normalize(p);
   vBuildPos = aGroundPos;
-#ifdef TERRAIN_WINDOW_OUT
   vWallCoord = aWallCoord;
-#endif
+  vStyle = aStyle;
 
   vec4 wp = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -287,6 +286,8 @@ varying vec3  vViewDir;
 // 건물 자리(건물마다 다른 씨앗). 창문·빛 판·기본 세 갈래가 모두 씁니다 — 2026-11-18 전에는 창문 갈래에만 선언돼
 // 빛 판·기본 갈래 셰이더가 컴파일되지 않아(bSeed 미선언) 외벽이 통째로 안 그려졌습니다.
 varying vec2  vBuildPos;
+varying vec4  vWallCoord;
+varying float vStyle;
 
 #ifdef TERRAIN_DIST_OUT
 ${TERRAIN_DIST_GLSL}
@@ -295,8 +296,6 @@ void main() {
 }
 #elif defined(TERRAIN_WINDOW_OUT)
 ${ATMOSPHERE_GLSL}
-
-varying vec4 vWallCoord;
 
 uniform float uWinRate;
 uniform float uWinGlow;
@@ -313,6 +312,8 @@ float bf_hash13(vec3 p3) {
 void main() {
   if (uWinGlow <= 0.001 || uWinRate <= 0.0) discard;
   if (vWallCoord.x < 0.0 || vWallCoord.y < 0.0 || abs(vNormalW.y) > 0.5) discard;
+  // 창고/산업 시설(style 3)은 야간 창문 점등 대폭 축소
+  float styleRate = vStyle > 2.5 ? uWinRate * 0.15 : uWinRate;
 
   float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
   float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
@@ -322,7 +323,7 @@ void main() {
 
   // 건물 전체 창문 개수에 내림(floor) 적용 → 2시 이후 1%일 때 소형 시골 건물(<100칸)은 0개로 완전 소등
   float totalWin = vWallCoord.z * vWallCoord.w;
-  float litQuota = floor(totalWin * clamp(uWinRate, 0.0, 1.0));
+  float litQuota = floor(totalWin * clamp(styleRate, 0.0, 1.0));
   if (litQuota < 0.5) discard;
 
   vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
@@ -377,6 +378,15 @@ void main() {
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
   vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
   vec3 litAlb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)}) * (0.90 + 0.16 * n.y) * grayShift;
+  if (abs(n.y) > 0.5) {
+    litAlb *= 0.72;
+  } else if (vStyle > 0.5 && vStyle < 1.5) {
+    litAlb *= vec3(0.62, 0.72, 0.86);
+  } else if (vStyle >= 1.5 && vStyle < 2.5) {
+    litAlb *= vec3(1.16, 0.92, 0.78);
+  } else if (vStyle >= 2.5) {
+    litAlb *= vec3(0.76, 0.78, 0.82);
+  }
   gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), clamp(ndl * cloudT, 0.0, 1.0));
   pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
   pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
@@ -431,14 +441,102 @@ void main() {
   vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
   vec3 directLit = (uSunRadiance * ndl * cloudT + uMoonRadiance * ndlMoon) / 3.14159265;
 
-  // 벽면 방향에 따른 은은한 반구 음영 + 건물별 미세 회색 톤 편차
+  // 건물 씨앗 + 타입별 외장 스타일 (0=아파트/주거, 1=오피스/커튼월, 2=상가/벽돌·석재, 3=창고/산업)
   vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
   float bTone = fract(sin(dot(bSeed, vec2(127.1, 311.7))) * 43758.5453);
   float bWarm = fract(sin(dot(bSeed, vec2(269.5, 183.3))) * 43758.5453);
-  vec3 grayShift = vec3(0.88 + 0.24 * bTone) * vec3(1.0 + (bWarm - 0.5) * 0.06, 1.0, 1.0 - (bWarm - 0.5) * 0.06);
   float hemi = 0.72 + 0.28 * n.y;
-  vec3 alb = vec3(0.20, 0.205, 0.215) * hemi * grayShift;
-  vec3 col = alb * (skyIrr + directLit);
+  float detailFade = 1.0 - smoothstep(320.0, 720.0, vDistM);
+
+  vec3 alb = vec3(0.20, 0.205, 0.215);
+  float glassMask = 0.0;
+  float groundAo = 1.0;
+
+  if (abs(n.y) > 0.5) {
+    // 옥상/지붕면: 경사 지붕(n.y < 0.99)은 기와·테라코타·슬레이트·금속 지붕재, 평지붕은 방수 아스팔트 톤
+    float isSloped = step(n.y, 0.99);
+    vec3 flatRoofTone = vStyle < 0.5
+      ? mix(vec3(0.11, 0.12, 0.125), vec3(0.10, 0.13, 0.115), bWarm)
+      : (vStyle < 1.5
+        ? vec3(0.115, 0.12, 0.13)
+        : (vStyle < 2.5 ? vec3(0.12, 0.11, 0.10) : vec3(0.095, 0.10, 0.11)));
+    vec3 slopedRoofTone = vStyle < 0.5
+      ? mix(vec3(0.19, 0.11, 0.085), vec3(0.12, 0.125, 0.135), bWarm) // 주택: 테라코타 기와 또는 어두운 슬레이트
+      : (vStyle < 2.5
+        ? mix(vec3(0.17, 0.10, 0.08), vec3(0.13, 0.145, 0.13), bWarm) // 상가·종교: 적갈색 기와·청동/슬레이트
+        : vec3(0.135, 0.145, 0.16)); // 창고: 아연 금속 지붕
+    alb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.92 + 0.16 * bTone);
+  } else {
+    float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
+    float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
+    float uF = fract(cellU);
+    float vF = fract(cellV);
+    float inGrid = step(0.0, vWallCoord.x) * step(0.0, vWallCoord.y)
+      * step(cellU, vWallCoord.z) * step(cellV, vWallCoord.w);
+
+    // 지면 접지 음영 (1층 인접부 살짝 어둡게)
+    groundAo = 0.76 + 0.24 * smoothstep(0.0, 5.5, max(0.0, vWallCoord.y));
+
+    if (vStyle < 0.5) {
+      // 0: 아파트·주거 — 밝은 아이보리/크림/연회색 도장 + 층별 펀치드 윈도우 + 슬래브 띠
+      vec3 aptWall = mix(vec3(0.235, 0.23, 0.215), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
+      float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
+      float wx = smoothstep(0.22 - aa, 0.22 + aa, uF) * (1.0 - smoothstep(0.78 - aa, 0.78 + aa, uF));
+      float wy = smoothstep(0.28 - aa, 0.28 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
+      float slabLine = 1.0 - smoothstep(0.0, 0.12, vF);
+      glassMask = wx * wy * inGrid * detailFade;
+      vec3 glassCol = vec3(0.055, 0.072, 0.095);
+      alb = mix(aptWall * (1.0 - 0.10 * slabLine * detailFade), glassCol, glassMask);
+    } else if (vStyle < 1.5) {
+      // 1: 오피스·타워 — 유리 커튼월 + 얇은 알루미늄 멀리언 프레임
+      vec3 mullion = vec3(0.15, 0.16, 0.175) * (0.9 + 0.2 * bTone);
+      vec3 curtainGlass = mix(vec3(0.05, 0.075, 0.105), vec3(0.055, 0.085, 0.095), bWarm);
+      float aa = clamp(vDistM * 0.00055, 0.02, 0.18);
+      float wx = smoothstep(0.09 - aa, 0.09 + aa, uF) * (1.0 - smoothstep(0.91 - aa, 0.91 + aa, uF));
+      float wy = smoothstep(0.16 - aa, 0.16 + aa, vF) * (1.0 - smoothstep(0.88 - aa, 0.88 + aa, vF));
+      glassMask = wx * wy * inGrid * detailFade;
+      alb = mix(mullion, curtainGlass, mix(0.65, glassMask, detailFade));
+    } else if (vStyle < 2.5) {
+      // 2: 저층 상가·벽돌/석재·공공 — 따뜻한 적갈색 벽돌/테라코타/사암 + 1층 쇼윈도
+      vec3 brickWall = mix(vec3(0.215, 0.145, 0.115), vec3(0.23, 0.195, 0.155), bWarm) * (0.88 + 0.24 * bTone);
+      float isGround = 1.0 - smoothstep(3.0, 3.6, vWallCoord.y);
+      float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
+      float wx = mix(
+        smoothstep(0.24 - aa, 0.24 + aa, uF) * (1.0 - smoothstep(0.76 - aa, 0.76 + aa, uF)),
+        smoothstep(0.08 - aa, 0.08 + aa, uF) * (1.0 - smoothstep(0.92 - aa, 0.92 + aa, uF)),
+        isGround
+      );
+      float wy = mix(
+        smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF)),
+        smoothstep(0.10 - aa, 0.10 + aa, vF) * (1.0 - smoothstep(0.90 - aa, 0.90 + aa, vF)),
+        isGround
+      );
+      glassMask = wx * wy * inGrid * detailFade;
+      alb = mix(brickWall, vec3(0.045, 0.06, 0.08), glassMask);
+    } else {
+      // 3: 산업·창고 — 짙은 금속 패널/골강판 + 상부 채광창 최소
+      vec3 metalWall = vec3(0.12, 0.125, 0.135) * (0.90 + 0.20 * bTone);
+      float rib = sin(vWallCoord.x * 6.28318 * 1.2) * 0.04 * detailFade;
+      float clerestory = smoothstep(0.72, 0.78, vF) * (1.0 - smoothstep(0.88, 0.92, vF)) * inGrid * detailFade * 0.65;
+      glassMask = clerestory;
+      alb = mix(metalWall * (1.0 + rib), vec3(0.06, 0.07, 0.085), clerestory);
+    }
+  }
+
+  vec3 col = alb * hemi * groundAo * (skyIrr + directLit);
+
+  // 낮 창문 유리 프레넬 하늘·태양 반사 (유리창만 유광 반사)
+  if (glassMask > 0.01) {
+    vec3 V = normalize(-vViewDir);
+    float ndv = max(0.0, dot(n, V));
+    float fresnel = 0.04 + 0.96 * pow(1.0 - ndv, 4.0);
+    vec3 H = normalize(sun + V);
+    float spec = pow(max(0.0, dot(n, H)), 48.0) * cloudT;
+    float glassGain = vStyle > 0.5 && vStyle < 1.5 ? 1.15 : 0.75;
+    vec3 skyBounce = skyIrr * vec3(0.65, 0.80, 1.0) * 0.32 * fresnel;
+    vec3 sunGlint = uSunRadiance * spec * 0.12 * fresnel;
+    col += (skyBounce + sunGlint) * glassMask * glassGain;
+  }
 
   // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광)
   if (uCityWallGain > 1e-5) {

@@ -12,7 +12,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 import { makeStyles, useThemeColors } from '../../theme/useTheme';
-import { space, type } from '../../theme/tokens';
+import { color as DARK, space, type, type Palette } from '../../theme/tokens';
 import { axisTicks, graphLabel, scorePaths, timeAtX, xAtTime, type ScorePoint, type ScoreWindow } from '../../utils/scoreSeries';
 
 type Lang = 'ko' | 'en' | 'ja';
@@ -28,13 +28,16 @@ interface Props {
   /** 그래프를 누르면 그 시각(ms)으로 */
   onPickTime: (ms: number) => void;
   height?: number;
+  forceDark?: boolean;
 }
 
 const TICK_W = 40;
 
-export const ScoreGraph: React.FC<Props> = ({ points, window: win, nowMs, tzHours, language, onPickTime, height = 44 }) => {
-  const color = useThemeColors();
-  const styles = useStyles();
+export const ScoreGraph: React.FC<Props> = ({ points, window: win, nowMs, tzHours, language, onPickTime, height = 44, forceDark = false }) => {
+  const themeColor = useThemeColors();
+  const themeStyles = useStyles();
+  const color = forceDark ? DARK : themeColor;
+  const styles = forceDark ? darkStyles : themeStyles;
   const [width, setWidth] = useState(0);
   const g = useMemo(() => ({ width: Math.max(1, width), height }), [width, height]);
   const paths = useMemo(() => scorePaths(points, win, g), [points, win, g]);
@@ -84,8 +87,11 @@ export const ScoreGraph: React.FC<Props> = ({ points, window: win, nowMs, tzHour
   );
 };
 
-const useStyles = makeStyles((color) => ({
+const makeGraphStyles = (color: Palette) => ({
   wrap: { gap: space.xs },
   axis: { height: 12 },
-  tick: { position: 'absolute', top: 0, width: TICK_W, textAlign: 'center', ...type.micro, color: color.textMute },
-}));
+  tick: { position: 'absolute' as const, top: 0, width: TICK_W, textAlign: 'center' as const, ...type.micro, color: color.textMute },
+});
+
+const useStyles = makeStyles(makeGraphStyles);
+const darkStyles = makeGraphStyles(DARK);

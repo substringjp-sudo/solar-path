@@ -454,7 +454,12 @@ export default function App() {
         onClose={() => setSettingsVisible(false)}
         theme={theme}
         dynamicTheme={dynamicTheme}
-        onOpenGuide={() => { setSettingsVisible(false); setGuideReopened(true); }}
+        onOpenGuide={() => {
+          setSettingsVisible(false);
+          useCelestialStore.getState().resetHints();
+          useCelestialStore.getState().restoreSampleScenes();
+          setGuideReopened(true);
+        }}
       />
 
       {/* 처음 실행 안내 (3장) */}

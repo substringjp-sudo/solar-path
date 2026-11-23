@@ -71,6 +71,8 @@ export interface PredictionCardProps {
   onWhy?: () => void;
   /** 해가 뜨고 지는 쪽("서쪽 하늘") — 머리 줄에 덧붙입니다(`utils/skyWords.ts`). 모르면 적지 않습니다. */
   directionText?: string | null;
+  /** 하늘 위 어두운 유리 시트 안에서는 화면 모드와 무관하게 어두운 팔레트를 씁니다. */
+  forceDark?: boolean;
 }
 
 export const PredictionCard: React.FC<PredictionCardProps> = ({
@@ -81,8 +83,12 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   peakTime,
   onWhy,
   directionText,
+  forceDark = false,
 }) => {
-  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
+  const themeColor = useThemeColors(); const themeData = useDataColors(); const themeStyles = useStyles();
+  const color = forceDark ? DARK : themeColor;
+  const dataColor = forceDark ? DARK_DATA : themeData;
+  const styles = forceDark ? darkStyles : themeStyles;
   const language = useCelestialStore(s => s.language);
   const tz = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
   const q = prediction.quality;
@@ -142,7 +148,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   );
 };
 
-const useStyles = makeStyles((color) => ({
+const makeCardStyles = (color: Palette) => ({
   card: {
     backgroundColor: color.fill,
     borderColor: color.border,
@@ -151,22 +157,25 @@ const useStyles = makeStyles((color) => ({
     padding: space.md,
     gap: space.md,
   },
-  headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
-  sectionLabel: { ...type.micro, color: color.textDim, textTransform: 'uppercase' },
+  headRow: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: space.sm },
+  sectionLabel: { ...type.micro, color: color.textDim, textTransform: 'uppercase' as const },
   sourceBadge: { paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.xs, borderWidth: 1 },
   sourceBadgeText: { ...type.micro },
-  verdictRow: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
+  verdictRow: { flexDirection: 'row' as const, alignItems: 'baseline' as const, gap: space.sm },
   verdictWord: { ...type.title },
   score: { ...type.display, color: color.text },
   unit: { ...type.micro, color: color.textMute },
-  peak: { marginLeft: 'auto', alignItems: 'flex-end' },
+  peak: { marginLeft: 'auto' as const, alignItems: 'flex-end' as const },
   peakLabel: { ...type.micro, color: color.textDim },
   peakTime: { ...type.label, color: color.text },
-  scale: { flexDirection: 'row', gap: space.xs },
-  scaleCell: { flex: 1, alignItems: 'center', gap: space.xs },
-  scaleBar: { alignSelf: 'stretch', height: 8, borderRadius: 2 },
+  scale: { flexDirection: 'row' as const, gap: space.xs },
+  scaleCell: { flex: 1, alignItems: 'center' as const, gap: space.xs },
+  scaleBar: { alignSelf: 'stretch' as const, height: 8, borderRadius: 2 },
   scaleLabel: { ...type.micro, color: color.textDim },
   reason: { ...type.body, color: color.textDim, lineHeight: 20 },
-  why: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center' },
+  why: { alignSelf: 'flex-start' as const, minHeight: 36, justifyContent: 'center' as const },
   whyText: { ...type.label, color: color.accent },
-}));
+});
+
+const useStyles = makeStyles(makeCardStyles);
+const darkStyles = makeCardStyles(DARK);

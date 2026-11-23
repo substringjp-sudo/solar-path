@@ -184,12 +184,15 @@ export function concatBuildingMeshData(a: BuildingMeshData | null, b: BuildingMe
   if (!a || a.vertexCount === 0) return b;
   if (!b || b.vertexCount === 0) return a;
   const cat = (x: Float32Array, y: Float32Array) => { const o = new Float32Array(x.length + y.length); o.set(x, 0); o.set(y, x.length); return o; };
+  const sa = a.styles ?? new Float32Array(a.vertexCount);
+  const sb = b.styles ?? new Float32Array(b.vertexCount);
   return {
     pick: concatPickIndex(a.pick, b.pick),
     positions: cat(a.positions, b.positions),
     normals: cat(a.normals, b.normals),
     groundPos: cat(a.groundPos, b.groundPos),
     wallCoords: cat(a.wallCoords, b.wallCoords),
+    styles: cat(sa, sb),
     buildingCount: a.buildingCount + b.buildingCount,
     vertexCount: a.vertexCount + b.vertexCount,
   };

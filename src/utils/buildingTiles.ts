@@ -52,6 +52,8 @@ export interface BuildingMeshData {
   groundPos: Float32Array;
   /** 외벽 창문 격자 좌표 (wallU, wallV, cols, rows) — 지붕은 (-1, -1, 0, 0) */
   wallCoords: Float32Array;
+  /** 건물 타입별 외장 스타일 ID (0=아파트/주거, 1=오피스/커튼월, 2=상가/벽돌·석재, 3=창고/산업) */
+  styles?: Float32Array;
   buildingCount: number;
   vertexCount: number;
 }
@@ -225,6 +227,103 @@ function subdivideFootprintXZ(pts: { x: number; z: number }[], maxSegM = WALL_SU
 }
 
 /**
+ * 건물 태그(OSM `building=*`)와 높이·바닥면적을 바탕으로 외장 스타일 ID를 결정합니다.
+ * - 0: 아파트·주거 (아이보리/미색/연회색 도장 + 펀치드 윈도우)
+ * - 1: 오피스·상업/타워 (짙은 청회색 커튼월 유리 + 알루미늄 멀리언 + 강한 하늘 반사)
+ * - 2: 저층 상가·벽돌/석재·공공/종교 (따뜻한 벽돌/테라코타/사암 + 1층 쇼윈도)
+ * - 3: 산업·창고·부속시설 (짙은 슬레이트/금속 패널 + 창문 최소)
+ */
+function classifyBuildingStyle(
+  tags: Record<string, string | undefined> | undefined,
+  topH: number,
+  areaM2: number,
+  cx: number,
+  cz: number,
+): number {
+  const kind = (tags?.building ?? '').trim().toLowerCase();
+  if (kind && kind !== 'yes') {
+    if (
+      kind === 'apartments' || kind === 'residential' || kind === 'dormitory' ||
+      kind === 'house' || kind === 'detached' || kind === 'semidetached_house' ||
+      kind === 'terrace' || kind === 'bungalow' || kind === 'cabin' || kind === 'hut'
+    ) return 0;
+    if (
+      kind === 'office' || kind === 'commercial' || kind === 'hotel' ||
+      kind === 'hospital' || kind === 'university' || kind === 'government' ||
+      kind === 'tower' || kind === 'train_station' || kind === 'transportation'
+    ) return 1;
+    if (
+      kind === 'retail' || kind === 'supermarket' || kind === 'school' ||
+      kind === 'public' || kind === 'civic' || kind === 'church' ||
+      kind === 'cathedral' || kind === 'temple' || kind === 'shrine' || kind === 'stadium'
+    ) return 2;
+    if (
+      kind === 'industrial' || kind === 'warehouse' || kind === 'garage' ||
+      kind === 'garages' || kind === 'carport' || kind === 'shed' ||
+      kind === 'farm' || kind === 'greenhouse' || kind === 'kiosk' || kind === 'roof'
+    ) return 3;
+  }
+
+  // MVT 타일 등 building=* 태그가 생략된 경우 높이 + 바닥면적 + 위치 씨앗으로 합리적 분류
+  const h = Math.abs(Math.sin(cx * 0.137 + cz * 0.293) * 43758.5453) % 1;
+  if (topH <= 11.5 && areaM2 >= 900) return 3; // 넓고 낮은 창고/물류/대형시설
+  if (topH >= 38) return h < 0.62 ? 1 : 0;      // 초고층: 오피스 커튼월 62% / 초고층 주상복합·아파트 38%
+  if (topH >= 22) return h < 0.34 ? 1 : 0;      // 고층: 아파트 66% / 오피스 34%
+  if (topH >= 12) return h < 0.72 ? 0 : (h < 0.88 ? 2 : 1); // 중층: 주거·아파트 위주 + 일부 상가/오피스
+  if (areaM2 < 140) return h < 0.65 ? 0 : 2;    // 소형 단독/근린상가
+  return h < 0.48 ? 2 : 0;                      // 저층 상가(벽돌/석재)와 다세대 혼합
+}
+
+type RoofShape = 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'skillion';
+
+function classifyRoofShape(
+  tags: Record<string, string | undefined> | undefined,
+  styleId: number,
+  topH: number,
+  areaM2: number,
+  cx: number,
+  cz: number,
+): RoofShape {
+  const rs = (tags?.['roof:shape'] ?? '').trim().toLowerCase();
+  if (rs === 'gabled' || rs === 'half-hipped') return 'gabled';
+  if (rs === 'hipped' || rs === 'mansard') return 'hipped';
+  if (rs === 'pyramidal' || rs === 'cone' || rs === 'onion') return 'pyramidal';
+  if (rs === 'dome' || rs === 'round') return 'dome';
+  if (rs === 'skillion') return 'skillion';
+  if (rs === 'flat') return 'flat';
+
+  const kind = (tags?.building ?? '').trim().toLowerCase();
+  if (kind === 'church' || kind === 'cathedral') return 'pyramidal';
+  if (kind === 'temple' || kind === 'shrine') return 'hipped';
+
+  const h = Math.abs(Math.sin(cx * 0.271 + cz * 0.193 + 1.7) * 43758.5453) % 1;
+  if (styleId === 0 && topH <= 9.5 && areaM2 < 240) {
+    if (h < 0.62) return 'gabled';
+    if (h < 0.84) return 'hipped';
+    return 'flat';
+  }
+  if (styleId === 2 && topH <= 12.5 && areaM2 < 450) {
+    if (h < 0.26) return 'gabled';
+    if (h < 0.42) return 'hipped';
+    return 'flat';
+  }
+  if (styleId === 3 && topH <= 11.5 && areaM2 >= 220) {
+    return h < 0.50 ? 'gabled' : 'flat';
+  }
+  return 'flat';
+}
+
+function isStarShapedCCW(pts: { x: number; z: number }[], cx: number, cz: number): boolean {
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const cross = (b.x - a.x) * (cz - a.z) - (b.z - a.z) * (cx - a.x);
+    if (cross <= 0.01) return false;
+  }
+  return true;
+}
+
+/**
  * OSM 건물 목록을 단일 병합 버퍼(`BuildingMeshData`)로 변환합니다.
  */
 export function buildMergedBuildingGeometry(
@@ -241,6 +340,7 @@ export function buildMergedBuildingGeometry(
   const normOut: number[] = [];
   const gndOut: number[] = [];
   const winOut: number[] = [];
+  const styleOut: number[] = [];
   const pickBuilder = createPickIndexBuilder();
   let buildingCount = 0;
 
@@ -254,11 +354,36 @@ export function buildMergedBuildingGeometry(
     ub: number, vb: number,
     uc: number, vc: number,
     cols: number, rows: number,
+    styleId: number,
   ) => {
     posOut.push(ax, ay, az, bx, by, bz, cx, cy, cz);
     normOut.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     gndOut.push(gx, gz, gx, gz, gx, gz);
     winOut.push(ua, va, cols, rows, ub, vb, cols, rows, uc, vc, cols, rows);
+    styleOut.push(styleId, styleId, styleId);
+  };
+
+  /** (x=동, y=높이, z=남) 지붕 삼각형 — 법선이 항상 +Y 위를 향하도록 자동 와인딩 */
+  const pushRoofTri = (
+    ax: number, ay: number, az: number,
+    bx: number, by: number, bz: number,
+    cxP: number, cyP: number, czP: number,
+    gx: number, gz: number,
+    styleId: number,
+  ) => {
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cxP - ax, vy = cyP - ay, vz = czP - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-6) return;
+    nx /= len; ny /= len; nz /= len;
+    if (ny < 0) {
+      pushTri(ax, ay, az, cxP, cyP, czP, bx, by, bz, -nx, -ny, -nz, gx, gz, -1, -1, -1, -1, -1, -1, 0, 0, styleId);
+    } else {
+      pushTri(ax, ay, az, bx, by, bz, cxP, cyP, czP, nx, ny, nz, gx, gz, -1, -1, -1, -1, -1, -1, 0, 0, styleId);
+    }
   };
 
   for (const el of elements) {
@@ -305,19 +430,101 @@ export function buildMergedBuildingGeometry(
     if (topH <= minH + 0.5) continue;
     const baseH = minH > 0.2 ? minH : -SKIRT_DEPTH_M;
 
-    const ccw = signedAreaXZ(rawPts) >= 0;
+    const rawArea = signedAreaXZ(rawPts);
+    const ccw = rawArea >= 0;
+    const areaM2 = Math.abs(rawArea);
+    const styleId = classifyBuildingStyle(el.tags, topH, areaM2, cx, cz);
     const oriented = ccw ? rawPts : [...rawPts].reverse();
     const ring = subdivideFootprintXZ(oriented);
     const roofTris = triangulatePolygonXZ(oriented);
     if (roofTris.length < 3) continue;
 
-    // 3. 지붕 (삼각분할, 법선 +Y) — (x=동, y=지반대비높이, z=남)
-    // (x=동, z=남) 평면 위쪽(-Y 시계/반시계 방향)에서 +Y 위를 보도록 와인딩 정렬
-    for (let t = 0; t < roofTris.length; t += 3) {
-      const a = oriented[roofTris[t]];
-      const b = oriented[roofTris[t + 1]];
-      const c = oriented[roofTris[t + 2]];
-      pushTri(a.x, topH, a.z, c.x, topH, c.z, b.x, topH, b.z, 0, 1, 0, cx, cz, -1, -1, -1, -1, -1, -1, 0, 0);
+    let roofShape = classifyRoofShape(el.tags, styleId, topH, areaM2, cx, cz);
+    const span = Math.min(maxX - minX, maxZ - minZ);
+    const explicitRoofH = parseLengthM(el.tags?.['roof:height']);
+    let ridgeH = explicitRoofH ?? (
+      roofShape === 'dome'
+        ? Math.min(5.2, Math.max(1.8, span * 0.30))
+        : roofShape === 'skillion'
+          ? Math.min(2.6, Math.max(1.0, span * 0.16))
+          : styleId === 3
+            ? Math.min(2.2, Math.max(1.1, span * 0.11))
+            : Math.min(3.6, Math.max(1.3, span * 0.24))
+    );
+    if (topH - minH < 2.2) roofShape = 'flat';
+    const eaveH = roofShape === 'flat' ? topH : Math.max(minH + 0.6, topH - ridgeH * 0.40);
+    const peakH = eaveH + ridgeH;
+
+    const starOk = roofShape !== 'flat' && roofShape !== 'skillion' ? isStarShapedCCW(oriented, cx, cz) : false;
+    if (roofShape === 'gabled' && oriented.length !== 4) {
+      roofShape = starOk ? 'hipped' : 'flat';
+    } else if ((roofShape === 'hipped' || roofShape === 'pyramidal' || roofShape === 'dome') && !starOk) {
+      roofShape = 'flat';
+    }
+
+    // 3. 지붕 기하 생성 (flat / gabled / hipped / pyramidal / dome / skillion)
+    let skillionHeightAt: ((x: number, z: number) => number) | null = null;
+    if (roofShape === 'skillion') {
+      let cxx = 0, czz = 0, cxz = 0;
+      for (const p of oriented) {
+        const dx = p.x - cx, dz = p.z - cz;
+        cxx += dx * dx; czz += dz * dz; cxz += dx * dz;
+      }
+      const theta = 0.5 * Math.atan2(2 * cxz, cxx - czz);
+      const vx = -Math.sin(theta), vz = Math.cos(theta);
+      let vMin = Infinity, vMax = -Infinity;
+      for (const p of oriented) {
+        const pv = (p.x - cx) * vx + (p.z - cz) * vz;
+        if (pv < vMin) vMin = pv;
+        if (pv > vMax) vMax = pv;
+      }
+      const vSpan = Math.max(0.5, vMax - vMin);
+      skillionHeightAt = (x: number, z: number) => eaveH + ridgeH * (((x - cx) * vx + (z - cz) * vz - vMin) / vSpan);
+      for (let t = 0; t < roofTris.length; t += 3) {
+        const a = oriented[roofTris[t]];
+        const b = oriented[roofTris[t + 1]];
+        const c = oriented[roofTris[t + 2]];
+        pushRoofTri(a.x, skillionHeightAt(a.x, a.z), a.z, c.x, skillionHeightAt(c.x, c.z), c.z, b.x, skillionHeightAt(b.x, b.z), b.z, cx, cz, styleId);
+      }
+    } else if (roofShape === 'gabled' && oriented.length === 4) {
+      const e01 = Math.hypot(oriented[1].x - oriented[0].x, oriented[1].z - oriented[0].z)
+        + Math.hypot(oriented[3].x - oriented[2].x, oriented[3].z - oriented[2].z);
+      const e12 = Math.hypot(oriented[2].x - oriented[1].x, oriented[2].z - oriented[1].z)
+        + Math.hypot(oriented[0].x - oriented[3].x, oriented[0].z - oriented[3].z);
+      let shift = e12 < e01 ? 1 : 0;
+      if ((el.tags?.['roof:orientation'] ?? '').trim().toLowerCase() === 'across') shift = 1 - shift;
+      const p0 = oriented[shift % 4];
+      const p1 = oriented[(shift + 1) % 4];
+      const p2 = oriented[(shift + 2) % 4];
+      const p3 = oriented[(shift + 3) % 4];
+      const m0 = { x: (p0.x + p1.x) * 0.5, z: (p0.z + p1.z) * 0.5 };
+      const m1 = { x: (p2.x + p3.x) * 0.5, z: (p2.z + p3.z) * 0.5 };
+      pushRoofTri(p1.x, eaveH, p1.z, p2.x, eaveH, p2.z, m1.x, peakH, m1.z, cx, cz, styleId);
+      pushRoofTri(p1.x, eaveH, p1.z, m1.x, peakH, m1.z, m0.x, peakH, m0.z, cx, cz, styleId);
+      pushRoofTri(p3.x, eaveH, p3.z, p0.x, eaveH, p0.z, m0.x, peakH, m0.z, cx, cz, styleId);
+      pushRoofTri(p3.x, eaveH, p3.z, m0.x, peakH, m0.z, m1.x, peakH, m1.z, cx, cz, styleId);
+    } else if (roofShape === 'dome') {
+      const midH = eaveH + ridgeH * 0.78;
+      const ring55 = oriented.map(p => ({ x: cx + (p.x - cx) * 0.55, z: cz + (p.z - cz) * 0.55 }));
+      for (let i = 0; i < oriented.length; i++) {
+        const j = (i + 1) % oriented.length;
+        const a = oriented[i], b = oriented[j], a2 = ring55[i], b2 = ring55[j];
+        pushRoofTri(a.x, eaveH, a.z, b2.x, midH, b2.z, b.x, eaveH, b.z, cx, cz, styleId);
+        pushRoofTri(a.x, eaveH, a.z, a2.x, midH, a2.z, b2.x, midH, b2.z, cx, cz, styleId);
+        pushRoofTri(a2.x, midH, a2.z, cx, peakH, cz, b2.x, midH, b2.z, cx, cz, styleId);
+      }
+    } else if (roofShape === 'hipped' || roofShape === 'pyramidal') {
+      for (let i = 0; i < oriented.length; i++) {
+        const a = oriented[i], b = oriented[(i + 1) % oriented.length];
+        pushRoofTri(a.x, eaveH, a.z, cx, peakH, cz, b.x, eaveH, b.z, cx, cz, styleId);
+      }
+    } else {
+      for (let t = 0; t < roofTris.length; t += 3) {
+        const a = oriented[roofTris[t]];
+        const b = oriented[roofTris[t + 1]];
+        const c = oriented[roofTris[t + 2]];
+        pushTri(a.x, eaveH, a.z, c.x, eaveH, c.z, b.x, eaveH, b.z, 0, 1, 0, cx, cz, -1, -1, -1, -1, -1, -1, 0, 0, styleId);
+      }
     }
 
     // 4. 외벽 쿼드 (ring 은 +x=동, +z=남 기준 반시계이므로 바깥 법선은 (+dz, 0, -dx))
@@ -330,9 +537,9 @@ export function buildMergedBuildingGeometry(
     }
     const winBaseH = minH > 0.2 ? minH : 0;
     const winCols = Math.floor(wallPerimM / WINDOW_CELL_M);
-    const winRows = Math.floor(Math.max(0, topH - winBaseH) / WINDOW_CELL_M);
+    const winRows = Math.floor(Math.max(0, eaveH - winBaseH) / WINDOW_CELL_M);
     const vBot = baseH - winBaseH;
-    const vTop = topH - winBaseH;
+    const vEave = eaveH - winBaseH;
     let uAcc = 0;
 
     for (let i = 0; i < ring.length; i++) {
@@ -345,9 +552,38 @@ export function buildMergedBuildingGeometry(
       const u0 = uAcc;
       const u1 = uAcc + eLen;
       uAcc = u1;
-      pushTri(a.x, baseH, a.z, a.x, topH, a.z, b.x, topH, b.z, nx, 0, nz, cx, cz, u0, vBot, u0, vTop, u1, vTop, winCols, winRows);
-      pushTri(a.x, baseH, a.z, b.x, topH, b.z, b.x, baseH, b.z, nx, 0, nz, cx, cz, u0, vBot, u1, vTop, u1, vBot, winCols, winRows);
+      const hA = skillionHeightAt ? skillionHeightAt(a.x, a.z) : eaveH;
+      const hB = skillionHeightAt ? skillionHeightAt(b.x, b.z) : eaveH;
+      const vTopA = hA - winBaseH;
+      const vTopB = hB - winBaseH;
+      pushTri(a.x, baseH, a.z, a.x, hA, a.z, b.x, hB, b.z, nx, 0, nz, cx, cz, u0, vBot, u0, vTopA, u1, vTopB, winCols, winRows, styleId);
+      pushTri(a.x, baseH, a.z, b.x, hB, b.z, b.x, baseH, b.z, nx, 0, nz, cx, cz, u0, vBot, u1, vTopB, u1, vBot, winCols, winRows, styleId);
     }
+
+    // 박공(gabled) 양 끝 벽면 삼각형 마감 (벽면 재질과 동일하게 연결)
+    if (roofShape === 'gabled' && oriented.length === 4) {
+      const e01 = Math.hypot(oriented[1].x - oriented[0].x, oriented[1].z - oriented[0].z)
+        + Math.hypot(oriented[3].x - oriented[2].x, oriented[3].z - oriented[2].z);
+      const e12 = Math.hypot(oriented[2].x - oriented[1].x, oriented[2].z - oriented[1].z)
+        + Math.hypot(oriented[0].x - oriented[3].x, oriented[0].z - oriented[3].z);
+      let shift = e12 < e01 ? 1 : 0;
+      if ((el.tags?.['roof:orientation'] ?? '').trim().toLowerCase() === 'across') shift = 1 - shift;
+      const p0 = oriented[shift % 4];
+      const p1 = oriented[(shift + 1) % 4];
+      const p2 = oriented[(shift + 2) % 4];
+      const p3 = oriented[(shift + 3) % 4];
+      const emitGableCap = (ga: { x: number; z: number }, gb: { x: number; z: number }) => {
+        const gex = gb.x - ga.x, gez = gb.z - ga.z;
+        const gLen = Math.hypot(gex, gez);
+        if (gLen < 0.2) return;
+        const gnx = gez / gLen, gnz = -gex / gLen;
+        const mx = (ga.x + gb.x) * 0.5, mz = (ga.z + gb.z) * 0.5;
+        pushTri(ga.x, eaveH, ga.z, mx, peakH, mz, gb.x, eaveH, gb.z, gnx, 0, gnz, cx, cz, 0, vEave, gLen * 0.5, peakH - winBaseH, gLen, vEave, winCols, winRows, styleId);
+      };
+      emitGableCap(p0, p1);
+      emitGableCap(p2, p3);
+    }
+
     pickBuilder.add(cx, cz, topH, baseH, oriented);
     buildingCount++;
   }
@@ -359,6 +595,7 @@ export function buildMergedBuildingGeometry(
     normals: new Float32Array(normOut),
     groundPos: new Float32Array(gndOut),
     wallCoords: new Float32Array(winOut),
+    styles: new Float32Array(styleOut),
     buildingCount,
     vertexCount: posOut.length / 3,
   };
@@ -371,6 +608,7 @@ export function createBuildingThreeGeometry(data: BuildingMeshData): THREE.Buffe
   geo.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
   geo.setAttribute('aGroundPos', new THREE.BufferAttribute(data.groundPos, 2));
   geo.setAttribute('aWallCoord', new THREE.BufferAttribute(data.wallCoords, 4));
+  geo.setAttribute('aStyle', new THREE.BufferAttribute(data.styles ?? new Float32Array(data.vertexCount), 1));
   return geo;
 }
 
@@ -432,13 +670,37 @@ async function fetchBuildingsFromMvt(
       const rawH = typeof f.props.render_height === 'number' ? f.props.render_height : 9;
       const h = Math.max(3.5, Math.min(MAX_RENDER_HEIGHT_M, rawH));
       const minH = typeof f.props.render_min_height === 'number' ? Math.max(0, f.props.render_min_height) : 0;
+      const bClass = typeof f.props.building === 'string'
+        ? f.props.building
+        : typeof f.props.class === 'string'
+          ? f.props.class
+          : typeof f.props.type === 'string'
+            ? f.props.type
+            : undefined;
+      const rShape = typeof f.props['roof:shape'] === 'string'
+        ? f.props['roof:shape']
+        : typeof f.props.roof_shape === 'string'
+          ? f.props.roof_shape
+          : undefined;
+      const rHeight = typeof f.props['roof:height'] === 'number'
+        ? String(f.props['roof:height'])
+        : typeof f.props['roof:height'] === 'string'
+          ? f.props['roof:height']
+          : typeof f.props.roof_height === 'number'
+            ? String(f.props.roof_height)
+            : undefined;
       for (const ring of extractOuterRings(f.rings)) {
         if (ring.length < 3 || Math.abs(ringSignedArea(ring)) < 1) continue;
         // 타일 버퍼 영역에 걸친 중복 폴리곤은 중심이 속한 타일 1곳에서만 생성
         const { cx, cy } = ringCenterTile(ring);
         if (cx < 0 || cx >= bld.extent || cy < 0 || cy >= bld.extent) continue;
+        const tags: Record<string, string | undefined> = { height: h.toFixed(2) };
+        if (minH > 0.2) tags.min_height = minH.toFixed(2);
+        if (bClass) tags.building = bClass;
+        if (rShape) tags['roof:shape'] = rShape;
+        if (rHeight) tags['roof:height'] = rHeight;
         elements.push({
-          tags: minH > 0.2 ? { height: h.toFixed(2), min_height: minH.toFixed(2) } : { height: h.toFixed(2) },
+          tags,
           geometry: ring.map((pt) => tilePointToLonLat(tc.x, tc.y, tc.z, pt.x, pt.y, bld.extent)),
         });
       }

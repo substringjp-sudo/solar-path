@@ -18,6 +18,7 @@ import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3 } from '../../utils/i18n';
 import { groupAlignments, searchAlignments, type AlignBody, type AlignGroup, type AlignHit } from '../../utils/alignSearch';
+import { useCelestialStore } from '../../store/useCelestialStore';
 
 type Lang = 'ko' | 'en' | 'ja';
 
@@ -76,6 +77,8 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
   // "N 일 뒤" 는 찾기 시작한 시각 기준입니다 — 줄을 눌러 시각이 옮겨 가도 같은 말이어야 합니다.
   const [searchFrom, setSearchFrom] = useState(fromMs);
   const runId = useRef(0);
+  const alignHintSeen = useCelestialStore(s => !!s.seenHints?.alignBody);
+  const markHintSeen = useCelestialStore(s => s.markHintSeen);
 
   // 대상·자리가 바뀌면 낡은 결과를 버립니다. 언마운트하면 돌던 탐색도 멈춥니다.
   useEffect(() => {
@@ -87,6 +90,7 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
   }, [azDeg, elDeg, latitude, longitude]);
 
   const run = async (b: AlignBody, e: number) => {
+    if (!alignHintSeen) markHintSeen('alignBody');
     const id = ++runId.current;
     setBody(b);
     setSearchFrom(fromMs);
@@ -114,10 +118,17 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.sectionLabel}>{L3(language, '해·달 걸기 — 언제 이 방향에 오나', 'Align sun / moon — when does it line up', '太陽・月を重ねる日を探す')}</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionLabel}>{L3(language, '해·달 걸기 — 언제 이 방향에 오나', 'Align sun / moon — when does it line up', '太陽・月を重ねる日を探す')}</Text>
+        {!alignHintSeen && (
+          <Text style={styles.hintBadge} numberOfLines={1}>
+            {L3(language, '✦ 눌러서 걸리는 날 찾기', '✦ Tap to find alignment dates', '✦ タップして重なる日を探す')}
+          </Text>
+        )}
+      </View>
       <View style={styles.row}>
         {(['moon', 'sun'] as const).map(b => (
-          <OverlayButton key={b} active={body === b} onPress={() => run(b, eps)} accessibilityLabel={label(b)} style={styles.findBtn}>
+          <OverlayButton key={b} active={body === b} onPress={() => run(b, eps)} accessibilityLabel={label(b)} style={[styles.findBtn, !alignHintSeen && !body && styles.findBtnHint]}>
             {b === 'moon' ? <Moon size={14} color={DARK.moon} /> : <Sun size={14} color={DARK.sun} />}
             <Text style={[styles.findText, body === b && { color: DARK.accent }]}>{label(b)}</Text>
           </OverlayButton>
@@ -233,10 +244,13 @@ export const AlignFinder: React.FC<Props> = ({ language, latitude, longitude, ey
 
 const styles = StyleSheet.create({
   wrap: { gap: 4, borderTopWidth: 1, borderTopColor: DARK.border, paddingTop: 6 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
   sectionLabel: { fontFamily: mono, fontSize: 9, letterSpacing: 1, color: DARK.textMute },
+  hintBadge: { fontSize: 10, fontWeight: '700', color: DARK.accent },
   row: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   spacer: { flex: 1 },
   findBtn: { width: 'auto', minWidth: 84, height: 30, paddingHorizontal: 8, flexDirection: 'row', gap: 4 },
+  findBtnHint: { borderColor: DARK.accentLine, backgroundColor: DARK.accentSoft },
   findText: { fontSize: 11, fontWeight: '700', color: DARK.text },
   chip: { width: 'auto', minWidth: 30, height: 30, paddingHorizontal: 6 },
   chipText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: DARK.text },

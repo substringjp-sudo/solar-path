@@ -191,9 +191,9 @@ export const globeMorphForLonDelta = (lonDelta: number) => logBand(lonDelta, MOR
  */
 export const FLING_TAU_S = 0.26;
 export const FLING_MAX_RATE = 3;
-/** 겹치는 구간들(진행도) — 이 안에서 멈추지 않습니다. */
+/** 겹치는 구간들(진행도) — 이 안에서 멈추지 않습니다(지상 P_FOV_END 1.0 과 지도 P_HANDOFF 1.38 사이의 상공 전이 구간도 끝까지 이어 줌). */
 export const crossfadeBands = (latDeg: number, aspect: number): Array<[number, number]> => [
-  [P_FADE_START, P_HANDOFF],
+  [P_FOV_END, P_HANDOFF],
   [progressForLonDelta(VEC_FADE_LO_DEG, latDeg, aspect), progressForLonDelta(VEC_FADE_HI_DEG, latDeg, aspect)],
 ];
 /** 관성으로 미끄러진 끝 — 속도(진행도/초)를 상한으로 자르고 τ 만큼 더 갑니다. */

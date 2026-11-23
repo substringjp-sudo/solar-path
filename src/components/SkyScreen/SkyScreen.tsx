@@ -754,6 +754,26 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // ── 장면 저장(docs/SANDBOX_MODE_PLAN.md 12.3) ───────────────────────────────
   // 자리 · 눈 높이 · 보는 방향 · 줌 · 시각 · 고른 대상을 이 기기에만 저장하고(날씨는 저장하지 않고 열 때 새로 받습니다) 저장한 장면 시트에서 엽니다.
   const savedScenes = useCelestialStore(s => s.savedScenes);
+  const sampleScenesSeeded = useCelestialStore(s => s.sampleScenesSeeded);
+  const seenHints = useCelestialStore(s => s.seenHints);
+  const markHintSeen = useCelestialStore(s => s.markHintSeen);
+  const restoreSampleScenes = useCelestialStore(s => s.restoreSampleScenes);
+  useEffect(() => {
+    if (isCacheHydrated && !sampleScenesSeeded && savedScenes.length === 0) {
+      restoreSampleScenes();
+    }
+  }, [isCacheHydrated, sampleScenesSeeded, savedScenes.length, restoreSampleScenes]);
+  useEffect(() => {
+    if (picked) {
+      if (!seenHints?.sandboxPick) markHintSeen('sandboxPick');
+      if (!seenHints?.alignBody) setPickedDetailOpen(true);
+    }
+  }, [picked, seenHints?.sandboxPick, seenHints?.alignBody, markHintSeen]);
+  useEffect(() => {
+    if (ascended && !seenHints?.spaceZoom) {
+      markHintSeen('spaceZoom');
+    }
+  }, [ascended, seenHints?.spaceZoom, markHintSeen]);
   const [sceneSheetOpen, setSceneSheetOpen] = useState(false);
   const pendingSceneTargetRef = useRef<ReturnType<typeof pendingTargetFromScene>>(null);
   const scenePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1230,7 +1250,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {(glow?.prediction ?? prediction) && (
             <PredictionCard
               prediction={(glow?.prediction ?? prediction)!}
-              theme={theme}
+              theme={OVERLAY_THEME}
+              forceDark
               isSunrise={isSunriseSide}
               peakTime={glow?.time}
               directionText={glowDirection}
@@ -1246,20 +1267,21 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               nowMs={currentTime.getTime()}
               tzHours={tz}
               language={language}
+              forceDark
               onPickTime={(ms) => setCurrentTime(new Date(ms))}
             />
           )}
 
           {/* 좋은 하늘 알림 — 02 학습의 "좋음 이상 알림"과 같은 설정 */}
-          <View style={[styles.alertRow, { borderColor: theme.border }]}>
-            <Text style={[styles.alertLabel, { color: theme.text }]} numberOfLines={1}>
+          <View style={[styles.alertRow, { borderColor: DARK.border }]}>
+            <Text style={[styles.alertLabel, { color: DARK.text }]} numberOfLines={1}>
               {L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
             </Text>
             <Switch
               value={goodOnly}
               onValueChange={toggleGoodOnly}
-              trackColor={{ false: color.border, true: color.accentLine }}
-              thumbColor={goodOnly ? color.accent : color.textMute}
+              trackColor={{ false: DARK.border, true: DARK.accentLine }}
+              thumbColor={goodOnly ? DARK.accent : DARK.textMute}
               accessibilityLabel={L3(language, '좋은 하늘이면 알려 주기', 'Alert me on good skies', '良い空なら通知')}
             />
           </View>
@@ -1267,7 +1289,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {/* 다가오는 좋은 순간 — 초보자 화면. 이벤트 목록과 기상 정보는 02 학습으로 모였습니다(docs/SANDBOX_MODE_PLAN.md 13 장). */}
           <View style={styles.eventSection}>
             {!expertMode && (
-              <Text style={[styles.upcomingLabel, { color: theme.subText }]}>
+              <Text style={[styles.upcomingLabel, { color: DARK.textDim }]}>
                 {L3(language, '다가오는 좋은 순간', 'Coming up', 'これからの見どころ')}
               </Text>
             )}
@@ -1277,6 +1299,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 star={star}
                 language={language}
                 tzHours={tz}
+                forceDark
                 onPress={(m) => {
                   if (onOpenLearn) onOpenLearn({ section: 'today', focus: { noonMs: m.noonMs, side: m.side } });
                   else setCurrentTime(new Date(m.timeMs));
@@ -1289,13 +1312,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             )}
             {onOpenLearn && (
               <PressScale
-                style={[styles.learnLink, { borderColor: theme.border }]}
+                style={[styles.learnLink, { borderColor: DARK.border, backgroundColor: DARK.fill }]}
                 onPress={() => learnAt(currentTime, isSunriseSide ? 'sunrise' : 'sunset', 'today')}
                 accessibilityRole="button"
                 accessibilityLabel={L3(language, '02 학습에서 하늘 일정, 근거, 과정 보기', 'See the schedule, data and steps in 02 Learn', '02 学習で予定・根拠・過程を見る')}
               >
-                <ListChecks size={14} color={theme.subText} />
-                <Text style={[styles.learnLinkText, { color: theme.text }]}>
+                <ListChecks size={14} color={DARK.textDim} />
+                <Text style={[styles.learnLinkText, { color: DARK.text }]}>
                   {L3(language, '학습에서 일정 · 근거 · 과정 보기', 'Schedule, data and steps in Learn', '学習で予定・根拠・過程を見る')}
                 </Text>
               </PressScale>
@@ -1304,31 +1327,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
           {/* 태양·달 수치 — 맨 아래: 예측(판단) → 이벤트(언제) → 수치(근거) 순으로 읽습니다. 전문가 모드만. */}
           {expertMode && (
-          <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.numberFrame, { backgroundColor: DARK.fill, borderColor: DARK.border }]}>
             <View style={styles.frameHeader}>
-              <Sun size={11} color={color.sun} />
-              <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('sunMoon', language)}</Text>
+              <Sun size={11} color={DARK.sun} />
+              <Text style={[styles.frameLabel, { color: DARK.textDim }]}>{t('sunMoon', language)}</Text>
             </View>
             <View style={styles.numberGrid}>
               <InfoCard
-                icon={<Sun size={14} color={color.sun} />}
+                icon={<Sun size={14} color={DARK.sun} />}
                 label={t('sunLabel', language)}
                 value={`${sunAltitude.toFixed(0)}°`}
                 subValue={`${sunAzimuth.toFixed(0)}°`}
-                theme={theme}
+                theme={OVERLAY_THEME}
               />
               <InfoCard
-                icon={<Moon size={14} color={color.moon} />}
+                icon={<Moon size={14} color={DARK.moon} />}
                 label={t('moonLabel', language)}
                 value={`${moonAltitude.toFixed(0)}°`}
                 subValue={`${moonAzimuth.toFixed(0)}°`}
-                theme={theme}
+                theme={OVERLAY_THEME}
               />
               <InfoCard
-                icon={<Sunset size={14} color={color.glow} />}
+                icon={<Sunset size={14} color={DARK.glow} />}
                 label={t('sunset', language)}
                 value={sunsetText}
-                theme={theme}
+                theme={OVERLAY_THEME}
               />
             </View>
           </View>
@@ -1470,6 +1493,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           layers={layers}
           skySettings={skySettings}
           telephotoX={expertMode ? teleX : 1}
+          onChangeTelephoto={setTeleX}
           showLensInfo={expertMode}
           eyeHeightM={expertMode ? eyeH : undefined}
           pickEnabled={expertMode && !isCameraOverlayActive}
@@ -1607,8 +1631,54 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onOpen={openScene}
           onRename={(id, n) => useCelestialStore.getState().renameSavedScene(id, n)}
           onRemove={(id) => useCelestialStore.getState().removeSavedScene(id)}
+          onRestoreSamples={restoreSampleScenes}
           onClose={() => setSceneSheetOpen(false)}
         />
+
+        {/* 맥락 기반 1회성 핵심 기능 발견 힌트 배너 (샌드박스 건물 피킹 · 해/달 걸기 · 우주 모드) */}
+        {!isCameraOverlayActive && !ascended && !picked && !weatherError && !isWeatherLoading && (
+          expertMode && !seenHints?.sandboxPick ? (
+            <View style={overlayStyles.previewBannerWrap} pointerEvents="box-none">
+              <GlassSurface style={overlayStyles.previewBanner}>
+                <Text style={[overlayStyles.previewBannerText, { flexShrink: 1 }]} numberOfLines={2}>
+                  {L3(language, '건물·능선을 탭해 해·달을 걸거나 두 손가락 축소로 우주까지 나가 보세요', 'Tap a building/ridge to align Sun/Moon, or pinch out to space', '建物・稜線をタップして太陽・月を重ねるか、ピンチアウトで宇宙へ')}
+                </Text>
+                <GlassChip
+                  label={L3(language, '추천 장면', 'Samples', 'サンプル')}
+                  active
+                  onPress={() => {
+                    markHintSeen('sandboxPick');
+                    setSceneSheetOpen(true);
+                  }}
+                />
+                <GlassChip
+                  label="✕"
+                  onPress={() => markHintSeen('sandboxPick')}
+                />
+              </GlassSurface>
+            </View>
+          ) : !expertMode && !seenHints?.spaceZoom ? (
+            <View style={overlayStyles.previewBannerWrap} pointerEvents="box-none">
+              <GlassSurface style={overlayStyles.previewBanner}>
+                <Text style={[overlayStyles.previewBannerText, { flexShrink: 1 }]} numberOfLines={2}>
+                  {L3(language, '두 손가락으로 화면을 축소하거나 지구본을 누르면 우주·지도로 나갑니다', 'Pinch out or tap the globe to zoom out to space & map', '2本指で縮小するか地球アイコンを押すと宇宙・地図へ出ます')}
+                </Text>
+                <GlassChip
+                  label={L3(language, '우주로', 'To space', '宇宙へ')}
+                  active
+                  onPress={() => {
+                    markHintSeen('spaceZoom');
+                    sceneRef.current?.flyToMap();
+                  }}
+                />
+                <GlassChip
+                  label="✕"
+                  onPress={() => markHintSeen('spaceZoom')}
+                />
+              </GlassSurface>
+            </View>
+          ) : null
+        )}
 
         {/* 개발자 튜닝 패널이 켜졌을 때만 닫기 버튼 표시 (지도·레이어 버튼은 AppHeader 상단 줄로 통합) */}
         {!isCameraOverlayActive && isDevPanelOpen && (

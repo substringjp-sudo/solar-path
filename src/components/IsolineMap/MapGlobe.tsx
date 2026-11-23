@@ -728,41 +728,55 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   const showSubTerminators = settled && !isInteracting && visible;
   const subTerminatorPaths = useMemo(() => {
     if (!allTerminators || !showSubTerminators) return [];
+    const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+    if (mainSunriseLabelPt) placed.push({ x: mainSunriseLabelPt.x, y: mainSunriseLabelPt.y, w: 28, h: 15 });
+    if (mainSunsetLabelPt) placed.push({ x: mainSunsetLabelPt.x, y: mainSunsetLabelPt.y, w: 28, h: 15 });
+
+    const canPlace = (x: number, y: number, w: number, h: number) => {
+      if (morph >= 0.92 && Math.hypot(x - CX, y - CY) > RADIUS * 0.90) return false;
+      for (let i = 0; i < placed.length; i++) {
+        const b = placed[i];
+        if (Math.abs(x - b.x) < (w + b.w) * 0.5 + 3 && Math.abs(y - b.y) < (h + b.h) * 0.5 + 2) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const pickLabelPt = (segs: IsochronePoint[][]): { x: number; y: number } | null => {
+      if (!segs || segs.length === 0) return null;
+      const allPts = segs.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
+      if (allPts.length === 0) return null;
+      const candLats = [0, 14, -14, 26, -26];
+      for (let c = 0; c < candLats.length; c++) {
+        const targetLat = candLats[c];
+        let best: IsochronePoint | null = null;
+        let minDiff = 6.5;
+        for (let i = 0; i < allPts.length; i++) {
+          const diff = Math.abs(allPts[i].latitude - targetLat);
+          if (diff < minDiff) {
+            minDiff = diff;
+            best = allPts[i];
+          }
+        }
+        if (!best) continue;
+        const dist = d3.geoDistance([best.longitude, best.latitude], [-rotate[0], -rotate[1]]);
+        if (dist >= Math.PI / 2 * 0.95) continue;
+        const pos = projection([best.longitude, best.latitude]);
+        if (!pos) continue;
+        if (canPlace(pos[0], pos[1], 24, 11)) {
+          placed.push({ x: pos[0], y: pos[1], w: 24, h: 11 });
+          return { x: pos[0], y: pos[1] };
+        }
+      }
+      return null;
+    };
+
     return allTerminators.map((term, idx) => {
       const sunrise = makeTerminatorPath(term.sunrise);
       const sunset = makeTerminatorPath(term.sunset);
-
-      let sunriseLabelPt = null;
-      let sunsetLabelPt = null;
-
-      if (term.sunrise && term.sunrise.length > 0) {
-        const allSunrisePts = term.sunrise.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
-        const eqPt = getEquatorPoint(allSunrisePts);
-        if (eqPt) {
-          const dist = d3.geoDistance([eqPt.longitude, eqPt.latitude], [-rotate[0], -rotate[1]]);
-          if (dist < Math.PI / 2) {
-            const pos = projection([eqPt.longitude, eqPt.latitude]);
-            if (pos) {
-              sunriseLabelPt = { x: pos[0], y: pos[1] };
-            }
-          }
-        }
-      }
-
-      if (term.sunset && term.sunset.length > 0) {
-        const allSunsetPts = term.sunset.reduce((acc: IsochronePoint[], val) => acc.concat(val), []);
-        const eqPt = getEquatorPoint(allSunsetPts);
-        if (eqPt) {
-          const dist = d3.geoDistance([eqPt.longitude, eqPt.latitude], [-rotate[0], -rotate[1]]);
-          if (dist < Math.PI / 2) {
-            const pos = projection([eqPt.longitude, eqPt.latitude]);
-            if (pos) {
-              sunsetLabelPt = { x: pos[0], y: pos[1] };
-            }
-          }
-        }
-      }
-
+      const sunriseLabelPt = pickLabelPt(term.sunrise);
+      const sunsetLabelPt = pickLabelPt(term.sunset);
       return {
         sunrise,
         sunset,
@@ -772,7 +786,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
         key: `sub-term-paths-${idx}`
       };
     });
-  }, [allTerminators, showSubTerminators, makeTerminatorPath, rotate, projection, getEquatorPoint, formatTime]);
+  }, [allTerminators, showSubTerminators, makeTerminatorPath, rotate, projection, formatTime, mainSunriseLabelPt, mainSunsetLabelPt, morph, CX, CY, RADIUS]);
 
   const sunMarker = useMemo(() => {
     const pt: [number, number] = [subsolar.longitude, subsolar.latitude];
@@ -927,6 +941,12 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       const sy = CY - y * invZ * f;
       const r = nd.angRad * invZ * f;
       if (sx < -r || sx > width + r || sy < -r || sy > height + r) continue;
+      let earthFade = 1;
+      if (morph >= 0.999) {
+        const edgeDist = Math.hypot(sx - CX, sy - CY) - RADIUS;
+        if (edgeDist < -r * 0.2) continue;
+        if (edgeDist < r * 0.55) earthFade = Math.max(0, (edgeDist + r * 0.2) / (r * 0.75));
+      }
       let glareFade = 1;
       if (sun) {
         const dSun = Math.hypot(sx - sun.sx, sy - sun.sy);
@@ -934,7 +954,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           glareFade = Math.max(0.15, dSun / (sun.sr * 9));
         }
       }
-      const op = (0.34 + 0.56 * nd.coreWeight) * morphFade * glareFade;
+      const op = (0.34 + 0.56 * nd.coreWeight) * morphFade * glareFade * earthFade;
       out.push({ sx, sy, r, op, isCore: nd.isCore, hasDust: nd.hasDust });
     }
     return out;
@@ -1101,6 +1121,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             morph={morph}
             rotate={rotate}
             subsolar={subsolar}
+            selectedDate={selectedDate}
             opacity={1}
             onReadyChange={setGlGlobeReady}
           />
@@ -1213,17 +1234,11 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="65%" stopColor="#FEF3C7" stopOpacity="0.35" />
               <Stop offset="100%" stopColor="#FFFBEB" stopOpacity="0" />
             </LinearGradient>
-            <ClipPath id="outsideEarthClip">
-              <Path
-                clipRule="evenodd"
-                d={`M 0 0 H ${W} V ${H} H 0 Z M ${CX - RADIUS} ${CY} A ${RADIUS} ${RADIUS} 0 1 0 ${CX + RADIUS} ${CY} A ${RADIUS} ${RADIUS} 0 1 0 ${CX - RADIUS} ${CY} Z`}
-              />
-            </ClipPath>
           </Defs>
 
-          <G clipPath={useGlGlobe && morph >= 1 ? 'url(#outsideEarthClip)' : undefined} pointerEvents="none">
+          <G pointerEvents="none">
 
-          {spaceMilkyWay && spaceMilkyWay.length > 0 && (
+          {!useGlGlobe && spaceMilkyWay && spaceMilkyWay.length > 0 && (
             <G pointerEvents="none">
               {spaceMilkyWay.map((mw, i) => (
                 <React.Fragment key={`mw-${i}`}>
@@ -1248,7 +1263,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </G>
           )}
 
-          {spaceStars && spaceStars.length > 0 && (
+          {!useGlGlobe && spaceStars && spaceStars.length > 0 && (
             <G pointerEvents="none">
               {spaceStars.map((st, i) => (
                 <React.Fragment key={`star-${i}`}>
@@ -1261,10 +1276,11 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </G>
           )}
 
-          {spaceBodies?.sun && !spaceBodies.sun.inFront && renderSpaceSun(spaceBodies.sun)}
-          {spaceBodies?.moon && !spaceBodies.moon.inFront && (() => {
+          {spaceBodies?.sun && !spaceBodies.sun.inFront && (morph < 0.999 || Math.hypot(spaceBodies.sun.sx - CX, spaceBodies.sun.sy - CY) >= RADIUS - spaceBodies.sun.sr * 0.15) && renderSpaceSun(spaceBodies.sun)}
+          {spaceBodies?.moon && !spaceBodies.moon.inFront && (morph < 0.999 || Math.hypot(spaceBodies.moon.sx - CX, spaceBodies.moon.sy - CY) >= RADIUS - spaceBodies.moon.sr * 0.25) && (() => {
             const m = spaceBodies.moon;
             const r = m.sr;
+            const earthshineOp = Math.max(0.84, Math.min(0.95, 0.84 + 0.11 * m.litFrac));
             return (
               <G pointerEvents="none" transform={`translate(${m.sx} ${m.sy})`}>
                 <Defs>
@@ -1284,9 +1300,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
                   <Circle cx={r * 0.42} cy={-r * 0.14} r={r * 0.11} fill="#64748B" opacity={0.42} />
                   <Circle cx={-r * 0.10} cy={r * 0.46} r={r * 0.08} fill="#FFFFFF" opacity={0.35} />
                   {m.shadowPath === 'full' ? (
-                    <Circle cx={0} cy={0} r={r} fill="#090E1A" opacity={0.94} />
+                    <Circle cx={0} cy={0} r={r} fill="#0F1B33" opacity={earthshineOp} />
                   ) : m.shadowPath && (
-                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#090E1A" opacity={0.94} />
+                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#0F1B33" opacity={earthshineOp} />
                   )}
                 </G>
                 <Circle cx={0} cy={0} r={r} fill="none" stroke="rgba(226, 232, 240, 0.22)" strokeWidth={0.5} />
@@ -1295,7 +1311,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           })()}
           </G>
 
-          {spaceAtmosphere && morph >= 1 && (
+          {!useGlGlobe && spaceAtmosphere && morph >= 1 && (
             <Circle cx={CX} cy={CY} r={RADIUS * 1.034} fill="url(#earthAtmosOuter)" opacity={spaceAtmosphere.op} pointerEvents="none" />
           )}
           {!useGlGlobe && (
@@ -1328,9 +1344,34 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             <Path
               d={landPath}
               fill={useGlGlobe ? 'none' : 'url(#earthLandGrad)'}
-              stroke={theme.dark ? (useGlGlobe ? 'rgba(167, 224, 198, 0.22)' : 'rgba(167, 224, 198, 0.34)') : 'rgba(30, 80, 70, 0.25)'}
-              strokeWidth={useGlGlobe ? 0.5 : 0.65}
+              stroke={theme.dark ? (useGlGlobe ? 'rgba(167, 224, 198, 0.12)' : 'rgba(167, 224, 198, 0.34)') : 'rgba(30, 80, 70, 0.25)'}
+              strokeWidth={useGlGlobe ? 0.45 : 0.65}
             />
+          )}
+          {useGlGlobe && landPath && nightCirclePath && (
+            <>
+              <Defs>
+                <ClipPath id="nightCoastClip">
+                  <Path d={nightCirclePath} />
+                </ClipPath>
+              </Defs>
+              <G clipPath="url(#nightCoastClip)" pointerEvents="none">
+                <Path
+                  d={landPath}
+                  fill="none"
+                  stroke="rgba(245, 158, 11, 0.14)"
+                  strokeWidth={1.6}
+                  strokeLinejoin="round"
+                />
+                <Path
+                  d={landPath}
+                  fill="none"
+                  stroke="rgba(253, 224, 172, 0.36)"
+                  strokeWidth={0.75}
+                  strokeLinejoin="round"
+                />
+              </G>
+            </>
           )}
 
           {graticulePath && (
@@ -1396,31 +1437,55 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
 
               {/* 시간별 보조 일출선 시간 표시 */}
               {paths.sunriseLabelPt && (
-                <SvgText
-                  x={paths.sunriseLabelPt.x}
-                  y={paths.sunriseLabelPt.y}
-                  fill="rgba(251, 146, 60, 0.72)"
-                  fontSize="7.5"
-                  fontWeight="bold"
-                  textAnchor="middle"
-                  dy={2.5}
-                >
-                  {paths.label}
-                </SvgText>
+                <G>
+                  <Rect
+                    x={paths.sunriseLabelPt.x - 12}
+                    y={paths.sunriseLabelPt.y - 5.5}
+                    width={24}
+                    height={11}
+                    rx={3}
+                    fill="rgba(9, 14, 26, 0.78)"
+                    stroke="rgba(251, 146, 60, 0.55)"
+                    strokeWidth={0.6}
+                  />
+                  <SvgText
+                    x={paths.sunriseLabelPt.x}
+                    y={paths.sunriseLabelPt.y}
+                    fill="#FDBA74"
+                    fontSize="7"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    dy={2.4}
+                  >
+                    {paths.label}
+                  </SvgText>
+                </G>
               )}
               {/* 시간별 보조 일몰선 시간 표시 */}
               {paths.sunsetLabelPt && (
-                <SvgText
-                  x={paths.sunsetLabelPt.x}
-                  y={paths.sunsetLabelPt.y}
-                  fill="rgba(244, 63, 94, 0.72)"
-                  fontSize="7.5"
-                  fontWeight="bold"
-                  textAnchor="middle"
-                  dy={2.5}
-                >
-                  {paths.label}
-                </SvgText>
+                <G>
+                  <Rect
+                    x={paths.sunsetLabelPt.x - 12}
+                    y={paths.sunsetLabelPt.y - 5.5}
+                    width={24}
+                    height={11}
+                    rx={3}
+                    fill="rgba(9, 14, 26, 0.78)"
+                    stroke="rgba(217, 70, 239, 0.55)"
+                    strokeWidth={0.6}
+                  />
+                  <SvgText
+                    x={paths.sunsetLabelPt.x}
+                    y={paths.sunsetLabelPt.y}
+                    fill="#F0ABFC"
+                    fontSize="7"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    dy={2.4}
+                  >
+                    {paths.label}
+                  </SvgText>
+                </G>
               )}
             </React.Fragment>
           ))}
@@ -1475,7 +1540,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
                 width={24}
                 height={12}
                 rx={3.5}
-                fill="#BE123C"
+                fill="#A21CAF"
               />
               <SvgText
                 x={mainSunsetLabelPt.x}
@@ -1522,7 +1587,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </G>
           )}
 
-          {spaceAtmosphere && morph >= 1 && (
+          {!useGlGlobe && spaceAtmosphere && morph >= 1 && (
             <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#earthAtmosInner)" opacity={spaceAtmosphere.op} pointerEvents="none" />
           )}
           {morph > 0.05 && (
@@ -1573,6 +1638,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           {spaceBodies?.moon && spaceBodies.moon.inFront && (() => {
             const m = spaceBodies.moon;
             const r = m.sr;
+            const earthshineOp = Math.max(0.84, Math.min(0.95, 0.84 + 0.11 * m.litFrac));
             return (
               <G pointerEvents="none" transform={`translate(${m.sx} ${m.sy})`}>
                 <Defs>
@@ -1592,9 +1658,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
                   <Circle cx={r * 0.42} cy={-r * 0.14} r={r * 0.11} fill="#64748B" opacity={0.42} />
                   <Circle cx={-r * 0.10} cy={r * 0.46} r={r * 0.08} fill="#FFFFFF" opacity={0.35} />
                   {m.shadowPath === 'full' ? (
-                    <Circle cx={0} cy={0} r={r} fill="#090E1A" opacity={0.94} />
+                    <Circle cx={0} cy={0} r={r} fill="#0F1B33" opacity={earthshineOp} />
                   ) : m.shadowPath && (
-                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#090E1A" opacity={0.94} />
+                    <Path d={m.shadowPath} transform={`rotate(${m.angleDeg})`} fill="#0F1B33" opacity={earthshineOp} />
                   )}
                 </G>
                 <Circle cx={0} cy={0} r={r} fill="none" stroke="rgba(226, 232, 240, 0.22)" strokeWidth={0.5} />

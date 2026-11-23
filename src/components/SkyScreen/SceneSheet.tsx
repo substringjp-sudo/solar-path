@@ -9,11 +9,12 @@
  *
  * 글(요약 · 하늘 글)은 `utils/savedScenes.ts` 가 만듭니다. 하늘 위에 떠 있는 것이라 화면 모드와 상관없이 어두운 재질을 씁니다.
  */
-import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Dimensions, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Check, MoreHorizontal, X } from 'lucide-react-native';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
+import { isReducedMotion } from '../../theme/motion';
 import { L3 } from '../../utils/i18n';
 import { SAVED_SCENE_MAX, SCENE_NAME_MAX, sceneNote, sceneSummary, sunNoteAt, type SavedScene } from '../../utils/savedScenes';
 
@@ -36,16 +37,37 @@ interface Props {
   onOpen: (scene: SavedScene) => void;
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
+  onRestoreSamples?: () => void;
   onClose: () => void;
 }
 
-export const SceneSheet: React.FC<Props> = ({ visible, language, scenes, draft, nowMs, tzHours, onSave, onOpen, onRename, onRemove, onClose }) => {
+export const SceneSheet: React.FC<Props> = ({ visible, language, scenes, draft, nowMs, tzHours, onSave, onOpen, onRename, onRemove, onRestoreSamples, onClose }) => {
+  const [mounted, setMounted] = useState(visible);
+  const anim = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const [name, setName] = useState('');
   const [status, setStatus] = useState<SaveResult | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      if (isReducedMotion()) { anim.setValue(1); return; }
+      Animated.timing(anim, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    } else if (mounted) {
+      if (isReducedMotion()) { anim.setValue(0); setMounted(false); return; }
+      Animated.timing(anim, { toValue: 0, duration: 190, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
+    }
+  }, [visible, mounted, anim]);
+
+  const slideY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Dimensions.get('window').height, 0],
+  });
 
   const ctx = { nowMs, tzHours, lang: language };
   const rows = useMemo(
@@ -72,10 +94,15 @@ export const SceneSheet: React.FC<Props> = ({ visible, language, scenes, draft, 
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeAll} statusBarTranslucent>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={styles.scrim} onPress={closeAll} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} />
-        <View style={styles.sheet}>
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={closeAll} statusBarTranslucent>
+      <Animated.View style={[styles.scrim, { opacity: anim }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={closeAll} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} />
+      </Animated.View>
+      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined} pointerEvents="box-none">
+        <Animated.View style={[styles.sheet, { transform: [{ translateY: slideY }] }]}>
+          <View style={styles.dragHandleWrap}>
+            <View style={styles.dragHandle} />
+          </View>
           <View style={styles.header}>
             <Text style={styles.title}>{L3(language, '저장한 장면', 'Saved scenes', '保存したシーン')}</Text>
             <OverlayButton onPress={closeAll} accessibilityLabel={L3(language, '닫기', 'Close', '閉じる')} style={styles.closeBtn}>
@@ -123,7 +150,18 @@ export const SceneSheet: React.FC<Props> = ({ visible, language, scenes, draft, 
               </View>
             </View>
 
-            <Text style={[styles.label, { marginTop: 14 }]}>{`${L3(language, '저장한 장면', 'Saved scenes', '保存したシーン')} · ${scenes.length}`}</Text>
+            <View style={styles.listHeaderRow}>
+              <Text style={styles.label}>{`${L3(language, '저장한 장면', 'Saved scenes', '保存したシーン')} · ${scenes.length}`}</Text>
+              {onRestoreSamples && (
+                <OverlayButton
+                  onPress={onRestoreSamples}
+                  accessibilityLabel={L3(language, '추천 샘플 장면 불러오기', 'Load sample scenes', 'おすすめサンプルを読み込む')}
+                  style={styles.sampleBtn}
+                >
+                  <Text style={styles.sampleBtnText}>{L3(language, '추천 샘플 불러오기', 'Load samples', 'サンプル読込')}</Text>
+                </OverlayButton>
+              )}
+            </View>
             {rows.length === 0 && <Text style={styles.empty}>{L3(language, '저장한 장면이 아직 없어요', 'No saved scenes yet', '保存したシーンはまだありません')}</Text>}
             {rows.map(({ s, summary, note }) => (
               <View key={s.id} style={styles.row}>
@@ -192,7 +230,7 @@ export const SceneSheet: React.FC<Props> = ({ visible, language, scenes, draft, 
               </View>
             ))}
           </ScrollView>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -203,8 +241,10 @@ const styles = StyleSheet.create({
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: DARK.scrim },
   sheet: {
     maxHeight: '86%', backgroundColor: DARK.panel, borderColor: DARK.border, borderWidth: 1,
-    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 12,
+    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 8,
   },
+  dragHandleWrap: { alignItems: 'center', paddingBottom: 6 },
+  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.28)' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 },
   title: { fontSize: 16, fontWeight: '800', color: DARK.text },
   closeBtn: { width: 32, height: 32 },
@@ -212,6 +252,9 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 16, paddingBottom: 24, gap: 6 },
   info: { fontSize: 12, lineHeight: 17, color: DARK.textDim, marginBottom: 8 },
   label: { fontFamily: mono, fontSize: 9, letterSpacing: 0.8, color: DARK.textMute },
+  listHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
+  sampleBtn: { width: 'auto', height: 26, paddingHorizontal: 10 },
+  sampleBtnText: { fontSize: 11, fontWeight: '700', color: DARK.accent },
   card: { gap: 8, padding: 10, backgroundColor: DARK.fill, borderColor: DARK.border, borderWidth: 1, borderRadius: radius.md },
   input: {
     height: 38, paddingHorizontal: 10, fontSize: 14, color: DARK.text,

@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeforeGlow — 02 데이터 · 하늘 읽는 노트 (인터랙티브 목업)</title>
+  <style>
+    :root[data-theme="dark"] {
+      --bg: #070A12;
+      --panel: #0D1320;
+      --panel-raised: #131B2B;
+      --fill: rgba(255, 255, 255, 0.045);
+      --fill-strong: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.18);
+      --text: #F1F5F9;
+      --text-dim: #94A3B8;
+      --text-mute: #64748B;
+      --accent: #38BDF8;
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --accent-line: rgba(56, 189, 248, 0.42);
+      --amber: #F59E0B;
+      --amber-soft: rgba(245, 158, 11, 0.14);
+      --amber-line: rgba(245, 158, 11, 0.42);
+      --purple: #A78BFA;
+      --purple-soft: rgba(167, 139, 250, 0.14);
+      --purple-line: rgba(167, 139, 250, 0.42);
+      --teal: #34D399;
+      --teal-soft: rgba(52, 211, 153, 0.14);
+      --teal-line: rgba(52, 211, 153, 0.42);
+      --danger: #F87171;
+      --glow-orange: #FB923C;
+      --canvas-bg: #04060B;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F8FAFC;
+      --panel: #FFFFFF;
+      --panel-raised: #F1F5F9;
+      --fill: rgba(15, 23, 42, 0.04);
+      --fill-strong: rgba(15, 23, 42, 0.07);
+      --border: rgba(15, 23, 42, 0.10);
+      --border-strong: rgba(15, 23, 42, 0.18);
+      --text: #0F172A;
+      --text-dim: #475569;
+      --text-mute: #94A3B8;
+      --accent: #0284C7;
+      --accent-soft: rgba(2, 132, 199, 0.10);
+      --accent-line: rgba(2, 132, 199, 0.35);
+      --amber: #D97706;
+      --amber-soft: rgba(217, 119, 6, 0.10);
+      --amber-line: rgba(217, 119, 6, 0.35);
+      --purple: #7C3AED;
+      --purple-soft: rgba(124, 58, 237, 0.10);
+      --purple-line: rgba(124, 58, 237, 0.35);
+      --teal: #059669;
+      --teal-soft: rgba(5, 150, 105, 0.10);
+      --teal-line: rgba(5, 150, 105, 0.35);
+      --danger: #DC2626;
+      --glow-orange: #EA580C;
+      --canvas-bg: #E2E8F0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas-bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 12px 60px;
+      line-height: 1.45;
+    }
+
+    /* 상단 컨트롤 바 (목업 테스트용) */
+    .mockup-toolbar {
+      width: 100%;
+      max-width: 412px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .toolbar-btn {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid var(--accent-line);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* 스마트폰 프레임 (412px) */
+    .phone-frame {
+      width: 100%;
+      max-width: 412px;
+      background: var(--bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 28px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      padding-bottom: 28px;
+    }
+
+    /* 앱 상단 헤더 + 타임머신 동기화 배지 */
+    .app-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      zIndex: 50;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .page-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+    .sync-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      padding: 3px 9px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .sub-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    /* 가로 주제 렌즈 탭 (통합 / 날씨·대기 / 노을·지형 / 밤하늘·별) */
+    .lens-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      overflow-x: auto;
+    }
+    .lens-chip {
+      flex: 1;
+      text-align: center;
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .lens-chip.active {
+      background: var(--accent-soft);
+      border-color: var(--accent-line);
+      color: var(--accent);
+    }
+
+    /* 4단계 시간 앵커 카드 */
+    .anchor-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .anchor-card {
+      padding: 7px 8px;
+      border-radius: 10px;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      text-decoration: none;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .anchor-card.c-now { border-color: var(--accent-line); background: var(--accent-soft); }
+    .anchor-card.c-24h { border-color: var(--amber-line); }
+    .anchor-card.c-16d { border-color: var(--purple-line); }
+    .anchor-card.c-why { border-color: var(--teal-line); }
+    .anchor-kicker { font-size: 10px; font-weight: 800; }
+    .c-now .anchor-kicker { color: var(--accent); }
+    .c-24h .anchor-kicker { color: var(--amber); }
+    .c-16d .anchor-kicker { color: var(--purple); }
+    .c-why .anchor-kicker { color: var(--teal); }
+    .anchor-sub { font-size: 10px; color: var(--text-dim); }
+
+    /* 본문 섹션 컨테이너 */
+    .content {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .stage-card {
+      background: var(--panel);
+      border-radius: 16px;
+      padding: 15px;
+      border: 1px solid var(--border-strong);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .stage-now { border-color: var(--accent-line); }
+    .stage-24h { border-color: var(--amber-line); }
+    .stage-16d { border-color: var(--purple-line); }
+    .stage-why { border-color: var(--teal-line); }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .stage-pill {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      letter-spacing: 0.3px;
+    }
+    .pill-now { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
+    .pill-24h { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-line); }
+    .pill-16d { background: var(--purple-soft); color: var(--purple); border: 1px solid var(--purple-line); }
+    .pill-why { background: var(--teal-soft); color: var(--teal); border: 1px solid var(--teal-line); }
+
+    .stage-meta {
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: var(--text-dim);
+    }
+
+    /* 과거 -> 현재 맥락 배너 */
+    .past-context-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 10px;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      font-size: 11px;
+    }
+    .past-tag {
+      font-weight: 700;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .past-desc {
+      color: var(--text-dim);
+      flex: 1;
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+
+    .headline {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      line-height: 1.3;
+    }
+    .headline .hl-warn { color: var(--danger); }
+    .headline .hl-good { color: var(--glow-orange); }
+    .headline .hl-purple { color: var(--purple); }
+    .headline .hl-teal { color: var(--teal); }
+    .one-liner {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: -6px;
+    }
+
+    /* 원형 게이지 2개 + 달/행성 요약 */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .kpi-box {
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ring-svg { width: 46px; height: 46px; flex-shrink: 0; }
+    .kpi-text { display: flex; flex-direction: column; gap: 1px; }
+    .kpi-label { font-size: 10px; color: var(--text-dim); font-weight: 600; }
+    .kpi-val { font-size: 18px; font-weight: 800; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .kpi-sub { font-size: 10px; color: var(--text-dim); }
+
+    /* 달 위상 & 행성 1줄 스트립 (목업에서 빠졌던 천체 상태 보강) */
+    .celestial-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .cel-chip {
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .cel-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .cel-meta { display: flex; flex-direction: column; min-width: 0; }
+    .cel-title { font-weight: 700; font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cel-sub { font-size: 10px; color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    /* 시각화 박스 (수직 단면도 <-> 360° 구름 레이더 전환) */
+    .viz-box {
+      background: var(--panel-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .viz-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .viz-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+    }
+    .view-toggle {
+      display: inline-flex;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .view-btn {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+    .view-btn.active {
+      background: var(--accent);
+      color: #04121C;
+    }
+
+    .scenario-chips {
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .scen-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .scen-chip.active {
+      background: var(--accent-soft);
+      border-color: var(--accent-line);
+      color: var(--accent);
+    }
+
+    .diagram-canvas {
+      width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0B111E;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .diagram-caption {
+      font-size: 11px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 2x2 기상 적정 범위 바 (기존 세로 4개를 2x2로 압축해 스크롤 50% 절약) */
+    .range-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .range-card {
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .range-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .range-name { font-size: 11px; font-weight: 700; color: var(--text); }
+    .range-val { font-size: 12px; font-weight: 800; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .range-track {
+      position: relative;
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #34D399 0%, #FBBF24 55%, #F87171 100%);
+    }
+    .range-track.rev {
+      background: linear-gradient(90deg, #F87171 0%, #FBBF24 45%, #34D399 100%);
+    }
+    .range-pin {
+      position: absolute;
+      top: -3px;
+      width: 4px;
+      height: 12px;
+      border-radius: 2px;
+      background: #FFFFFF;
+      box-shadow: 0 0 4px rgba(0,0,0,0.8);
+      transform: translateX(-50%);
+    }
+    .range-note { font-size: 10px; color: var(--text-dim); }
+
+    /* 접기/펼치기 아코디언 (2순위 정보) */
+    details.fold-box {
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    details.fold-box summary {
+      padding: 9px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    details.fold-box summary::-webkit-details-marker { display: none; }
+    details.fold-box summary::after {
+      content: "펼치기 ▾";
+      font-size: 10px;
+      color: var(--accent);
+    }
+    details.fold-box[open] summary::after {
+      content: "접기 ▴";
+    }
+    .fold-body {
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    /* 2단계: 최고 순간 배너 & 번호형 이벤트 리스트 */
+    .best-callout {
+      background: var(--amber-soft);
+      border: 1px solid var(--amber-line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .best-text { font-size: 11px; color: var(--text); }
+    .best-text strong { color: var(--amber); }
+    .jump-3d-btn {
+      background: var(--fill-strong);
+      border: 1px solid var(--border-strong);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .event-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: var(--fill);
+      border: 1px solid var(--border);
+    }
+    .event-row.highlight {
+      background: var(--amber-soft);
+      border-color: var(--amber-line);
+    }
+    .event-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      background: var(--amber);
+      color: #070A12;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .event-time {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px;
+      font-weight: 800;
+      width: 42px;
+      flex-shrink: 0;
+    }
+    .event-main { flex: 1; min-width: 0; }
+    .event-title { font-size: 12px; font-weight: 700; color: var(--text); }
+    .event-sub { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* 3단계: 16일 달력 히트맵 */
+    .cal-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-mute);
+      margin-bottom: 4px;
+    }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 5px;
+    }
+    .cal-cell {
+      border-radius: 9px;
+      padding: 6px 3px;
+      text-align: center;
+      background: var(--fill);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .cal-cell.good {
+      background: rgba(167, 139, 250, 0.18);
+      border-color: rgba(167, 139, 250, 0.45);
+    }
+    .cal-cell.great {
+      background: rgba(251, 146, 60, 0.22);
+      border-color: rgba(251, 146, 60, 0.65);
+    }
+    .cal-cell.selected {
+      outline: 2px solid var(--accent);
+    }
+    .cal-day { font-size: 10px; font-weight: 700; color: var(--text-dim); }
+    .cal-score { font-size: 13px; font-weight: 800; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .cal-mini { font-size: 9px; color: var(--text-dim); }
+
+    .confidence-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .conf-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+    .conf-track {
+      height: 5px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, var(--purple) 0%, rgba(167,139,250,0.45) 45%, rgba(167,139,250,0.15) 100%);
+    }
+
+    /* 4단계: 점수 가감(+/-) 바 차트 & 3D 렌더링 매핑 */
+    .contrib-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .contrib-row {
+      display: grid;
+      grid-template-columns: 74px 1fr 40px;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .contrib-label { color: var(--text-dim); font-size: 11px; }
+    .contrib-track {
+      position: relative;
+      height: 10px;
+      background: var(--fill-strong);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .contrib-zero {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--border-strong);
+    }
+    .contrib-bar-pos {
+      position: absolute;
+      left: 50%;
+      top: 1px;
+      bottom: 1px;
+      background: var(--teal);
+      border-radius: 0 3px 3px 0;
+    }
+    .contrib-bar-neg {
+      position: absolute;
+      right: 50%;
+      top: 1px;
+      bottom: 1px;
+      background: var(--danger);
+      border-radius: 3px 0 0 3px;
+    }
+    .contrib-val {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    /* 3D 시뮬레이션 시각 표현 매핑 박스 (새로 추가된 핵심 연결 고리) */
+    .render-bridge-card {
+      background: var(--teal-soft);
+      border: 1px solid var(--teal-line);
+      border-radius: 12px;
+      padding: 11px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bridge-kicker {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--teal);
+      letter-spacing: 0.4px;
+    }
+    .bridge-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .bridge-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* 3종 하늘 비교 썸네일 */
+    .compare-3grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+    .cmp-card {
+      background: var(--fill);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .cmp-card.current {
+      border-color: var(--danger);
+      background: rgba(248, 113, 113, 0.08);
+    }
+    .cmp-sky {
+      height: 44px;
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cmp-sky.good { background: linear-gradient(180deg, #1E293B 0%, #7C2D12 55%, #FB923C 100%); }
+    .cmp-sky.bad { background: linear-gradient(180deg, #334155 0%, #475569 65%, #64748B 100%); }
+    .cmp-sky.clear { background: linear-gradient(180deg, #0F172A 0%, #1D4ED8 60%, #FDBA74 100%); }
+    .cmp-title { font-size: 10px; font-weight: 800; color: var(--text); }
+    .cmp-sub { font-size: 9px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+
+  <!-- 목업 인터랙션 툴바 -->
+  <div class="mockup-toolbar">
+    <span>📱 <strong>02 데이터</strong> 통합 기획 목업 (탭·접기 동작)</span>
+    <button class="toolbar-btn" onclick="toggleTheme()">다크 / 라이트 전환</button>
+  </div>
+
+  <div class="phone-frame">
+    <!-- 상단 고정 헤더 -->
+    <div class="app-header">
+      <div class="header-top">
+        <div class="page-title">데이터 · 하늘 읽는 노트</div>
+        <div class="sync-pill" onclick="alert('01 하늘의 선택 시각과 동기화됩니다.')">
+          <span>⏱ 11.23 14:02 기준</span>
+          <span>↻</span>
+        </div>
+      </div>
+      <div class="sub-meta">
+        <span>📍 수원 영통구 (해발 52m)</span>
+        <span>Open-Meteo 12분 전 수신</span>
+      </div>
+
+      <!-- 가로 3대 주제 렌즈 탭 -->
+      <div class="lens-bar">
+        <div class="lens-chip active" onclick="selectLens(this, 'all')">통합 브리핑</div>
+        <div class="lens-chip" onclick="selectLens(this, 'weather')">🌤️ 날씨 · 대기</div>
+        <div class="lens-chip" onclick="selectLens(this, 'glow')">🌅 노을 · 지형</div>
+        <div class="lens-chip" onclick="selectLens(this, 'night')">✨ 밤하늘 · 천체</div>
+      </div>
+
+      <!-- 4단계 시간 앵커 바 -->
+      <div class="anchor-grid">
+        <a href="#sec-now" class="anchor-card c-now">
+          <span class="anchor-kicker">1. 지금</span>
+          <span class="anchor-sub">과거→현재</span>
+        </a>
+        <a href="#sec-24h" class="anchor-card c-24h">
+          <span class="anchor-kicker">2. 단기 24h</span>
+          <span class="anchor-sub">관측 타임라인</span>
+        </a>
+        <a href="#sec-16d" class="anchor-card c-16d">
+          <span class="anchor-kicker">3. 장기 16일</span>
+          <span class="anchor-sub">달력 히트맵</span>
+        </a>
+        <a href="#sec-why" class="anchor-card c-why">
+          <span class="anchor-kicker">4. 원리·3D</span>
+          <span class="anchor-sub">점수·시각화</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ================================================================= -->
+      <!-- 1단계: 과거 맥락 -> 지금 눈앞의 하늘 (PAST -> NOW)                  -->
+      <!-- ================================================================= -->
+      <section id="sec-now" class="stage-card stage-now">
+        <div class="stage-head">
+          <span class="stage-pill pill-now">지금 · 현재 하늘</span>
+          <span class="stage-meta">14:02 · 주간 (태양 +34.2°)</span>
+        </div>
+
+        <!-- 과거 요약 1줄 스트립 (새로 보강) -->
+        <div class="past-context-strip">
+          <span class="past-tag">⏮ 지난 6시간 흐름</span>
+          <span class="past-desc">오늘 일출 62점(좋음) → 오전부터 하층운 유입(35%→84% ↗)</span>
+        </div>
+
+        <h2 class="headline">
+          낮은 구름 꽉 참, <span class="hl-warn">오늘 저녁 노을 버거움</span>
+        </h2>
+        <p class="one-liner">
+          하층운 84% · 중층운 82% · 서쪽 45km 밖 구름벽이 해 지는 빛을 차단해요
+        </p>
+
+        <!-- 원형 게이지 2개 (노을 점수 & 밤하늘 별 점수) -->
+        <div class="kpi-grid">
+          <div class="kpi-box">
+            <svg class="ring-svg" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="5"/>
+              <circle cx="24" cy="24" r="19" fill="none" stroke="#F87171" stroke-width="5"
+                stroke-dasharray="22 120" stroke-linecap="round" transform="rotate(-90 24 24)"/>
+            </svg>
+            <div class="kpi-text">
+              <span class="kpi-label">오늘 일몰 노을</span>
+              <span class="kpi-val">18<span style="font-size:11px;font-weight:500;color:var(--text-dim)">/100</span></span>
+              <span class="kpi-sub" style="color:var(--danger)">가려짐 · 17:19</span>
+            </div>
+          </div>
+
+          <div class="kpi-box">
+            <svg class="ring-svg" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="5"/>
+              <circle cx="24" cy="24" r="19" fill="none" stroke="#F59E0B" stroke-width="5"
+                stroke-dasharray="36 120" stroke-linecap="round" transform="rotate(-90 24 24)"/>
+            </svg>
+            <div class="kpi-text">
+              <span class="kpi-label">오늘 밤 별 관측</span>
+              <span class="kpi-val">3.1<span style="font-size:11px;font-weight:500;color:var(--text-dim)">등급</span></span>
+              <span class="kpi-sub">밝은 별 위주 (22점)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 달 위상 & 행성 1줄 요약 (목업 누락 보강) -->
+        <div class="celestial-strip">
+          <div class="cel-chip">
+            <div class="cel-icon" style="background:rgba(245,158,11,0.16);color:#FBBF24;">🌓</div>
+            <div class="cel-meta">
+              <span class="cel-title">상현달 (밝기 64%)</span>
+              <span class="cel-sub">월출 13:18 · 남동 +12°</span>
+            </div>
+          </div>
+          <div class="cel-chip">
+            <div class="cel-icon" style="background:rgba(56,189,248,0.16);color:#38BDF8;">🪐</div>
+            <div class="cel-meta">
+              <span class="cel-title">오늘 밤 금성 · 목성</span>
+              <span class="cel-sub">18:10 이후 남서~남동</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 인터랙티브 다이어그램: [수직 하늘·바람 단면도 <-> 360° 광로 구름 레이더] -->
+        <div class="viz-box">
+          <div class="viz-top-bar">
+            <span class="viz-title" id="viz-mode-title">하늘 수직 단면 · 구름층과 바람·햇빛</span>
+            <div class="view-toggle">
+              <button class="view-btn active" onclick="switchViz('cross', this)">수직 단면도</button>
+              <button class="view-btn" onclick="switchViz('radar', this)">360° 구름 레이더</button>
+            </div>
+          </div>
+
+          <!-- 시나리오 비교 칩 -->
+          <div class="scenario-chips" id="scenario-bar">
+            <span class="scen-chip active" onclick="setScenario('now', this)">지금 · 14:02</span>
+            <span class="scen-chip" onclick="setScenario('good', this)">구름 좋은 날 (78점)</span>
+            <span class="scen-chip" onclick="setScenario('clear', this)">구름 없는 날 (42점)</span>
+            <span class="scen-chip" onclick="setScenario('ridge', this)">산능선에 걸릴 때</span>
+          </div>
+
+          <!-- SVG 1: 수직 대기·구름층·바람·능선 단면도 -->
+          <div id="svg-cross" class="diagram-canvas">
+            <svg viewBox="0 0 360 175" width="100%" height="175">
+              <defs>
+                <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#131E36"/>
+                  <stop offset="60%" stop-color="#1E293B"/>
+                  <stop offset="100%" stop-color="#273449"/>
+                </linearGradient>
+              </defs>
+              <rect width="360" height="175" fill="url(#skyGrad)"/>
+
+              <!-- 고도 눈금 및 층별 바람 (목업에서 빠졌던 풍속 보강) -->
+              <line x1="0" y1="45" x2="360" y2="45" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3"/>
+              <line x1="0" y1="92" x2="360" y2="92" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3"/>
+              <line x1="0" y1="138" x2="360" y2="138" stroke="rgba(255,255,255,0.12)"/>
+
+              <text x="8" y="22" fill="#94A3B8" font-size="9" font-family="monospace">상층 8~12km · 권운 35%</text>
+              <text x="275" y="22" fill="#38BDF8" font-size="9" font-family="monospace">→ 서풍 54km/h</text>
+
+              <text x="8" y="62" fill="#94A3B8" font-size="9" font-family="monospace">중층 3~7km · 고층운 82%</text>
+              <text x="275" y="62" fill="#38BDF8" font-size="9" font-family="monospace">→ 남서풍 32km/h</text>
+
+              <text x="8" y="108" fill="#F87171" font-size="9" font-family="monospace">하층 0~2km · 층적운 84%</text>
+              <text x="275" y="108" fill="#38BDF8" font-size="9" font-family="monospace">→ 서풍 16km/h</text>
+
+              <!-- 구름 띠 표현 -->
+              <rect x="40" y="27" width="220" height="10" rx="5" fill="rgba(226,232,240,0.22)"/>
+              <rect x="20" y="68" width="310" height="18" rx="8" fill="rgba(148,163,184,0.48)"/>
+              <rect x="10" y="113" width="335" height="22" rx="9" fill="rgba(100,116,139,0.78)"/>
+
+              <!-- 태양 및 광선 차단 표현 -->
+              <circle cx="52" cy="24" r="9" fill="#FBBF24"/>
+              <line x1="60" y1="31" x2="155" y2="113" stroke="#FBBF24" stroke-width="2.5" stroke-opacity="0.85"/>
+              <!-- 하층운에 막혀 산란/소멸되는 점선 -->
+              <line x1="155" y1="113" x2="195" y2="148" stroke="#F87171" stroke-width="1.5" stroke-dasharray="3 3"/>
+              <circle cx="155" cy="113" r="4" fill="#F87171"/>
+              <text x="163" y="110" fill="#FCA5A5" font-size="9" font-weight="bold">하층 구름벽에서 직사광 차단</text>
+
+              <!-- 바닥 지형 + 실제 산능선 실루엣 (HorizonProfile 연동) -->
+              <path d="M0 155 L180 155 L215 148 L250 152 L295 140 L335 146 L360 144 L360 175 L0 175 Z" fill="#131C2E"/>
+              <circle cx="200" cy="153" r="3.5" fill="#38BDF8"/>
+              <text x="184" y="168" fill="#38BDF8" font-size="9" font-family="monospace">나 (관측점)</text>
+              <text x="272" y="168" fill="#94A3B8" font-size="9" font-family="monospace">서쪽 능선 (+1.8°)</text>
+            </svg>
+          </div>
+
+          <!-- SVG 2: 360° 주변 구름 레이더 지도 (반경 380km 광로) -->
+          <div id="svg-radar" class="diagram-canvas" style="display:none;">
+            <svg viewBox="0 0 360 175" width="100%" height="175">
+              <rect width="360" height="175" fill="#0B111E"/>
+              <circle cx="180" cy="88" r="24" fill="none" stroke="rgba(255,255,255,0.12)"/>
+              <circle cx="180" cy="88" r="46" fill="none" stroke="rgba(255,255,255,0.12)"/>
+              <circle cx="180" cy="88" r="68" fill="none" stroke="rgba(255,255,255,0.15)"/>
+              <text x="180" y="14" fill="#94A3B8" font-size="9" text-anchor="middle" font-family="monospace">N (북)</text>
+              <text x="255" y="91" fill="#64748B" font-size="8" font-family="monospace">380km</text>
+
+              <!-- 구름 셀 분포 (서쪽~남서쪽 두꺼운 구름대) -->
+              <circle cx="152" cy="96" r="14" fill="rgba(226,232,240,0.62)"/>
+              <circle cx="132" cy="105" r="16" fill="rgba(226,232,240,0.72)"/>
+              <circle cx="165" cy="75" r="12" fill="rgba(226,232,240,0.55)"/>
+              <circle cx="205" cy="68" r="8" fill="rgba(226,232,240,0.28)"/>
+              <circle cx="215" cy="108" r="10" fill="rgba(226,232,240,0.35)"/>
+
+              <!-- 해 지는 광로 점선 -->
+              <line x1="180" y1="88" x2="114" y2="112" stroke="#FB923C" stroke-width="2" stroke-dasharray="3 3"/>
+              <circle cx="180" cy="88" r="4" fill="#38BDF8"/>
+              <text x="108" y="126" fill="#FB923C" font-size="9" font-family="monospace" text-anchor="middle">일몰 광로 (248°)</text>
+              <text x="14" y="164" fill="#FCA5A5" font-size="9">서남서 40~180km 구간 운량 85% → 지평선 빛 유입 차단</text>
+            </svg>
+          </div>
+
+          <div class="diagram-caption">
+            <span id="viz-caption-text">💡 해가 낮아져도 서쪽 하층운(84%)이 빛 통로를 막아 구름 밑면이 붉어지기 어렵습니다.</span>
+            <button class="jump-3d-btn" onclick="alert('01 하늘(3D 시뮬레이션)로 이동합니다.')">3D 하늘 보기 ▸</button>
+          </div>
+        </div>
+
+        <!-- 4대 기상 요소와 적정 범위 (2x2 그리드로 압축!) -->
+        <div class="range-grid">
+          <div class="range-card">
+            <div class="range-head">
+              <span class="range-name">구름 (총운량)</span>
+              <span class="range-val" style="color:var(--danger)">84%</span>
+            </div>
+            <div class="range-track">
+              <div class="range-pin" style="left:84%"></div>
+            </div>
+            <span class="range-note">30~60%가 노을 최적 · 과다</span>
+          </div>
+
+          <div class="range-card">
+            <div class="range-head">
+              <span class="range-name">시정 (투명도)</span>
+              <span class="range-val" style="color:var(--amber)">7.5km</span>
+            </div>
+            <div class="range-track rev">
+              <div class="range-pin" style="left:38%"></div>
+            </div>
+            <span class="range-note">15km 이상 깨끗 · 연무 약간</span>
+          </div>
+
+          <div class="range-card">
+            <div class="range-head">
+              <span class="range-name">상대습도</span>
+              <span class="range-val" style="color:var(--amber)">78%</span>
+            </div>
+            <div class="range-track">
+              <div class="range-pin" style="left:78%"></div>
+            </div>
+            <span class="range-note">높음 · 빛이 둔탁하게 산란</span>
+          </div>
+
+          <div class="range-card">
+            <div class="range-head">
+              <span class="range-name">이슬점 차이</span>
+              <span class="range-val" style="color:var(--teal)">3.1°C</span>
+            </div>
+            <div class="range-track rev">
+              <div class="range-pin" style="left:52%"></div>
+            </div>
+            <span class="range-note">2.5°C 이하 시 안개·렌즈 결로</span>
+          </div>
+        </div>
+
+        <!-- 2순위 정보 접기: 세부 대기·바람 수치표 -->
+        <details class="fold-box">
+          <summary>세부 대기 · 고도별 바람 · 광학 수치표 (8종)</summary>
+          <div class="fold-body">
+            <div style="display:flex;justify-content:space-between;"><span>기온 / 노점온도</span><strong>9.4°C / 6.3°C</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span>직달일사(DNI) / 강수량</span><strong>140 W/m² / 0.0 mm</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span>에어로졸(AOD550) / 수증기</span><strong>0.24 / 16.2 mm</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span>하층풍(850hPa) / 상층풍(250hPa)</span><strong>서 16km/h / 서 54km/h</strong></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- 2단계: 단기 미래 — 앞으로 24시간 관측 타임라인 (NEXT 24H)          -->
+      <!-- ================================================================= -->
+      <section id="sec-24h" class="stage-card stage-24h">
+        <div class="stage-head">
+          <span class="stage-pill pill-24h">단기 · 앞으로 24시간</span>
+          <span class="stage-meta">오늘 14:00 ~ 내일 14:00</span>
+        </div>
+
+        <h2 class="headline">
+          오늘 밤 구름 걷힌 뒤, <span class="hl-good">내일 07:18 일출이 최고(74점)</span>
+        </h2>
+        <p class="one-liner">
+          자정 무렵 하층운이 빠지면서 새벽 별(4.4등급)과 아침 일출 노을이 차례로 열려요
+        </p>
+
+        <!-- 24시간 멀티트랙 차트 (과거 6h 점선 + 미래 24h 실선 + 구름 3층 스트립) -->
+        <div class="viz-box">
+          <div class="viz-top-bar">
+            <span class="viz-title">🟠 노을 점수 · 🟣 밤하늘 별 등급 · ☁️ 상/중/하 구름층</span>
+            <span style="font-size:10px;color:var(--text-mute)">탭하여 시각 이동</span>
+          </div>
+          <div class="diagram-canvas">
+            <svg viewBox="0 0 360 150" width="100%" height="150">
+              <rect width="360" height="150" fill="#0B111E"/>
+              <!-- 상단 낮/박명/밤 띠 -->
+              <rect x="0" y="0" width="95" height="8" fill="#38BDF8" fill-opacity="0.35"/>
+              <rect x="95" y="0" width="22" height="8" fill="#FB923C" fill-opacity="0.65"/>
+              <rect x="117" y="0" width="148" height="8" fill="#312E81" fill-opacity="0.9"/>
+              <rect x="265" y="0" width="22" height="8" fill="#FB923C" fill-opacity="0.75"/>
+              <rect x="287" y="0" width="73" height="8" fill="#38BDF8" fill-opacity="0.35"/>
+
+              <!-- 과거 6시간 영역 (흐린 배경) -->
+              <rect x="0" y="8" width="54" height="142" fill="rgba(255,255,255,0.03)"/>
+              <line x1="54" y1="8" x2="54" y2="132" stroke="#38BDF8" stroke-width="1.5" stroke-dasharray="2 2"/>
+              <text x="54" y="20" fill="#38BDF8" font-size="8" text-anchor="middle" font-family="monospace">지금 14:02</text>
+
+              <!-- 노을 점수 곡선 (오늘 저녁 18점 나쁨 -> 내일 아침 74점 좋음) -->
+              <path d="M88 76 Q103 62 116 76" fill="rgba(248,113,113,0.2)" stroke="#F87171" stroke-width="2"/>
+              <path d="M256 76 Q273 20 290 76" fill="rgba(251,146,60,0.28)" stroke="#FB923C" stroke-width="2.5"/>
+              <text x="273" y="24" fill="#FB923C" font-size="9" font-weight="bold" text-anchor="middle">내일 일출 74점</text>
+
+              <!-- 밤하늘 별 관측 곡선 (자정 이후 구름 걷히고 월몰 뒤 상승) -->
+              <path d="M120 76 L150 66 L195 62 L215 36 L252 38 L262 76 Z" fill="rgba(167,139,250,0.20)" stroke="#A78BFA" stroke-width="2"/>
+              <text x="228" y="31" fill="#C4B5FD" font-size="8" text-anchor="middle" font-family="monospace">별 4.4등급</text>
+
+              <!-- 상/중/하 구름 밀도 스트립 (y=84..122) -->
+              <text x="6" y="93" fill="#94A3B8" font-size="8" font-family="monospace">상층</text>
+              <rect x="40" y="86" width="310" height="8" rx="3" fill="rgba(226,232,240,0.32)"/>
+
+              <text x="6" y="106" fill="#94A3B8" font-size="8" font-family="monospace">중층</text>
+              <rect x="40" y="99" width="165" height="8" rx="3" fill="rgba(148,163,184,0.65)"/>
+              <rect x="205" y="99" width="145" height="8" rx="3" fill="rgba(148,163,184,0.25)"/>
+
+              <text x="6" y="119" fill="#94A3B8" font-size="8" font-family="monospace">하층</text>
+              <rect x="40" y="112" width="155" height="8" rx="3" fill="rgba(248,113,113,0.65)"/>
+              <rect x="195" y="112" width="155" height="8" rx="3" fill="rgba(52,211,153,0.25)"/>
+
+              <!-- 번호 핀 & 시간축 -->
+              <circle cx="103" cy="130" r="6" fill="#64748B"/><text x="103" y="133" fill="#fff" font-size="8" text-anchor="middle">1</text>
+              <circle cx="205" cy="130" r="6" fill="#A78BFA"/><text x="205" y="133" fill="#070A12" font-size="8" font-weight="bold" text-anchor="middle">2</text>
+              <circle cx="273" cy="130" r="6" fill="#F59E0B"/><text x="273" y="133" fill="#070A12" font-size="8" font-weight="bold" text-anchor="middle">3</text>
+
+              <text x="14" y="146" fill="#64748B" font-size="8" font-family="monospace">08:00</text>
+              <text x="103" y="146" fill="#94A3B8" font-size="8" font-family="monospace" text-anchor="middle">17:19</text>
+              <text x="205" y="146" fill="#94A3B8" font-size="8" font-family="monospace" text-anchor="middle">01:30</text>
+              <text x="273" y="146" fill="#F59E0B" font-size="8" font-family="monospace" text-anchor="middle">07:18</text>
+              <text x="342" y="146" fill="#64748B" font-size="8" font-family="monospace" text-anchor="end">14:00</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 최고 순간 하이라이트 박스 -->
+        <div class="best-callout">
+          <div class="best-text">
+            <strong>★ 최고 관측 창 · 내일 07:18 일출 (74점 좋음)</strong><br/>
+            하층운 18%로 걷히고 상층운 55%가 아침 붉은빛을 반사해요
+          </div>
+          <button class="jump-3d-btn" onclick="alert('내일 07:18 3D 하늘로 이동합니다.')">이 시각 3D ▸</button>
+        </div>
+
+        <!-- 핵심 이벤트 Top 3만 먼저 노출 -->
+        <div class="event-list">
+          <div class="event-row">
+            <div class="event-num" style="background:#64748B;color:#fff;">1</div>
+            <div class="event-time">17:19</div>
+            <div class="event-main">
+              <div class="event-title">오늘 일몰 · 노을 18점 (가려짐)</div>
+              <div class="event-sub">하층운 84% · 서남서 248° · 능선으로 4분 조기 일몰</div>
+            </div>
+            <button class="jump-3d-btn">3D ▸</button>
+          </div>
+
+          <div class="event-row">
+            <div class="event-num" style="background:var(--purple);">2</div>
+            <div class="event-time">01:30</div>
+            <div class="event-main">
+              <div class="event-title">월몰 직후 + 구름 걷힘 · 별 관측 적기</div>
+              <div class="event-sub">달이 지고 총운량 22%로 감소 · 한계 4.4등급 (별자리 선명)</div>
+            </div>
+            <button class="jump-3d-btn">3D ▸</button>
+          </div>
+
+          <div class="event-row highlight">
+            <div class="event-num">3</div>
+            <div class="event-time">07:18</div>
+            <div class="event-main">
+              <div class="event-title">내일 일출 피크 · 노을 74점 (좋음)</div>
+              <div class="event-sub">동남동 114° · 상층운 55% 언더릿 붉은 여명</div>
+            </div>
+            <button class="jump-3d-btn">3D ▸</button>
+          </div>
+        </div>
+
+        <!-- 나머지 부가 일정 4개는 접기(Fold)로 정리 -->
+        <details class="fold-box">
+          <summary>박명 · 월출 · 행성 등 나머지 일정 4건 더 보기</summary>
+          <div class="fold-body">
+            <div style="display:flex;justify-content:space-between;"><span>16:42 저녁 골든아워 시작 (태양 +6°)</span><span>운량 84%</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>17:48 시민 박명(블루아워) 종료</span><span>금성·목성 출현</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>18:20 초저녁 행성 관측 (목성 남동 42° · 토성 남서 35°)</span><span>구름 사이 관측</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>06:48 내일 아침 블루아워 · 여명 시작</span><span>운량 24%</span></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- 3단계: 장기 미래 — 16일 달력 히트맵 (NEXT 16 DAYS)                -->
+      <!-- ================================================================= -->
+      <section id="sec-16d" class="stage-card stage-16d">
+        <div class="stage-head">
+          <span class="stage-pill pill-16d">장기 · 16일 추세</span>
+          <span class="stage-meta">11.23 ~ 12.08 · 날짜 탭하여 브리핑 전환</span>
+        </div>
+
+        <h2 class="headline">
+          이번 주 베스트는 <span class="hl-purple">11.24(화) 일출 · 11.28(토) 일몰</span>
+        </h2>
+        <p class="one-liner">
+          달력 칸을 누르면 위 1·2단계 해설이 그날 데이터로 즉시 바뀝니다
+        </p>
+
+        <div>
+          <div class="cal-weekdays">
+            <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span>
+          </div>
+          <div class="cal-grid">
+            <div class="cal-cell selected">
+              <span class="cal-day">11.23 오늘</span>
+              <span class="cal-score" style="color:var(--danger)">18</span>
+              <span class="cal-mini">일출62/별3.1</span>
+            </div>
+            <div class="cal-cell great">
+              <span class="cal-day">24 (화) ★</span>
+              <span class="cal-score" style="color:var(--glow-orange)">74</span>
+              <span class="cal-mini">일출74/일몰68</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">25 (수)</span>
+              <span class="cal-score">45</span>
+              <span class="cal-mini">보통 · 3.8등</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">26 (목)</span>
+              <span class="cal-score">32</span>
+              <span class="cal-mini">흐림 · 비</span>
+            </div>
+            <div class="cal-cell good">
+              <span class="cal-day">27 (금)</span>
+              <span class="cal-score" style="color:var(--purple)">66</span>
+              <span class="cal-mini">비온뒤 맑음</span>
+            </div>
+            <div class="cal-cell great">
+              <span class="cal-day">28 (토) ★</span>
+              <span class="cal-score" style="color:var(--glow-orange)">82</span>
+              <span class="cal-mini">붉게탐 · 별5.1</span>
+            </div>
+            <div class="cal-cell good">
+              <span class="cal-day">29 (일)</span>
+              <span class="cal-score" style="color:var(--purple)">71</span>
+              <span class="cal-mini">좋음 · 별4.9</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">30 (월)</span>
+              <span class="cal-score">52</span>
+              <span class="cal-mini">보통 (빗금)</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">12.01</span>
+              <span class="cal-score">40</span>
+              <span class="cal-mini">옅음</span>
+            </div>
+            <div class="cal-cell good">
+              <span class="cal-day">02 (수)</span>
+              <span class="cal-score" style="color:var(--purple)">68</span>
+              <span class="cal-mini">좋음 경향</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">03 (목)</span>
+              <span class="cal-score">30</span>
+              <span class="cal-mini">흐림 경향</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">04 (금)</span>
+              <span class="cal-score">48</span>
+              <span class="cal-mini">보통 경향</span>
+            </div>
+            <div class="cal-cell good">
+              <span class="cal-day">05 (토)</span>
+              <span class="cal-score" style="color:var(--purple)">72</span>
+              <span class="cal-mini">그믐·은하수</span>
+            </div>
+            <div class="cal-cell">
+              <span class="cal-day">06 (일)</span>
+              <span class="cal-score">55</span>
+              <span class="cal-mini">보통 경향</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="confidence-bar">
+          <div class="conf-labels">
+            <span>예보 신뢰도: <strong>1~3일 높음(실선)</strong></span>
+            <span>4~7일 중기(빗금)</span>
+            <span>8~16일 추세 참고</span>
+          </div>
+          <div class="conf-track"></div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- 4단계: 원리 & 3D 시각화 해설 (WHY & HOW IT RENDERS IN 3D)          -->
+      <!-- ================================================================= -->
+      <section id="sec-why" class="stage-card stage-why">
+        <div class="stage-head">
+          <span class="stage-pill pill-why">원리 · 점수 & 3D 렌더링 해설</span>
+          <span class="stage-meta">왜 18점인가 · 3D에 어떻게 그려지나</span>
+        </div>
+
+        <h2 class="headline">
+          노을 점수 18점, <span class="hl-teal">어디서 깎였고 3D에 어떻게 보이나</span>
+        </h2>
+
+        <!-- 원리 탭 전환: [노을 점수 가감] / [별 등급 워터폴] / [산능선 스카이라인] -->
+        <div class="scenario-chips">
+          <span class="scen-chip active">🌅 노을 점수 가감(+/-)</span>
+          <span class="scen-chip">✨ 별 3.1등급 감점 요인</span>
+          <span class="scen-chip">⛰️ 지평선 산능선 단면도</span>
+        </div>
+
+        <!-- 점수 가감(+/-) 양방향 기여도 바 차트 -->
+        <div class="contrib-list">
+          <div class="contrib-row">
+            <span class="contrib-label">기본 점수</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-pos" style="width:25%;background:#94A3B8;"></div></div>
+            <span class="contrib-val">+50</span>
+          </div>
+          <div class="contrib-row">
+            <span class="contrib-label">상층·중층 반사</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-pos" style="width:14%"></div></div>
+            <span class="contrib-val" style="color:var(--teal)">+18</span>
+          </div>
+          <div class="contrib-row">
+            <span class="contrib-label">하층 구름 가림</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-neg" style="width:28%"></div></div>
+            <span class="contrib-val" style="color:var(--danger)">−28</span>
+          </div>
+          <div class="contrib-row">
+            <span class="contrib-label">서쪽 먼 구름벽</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-neg" style="width:16%"></div></div>
+            <span class="contrib-val" style="color:var(--danger)">−16</span>
+          </div>
+          <div class="contrib-row">
+            <span class="contrib-label">습도·연무 산란</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-neg" style="width:8%"></div></div>
+            <span class="contrib-val" style="color:var(--danger)">−6</span>
+          </div>
+          <div class="contrib-row" style="border-top:1px solid var(--border);padding-top:4px;">
+            <span class="contrib-label" style="font-weight:800;color:var(--text)">최종 노을 점수</span>
+            <div class="contrib-track"><div class="contrib-zero"></div><div class="contrib-bar-pos" style="width:9%;background:var(--danger);"></div></div>
+            <span class="contrib-val" style="color:var(--danger);font-size:13px;">18점</span>
+          </div>
+        </div>
+
+        <!-- 새로 추가된 핵심 카드: 기상 수치가 우리 3D 시뮬레이션 화면에 그려지는 원리 -->
+        <div class="render-bridge-card">
+          <span class="bridge-kicker">🎮 데이터 → 3D 시뮬레이션 시각 표현 원리</span>
+          <div class="bridge-title">
+            하층운 84% + 중층운 82% → 3D 하늘에서 '두꺼운 층적운(Sc) 회색 차폐막'으로 렌더링
+          </div>
+          <div class="bridge-desc">
+            • <strong>운형(Genus) 결정</strong>: 저층 습도(78%)와 운량(84%)이 높아 뭉게구름 대신 하늘을 덮는 <strong>불투명한 층적운(Sc) 덩어리</strong>와 자체 그늘(Self-shadow)이 생성됩니다.<br/>
+            • <strong>광로 차폐(Sun Occlusion)</strong>: 서쪽 40~180km 고리 구름이 태양 광선을 막아, 구름 밑면의 주황빛 산란(In-scattering) 대신 <strong>차분한 잿빛 푸른 황혼</strong>으로 표현됩니다.
+          </div>
+        </div>
+
+        <!-- 3종 하늘 비교 썸네일 -->
+        <div class="compare-3grid">
+          <div class="cmp-card">
+            <div class="cmp-sky good"></div>
+            <span class="cmp-title">상·중층 구름만</span>
+            <span class="cmp-sub" style="color:var(--glow-orange)">78점 · 붉은 반사판</span>
+          </div>
+          <div class="cmp-card current">
+            <div class="cmp-sky bad"></div>
+            <span class="cmp-title">지금 (하층 84%)</span>
+            <span class="cmp-sub" style="color:var(--danger)">18점 · 밑면 빛 차단</span>
+          </div>
+          <div class="cmp-card">
+            <div class="cmp-sky clear"></div>
+            <span class="cmp-title">구름 없는 맑은 날</span>
+            <span class="cmp-sub">42점 · 단조로운 지평선</span>
+          </div>
+        </div>
+
+        <!-- 최하단: 원본 수집 데이터 테이블 (접기) -->
+        <details class="fold-box">
+          <summary>수집 원본 로우데이터 테이블 (Open-Meteo 격자 & 360° 고리)</summary>
+          <div class="fold-body" style="font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;">
+            <div>관측점: 37.2587°N, 127.0562°E (360° 고리 13개 지점 샘플링)</div>
+            <div>cloud_cover_low: 84% | cloud_cover_mid: 82% | cloud_cover_high: 35%</div>
+            <div>direct_normal_irradiance: 140 W/m² | visibility: 7500 m | aod550: 0.24</div>
+          </div>
+        </details>
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const root = document.documentElement;
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    }
+    function selectLens(el) {
+      document.querySelectorAll('.lens-chip').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+    }
+    function switchViz(mode, btn) {
+      document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('svg-cross').style.display = mode === 'cross' ? 'block' : 'none';
+      document.getElementById('svg-radar').style.display = mode === 'radar' ? 'block' : 'none';
+      document.getElementById('viz-mode-title').textContent = mode === 'cross'
+        ? '하늘 수직 단면 · 구름층과 바람·햇빛'
+        : '360° 주변 구름 레이더 · 반경 380km 광로 분포';
+    }
+    function setScenario(kind, chip) {
+      document.querySelectorAll('#scenario-bar .scen-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const cap = document.getElementById('viz-caption-text');
+      if (kind === 'now') cap.textContent = '💡 지금(14:02): 서쪽 하층운(84%)이 빛 통로를 막아 구름 밑면이 붉어지기 어렵습니다.';
+      if (kind === 'good') cap.textContent = '💡 구름 좋은 날(78점): 하층이 트여 있어 지평선 밑에서 올라온 햇빛이 상·중층 구름 밑면을 붉게 물들입니다.';
+      if (kind === 'clear') cap.textContent = '💡 구름 없는 날(42점): 빛을 막는 구름은 없지만, 붉은빛을 반사할 구름 스크린도 없어 지평선만 주황빛으로 물듭니다.';
+      if (kind === 'ridge') cap.textContent = '💡 산능선 차폐: 서쪽 산능선(+1.8°)이 평평한 수평선(0°)보다 해를 4분 일찍 가려 직사광이 조기 종료됩니다.';
+    }
+  </script>
+</body>
+</html>

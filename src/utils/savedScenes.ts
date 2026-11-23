@@ -389,3 +389,114 @@ export function pendingTargetFromScene(s: SavedScene): { kind: 'terrain' | 'buil
   }
   return { kind: 'terrain', latitude: t.latitude, longitude: t.longitude, elevM: t.elevM };
 }
+
+// ── 추천 샘플 장면 시드 ──────────────────────────────────────────────────────
+
+/**
+ * 첫 실행 또는 사용자가 요청할 때 채워 주는 추천 샘플 장면 4선.
+ * 건물 피킹 + 달 걸기, 300 m 상공 드론 노을 뷰, 고지대 산악 은하수, 바다 섬 해 걸기를 즉시 체험할 수 있습니다.
+ */
+export function createSampleScenes(lang: SceneLang = 'ko', nowMs: number = Date.UTC(2026, 10, 23, 0, 0, 0)): SavedScene[] {
+  const specs: Array<{ id: string; name: string; input: SceneInput }> = [
+    {
+      id: 'sample_namsan_moon',
+      name: pick(lang, '남산타워 위로 걸리는 보름달', 'Full Moon over Namsan Tower', '南山タワーに重なる満月'),
+      input: {
+        latitude: 37.558,
+        longitude: 126.968,
+        eyeHeightM: 1.6,
+        azDeg: 113.0,
+        elDeg: 12.8,
+        zoomX: 8,
+        timeMs: Date.UTC(2026, 10, 24, 9, 42, 0),
+        target: {
+          kind: 'building',
+          latitude: 37.5512,
+          longitude: 126.9882,
+          elevM: 479.7,
+          distM: 1936,
+          building: { heightM: 236.7, baseElevM: 243, topElevM: 479.7, longM: 42, shortM: 42 },
+        },
+        aligned: 'moon',
+      },
+    },
+    {
+      id: 'sample_lotte_sunset',
+      name: pick(lang, '잠실 300m 상공과 롯데타워 노을', '300m Aerial Sunset by Lotte Tower', '蚕室300m上空とロッテタワーの夕焼け'),
+      input: {
+        latitude: 37.5165,
+        longitude: 127.0925,
+        eyeHeightM: 300,
+        azDeg: 248.0,
+        elDeg: -2.5,
+        zoomX: 1.5,
+        timeMs: Date.UTC(2026, 10, 24, 8, 12, 0),
+        target: {
+          kind: 'building',
+          latitude: 37.5126,
+          longitude: 127.1026,
+          elevM: 593,
+          distM: 990,
+          building: { heightM: 555, baseElevM: 38, topElevM: 593, longM: 70, shortM: 70 },
+        },
+        aligned: null,
+      },
+    },
+    {
+      id: 'sample_seorak_milkyway',
+      name: pick(lang, '설악산 대청봉 능선과 은하수', 'Seoraksan Ridge & Milky Way', '雪岳山大青峰の稜線と天の川'),
+      input: {
+        latitude: 38.1194,
+        longitude: 128.4656,
+        eyeHeightM: 1.6,
+        azDeg: 185.0,
+        elDeg: 22.0,
+        zoomX: 1,
+        timeMs: Date.UTC(2026, 5, 15, 16, 30, 0),
+        target: {
+          kind: 'terrain',
+          latitude: 38.095,
+          longitude: 128.462,
+          elevM: 1420,
+          distM: 2730,
+        },
+        aligned: null,
+      },
+    },
+    {
+      id: 'sample_hyeopjae_glow',
+      name: pick(lang, '제주 협재 바다와 비양도 일몰', 'Jeju Hyeopjae & Biyangdo Sunset', '済州挟才の海と飛揚島の日没'),
+      input: {
+        latitude: 33.3938,
+        longitude: 126.2396,
+        eyeHeightM: 2.5,
+        azDeg: 292.0,
+        elDeg: 1.8,
+        zoomX: 2.5,
+        timeMs: Date.UTC(2026, 5, 21, 10, 38, 0),
+        target: {
+          kind: 'terrain',
+          latitude: 33.4085,
+          longitude: 126.2255,
+          elevM: 114,
+          distM: 2100,
+        },
+        aligned: 'sun',
+      },
+    },
+  ];
+  const out: SavedScene[] = [];
+  specs.forEach((sp, idx) => {
+    const sc = makeScene(sp.input, { name: sp.name, nowMs: nowMs - idx * 1000, id: sp.id, tzHours: 9, lang });
+    if (sc) out.push(sc);
+  });
+  return out;
+}
+
+/** 기존 목록에 빠진 샘플 장면만 뒤에 채워 넣습니다(이미 있는 id 는 건드리지 않고 최대 50 개 유지). */
+export function mergeSampleScenes(list: readonly SavedScene[], lang: SceneLang = 'ko', nowMs: number = Date.now()): SavedScene[] {
+  const existingIds = new Set(list.map(s => s.id));
+  const samples = createSampleScenes(lang, nowMs).filter(s => !existingIds.has(s.id));
+  return [...list, ...samples].slice(0, SAVED_SCENE_MAX);
+}
+

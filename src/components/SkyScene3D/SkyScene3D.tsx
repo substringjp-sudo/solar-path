@@ -391,6 +391,8 @@ interface SkyScene3DProps {
    * 손가락 줌(30~120°)은 그대로 기본 시야각을 정하고, 망원은 그 위에 곱해집니다. 시야각을 읽는 곳(드래그 속도·해 크기·눈금)이 모두 같이 따라갑니다.
    */
   telephotoX?: number;
+  /** 망원 배율이 핀치 줌아웃이나 상공 상승으로 초기화·변경될 때 호스트에 알립니다. */
+  onChangeTelephoto?: (nextTeleX: number) => void;
   /** 샌드박스: 눈금자에 렌즈 정보(35mm 환산, 쓸 렌즈, 디지털 배율)를 함께 보입니다. */
   showLensInfo?: boolean;
   /** 위에 떠 있는 것(앱 머리줄)이 가리는 높이(px). 위쪽 알림 · 렌즈 배지를 그만큼 내립니다. 기본 0. */
@@ -656,6 +658,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     hideCompassBar = false,
     onAscendedChange,
     telephotoX = 1,
+    onChangeTelephoto,
     showLensInfo = false,
     topInset = 0,
     eyeHeightM,
@@ -794,6 +797,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const zoomProgressRef = useRef((60 - 30) / 90);
   /** 망원 배율 — `applyZoomProgress` 가 지상 시야각을 이 값으로 나눕니다(props.telephotoX). */
   const teleRef = useRef(1);
+  const pinchTeleRef = useRef(1);
+  const onChangeTelephotoRef = useRef(onChangeTelephoto);
+  onChangeTelephotoRef.current = onChangeTelephoto;
   /** 샌드박스 고르기 — 탭 판정과 결과를 렌더 루프·손짓 처리가 읽습니다. */
   const pickEnabledRef = useRef(false);
   pickEnabledRef.current = pickEnabled;
@@ -1036,7 +1042,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const prev = zoomProgressRef.current;
     zoomProgressRef.current = p;
     if (Math.abs(p - prev) > 1e-6) lastViewMoveMsRef.current = Date.now();
-    if (p <= P_FOV_END) fovRef.current = (30 + p * 90) / teleRef.current;
+    if (p <= P_FOV_END) {
+      fovRef.current = (30 + p * 90) / teleRef.current;
+    } else if (teleRef.current > 1) {
+      teleRef.current = 1;
+      onChangeTelephotoRef.current?.(1);
+    }
     const { w, h } = viewSizeRef.current;
     const aspect = w / h;
     // 3D 가 보이는 동안 지도 한가운데는 관측점(카메라 바로 아래). 지도에서 줌인하면
@@ -2394,12 +2405,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             pinchDistRef.current = getTouchDist(touches);
             pinchFovRef.current = fovRef.current;
             pinchZoomProgressRef.current = zoomProgressRef.current;
+            pinchTeleRef.current = teleRef.current;
             pinchSamplesRef.current = [];
             return;
           }
           const dist = getTouchDist(touches);
           if (dist > 0) {
-            // ratio > 1: 두 손가락 모으기 (줌아웃 / 광각 -> 상공 상승 -> 우주 궤도 지구본)
+            // ratio > 1: 두 손가락 모으기 (줌아웃 / 망원 해제 -> 광각 -> 상공 상승 -> 우주 궤도 지구본)
             // ratio < 1: 두 손가락 벌리기 (줌인 / 지구본 -> 상공 -> 지상 착륙)
             if (divingAnimFrameRef.current) {
               // 착륙 중에 손을 대면 애니메이션을 멈추고 지금 자리에서 이어 받습니다.
@@ -2408,8 +2420,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               setDivingLocation(null);
               pinchDistRef.current = dist;
               pinchZoomProgressRef.current = zoomProgressRef.current;
+              pinchTeleRef.current = teleRef.current;
             }
-            applyZoomProgressRef.current(progressFromPinch(pinchZoomProgressRef.current, pinchDistRef.current / dist));
+            const distRatio = pinchDistRef.current / dist;
+            if (pinchTeleRef.current > 1 && distRatio > 1 && pinchZoomProgressRef.current <= P_FOV_END) {
+              const nextTele = Math.max(1, pinchTeleRef.current / distRatio);
+              if (Math.abs(nextTele - teleRef.current) > 1e-3) {
+                teleRef.current = nextTele;
+                onChangeTelephotoRef.current?.(Math.round(nextTele * 10) / 10);
+              }
+              const residualRatio = distRatio / pinchTeleRef.current;
+              if (residualRatio > 1) {
+                applyZoomProgressRef.current(progressFromPinch(pinchZoomProgressRef.current, residualRatio));
+              } else {
+                applyZoomProgressRef.current(pinchZoomProgressRef.current, { force: true });
+              }
+            } else {
+              applyZoomProgressRef.current(progressFromPinch(pinchZoomProgressRef.current, distRatio));
+            }
             const samples = pinchSamplesRef.current;
             const tNow = Date.now();
             samples.push({ t: tNow, p: zoomProgressRef.current });
@@ -5233,7 +5261,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
                 // ⚠ 위 끝은 지도 단계의 가장 좁은 폭(넘기는 점 ≈ 0.45°)까지 — 서울 세로 폰 ≈ 63000 px. 예전 20000 에
                 //   잘리면 손잡이 반지름이 실제 축척과 달라 끌기가 3 배 빨랐고 줌이 거기서 멈췄습니다.
-                minRadius={100}
+                minRadius={40}
                 maxRadius={1e7}
                 onSelectLocation={onMapLongPress}
                 onViewChange={onGlobeViewChange}

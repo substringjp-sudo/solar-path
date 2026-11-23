@@ -13,10 +13,10 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, L3, type Language } from '../../utils/i18n';
 import { estimateLightPollution } from '../../utils/cityLightMap';
 import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building, Building2, Info } from 'lucide-react-native';
-import { color, radius, mono, tint, dataColor } from '../../theme/tokens';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Building, Building2, Info } from 'lucide-react-native';
+import { color as DARK, dataColor as DARK_DATA, radius, mono, tint } from '../../theme/tokens';
 import { PressScale } from '../ui';
-import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
+import { OVERLAY_THEME } from '../../theme/useTheme';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -51,9 +51,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   skySettings,
   onChangeSkySettings,
   far,
-  theme,
 }) => {
-  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(st => st.language);
   const expertMode = useCelestialStore(st => st.expertMode);
   const location = useCelestialStore(st => st.location);
@@ -80,22 +78,16 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
     return () => { alive = false; };
   }, [visible, location?.coords.latitude, location?.coords.longitude]);
 
-  const isDark = theme?.isDark ?? true;
-  const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? color.panel : color.text);
-  const textColor = theme?.text ?? (isDark ? color.text : color.panel);
-  const subTextColor = theme?.subText ?? (isDark ? color.textDim : color.textMute);
-  const borderColor = theme?.border ?? (isDark ? color.border : 'rgba(203, 213, 225, 0.8)');
-
   const layerItems: { key: keyof LayerState; label: string; icon: any; iconBg: string }[] = [
-    { key: 'sun', label: t('sunLabel', language), icon: <Sun size={18} color={color.sun} />, iconBg: tint(color.sun) },
-    { key: 'moon', label: t('moonLabel', language), icon: <Moon size={18} color={color.moon} />, iconBg: tint(color.moon) },
-    { key: 'stars', label: t('layerStars', language), icon: <Sparkles size={18} color={dataColor.stars} />, iconBg: tint(dataColor.stars) },
-    { key: 'milkyway', label: t('layerMilky', language), icon: <Milestone size={18} color={dataColor.milkyway} />, iconBg: tint(dataColor.milkyway) },
-    { key: 'planets', label: t('layerPlanets', language), icon: <Star size={18} color={dataColor.planets} />, iconBg: tint(dataColor.planets) },
-    { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={18} color={color.cloud} />, iconBg: tint(color.cloud) },
-    { key: 'cityLights', label: t('layerCity', language), icon: <Building2 size={18} color={dataColor.cityLights} />, iconBg: tint(dataColor.cityLights) },
-    { key: 'buildings', label: t('layerBuildings', language), icon: <Building size={18} color={dataColor.qOvercast} />, iconBg: tint(dataColor.qOvercast) },
-    { key: 'paths', label: t('layerPaths', language), icon: <Navigation size={18} color={dataColor.paths} />, iconBg: tint(dataColor.paths) },
+    { key: 'sun', label: t('sunLabel', language), icon: <Sun size={16} color={DARK.sun} />, iconBg: tint(DARK.sun, 0.14) },
+    { key: 'moon', label: t('moonLabel', language), icon: <Moon size={16} color={DARK.moon} />, iconBg: tint(DARK.moon, 0.14) },
+    { key: 'stars', label: t('layerStars', language), icon: <Sparkles size={16} color={DARK_DATA.stars} />, iconBg: tint(DARK_DATA.stars, 0.14) },
+    { key: 'milkyway', label: t('layerMilky', language), icon: <Milestone size={16} color={DARK_DATA.milkyway} />, iconBg: tint(DARK_DATA.milkyway, 0.14) },
+    { key: 'planets', label: t('layerPlanets', language), icon: <Star size={16} color={DARK_DATA.planets} />, iconBg: tint(DARK_DATA.planets, 0.14) },
+    { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={16} color={DARK.cloud} />, iconBg: tint(DARK.cloud, 0.14) },
+    { key: 'cityLights', label: t('layerCity', language), icon: <Building2 size={16} color={DARK_DATA.cityLights} />, iconBg: tint(DARK_DATA.cityLights, 0.14) },
+    { key: 'buildings', label: t('layerBuildings', language), icon: <Building size={16} color={DARK_DATA.qOvercast} />, iconBg: tint(DARK_DATA.qOvercast, 0.14) },
+    { key: 'paths', label: t('layerPaths', language), icon: <Navigation size={16} color={DARK_DATA.paths} />, iconBg: tint(DARK_DATA.paths, 0.14) },
   ];
 
   const brightnessPct = ((skySettings.starBrightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)) * 100;
@@ -114,22 +106,16 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
       >
         <PressScale
           activeOpacity={1}
-          style={[
-            styles.modalContainer,
-            {
-              backgroundColor: bgColor,
-              borderColor: borderColor,
-            },
-          ]}
+          style={styles.modalContainer}
         >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={[styles.title, { color: textColor }]}>{t('layerTitle', language)}</Text>
-            <PressScale onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.05)' }]}>
-              <X size={16} color={subTextColor} />
+            <Text style={styles.title}>{t('layerTitle', language)}</Text>
+            <PressScale onPress={onClose} style={styles.closeBtn}>
+              <X size={16} color={DARK.text} />
             </PressScale>
           </View>
-          <Text style={[styles.subTitle, { color: subTextColor }]}>
+          <Text style={styles.subTitle}>
             {t('layerSubtitle', language)}
           </Text>
 
@@ -145,10 +131,8 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                         style={[
                           styles.layerRow,
                           {
-                            borderColor: isOn ? color.accentLine : borderColor,
-                            backgroundColor: isOn
-                              ? color.accentSoft
-                              : (isDark ? color.fill : 'rgba(0, 0, 0, 0.02)'),
+                            borderColor: isOn ? DARK.accentLine : DARK.border,
+                            backgroundColor: isOn ? DARK.accentSoft : DARK.fill,
                           },
                         ]}
                         onPress={() => onToggleLayer(item.key)}
@@ -158,7 +142,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                           <View style={[styles.iconChip, { backgroundColor: item.iconBg }]}>
                             {item.icon}
                           </View>
-                          <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
+                          <Text style={[styles.layerLabel, { fontWeight: isOn ? '700' : '500' }]}>
                             {item.label}
                           </Text>
                           {item.key === 'buildings' && (
@@ -178,35 +162,25 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                               hitSlop={8}
                               style={{ marginLeft: 4, padding: 2 }}
                             >
-                              <Info size={14} color={subTextColor} />
+                              <Info size={14} color={DARK.textDim} />
                             </PressScale>
                           )}
                         </View>
                         <View
                           style={[
                             styles.togglePill,
-                            isOn
-                              ? styles.toggleOn
-                              : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
+                            isOn ? styles.toggleOn : styles.toggleOff,
                           ]}
                         >
-                          <Text style={[styles.toggleText, { color: isOn ? color.onAccent : subTextColor }]}>
+                          <Text style={[styles.toggleText, { color: isOn ? DARK.onAccent : DARK.textDim }]}>
                             {isOn ? 'ON' : 'OFF'}
                           </Text>
                         </View>
                       </PressScale>
                       {item.key === 'buildings' && expertMode && far && (
-                        <View
-                          style={[
-                            styles.farCard,
-                            {
-                              borderColor,
-                              backgroundColor: isDark ? color.fill : 'rgba(0, 0, 0, 0.02)',
-                            },
-                          ]}
-                        >
+                        <View style={styles.farCard}>
                           <View style={styles.farTopRow}>
-                            <Text style={[styles.farTitle, { color: textColor }]}>
+                            <Text style={styles.farTitle}>
                               {L3(language, '먼 건물 (1~30 km)', 'Far buildings (1–30 km)', '遠くの建物 (1〜30 km)')}
                             </Text>
                             <PressScale
@@ -215,13 +189,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                               style={[
                                 styles.farBtn,
                                 {
-                                  backgroundColor: far.status?.state === 'loading'
-                                    ? (isDark ? color.border : 'rgba(0, 0, 0, 0.08)')
-                                    : color.accent,
+                                  backgroundColor: far.status?.state === 'loading' ? DARK.fill : DARK.accent,
                                 },
                               ]}
                             >
-                              <Text style={[styles.farBtnText, { color: far.status?.state === 'loading' ? subTextColor : color.onAccent }]}>
+                              <Text style={[styles.farBtnText, { color: far.status?.state === 'loading' ? DARK.textDim : DARK.onAccent }]}>
                                 {far.status?.state === 'loading'
                                   ? L3(language, '받는 중…', 'Loading…', '読込中…')
                                   : far.status?.state === 'done'
@@ -232,7 +204,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                               </Text>
                             </PressScale>
                           </View>
-                          <Text style={[styles.farStatus, { color: subTextColor }]} numberOfLines={2}>
+                          <Text style={styles.farStatus} numberOfLines={2}>
                             {far.status?.state === 'loading' && `${far.status.tilesDone}/${far.status.tilesTotal}${L3(language, '장', ' tiles', '枚')} · ${fmtMB(far.status.bytes)}`}
                             {far.status?.state === 'done' && `${L3(language, '건물', 'Buildings', '建物')} ${far.status.buildings ?? 0}${L3(language, '채', '', '棟')} · ${fmtMB(far.status.bytes)}${far.status.truncated ? ` · ${L3(language, '한도에서 멈춤 (다시 누르면 이어 받아요)', 'paused at limit (tap again to continue)', '上限で停止（もう一度押すと続きを読みます）')}` : ''}${far.status.failed ? ` · ${L3(language, `실패 ${far.status.failed}장`, `${far.status.failed} failed`, `失敗${far.status.failed}枚`)}` : ''}`}
                             {far.status?.state === 'off' && L3(language, '지형을 아직 못 받았어요', 'Terrain is not loaded yet', '地形をまだ受信していません')}
@@ -248,13 +220,13 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
             </ScrollView>
           </View>
 
-          <View style={[styles.divider, { backgroundColor: borderColor }]} />
+          <View style={styles.divider} />
 
           {/* 하단 고정 조절 슬라이더 영역 */}
           <View style={styles.sliderSection}>
             {/* 도트 모드(§97) — 하늘을 낮은 해상도로 그려 네모 화소 그대로 보여 줍니다. */}
-            <View style={[styles.layerRow, { borderColor, backgroundColor: isDark ? color.fill : 'rgba(0, 0, 0, 0.02)' }]}>
-              <Text style={[styles.layerLabel, { color: textColor, fontWeight: skySettings.pixelArtRows > 0 ? '700' : '500' }]}>
+            <View style={styles.dotRow}>
+              <Text style={[styles.layerLabel, { fontWeight: skySettings.pixelArtRows > 0 ? '700' : '500' }]}>
                 {t('dotMode', language)}
               </Text>
               <View style={styles.segment}>
@@ -264,15 +236,15 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                     <PressScale
                       key={c.rows}
                       style={[
-                        styles.togglePill,
-                        on ? styles.toggleOn : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
+                        styles.segmentBtn,
+                        on ? styles.toggleOn : styles.toggleOff,
                       ]}
                       onPress={() => onChangeSkySettings({ pixelArtRows: c.rows })}
                       activeOpacity={0.7}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
                     >
-                      <Text style={[styles.toggleText, { color: on ? color.text : subTextColor }]}>{PIX_KEY[c.rows] ? t(PIX_KEY[c.rows], language) : c.label}</Text>
+                      <Text style={[styles.toggleText, { color: on ? DARK.onAccent : DARK.textDim }]}>{PIX_KEY[c.rows] ? t(PIX_KEY[c.rows], language) : c.label}</Text>
                     </PressScale>
                   );
                 })}
@@ -281,8 +253,8 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
-                <Text style={[styles.sliderLabel, { color: textColor }]}>{t('starBrightness', language)}</Text>
-                <Text style={[styles.sliderValue, { color: subTextColor }]}>
+                <Text style={styles.sliderLabel}>{t('starBrightness', language)}</Text>
+                <Text style={styles.sliderValue}>
                   ×{skySettings.starBrightness.toFixed(2)}
                 </Text>
               </View>
@@ -293,11 +265,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                     starBrightness: BRIGHT_MIN + (p / 100) * (BRIGHT_MAX - BRIGHT_MIN),
                   })
                 }
-                theme={theme}
-                fillColor={dataColor.stars}
-                knobColor={color.panelRaised}
+                theme={OVERLAY_THEME}
+                fillColor={DARK.accent}
+                knobColor={DARK.panelRaised}
               >
-                <Text style={[styles.knobText, { color: dataColor.stars }]}>
+                <Text style={styles.knobText}>
                   ×{skySettings.starBrightness.toFixed(2)}
                 </Text>
               </GenericSlider>
@@ -305,14 +277,14 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
             <View style={styles.sliderBlock}>
               <View style={[styles.sliderHeader, { marginBottom: 4 }]}>
-                <Text style={[styles.sliderLabel, { color: textColor }]}>{t('skyHere', language)}</Text>
-                <Text style={[styles.sliderValue, { color: color.accent }]}>
+                <Text style={styles.sliderLabel}>{t('skyHere', language)}</Text>
+                <Text style={[styles.sliderValue, { color: DARK.accent }]}>
                   {detectedMag != null
                     ? `${t('magUnit', language).replace('{m}', detectedMag.toFixed(1))} · ${skyQualityLabel(detectedMag, language)}`
                     : '—'}
                 </Text>
               </View>
-              <Text style={[styles.sliderHint, { color: subTextColor }]}>
+              <Text style={styles.sliderHint}>
                 {t('skyNote', language)}
               </Text>
             </View>
@@ -323,10 +295,10 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   );
 };
 
-const useStyles = makeStyles((color) => ({
+const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: color.scrim,
+    backgroundColor: DARK.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 18,
@@ -335,14 +307,16 @@ const useStyles = makeStyles((color) => ({
     width: '100%',
     maxWidth: 360,
     maxHeight: '85%',
+    backgroundColor: DARK.panel,
+    borderColor: DARK.borderStrong,
     borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.45,
     shadowRadius: 24,
-    elevation: 12,
+    elevation: 14,
   },
   header: {
     flexDirection: 'row',
@@ -353,19 +327,27 @@ const useStyles = makeStyles((color) => ({
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
+    color: DARK.text,
   },
   closeBtn: {
-    padding: 6,
-    borderRadius: radius.lg,
+    width: 32,
+    height: 32,
+    borderRadius: radius.md,
+    backgroundColor: DARK.fill,
+    borderWidth: 1,
+    borderColor: DARK.border,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   subTitle: {
-    fontSize: 13,
+    fontSize: 12,
+    color: DARK.textDim,
     marginTop: 4,
     marginBottom: 12,
     lineHeight: 16,
   },
   layerListContainer: {
-    maxHeight: 220,
+    maxHeight: 224,
   },
   layerScrollList: {
     flexGrow: 0,
@@ -375,16 +357,27 @@ const useStyles = makeStyles((color) => ({
     paddingRight: 4,
   },
   sliderSection: {
-    gap: 4,
+    gap: 6,
   },
   layerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: radius.lg,
+    paddingVertical: 9,
+    borderRadius: radius.md,
     borderWidth: 1,
+  },
+  dotRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: DARK.border,
+    backgroundColor: DARK.fill,
   },
   rowLeft: {
     flexDirection: 'row',
@@ -392,36 +385,48 @@ const useStyles = makeStyles((color) => ({
     gap: 10,
   },
   iconChip: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
+    width: 30,
+    height: 30,
+    borderRadius: radius.sm,
     justifyContent: 'center',
     alignItems: 'center',
   },
   layerLabel: {
     fontSize: 13,
+    color: DARK.text,
   },
   segment: {
     flexDirection: 'row',
     gap: 4,
   },
+  segmentBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
   togglePill: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
   },
   toggleOn: {
-    backgroundColor: color.accent,
+    backgroundColor: DARK.accent,
+  },
+  toggleOff: {
+    backgroundColor: DARK.fill,
+    borderWidth: 1,
+    borderColor: DARK.border,
   },
   toggleText: {
     fontSize: 11,
     fontWeight: '800',
+    fontFamily: mono,
   },
   divider: {
     height: 1,
-    marginTop: 18,
+    backgroundColor: DARK.border,
+    marginTop: 14,
     marginBottom: 12,
-    opacity: 0.6,
   },
   sliderBlock: {
     marginTop: 8,
@@ -430,31 +435,39 @@ const useStyles = makeStyles((color) => ({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   sliderLabel: {
     fontSize: 13,
     fontWeight: '700',
+    color: DARK.text,
   },
   sliderValue: {
     fontSize: 13,
     fontWeight: '700',
+    fontFamily: mono,
+    color: DARK.textDim,
   },
   sliderHint: {
     fontSize: 11,
+    color: DARK.textDim,
     marginTop: 4,
     lineHeight: 15,
   },
   knobText: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: mono,
     letterSpacing: -0.2,
+    color: DARK.accent,
   },
   farCard: {
     paddingHorizontal: 12,
     paddingVertical: 9,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
+    borderColor: DARK.border,
+    backgroundColor: DARK.fill,
     gap: 6,
   },
   farTopRow: {
@@ -466,11 +479,12 @@ const useStyles = makeStyles((color) => ({
   farTitle: {
     fontSize: 12,
     fontWeight: '700',
+    color: DARK.text,
   },
   farBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
   },
   farBtnText: {
     fontSize: 11,
@@ -479,5 +493,6 @@ const useStyles = makeStyles((color) => ({
   farStatus: {
     fontSize: 11,
     lineHeight: 15,
+    color: DARK.textDim,
   },
-}));
+});

@@ -28,7 +28,7 @@ import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
 import { mergeCompare, type PhotoCompare, type PhotoKind } from '../utils/recordCompare';
-import { addScene, removeScene, renameScene, sanitizeScenes, type AddResult, type SavedScene } from '../utils/savedScenes';
+import { addScene, createSampleScenes, mergeSampleScenes, removeScene, renameScene, sanitizeScenes, type AddResult, type SavedScene } from '../utils/savedScenes';
 import type { SkyTimeline } from '../utils/skyTimeline';
 import { createClockSlice, type ClockState } from '../utils/liveClock';
 import type { AstroSettingsState } from '../utils/astroCameraUi';
@@ -217,6 +217,10 @@ interface CelestialState extends ClockState {
    * 날씨는 저장하지 않습니다. 최신순, 최대 50 개. 읽어 들일 때 `sanitizeScenes` 로 정리합니다.
    */
   savedScenes: SavedScene[];
+  /** 기본 추천 샘플 장면 시드를 최초 1회 적용했는지 여부 */
+  sampleScenesSeeded: boolean;
+  /** 맥락 기반 1회성 기능 발견 힌트 열람 상태 */
+  seenHints: { sandboxPick?: boolean; alignBody?: boolean; spaceZoom?: boolean };
   /**
    * "이 장면 찍기"로 샌드박스에서 카메라에 넘긴 장면(2026-11-20, 계획 12.3). 저장한 장면일 필요는 없습니다. 카메라가 이 방향으로 안내하고 시각에 맞는 모드를 권합니다.
    * 카메라를 닫으면 지웁니다. 저장하지 않습니다(partialize 에 없음).
@@ -326,6 +330,9 @@ interface CelestialState extends ClockState {
   addSavedScene: (scene: SavedScene) => AddResult;
   renameSavedScene: (id: string, name: string) => void;
   removeSavedScene: (id: string) => void;
+  restoreSampleScenes: () => void;
+  markHintSeen: (key: 'sandboxPick' | 'alignBody' | 'spaceZoom') => void;
+  resetHints: () => void;
   setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
@@ -407,6 +414,8 @@ export const useCelestialStore = create<CelestialState>()(
       onboardingSeen: false,
       homeCoords: null,
       savedScenes: [],
+      sampleScenesSeeded: false,
+      seenHints: {},
       cameraScene: null,
       setCameraScene: (scene) => set({ cameraScene: scene }),
       cameraHandoff: null,
@@ -1153,6 +1162,14 @@ export const useCelestialStore = create<CelestialState>()(
       },
       renameSavedScene: (id, name) => set((st) => ({ savedScenes: renameScene(st.savedScenes, id, name) })),
       removeSavedScene: (id) => set((st) => ({ savedScenes: removeScene(st.savedScenes, id) })),
+      restoreSampleScenes: () => set((st) => ({
+        savedScenes: mergeSampleScenes(st.savedScenes, st.language),
+        sampleScenesSeeded: true,
+      })),
+      markHintSeen: (key) => set((st) => ({
+        seenHints: st.seenHints?.[key] ? st.seenHints : { ...(st.seenHints ?? {}), [key]: true },
+      })),
+      resetHints: () => set({ seenHints: {} }),
       setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
@@ -1462,6 +1479,8 @@ export const useCelestialStore = create<CelestialState>()(
         onboardingSeen: state.onboardingSeen,
         homeCoords: state.homeCoords,
         savedScenes: state.savedScenes,
+        sampleScenesSeeded: state.sampleScenesSeeded,
+        seenHints: state.seenHints,
         hiddenPhotoIds: state.hiddenPhotoIds,
         blockedUserIds: state.blockedUserIds,
       }),

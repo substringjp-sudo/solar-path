@@ -15,6 +15,14 @@ import { unzlibSync } from 'fflate';
 import { BASE_DEM_PNG_B64 } from '../../utils/baseDemData';
 import { fromBase64, getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import type { NightLights } from '../../utils/cityLightMap';
+import {
+  computeEqToCamMatrix,
+  createSpaceMilkyWay,
+  createSpaceStarField,
+  updateSpacePlanets,
+  type SpaceMilkyWayHandle,
+  type SpaceStarFieldHandle,
+} from './SpaceBackdropGL';
 
 interface DecodedDem {
   w: number;
@@ -121,7 +129,29 @@ function getBaseDemSync(): DecodedDem | null {
   }
 }
 
-function sampleElevCpu(dem: DecodedDem, lonRad: number, latRad: number): number {
+function getLandMaskSync(): DecodedLandMask | null {
+  if (cachedLandMask) return cachedLandMask;
+  try {
+    const bytes = fromBase64(LAND_SDF_PNG_B64);
+    const { w, h, rgba } = decodePngToRgba(bytes);
+    cachedLandMask = { w, h, rgba };
+    return cachedLandMask;
+  } catch (e) {
+    if (__DEV__) console.warn('[EarthGlobeGL] land mask decode failed', e);
+    return null;
+  }
+}
+
+function sampleLandSdfCpu(lm: DecodedLandMask, lonRad: number, latRad: number): number {
+  let u = (lonRad / (Math.PI * 2) + 0.5) % 1;
+  if (u < 0) u += 1;
+  const v = Math.max(0, Math.min(1, 0.5 - latRad / Math.PI));
+  const x = Math.min(lm.w - 1, Math.max(0, Math.floor(u * lm.w)));
+  const y = Math.min(lm.h - 1, Math.max(0, Math.floor(v * lm.h)));
+  return lm.rgba[(y * lm.w + x) * 4] / 255;
+}
+
+function sampleElevCpu(dem: DecodedDem, lm: DecodedLandMask | null, lonRad: number, latRad: number): number {
   const twoPi = Math.PI * 2;
   let u = (lonRad / twoPi + 0.5) % 1;
   if (u < 0) u += 1;
@@ -144,14 +174,27 @@ function sampleElevCpu(dem: DecodedDem, lonRad: number, latRad: number): number 
   const h10 = dem.elevM[y0 * dem.w + x1];
   const h01 = dem.elevM[y1 * dem.w + x0];
   const h11 = dem.elevM[y1 * dem.w + x1];
-  return (h00 * (1 - fx) + h10 * fx) * (1 - fy) + (h01 * (1 - fx) + h11 * fx) * fy;
+  let h = (h00 * (1 - fx) + h10 * fx) * (1 - fy) + (h01 * (1 - fx) + h11 * fx) * fy;
+
+  // 남극(-78° ~ -84°) 이남은 메르카토르 절단선 대신 균일한 빙상 고원으로 부드럽게 수렴시켜 극점 핀휠 방지
+  if (latRad < -1.36) {
+    const t = Math.max(0, Math.min(1, (-1.36 - latRad) / 0.10));
+    const st = t * t * (3 - 2 * t);
+    h = h * (1 - st) + 2200 * st;
+  }
+
+  if (lm) {
+    const sdf = sampleLandSdfCpu(lm, lonRad, latRad);
+    h = sdf >= 0.5 ? Math.max(h, 25) : Math.min(h, -25);
+  }
+  return h;
 }
 
 /**
  * 실제 지형 고도로 정점을 변위시킨 3D 지구 폴리곤 메시를 생성합니다.
  * 육지 산맥/고원은 반경 최대 +2.4%까지 입체 돌출되고, 해수면 이하는 반경 1.0을 유지합니다.
  */
-function getEarthTerrainGeometry(dem: DecodedDem): THREE.BufferGeometry {
+function getEarthTerrainGeometry(dem: DecodedDem, lm: DecodedLandMask | null): THREE.BufferGeometry {
   if (cachedSphereGeo) return cachedSphereGeo;
   const geo = new THREE.SphereGeometry(1, 160, 96);
   const pos = geo.attributes.position as THREE.BufferAttribute;
@@ -175,7 +218,7 @@ function getEarthTerrainGeometry(dem: DecodedDem): THREE.BufferGeometry {
 
     const latRad = Math.asin(Math.max(-1, Math.min(1, ny)));
     const lonRad = Math.atan2(nx, nz);
-    const h = sampleElevCpu(dem, lonRad, latRad);
+    const h = sampleElevCpu(dem, lm, lonRad, latRad);
     elevAttr[i] = h;
 
     const disp = h > 0 ? Math.min(1, h / 8848) * RELIEF_SCALE : 0;
@@ -317,9 +360,13 @@ uniform float uMorph;
 uniform vec3 uSunDir;
 uniform sampler2D uDemTex;
 uniform float uDemValid;
+uniform sampler2D uLandTex;
+uniform float uLandValid;
 uniform sampler2D uNightTex;
 uniform float uNightValid;
 uniform float uOpacity;
+uniform float uSunDeclDeg;
+uniform float uTimeHours;
 
 const float PI = 3.14159265359;
 const float RAD = 0.01745329252;
@@ -384,7 +431,11 @@ float sampleElevAt(float lonRad, float latRad) {
   float h10 = decodeTerrarium(texture2D(uDemTex, vec2(u1, v0)).rgb);
   float h01 = decodeTerrarium(texture2D(uDemTex, vec2(u0, v1)).rgb);
   float h11 = decodeTerrarium(texture2D(uDemTex, vec2(u1, v1)).rgb);
-  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+  float h = mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+
+  // 남극(-78° ~ -84°) 이남은 메르카토르 절단선 대신 균일한 빙상 고원으로 수렴시켜 극점 방사형 핀휠 제거
+  float antPole = smoothstep(-1.36, -1.46, latRad);
+  return mix(h, 2200.0, antPole);
 }
 
 void main() {
@@ -400,7 +451,13 @@ void main() {
   float lonRad = atan(nEarth.x, nEarth.z);
   float absLat = abs(latRad) / RAD;
 
-  float h = sampleElevAt(lonRad, latRad);
+  float hRaw = sampleElevAt(lonRad, latRad);
+  float eqU = fract(lonRad / (2.0 * PI) + 0.5);
+  float eqV = clamp(0.5 - latRad / PI, 0.0, 1.0);
+  float landSdf = uLandValid > 0.5 ? texture2D(uLandTex, vec2(eqU, eqV)).r : (hRaw >= 0.0 ? 0.6 : 0.4);
+  float landMask = smoothstep(0.492, 0.508, landSdf);
+  float h = landSdf >= 0.5 ? max(hRaw, 25.0) : min(hRaw, -25.0);
+
   float detailN = fbm3(nEarth * 16.0);
   float fineN = fbm3(nEarth * 46.0);
 
@@ -412,17 +469,15 @@ void main() {
   float dipDeg = h > 0.0 ? sqrt(2.0 * h / 6371000.0) / RAD : 0.0;
   float effSunAlt = sunAltDeg + 0.833 + dipDeg;
   float day = smoothstep(-0.35, 1.4, effSunAlt);
-  float civilTw = smoothstep(-6.0, -0.5, sunAltDeg);
-  float nautTw = smoothstep(-12.0, -6.0, sunAltDeg);
-  float astroTw = smoothstep(-18.0, -12.0, sunAltDeg);
-  float twilightBell = exp(-pow((sunAltDeg + 1.8) / 3.4, 2.0));
-  float nightDeep = 1.0 - astroTw;
-  vec3 sunTint = mix(vec3(1.0, 0.45, 0.20), vec3(1.0, 0.98, 0.95), smoothstep(-1.2, 10.0, effSunAlt));
+  float civilTw = smoothstep(-5.5, -0.5, sunAltDeg);
+  float twilightBell = exp(-pow((sunAltDeg + 1.5) / 2.8, 2.0));
+  float nightDeep = smoothstep(0.0, -10.0, sunAltDeg);
+  vec3 sunTint = mix(vec3(1.0, 0.50, 0.22), vec3(1.0, 0.98, 0.95), smoothstep(-0.8, 9.0, effSunAlt));
 
-  vec3 col;
-  if (h < 0.0) {
+  vec3 oceanCol = vec3(0.0);
+  if (landMask < 0.99) {
     // ── 바다: 수심 Beer-Lambert 흡수 + 스넬 굴절 + 미세 파랑 프레넬 반사 + 산란 ──
-    float depth = -h;
+    float depth = max(25.0, -hRaw);
 
     // 미세 해수면 파랑 법선 섭동
     float w1 = noise3(nEarth * 68.0);
@@ -439,26 +494,25 @@ void main() {
     vec3 sigma = vec3(0.46, 0.125, 0.045);
     vec3 transmittance = exp(-sigma * (depth / 115.0) * refrPath);
 
-    // 얕은 대륙붕 해저/플랑크톤 산란 -> 중층 청록/코발트 -> 심해저 남색
-    vec3 colShelfSand = vec3(0.18, 0.64, 0.68);
-    vec3 colShallowScatter = vec3(0.08, 0.44, 0.58);
-    vec3 colPelagic = vec3(0.032, 0.19, 0.42);
-    vec3 colAbyss = vec3(0.008, 0.042, 0.12);
+    // 얕은 대륙붕 해저/플랑크톤 산란 -> 중층 코발트 -> 심해저 남색
+    vec3 colShelfSand = vec3(0.14, 0.58, 0.62);
+    vec3 colShallowScatter = vec3(0.05, 0.36, 0.52);
+    vec3 colPelagic = vec3(0.018, 0.125, 0.32);
+    vec3 colAbyss = vec3(0.005, 0.028, 0.09);
 
-    float tCoastal = exp(-depth / 180.0);
-    float tPelagic = smoothstep(140.0, 1600.0, depth);
-    float tAbyss = smoothstep(1800.0, 5600.0, depth);
+    float vecShallow = smoothstep(0.32, 0.498, landSdf);
+    float tCoastal = max(exp(-depth / 180.0), vecShallow * 0.72);
+    float tAbyss = smoothstep(1600.0, 5200.0, depth) * (1.0 - vecShallow * 0.65);
 
     vec3 scatterCol = mix(colPelagic, colShallowScatter, tCoastal);
     scatterCol = mix(scatterCol, colAbyss, tAbyss);
     // 얕은 바다는 굴절 투과광(해저면 반사) 반영
     vec3 oceanBody = mix(scatterCol, colShelfSand, transmittance.r * tCoastal * 0.65);
 
-    // 산란/일조량 (시민·항해·천문 박명 단계별 대기 잔광 포함)
+    // 산란/일조량 (밤 바다는 깊은 심야 남색으로 가라앉혀 육지·야경과 대비)
     float oceanDiff = max(0.0, dot(nWave, L)) * day;
-    float twGlow = civilTw * 0.055 + nautTw * 0.025 + astroTw * 0.010;
-    float nightAmbient = mix(0.032, 0.010, nightDeep) + twGlow;
-    vec3 litBody = oceanBody * (nightAmbient + sunTint * oceanDiff * 0.96);
+    float nightAmbient = mix(0.010, 0.003, nightDeep) + civilTw * 0.008;
+    vec3 litBody = oceanBody * (nightAmbient + sunTint * oceanDiff * 0.98) + vec3(0.001, 0.003, 0.010) * (1.0 - day);
 
     // Schlick 프레넬 반사 (F0 = 0.02 for water)
     float cosThetaV = max(0.0, dot(nWave, V));
@@ -467,16 +521,21 @@ void main() {
     // 태양 반사광(Sun Glint): 날카로운 코어 + 파랑 산란 로브
     vec3 H = normalize(L + V);
     float ndh = max(0.0, dot(nWave, H));
-    float specCore = pow(ndh, 76.0) * 0.68;
-    float specBroad = pow(ndh, 14.0) * 0.16;
+    float specCore = pow(ndh, 80.0) * 0.72;
+    float specBroad = pow(ndh, 16.0) * 0.14;
     vec3 glint = sunTint * (specCore + specBroad) * day * (0.45 + 0.55 * fresnel);
 
-    // 하늘/대기 프레넬 반사 (낮쪽 가장자리로 갈수록 푸른 하늘빛 반사)
-    vec3 skyReflect = vec3(0.28, 0.58, 0.90) * fresnel * (0.14 + 0.55 * smoothstep(-0.12, 0.45, ndl));
+    // 하늘/대기 프레넬 반사 — 태양이 비추는 낮쪽에서만 반사 (밤쪽은 0)
+    vec3 skyReflect = vec3(0.24, 0.52, 0.86) * fresnel * (0.46 * smoothstep(0.0, 0.45, ndl));
 
-    col = litBody * (1.0 - fresnel * 0.42) + skyReflect + glint;
-  } else {
+    oceanCol = litBody * (1.0 - fresnel * 0.35 * day) + skyReflect + glint;
+  }
+
+  vec3 landCol = vec3(0.0);
+  if (landMask > 0.01) {
     // ── 육지: 3D 폴리곤 지형 법선 + DEM 고해상도 기울기 + 위도/토질 기반 색상 ──
+    float hLand = max(25.0, hRaw);
+    float poleSafe = 1.0 - smoothstep(78.0, 86.0, absLat);
     float dStep = 0.012;
     float hE = sampleElevAt(lonRad + dStep, latRad);
     float hW = sampleElevAt(lonRad - dStep, latRad);
@@ -485,16 +544,15 @@ void main() {
 
     vec3 eastCam = normalize(cross(vec3(0.0, 1.0, 0.0), nSphere) + vec3(1e-4, 0.0, 0.0));
     vec3 northCam = normalize(cross(nSphere, eastCam));
-    float slopeE = clamp((hE - hW) / 2400.0, -1.0, 1.0);
-    float slopeN = clamp((hN - hS) / 2400.0, -1.0, 1.0);
+    float slopeE = clamp((hE - hW) / 2400.0, -1.0, 1.0) * poleSafe;
+    float slopeN = clamp((hN - hS) / 2400.0, -1.0, 1.0) * poleSafe;
     float slopeMag = clamp(length(vec2(slopeE, slopeN)) * 1.4, 0.0, 1.0);
 
     // 실제 3D 메시 폴리곤 법선 + 세부 지형 기울기 결합
     vec3 nDetail = normalize(nSphere - eastCam * slopeE * 0.52 - northCam * slopeN * 0.52);
-    vec3 nRelief = normalize(mix(nDetail, nMesh, 0.55));
+    vec3 nRelief = normalize(mix(nDetail, nMesh, 0.55 * poleSafe));
     float diff = max(0.0, dot(nRelief, L)) * day;
-    float twGlow = civilTw * 0.055 + nautTw * 0.025 + astroTw * 0.010;
-    float nightAmbient = mix(0.036, 0.012, nightDeep) + twGlow;
+    float nightAmbient = mix(0.022, 0.013, nightDeep) + civilTw * 0.012;
 
     // 지역별 토질·기후대 색상 (열대 우림 토양 / 적색 라테라이트·사막 사토 / 온대 양토 / 스텝·초원 / 한대 타이가 / 고산 암석·빙설)
     float lonDeg = lonRad / RAD;
@@ -504,15 +562,15 @@ void main() {
     float ausArid = exp(-pow((latRad / RAD + 24.0) / 9.0, 2.0)) * smoothstep(112.0, 125.0, lonDeg) * (1.0 - smoothstep(142.0, 154.0, lonDeg));
     float wArid = clamp(max(aridBelt * (0.58 + 0.42 * detailN), max(inlandArid * 0.85, ausArid * 0.95)), 0.0, 1.0);
 
-    vec3 colTropicalSoil = mix(vec3(0.09, 0.25, 0.12), vec3(0.18, 0.30, 0.13), detailN);
-    vec3 colSandDesert   = mix(vec3(0.75, 0.62, 0.43), vec3(0.64, 0.48, 0.32), fineN);
-    vec3 colRedSoil      = mix(vec3(0.64, 0.38, 0.24), vec3(0.54, 0.31, 0.21), detailN);
-    vec3 colSteppeClay   = mix(vec3(0.46, 0.43, 0.27), vec3(0.36, 0.38, 0.22), fineN);
-    vec3 colTemperate    = mix(vec3(0.17, 0.33, 0.18), vec3(0.28, 0.38, 0.21), detailN);
-    vec3 colTaiga        = mix(vec3(0.13, 0.21, 0.16), vec3(0.22, 0.25, 0.19), detailN);
-    vec3 colTundra       = mix(vec3(0.33, 0.31, 0.25), vec3(0.40, 0.37, 0.31), fineN);
-    vec3 colRock         = mix(vec3(0.41, 0.38, 0.34), vec3(0.55, 0.51, 0.45), fineN);
-    vec3 colSnow         = vec3(0.87, 0.91, 0.96);
+    vec3 colTropicalSoil = mix(vec3(0.07, 0.22, 0.09), vec3(0.15, 0.27, 0.11), detailN);
+    vec3 colSandDesert   = mix(vec3(0.72, 0.58, 0.39), vec3(0.61, 0.44, 0.28), fineN);
+    vec3 colRedSoil      = mix(vec3(0.62, 0.35, 0.21), vec3(0.51, 0.28, 0.18), detailN);
+    vec3 colSteppeClay   = mix(vec3(0.43, 0.40, 0.24), vec3(0.33, 0.35, 0.19), fineN);
+    vec3 colTemperate    = mix(vec3(0.14, 0.29, 0.15), vec3(0.24, 0.34, 0.18), detailN);
+    vec3 colTaiga        = mix(vec3(0.10, 0.18, 0.13), vec3(0.19, 0.22, 0.16), detailN);
+    vec3 colTundra       = mix(vec3(0.30, 0.28, 0.22), vec3(0.37, 0.34, 0.28), fineN);
+    vec3 colRock         = mix(vec3(0.38, 0.35, 0.31), vec3(0.52, 0.48, 0.42), fineN);
+    vec3 colSnow         = vec3(0.86, 0.90, 0.95);
 
     float wTemp = smoothstep(28.0, 42.0, absLat) * (1.0 - smoothstep(52.0, 64.0, absLat));
     float wTaiga = smoothstep(50.0, 62.0, absLat) * (1.0 - smoothstep(64.0, 72.0, absLat));
@@ -528,40 +586,81 @@ void main() {
     landBase = mix(landBase, colTundra, wTundra);
 
     // 연안 저지대 사질/충적토
-    float coastalSand = (1.0 - smoothstep(0.0, 45.0, h)) * (0.25 + 0.35 * wArid);
-    landBase = mix(landBase, vec3(0.62, 0.55, 0.41), coastalSand * 0.45);
+    float coastalSand = (1.0 - smoothstep(0.0, 45.0, hLand)) * (0.25 + 0.35 * wArid);
+    landBase = mix(landBase, vec3(0.58, 0.51, 0.37), coastalSand * 0.45);
 
     // 고원·산맥 암석 노출 (고도 + 경사도 모두 반영)
-    float rockT = clamp(max(smoothstep(1250.0, 3400.0, h), slopeMag * 0.85), 0.0, 1.0);
+    float rockT = clamp(max(smoothstep(1250.0, 3400.0, hLand), slopeMag * 0.85), 0.0, 1.0);
     landBase = mix(landBase, colRock, rockT * 0.78);
 
     // 위도별 설선 및 극지 빙설
     float snowLine = max(1100.0, 4500.0 - absLat * 48.0);
-    float snowT = max(wPolar, smoothstep(snowLine, snowLine + 1000.0, h) * (1.0 - slopeMag * 0.35));
+    float snowT = max(wPolar, smoothstep(snowLine, snowLine + 1000.0, hLand) * (1.0 - slopeMag * 0.35));
     landBase = mix(landBase, colSnow, snowT);
 
-    col = landBase * (nightAmbient + sunTint * diff * 0.94);
+    landCol = landBase * (nightAmbient + sunTint * diff * 0.96);
 
-    // 밤 영역 도시 불빛 (지구 곡률 가장자리 감쇠 포함)
-    if (uNightValid > 0.5 && day < 0.92) {
-      float nu = fract(lonRad / (2.0 * PI) + 0.5);
-      float nv = clamp(0.5 - latRad / PI, 0.0, 1.0);
-      float cityQ = texture2D(uNightTex, vec2(nu, nv)).r;
+    // 밤 영역 도시 불빛 (어두운 밤 배경 위로 또렷하게)
+    if (uNightValid > 0.5 && day < 0.85) {
+      float cityQ = texture2D(uNightTex, vec2(eqU, eqV)).r;
       float cityL = cityQ * cityQ;
       float limbVis = smoothstep(0.05, 0.32, nz);
-      col += vec3(1.0, 0.78, 0.42) * cityL * (1.0 - day) * limbVis * 0.92;
+      landCol += vec3(1.0, 0.78, 0.42) * cityL * (1.0 - day) * limbVis * 0.98;
     }
   }
 
-  // ── 우주 시점 대기 산란 (낮쪽 레일리 림 + 시민/항해 박명 산란) ──
-  float limb = pow(1.0 - nz, 3.6);
-  vec3 rayleighRim = vec3(0.32, 0.64, 0.98) * limb * smoothstep(-4.0, 22.0, sunAltDeg) * 0.52;
-  vec3 terminatorScatter = vec3(0.94, 0.42, 0.16) * twilightBell * (0.06 + 0.24 * limb)
-    + vec3(0.14, 0.26, 0.56) * nautTw * (1.0 - civilTw) * (0.05 + 0.12 * limb);
-  col += rayleighRim + terminatorScatter;
+  vec3 col = mix(oceanCol, landCol, landMask);
+
+  // ── 절차적 전지구 구름층 (기후대 순환: ITCZ · 아열대 건조대 · 중위도 편서풍 소용돌이) ──
+  if (uMorph >= 0.5) {
+    float latDeg = latRad / RAD;
+    float drift = uTimeHours * 0.008;
+    float cd = cos(drift), sd = sin(drift);
+    vec3 cEarth = vec3(nEarth.x * cd + nEarth.z * sd, nEarth.y, -nEarth.x * sd + nEarth.z * cd);
+    vec3 swirl = vec3(
+      fbm3(cEarth * 2.6 + vec3(1.7, 3.1, 0.9)) - 0.5,
+      fbm3(cEarth * 2.6 + vec3(5.2, 0.4, 7.8)) - 0.5,
+      fbm3(cEarth * 2.6 + vec3(9.1, 4.7, 2.3)) - 0.5
+    );
+    vec3 cPos = normalize(cEarth + swirl * 0.34);
+    float cMacro = fbm3(cPos * 4.4);
+    float cDetail = fbm3(cPos * 12.5 + swirl * 1.4);
+    float cRaw = cMacro * 0.66 + cDetail * 0.34;
+
+    // 위도별 대기 순환 가중치 (계절에 따른 적도 수렴대 이동 반영)
+    float itczLat = uSunDeclDeg * 0.25;
+    float itcz = exp(-pow((latDeg - itczLat) / 8.5, 2.0)) * 0.16;
+    float subtropDry = exp(-pow((absLat - 26.5) / 8.0, 2.0)) * 0.14;
+    float midStorm = exp(-pow((absLat - 50.0) / 12.5, 2.0)) * 0.13;
+    float cCover = clamp(cRaw + itcz + midStorm - subtropDry, 0.0, 1.0);
+    float cloudAlpha = smoothstep(0.50, 0.78, cCover) * 0.86 * smoothstep(0.5, 0.95, uMorph);
+
+    if (cloudAlpha > 0.005) {
+      // 구름 아래 지표면/바다 음영
+      col *= (1.0 - cloudAlpha * 0.34 * day);
+
+      float cloudSunAlt = sunAltDeg + 0.833 + 0.45;
+      float cloudDay = smoothstep(-0.6, 2.2, cloudSunAlt);
+      float cloudTw = exp(-pow((cloudSunAlt + 0.6) / 2.4, 2.0));
+      vec3 cloudDayCol = vec3(0.95, 0.97, 1.0) * (0.35 + 0.65 * max(0.0, ndl));
+      vec3 cloudTwCol = vec3(0.98, 0.54, 0.26);
+      vec3 cloudNightCol = vec3(0.007, 0.011, 0.022);
+      vec3 cloudCol = mix(cloudNightCol, cloudDayCol, cloudDay);
+      cloudCol = mix(cloudCol, cloudTwCol, cloudTw * 0.72);
+      col = mix(col, cloudCol, cloudAlpha);
+    }
+  }
+
+  // ── 우주 시점 대기 림 & 야간 산소 대기광(557.7nm Airglow) ──
+  float limb = pow(1.0 - nz, 7.0);
+  vec3 rayleighRim = vec3(0.28, 0.60, 0.96) * limb * smoothstep(-1.0, 18.0, sunAltDeg) * 0.40;
+  vec3 terminatorRim = vec3(0.90, 0.42, 0.16) * limb * twilightBell * 0.14;
+  float airglowBand = exp(-pow((nz - 0.075) / 0.045, 2.0)) * smoothstep(-3.0, -14.0, sunAltDeg);
+  vec3 airglowRim = vec3(0.16, 0.68, 0.42) * airglowBand * 0.18;
+  col += rayleighRim + terminatorRim + airglowRim;
 
   // 가장자리 안티에일리어싱 (정사영 구일 때만 가장자리 소프트 처리)
-  float edgeAa = uMorph >= 0.999 ? smoothstep(0.0, 0.08, nz) : 1.0;
+  float edgeAa = uMorph >= 0.999 ? smoothstep(0.0, 0.06, nz) : 1.0;
   gl_FragColor = vec4(col, uOpacity * edgeAa);
 }
 `;
@@ -575,9 +674,15 @@ interface Props {
   morph?: number;
   rotate: readonly [number, number] | readonly [number, number, number];
   subsolar: { latitude: number; longitude: number };
+  selectedDate?: Date;
   opacity?: number;
   onReadyChange?: (ready: boolean) => void;
 }
+
+const smoothstepNum = (e0: number, e1: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
 
 export const EarthGlobeGL: React.FC<Props> = ({
   width,
@@ -588,6 +693,7 @@ export const EarthGlobeGL: React.FC<Props> = ({
   morph = 1,
   rotate,
   subsolar,
+  selectedDate,
   opacity = 1,
   onReadyChange,
 }) => {
@@ -595,14 +701,19 @@ export const EarthGlobeGL: React.FC<Props> = ({
   const rendererRef = useRef<Renderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const skySceneRef = useRef<THREE.Scene | null>(null);
+  const skyCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const milkyWayRef = useRef<SpaceMilkyWayHandle | null>(null);
+  const starFieldRef = useRef<SpaceStarFieldHandle | null>(null);
+  const eqToCamRef = useRef(new THREE.Matrix3());
   const meshRef = useRef<THREE.Mesh | null>(null);
   const matRef = useRef<THREE.ShaderMaterial | null>(null);
   const readyRef = useRef(false);
   const onReadyCbRef = useRef(onReadyChange);
   onReadyCbRef.current = onReadyChange;
 
-  const propsRef = useRef({ width, height, cx, cy, radius, morph, rotate, subsolar, opacity });
-  propsRef.current = { width, height, cx, cy, radius, morph, rotate, subsolar, opacity };
+  const propsRef = useRef({ width, height, cx, cy, radius, morph, rotate, subsolar, selectedDate, opacity });
+  propsRef.current = { width, height, cx, cy, radius, morph, rotate, subsolar, selectedDate, opacity };
 
   const renderNow = () => {
     const gl = glRef.current;
@@ -650,6 +761,7 @@ export const EarthGlobeGL: React.FC<Props> = ({
       return [sx * cr - sy0 * sr, sx * sr + sy0 * cr, sz] as const;
     };
     const [sunCamX, sunCamY, sunCamZ] = camDirOf(p.subsolar.latitude, p.subsolar.longitude);
+    const curDate = p.selectedDate ?? new Date();
 
     m.uniforms.uMorph.value = p.morph;
     (m.uniforms.uSizePx.value as THREE.Vector2).set(p.width, p.height);
@@ -658,7 +770,60 @@ export const EarthGlobeGL: React.FC<Props> = ({
     (m.uniforms.uRotateDeg.value as THREE.Vector3).set(r0, r1, r2);
     (m.uniforms.uSunDir.value as THREE.Vector3).set(sunCamX, sunCamY, sunCamZ).normalize();
     m.uniforms.uOpacity.value = p.opacity;
+    m.uniforms.uSunDeclDeg.value = p.subsolar.latitude;
+    m.uniforms.uTimeHours.value = (curDate.getTime() / 3600000) % 2400;
 
+    r.setClearColor(0x000000, 0);
+    r.clear(true, true, false);
+
+    // Pass 1: 심우주 배경 (은하수 + 6.5등급 별 + 5대 행성 + 카메라 동적 노출)
+    const skyOpacity = p.morph >= 0.9 ? Math.min(1, (p.morph - 0.9) / 0.1) * p.opacity : 0;
+    const skyScene = skySceneRef.current;
+    const skyCam = skyCameraRef.current;
+    const mw = milkyWayRef.current;
+    const sf = starFieldRef.current;
+    if (skyOpacity > 0.005 && skyScene && skyCam && mw && sf) {
+      const f = Math.max(p.width, p.height) * 0.9;
+      skyCam.fov = (2 * Math.atan((p.height * 0.5) / Math.max(1, f)) * 180) / Math.PI;
+      skyCam.aspect = Math.max(0.1, p.width / Math.max(1, p.height));
+      skyCam.updateProjectionMatrix();
+
+      computeEqToCamMatrix(curDate, p.rotate, eqToCamRef.current);
+      updateSpacePlanets(sf, curDate);
+
+      // 우주 카메라 동적 노출: 낮 지구 면적 + 시야 내 비차폐 태양에 따라 노출 자동 조절
+      const earthFill = Math.max(0.25, Math.min(1.0, p.radius / (Math.min(p.width, p.height) * 0.42)));
+      const earthGlare = smoothstepNum(-0.35, 0.55, sunCamZ) * earthFill;
+      let sunInView = 0;
+      if (sunCamZ < -0.05) {
+        const sunSx = p.cx + (sunCamX / -sunCamZ) * f;
+        const sunSy = p.cy - (sunCamY / -sunCamZ) * f;
+        const inFrame = sunSx >= -40 && sunSx <= p.width + 40 && sunSy >= -40 && sunSy <= p.height + 40;
+        const unoccluded = Math.hypot(sunSx - p.cx, sunSy - p.cy) > p.radius * 0.96;
+        if (inFrame && unoccluded) sunInView = 1;
+      }
+      const totalLight = Math.min(1, earthGlare * 0.72 + sunInView * 0.85);
+      const exposure = 1.25 * (1 - totalLight) + 0.28 * totalLight;
+      const dpr = Math.max(1, gl.drawingBufferWidth / Math.max(1, p.width));
+
+      (mw.material.uniforms.uEqToCam.value as THREE.Matrix3).copy(eqToCamRef.current);
+      mw.material.uniforms.uExposure.value = exposure;
+      mw.material.uniforms.uOpacity.value = skyOpacity;
+      (mw.material.uniforms.uSunCamDir.value as THREE.Vector3).set(sunCamX, sunCamY, sunCamZ).normalize();
+      mw.material.uniforms.uSunVisible.value = sunInView;
+
+      (sf.material.uniforms.uEqToCam.value as THREE.Matrix3).copy(eqToCamRef.current);
+      sf.material.uniforms.uExposure.value = exposure;
+      sf.material.uniforms.uOpacity.value = skyOpacity;
+      sf.material.uniforms.uPixelRatio.value = dpr;
+      (sf.material.uniforms.uSunCamDir.value as THREE.Vector3).set(sunCamX, sunCamY, sunCamZ).normalize();
+      sf.material.uniforms.uSunVisible.value = sunInView;
+
+      r.render(skyScene, skyCam);
+    }
+
+    // Pass 2: 3D 지구본 (심우주 배경을 깊이 버퍼 초기화 후 정확히 가림)
+    r.clearDepth();
     r.render(s, c);
     gl.endFrameEXP();
   };
@@ -670,12 +835,18 @@ export const EarthGlobeGL: React.FC<Props> = ({
   useEffect(() => () => {
     readyRef.current = false;
     onReadyCbRef.current?.(false);
+    milkyWayRef.current?.dispose();
+    starFieldRef.current?.dispose();
     matRef.current?.dispose();
     rendererRef.current?.dispose();
     glRef.current = null;
     rendererRef.current = null;
     sceneRef.current = null;
     cameraRef.current = null;
+    skySceneRef.current = null;
+    skyCameraRef.current = null;
+    milkyWayRef.current = null;
+    starFieldRef.current = null;
     meshRef.current = null;
     matRef.current = null;
   }, []);
@@ -684,6 +855,7 @@ export const EarthGlobeGL: React.FC<Props> = ({
     glRef.current = gl;
     const p = propsRef.current;
     const renderer = new Renderer({ gl });
+    renderer.autoClear = false;
     renderer.setPixelRatio(1);
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
     renderer.setClearColor(0x000000, 0);
@@ -698,6 +870,23 @@ export const EarthGlobeGL: React.FC<Props> = ({
       Math.max(100, p.radius * 8),
     );
     camera.position.set(0, 0, Math.max(10, p.radius * 4));
+
+    const skyScene = new THREE.Scene();
+    const fInit = Math.max(p.width, p.height) * 0.9;
+    const skyCamera = new THREE.PerspectiveCamera(
+      (2 * Math.atan((p.height * 0.5) / Math.max(1, fInit)) * 180) / Math.PI,
+      Math.max(0.1, p.width / Math.max(1, p.height)),
+      1,
+      1000,
+    );
+    const mw = createSpaceMilkyWay();
+    const sf = createSpaceStarField(8);
+    skyScene.add(mw.mesh);
+    skyScene.add(sf.points);
+    skySceneRef.current = skyScene;
+    skyCameraRef.current = skyCamera;
+    milkyWayRef.current = mw;
+    starFieldRef.current = sf;
 
     const mat = new THREE.ShaderMaterial({
       vertexShader: EARTH_VERT,
@@ -714,9 +903,13 @@ export const EarthGlobeGL: React.FC<Props> = ({
         uSunDir: { value: new THREE.Vector3(0.4, 0.2, 0.85) },
         uDemTex: { value: null },
         uDemValid: { value: 0 },
+        uLandTex: { value: null },
+        uLandValid: { value: 0 },
         uNightTex: { value: null },
         uNightValid: { value: 0 },
         uOpacity: { value: p.opacity },
+        uSunDeclDeg: { value: p.subsolar.latitude },
+        uTimeHours: { value: ((p.selectedDate ?? new Date()).getTime() / 3600000) % 2400 },
       },
     });
 
@@ -726,8 +919,9 @@ export const EarthGlobeGL: React.FC<Props> = ({
     matRef.current = mat;
 
     const dem = getBaseDemSync();
+    const lm = getLandMaskSync();
     if (dem && matRef.current === mat) {
-      const geo = getEarthTerrainGeometry(dem);
+      const geo = getEarthTerrainGeometry(dem, lm);
       const mesh = new THREE.Mesh(geo, mat);
       scene.add(mesh);
       meshRef.current = mesh;
@@ -741,6 +935,19 @@ export const EarthGlobeGL: React.FC<Props> = ({
       tex.needsUpdate = true;
       mat.uniforms.uDemTex.value = tex;
       mat.uniforms.uDemValid.value = 1;
+
+      if (lm) {
+        const landTex = new THREE.DataTexture(lm.rgba, lm.w, lm.h, THREE.RGBAFormat);
+        landTex.colorSpace = THREE.NoColorSpace;
+        landTex.minFilter = THREE.LinearFilter;
+        landTex.magFilter = THREE.LinearFilter;
+        landTex.wrapS = THREE.RepeatWrapping;
+        landTex.wrapT = THREE.ClampToEdgeWrapping;
+        landTex.needsUpdate = true;
+        mat.uniforms.uLandTex.value = landTex;
+        mat.uniforms.uLandValid.value = 1;
+      }
+
       readyRef.current = true;
       onReadyCbRef.current?.(true);
       renderNow();

@@ -306,7 +306,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: 4 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {showPortal && (
-                <PressScale onPress={() => setShowPortal(false)} style={styles.backBtn}>
+                <PressScale onPress={() => setShowPortal(false)} style={[styles.backBtn, { backgroundColor: color.fill }]}>
                   <ChevronLeft size={20} color={theme.text} />
                 </PressScale>
               )}
@@ -314,8 +314,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {showPortal ? t('tabPortalLinks', language) : t('settings', language)}
               </Text>
             </View>
-            <PressScale onPress={handleClose} style={styles.closeBtn}>
-              <X size={20} color={theme.subText} />
+            <PressScale onPress={handleClose} style={[styles.closeBtn, { backgroundColor: color.fill }]}>
+              <X size={18} color={theme.subText} />
             </PressScale>
           </View>
 
@@ -918,13 +918,13 @@ const useStyles = makeStyles((color) => ({
     paddingTop: 8,
   },
   dragHandle: {
-    width: 32,
-    height: 2,
-    borderRadius: 1,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
   },
   modalContainer: {
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     borderWidth: 1,
     height: '80%',
     shadowColor: '#000',
@@ -949,7 +949,7 @@ const useStyles = makeStyles((color) => ({
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: color.border,
     justifyContent: 'center',
@@ -980,7 +980,7 @@ const useStyles = makeStyles((color) => ({
     fontFamily: mono,
   },
   card: {
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -992,7 +992,7 @@ const useStyles = makeStyles((color) => ({
   avatarCircle: {
     width: 40,
     height: 40,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: color.border,
     justifyContent: 'center',
@@ -1015,7 +1015,7 @@ const useStyles = makeStyles((color) => ({
   signOutBtn: {
     width: 32,
     height: 32,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: color.border,
     justifyContent: 'center',
@@ -1031,7 +1031,7 @@ const useStyles = makeStyles((color) => ({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     height: 44,
     gap: 8,
@@ -1048,7 +1048,7 @@ const useStyles = makeStyles((color) => ({
     gap: 6,
     backgroundColor: color.dangerSoft,
     padding: 8,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: tint(color.danger, 0.3),
   },
@@ -1060,7 +1060,7 @@ const useStyles = makeStyles((color) => ({
     fontFamily: mono,
   },
   authButton: {
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1168,7 +1168,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     marginTop: 8,
   },
@@ -1184,7 +1184,7 @@ const useStyles = makeStyles((color) => ({
   backBtn: {
     width: 32,
     height: 32,
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: color.border,
     justifyContent: 'center',
@@ -1196,7 +1196,7 @@ const useStyles = makeStyles((color) => ({
     gap: 14,
   },
   portalMainCard: {
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     padding: 14,
     shadowColor: '#000',
@@ -1206,7 +1206,7 @@ const useStyles = makeStyles((color) => ({
     elevation: 3,
   },
   portalSubCard: {
-    borderRadius: radius.xs,
+    borderRadius: radius.md,
     borderWidth: 1,
     padding: 12,
     backgroundColor: color.fill,
@@ -1236,7 +1236,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     marginTop: 4,
   },
   portalLinkBtnText: {
@@ -1251,7 +1251,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 7,
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: color.border,
   },
@@ -1337,7 +1337,7 @@ const useStyles = makeStyles((color) => ({
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: 'transparent',
   },

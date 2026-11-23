@@ -255,7 +255,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </PressScale>
           )}
 
-          {!showCamera && isGlass && !expertMode && !skyHeaderActions?.ascended && skyHeaderActions?.flyToMap && (
+          {!showCamera && isGlass && !skyHeaderActions?.ascended && skyHeaderActions?.flyToMap && (
             <PressScale
               testID="hdr-map"
               onPress={skyHeaderActions.flyToMap}

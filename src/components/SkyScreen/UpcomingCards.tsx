@@ -7,7 +7,7 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import { makeStyles, useDataColors, useThemeColors } from '../../theme/useTheme';
-import { radius, space, type } from '../../theme/tokens';
+import { color as DARK, dataColor as DARK_DATA, radius, space, type, type Palette } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { L3 } from '../../utils/i18n';
 import { verdictColor, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
@@ -25,12 +25,16 @@ interface Props {
   onPress: (m: UpcomingMoment) => void;
   /** 별 보기 카드를 누르면 — 02 학습의 별 보기 과정을 엽니다. */
   onStarPress?: () => void;
+  forceDark?: boolean;
 }
 
-export const UpcomingCards: React.FC<Props> = ({ moments, star, language, tzHours, onPress, onStarPress }) => {
-  const color = useThemeColors();
-  const dataColor = useDataColors();
-  const styles = useStyles();
+export const UpcomingCards: React.FC<Props> = ({ moments, star, language, tzHours, onPress, onStarPress, forceDark = false }) => {
+  const themeColor = useThemeColors();
+  const themeData = useDataColors();
+  const themeStyles = useStyles();
+  const color = forceDark ? DARK : themeColor;
+  const dataColor = forceDark ? DARK_DATA : themeData;
+  const styles = forceDark ? darkStyles : themeStyles;
   const starTime = star ? (star.fromNow ? L3(language, '지금부터', 'From now', '今から') : `${localHHMM(new Date(star.timeMs), tzHours)}~`) : '';
   // 카드가 셋이면 한 장이 좁아집니다(360 폭 폰에서 약 104px). 안쪽 좌우 여백을 줄여 "Sunset Good" 같은 한 줄이 들어가게 합니다.
   const dense = moments.length + (star ? 1 : 0) >= 3;
@@ -76,10 +80,10 @@ export const UpcomingCards: React.FC<Props> = ({ moments, star, language, tzHour
   );
 };
 
-const useStyles = makeStyles((color) => ({
-  row: { flexDirection: 'row', gap: space.sm },
+const makeCardStyles = (color: Palette) => ({
+  row: { flexDirection: 'row' as const, gap: space.sm },
   card: {
-    flex: 1, minWidth: 0, minHeight: 64, justifyContent: 'center', gap: space.xxs,
+    flex: 1, minWidth: 0, minHeight: 64, justifyContent: 'center' as const, gap: space.xxs,
     paddingHorizontal: space.md, paddingVertical: space.sm,
     borderRadius: radius.md, borderWidth: 1, borderColor: color.border, backgroundColor: color.fill,
   },
@@ -87,4 +91,7 @@ const useStyles = makeStyles((color) => ({
   day: { ...type.micro, color: color.textDim },
   main: { ...type.bodyStrong, color: color.text },
   time: { ...type.label, color: color.textDim },
-}));
+});
+
+const useStyles = makeStyles(makeCardStyles);
+const darkStyles = makeCardStyles(DARK);

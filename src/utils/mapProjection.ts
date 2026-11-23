@@ -49,6 +49,8 @@ export const GLOBE_STRETCH = 2.0;
 /** 이 늘어남을 넘으면 타일을 끄고 실루엣으로 갑니다. */
 export const SILHOUETTE_STRETCH = 1.5;
 
+import { MORPH_LO_DEG, MORPH_HI_DEG, globeMorphForLonDelta } from './zoomContinuum';
+
 const RAD = Math.PI / 180;
 const sec = (latDeg: number) => 1 / Math.cos(Math.min(85, Math.abs(latDeg)) * RAD);
 
@@ -142,23 +144,43 @@ export const nextGlobeLatch = (
 /**
  * 지도의 화면 폭(경도, 도)과 **같은 축척**의 정사영 구 반지름(px).
  *
- * 정사영은 구 한가운데에서 1 라디안 = R px 입니다. 지도 폭 `widthPx` 가 담는
- * 땅의 호는 `경도 폭 · cos(위도)` 이므로 R = W / (Δλ·cosφ·π/180). 이 둘을
- * 맞춰야 지도에서 구로(또는 거꾸로) 넘어갈 때 땅 크기가 안 튑니다.
+ * 평면(메르카토르, morph=0) 구간에서는 땅의 호가 `경도 폭 · cos(위도)` 이므로 `cos(위도)` 로
+ * 맞춰 타일 지도와 1:1 축척을 유지하고, 완전한 정사영 구(morph=1) 구간에서는 어느 위도를
+ * 바라보든 겉보기 구 반지름이 위도에 따라 바뀌지 않도록 `1` 로 수렴시킵니다.
+ * (고위도·극점 부근에서 `1 / cos(위도)` 때문에 반지름이 10배 폭증하던 버그 방지)
  */
+const effectiveGlobeCos = (centerLat: number, longitudeDeltaDeg: number): number => {
+  const c = Math.max(0.1, Math.cos(centerLat * RAD));
+  const m = globeMorphForLonDelta(longitudeDeltaDeg);
+  return c + (1 - c) * m;
+};
+
 export const globeRadiusForDelta = (
   centerLat: number, longitudeDeltaDeg: number, widthPx: number,
 ): number => {
-  const c = Math.max(0.1, Math.cos(centerLat * RAD));
-  return widthPx / (Math.max(0.01, longitudeDeltaDeg) * c * RAD);
+  const d = Math.max(0.01, longitudeDeltaDeg);
+  return widthPx / (d * effectiveGlobeCos(centerLat, d) * RAD);
 };
 
 /** `globeRadiusForDelta` 의 역 — 구 반지름에 맞는 지도 화면 폭(경도, 도). */
 export const deltaForGlobeRadius = (
   centerLat: number, radiusPx: number, widthPx: number,
 ): number => {
+  const r = Math.max(1, radiusPx);
   const c = Math.max(0.1, Math.cos(centerLat * RAD));
-  return widthPx / (Math.max(1, radiusPx) * c * RAD);
+  const dOrtho = widthPx / (r * RAD);
+  if (dOrtho >= MORPH_HI_DEG) return dOrtho;
+  const dMerc = widthPx / (r * c * RAD);
+  if (dMerc <= MORPH_LO_DEG) return dMerc;
+  let lo = MORPH_LO_DEG;
+  let hi = MORPH_HI_DEG;
+  const target = widthPx / (r * RAD);
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) * 0.5;
+    if (mid * effectiveGlobeCos(centerLat, mid) < target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) * 0.5;
 };
 
 /**
