@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon, Overlay } from 'react-native-maps';
 import type { CloudTopViewImage } from './useCloudTopView';

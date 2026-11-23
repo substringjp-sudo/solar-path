@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMe
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
   StyleSheet, View, Text, BackHandler, InteractionManager,
-  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView, Pressable, Vibration, StatusBar
+  Dimensions, Platform, Alert, ActivityIndicator, PanResponder, ScrollView, Pressable, Vibration, StatusBar
 } from 'react-native';
 import Constants from 'expo-constants';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
@@ -61,7 +61,6 @@ import {
   type AstroCaptureRunResult,
 } from '../utils/astroCapturePipeline';
 import {
-  astroChipLabel,
   computeAstroSimExposureParams,
   createDefaultAstroSettings,
   evaluateDirectionGuide,
@@ -370,7 +369,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setHeadingStatus,
     deviceAzimuthRef,
     devicePitchRef,
-    deviceRotationRef,
     fusionRef,
     rawRotationRef,
     angularSpeedRef,
@@ -433,7 +431,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [topInfoExpanded, setTopInfoExpanded] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [timelapseMode, setTimelapseMode] = useState(false);
-  const [tlSummaryLabel, setTlSummaryLabel] = useState<string>('');
   const [camStage, setCamStage] = useState<'min' | 'mid' | 'full'>('min');
   // 월식 이벤트 모드: 켜짐 계산은 10 분 · 위경도 0.1° 단위로만 다시 하고, 남은 시간만 매초 갱신한다.
   const [eclipseOn, setEclipseOn] = useState(false);
@@ -2736,7 +2733,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                             initialPlan={handoffTlPlan}
                             onPlanChange={(p) => { activeTlPlanRef.current = p; }}
                             onClose={() => setCamStage('min')}
-                            onSummaryChange={setTlSummaryLabel}
                           />
                         </>
                       ),

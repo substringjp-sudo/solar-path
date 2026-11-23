@@ -44,7 +44,7 @@ import { bindTerrainLook, makeTerrainLookUniforms } from './terrainLook';
 import { createTerrainAmbientBake } from './terrainAmbient';
 import {
   EARTH_RADIUS_EFFECTIVE_M, FIELD_NEAR_M, FIELD_FAR_M,
-  createConcentricGeometry, ringDistanceM, ringRadius,
+  createConcentricGeometry, ringDistanceM,
 } from './groundProjection';
 
 export { FIELD_NEAR_M, FIELD_FAR_M };

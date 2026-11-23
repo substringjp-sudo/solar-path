@@ -7,12 +7,10 @@
  *  - `PrimaryButton` : 화면의 주 동작 하나(재생, 로그인 …). 강조색 바탕.
  *  - `Chip`          : 켜고 끄는 작은 선택 버튼. 켜짐·꺼짐 색이 스르르 바뀝니다.
  *  - `Reveal`        : 나타날 때 아래에서 살짝 떠오르며 보이는 틀(배너·메뉴).
- *  - `SectionLabel`  : 패널 안 구획 머리(모노 대문자 라벨).
- *  - `Panel`         : 도킹 패널 카드.
  */
 import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, Pressable, Animated, StyleSheet,
+  Text, Pressable, Animated, StyleSheet,
   type ViewStyle, type StyleProp, type PressableProps, type GestureResponderEvent, type LayoutChangeEvent,
 } from 'react-native';
 import { color, material, radius, space, type, motion, OVERLAY_BTN, TOUCH } from '../../theme/tokens';
@@ -157,22 +155,6 @@ export const Reveal: React.FC<{ style?: StyleProp<ViewStyle>; children: React.Re
   return <Animated.View pointerEvents={pointerEvents} style={[style, { opacity: a, transform: [{ translateY }] }]}>{children}</Animated.View>;
 };
 
-export const SectionLabel: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; right?: React.ReactNode }> = ({ children, icon, right }) => {
-  const styles = useStyles();
-  return (
-  <View style={styles.sectionRow}>
-    {icon}
-    <Text style={styles.sectionLabel}>{children}</Text>
-    {right ? <View style={{ marginLeft: 'auto' }}>{right}</View> : null}
-  </View>
-  );
-};
-
-export const Panel: React.FC<{ style?: StyleProp<ViewStyle>; children: React.ReactNode }> = ({ style, children }) => {
-  const styles = useStyles();
-  return <View style={[styles.panel, style]}>{children}</View>;
-};
-
 /** 떠 있는 버튼 — 하늘·지도 위라서 화면 모드와 상관없이 어둡습니다. */
 const overlayStyles = StyleSheet.create({
   overlayBtn: {
@@ -209,7 +191,4 @@ const useStyles = makeStyles((color) => ({
   },
   chipText: { ...type.label, color: color.textDim },
   chipTextOn: { color: color.accent },
-  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space.sm },
-  sectionLabel: { ...type.micro, color: color.textDim, textTransform: 'uppercase' },
-  panel: { backgroundColor: color.panel, borderColor: color.border, borderWidth: 1, padding: space.md, borderRadius: radius.md },
 }));

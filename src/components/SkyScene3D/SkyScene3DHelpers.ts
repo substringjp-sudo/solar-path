@@ -63,7 +63,6 @@ export const PIXEL_ART_CHOICES: { rows: number; label: string }[] = [
 ];
 
 export const VOLUMETRIC_SKY_ENABLED = true;
-export const VOLUMETRIC_SKY_DEFAULT_ON = true;
 export const REMOTE_SETTLE_FRAMES = 20;
 export const FAR_MAX_BUILDINGS_SHOWN = 3000;
 
@@ -174,19 +173,6 @@ export function mergeBuildings(near: BuildingMeshData | null, farTiles: Map<stri
 export function dayOfYearOf(d: Date): number {
   const start = Date.UTC(d.getUTCFullYear(), 0, 0);
   return Math.floor((d.getTime() - start) / 86400000);
-}
-
-export function formatCompassText(azimuth: number): string {
-  const az = ((azimuth % 360) + 360) % 360;
-  let dir = 'N';
-  if (az >= 22.5 && az < 67.5) dir = 'NE';
-  else if (az >= 67.5 && az < 112.5) dir = 'E';
-  else if (az >= 112.5 && az < 157.5) dir = 'SE';
-  else if (az >= 157.5 && az < 202.5) dir = 'S';
-  else if (az >= 202.5 && az < 247.5) dir = 'SW';
-  else if (az >= 247.5 && az < 292.5) dir = 'W';
-  else if (az >= 292.5 && az < 337.5) dir = 'NW';
-  return `${dir} ${Math.round(az)}°`;
 }
 
 /** 코사인 가중 24방위 하늘 평균 조도 + 지평선(2°) 6방위 평균 공기원근 색 */

@@ -60,5 +60,3 @@ export async function setScreenDim(on: boolean): Promise<boolean> {
     return false;
   }
 }
-
-export const hasKeepAwake = (): boolean => !!awake;

@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, StyleSheet, Text, View, ScrollView } from 'react-native';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, X, Info } from 'lucide-react-native';
+import { Modal, Text, View, ScrollView } from 'react-native';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, X } from 'lucide-react-native';
 import { PressScale, PrimaryButton } from '../ui';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
-import { DATA_START_MS, FORECAST_DAYS, MS_HOUR, TIER_LEAD_HOURS } from '../../utils/timeBar';
+import { DATA_START_MS, MS_HOUR, TIER_LEAD_HOURS } from '../../utils/timeBar';
 import { mono, radius, space, TOUCH, type } from '../../theme/tokens';
 import { makeStyles, useThemeColors } from '../../theme/useTheme';
 

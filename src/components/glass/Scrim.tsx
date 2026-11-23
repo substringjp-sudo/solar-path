@@ -5,7 +5,7 @@
 import React, { useId } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { SCRIM_BOTTOM, SCRIM_TOP, type ScrimStops } from '../../theme/glassTokens';
+import { SCRIM_TOP, type ScrimStops } from '../../theme/glassTokens';
 
 interface Props {
   edge: 'top' | 'bottom';

@@ -6,7 +6,6 @@ import {
   Modal,
   Image,
   ScrollView,
-  Dimensions,
   Platform,
   Alert,
 } from 'react-native';
@@ -34,8 +33,6 @@ import { sunFractionInPhoto } from '../utils/resultCompare';
 import { DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 import { mergeCompare } from '../utils/recordCompare';
 import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
-
-const { width: W } = Dimensions.get('window');
 
 interface PostDetailModalProps {
   visible: boolean;

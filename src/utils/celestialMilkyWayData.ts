@@ -1,5 +1,3 @@
-import { EquatorialCoord, equatorialToHorizontal } from './celestialCoords';
-
 // 은하 적도(Galactic Equator) 360도 궤적 샘플 포인트 데이터 (Galactic Longitude 0 ~ 360°)
 // 각 은하 경도 l에 따른 적경(RA), 적위(Dec) 오프라인 맵핑 테이블 (15도 간격 24개 핵심 포인트)
 export const MILKY_WAY_EQUATOR_NODES: { lDeg: number; raHours: number; decDeg: number; isCenter?: boolean }[] = [
@@ -28,25 +26,3 @@ export const MILKY_WAY_EQUATOR_NODES: { lDeg: number; raHours: number; decDeg: n
   { lDeg: 330, raHours: 15.85, decDeg: -52.5 },
   { lDeg: 345, raHours: 16.95, decDeg: -41.5 },
 ];
-
-/**
- * 특정 시간/위도/경도에서의 은하수 대원 궤적(방위각, 고도각) 산출 유틸
- */
-export function getCalculatedMilkyWay(lat: number, lon: number, date: Date) {
-  return MILKY_WAY_EQUATOR_NODES.map((node) => {
-    const horizontal = equatorialToHorizontal(
-      { raHours: node.raHours, decDeg: node.decDeg },
-      lat,
-      lon,
-      date
-    );
-
-    return {
-      lDeg: node.lDeg,
-      azimuth: horizontal.azimuthDeg,
-      altitude: horizontal.altitudeDeg,
-      isCenter: !!node.isCenter,
-      isVisible: horizontal.altitudeDeg > 0,
-    };
-  });
-}

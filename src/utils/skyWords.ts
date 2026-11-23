@@ -11,7 +11,6 @@
 type Lang = 'ko' | 'en' | 'ja';
 
 export type CoverLevel = 'none' | 'few' | 'some' | 'many' | 'full';
-export const COVER_LEVEL_EDGES = [10, 35, 65, 90] as const;
 export const coverLevel = (pct: number): CoverLevel => (pct < 10 ? 'none' : pct < 35 ? 'few' : pct < 65 ? 'some' : pct < 90 ? 'many' : 'full');
 
 export interface CloudLayers { low?: number | null; mid?: number | null; high?: number | null }

@@ -172,13 +172,6 @@ export const setLastRawWeather = (snapshot: RawWeatherSnapshot | null) => {
   rawWeatherListeners.forEach(fn => fn(snapshot));
 };
 
-export interface WeatherPoint {
-  latitude: number;
-  longitude: number;
-  distance: number;
-  azimuthOffset: number;
-}
-
 /**
  * Calculates a new coordinate based on distance (km) and bearing (degrees) from a starting point.
  */

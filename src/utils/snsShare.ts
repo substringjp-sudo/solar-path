@@ -1,4 +1,4 @@
-import { Linking, Alert, Share, Platform } from 'react-native';
+import { Linking, Alert, Share } from 'react-native';
 import { L3 } from './i18n';
 import { useCelestialStore } from '../store/useCelestialStore';
 
@@ -17,7 +17,7 @@ export interface SnsShareParams {
  * Zero-API 기반 통합 SNS 공유 파이프라인
  */
 export async function shareToSns(params: SnsShareParams): Promise<boolean> {
-  const { platform, text, imageUri, locationName } = params;
+  const { platform, text, imageUri } = params;
   const encodedText = encodeURIComponent(text);
 
   try {

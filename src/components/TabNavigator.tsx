@@ -12,7 +12,7 @@
  * 오갈 수조차 없었습니다. 카테고리 개념을 없애 이 어긋남을 구조적으로 제거합니다.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from 'react-native';
+import { StyleSheet, View, Animated, Dimensions, PanResponder } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
 import { LearnScreen } from './LearnScreen/LearnScreen';

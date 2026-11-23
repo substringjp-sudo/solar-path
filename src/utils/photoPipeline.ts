@@ -19,7 +19,6 @@ import {
 } from '@shopify/react-native-skia';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  cameraBasis,
   dirFromAzEl,
   project,
   type Attitude,

@@ -558,14 +558,13 @@ const cfgTw = {
   // 앱 길의 배선(정적): 사용자 승인 "앱에서 기본 켬"은 여기서 지켜집니다 — `!!` 로 바뀌면 모든 사용자에게 꺼짐(§178 검토).
   {
     const src = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-    const sky = src('src/components/SkyScene3D/SkyScene3D.tsx'), store = src('src/store/useCelestialStore.ts'), dev = src('src/components/SkyScreen/DevTuningPanel.tsx'), probe = src('src/components/VolumetricProbe/VolumetricProbe.tsx');
+    const sky = src('src/components/SkyScene3D/SkyScene3D.tsx'), store = src('src/store/useCelestialStore.ts'), dev = src('src/components/SkyScreen/DevTuningPanel.tsx');
     ok(count(sky, 'clampInscatter: volSet.volumetricClampInscatter ?? true') === 1 && count(sky, 'irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true') === 1, 'SkyScene3D setOptions: 두 플래그를 `?? true` 로 넘김');
     ok(count(sky, '${volSet.volumetricClampInscatter ?? true ? 1 : 0}') === 1 && count(sky, '${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}') === 1, 'SkyScene3D qKey: 두 플래그가 키에 들어감(칩을 바꾸면 다시 겁니다)');
     const dflt = sky.slice(sky.indexOf('export const DEFAULT_SKY_SETTINGS'), sky.indexOf('};', sky.indexOf('export const DEFAULT_SKY_SETTINGS')));
     ok(/volumetricClampInscatter: true/.test(dflt) && /volumetricIrradianceLogMu: true/.test(dflt), 'DEFAULT_SKY_SETTINGS: 두 플래그 true');
     ok(count(store, 'volumetricClampInscatter: true,') === 1 && count(store, 'volumetricIrradianceLogMu: true,') === 1, '스토어 skySettings 기본: 두 플래그 true');
     ok(count(dev, 's.skySettings.volumetricClampInscatter ?? true') === 1 && count(dev, 's.skySettings.volumetricIrradianceLogMu ?? true') === 1, '개발 패널 CLAMP·LOGμ 칩: `?? true` 로 읽음');
-    ok(/createVolumetricScene\(renderer, w, h, \{[^}]*clampInscatter: true, irradianceLogMu: true[^}]*\}\)/.test(probe), 'VolumetricProbe: 만들 때 두 플래그 true');
   }
 
   console.log('\n[b] 셰이더 글자');

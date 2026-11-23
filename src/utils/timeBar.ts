@@ -183,14 +183,6 @@ export function withLocalMinutes(tMs: number, tzHours: number, minutesOfDay: num
   return Date.UTC(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate(), 0, m, 0, 0) - tzHours * MS_HOUR;
 }
 
-/** 지역 날짜는 그대로 두고 `dayIndex` 번째 날(0 = 1월 1일)로, 시각은 유지. */
-export function withLocalDayOfYear(tMs: number, tzHours: number, year: number, dayIndex: number): number {
-  const l = new Date(tMs + tzHours * MS_HOUR);
-  const di = Math.max(0, Math.min(daysInYear(year) - 1, Math.round(dayIndex)));
-  const t = Date.UTC(year, 0, 1 + di, l.getUTCHours(), l.getUTCMinutes(), 0, 0) - tzHours * MS_HOUR;
-  return clampMs(t);
-}
-
 /** 그 지역 날짜의 자정(UTC 순간). */
 export function localDayStartMs(tMs: number, tzHours: number): number {
   const l = new Date(tMs + tzHours * MS_HOUR);

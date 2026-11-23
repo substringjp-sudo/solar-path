@@ -1,10 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, Text, Linking, Platform, SafeAreaView, StatusBar, ScrollView } from 'react-native';
+import { View, Text, Linking, Platform, SafeAreaView, StatusBar, ScrollView } from 'react-native';
 import { MapPin, Camera, Compass, ShieldAlert, CheckCircle2, ChevronRight } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t } from '../utils/i18n';
 import { PressScale } from './ui';
-import { color } from '../theme/tokens';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface PermissionRequestViewProps {

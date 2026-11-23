@@ -1,5 +1,5 @@
 import SunCalc from 'suncalc';
-import { addHours, startOfDay, addDays } from 'date-fns';
+import { addHours, startOfDay } from 'date-fns';
 import { sunEquatorial, sunPosition, sunTimes } from './solarPosition';
 import { getGMSTDeg } from './celestialCoords';
 import { getMoonPositionPrecise, moonEquatorial, moonRiseSet } from './moonPosition';
@@ -88,12 +88,6 @@ export const getMoonPath = (date: Date, lat: number, lng: number): PathPoint[] =
 export interface IsochronePoint {
   latitude: number;
   longitude: number;
-}
-
-export interface IsochroneLine {
-  timeLabel: string; // "HH:MM" (local time for standard display or UTC based)
-  points: IsochronePoint[];
-  type: 'sunrise' | 'sunset';
 }
 
 /**
@@ -187,7 +181,6 @@ const splitAtAntimeridian = (points: [number, number][]): IsochronePoint[][] => 
  * 반환값은 날짜변경선에서 분리된 여러 개의 좌표 구간(segments) 배열입니다.
  */
 export const getTerminatorSegments = (date: Date, zenithAngleDeg: number = 90): { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] } => {
-  const { declination } = getSunDeclinationAndEquationOfTime(date);
   const { latitude: subsolarLat, longitude: subsolarLon } = getSubsolarPoint(date);
 
   const lat_s = subsolarLat * (Math.PI / 180);

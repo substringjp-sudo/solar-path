@@ -1,6 +1,6 @@
 import { useThemeColors, useScheme } from '../theme/useTheme';
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
+import { Dimensions, Animated, Platform, Alert, AppState } from 'react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getCelestialEvents } from '../utils/celestial';
@@ -773,13 +773,10 @@ export function useCelestialApp() {
       const sunsetDateStr = sunsetTime.toDateString();
 
       // 알림 트리거 시각: 일몰 2시간 전. 단 그 시각이 이미 지났으면 현재+5분으로 대체 (앱을 늦게 열었을 때도 받을 수 있음)
-      const idealTrigger = sunsetTime.getTime() - 2 * 60 * 60 * 1000;
-      const fallbackTrigger = Date.now() + 5 * 60 * 1000; // 5분 후
       const hasTriggerWindow = sunsetTime.getTime() > Date.now() + 5 * 60 * 1000; // 일몰이 최소 5분 이후
 
       if (hasTriggerWindow && lastSunsetDateRef.current !== sunsetDateStr) {
         lastSunsetDateRef.current = sunsetDateStr;
-        const effectiveTriggerTime = new Date(idealTrigger > Date.now() ? idealTrigger : fallbackTrigger);
         
         // 일몰 시간 우선 동기화
         updateSunsetWidgetData({

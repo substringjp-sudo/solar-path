@@ -59,7 +59,6 @@ export const TERRAIN_CURVATURE_MODEL = 'refr-k1/7';
  * `const float R = ${EARTH_RADIUS_KM_GLSL};`
  */
 export const EARTH_RADIUS_KM_GLSL = `${EARTH_RADIUS_KM}.0`;
-export const EARTH_RADIUS_M_GLSL = `${EARTH_RADIUS_M}.0`;
 /** 땅 위 시선용(굴절 포함) 유효 반지름의 GLSL 리터럴. */
 export const EARTH_RADIUS_EFFECTIVE_M_GLSL = EARTH_RADIUS_EFFECTIVE_M.toFixed(1);
 

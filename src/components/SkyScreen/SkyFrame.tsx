@@ -18,8 +18,7 @@ import { belowHeader } from '../../utils/headerLayout';
 import { color as DARK, mono as monoFont } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
 import type { DockStage } from '../../utils/dockStages';
-import { chipLabel, chipsFor, modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
-import { dayOffset, shiftDays } from '../../utils/timeRuler';
+import { modeList, switchMode, type AppMode, type ChipId, type ModeSwitch } from '../../utils/modeStrip';
 import { L3 } from '../../utils/i18n';
 import { fmtAz, fmtEl, fmtEye, fmtZoom, viewDiffers, type ViewAzEl } from '../../utils/sandboxDials';
 import { equivalentFocalMm } from '../../utils/lensInfo';
@@ -84,7 +83,6 @@ export const SkyFrame: React.FC<Props> = ({
   React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
   React.useEffect(() => { if (collapseNonce > 0) { setStage('min'); setActive(null); } }, [collapseNonce]);
   const modes = React.useMemo(() => modeList(false), []);
-  const off = dayOffset(timeMs, nowMs, tz);
 
   const firstSandboxTab = React.useMemo(
     () => (sandbox?.shoot ? 'shoot' : null),
@@ -99,33 +97,11 @@ export const SkyFrame: React.FC<Props> = ({
       setActive(firstSandboxTab);
     }
   };
-  const jumpDay = (target: number) => {
-    onSlideStart('date');
-    onPick(shiftDays(timeMs, target - off), 'date');
-    onSlideEnd('date');
-  };
-  const onChip = (c: ChipId | 'shoot') => {
-    if (c === 'yesterday') return jumpDay(-1);
-    if (c === 'today') return jumpDay(0);
-    if (c === 'tomorrow') return jumpDay(1);
-    // 날짜 · 촬영 · 장면: 그 칸을 펼치고, 같은 칸을 다시 누르면 접는다.
-    if (active === c && stage !== 'min') { setStageSafe('min'); return; }
-    setActive(c);
-    setStage(s => (s === 'min' ? 'full' : s));
-  };
 
   const pickMode = (target: AppMode) => {
     const sw = switchMode(mode, target, getView());
     setStageSafe('min');
     onSwitch(sw);
-  };
-
-  const chips = chipsFor(mode) ?? [];
-  const chipActive = (c: ChipId | 'shoot'): boolean => {
-    if (c === 'yesterday') return off === -1;
-    if (c === 'today') return off === 0;
-    if (c === 'tomorrow') return off === 1;
-    return active === c && stage !== 'min';
   };
 
   let expanded: React.ReactNode | ((maxH: number) => React.ReactNode) = null;

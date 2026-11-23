@@ -1,7 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
-import { LucideIcon } from 'lucide-react-native';
-import { color, radius, mono } from '../theme/tokens';
+import { View, Text, Dimensions } from 'react-native';
+import { radius, mono } from '../theme/tokens';
 import { makeStyles } from '../theme/useTheme';
 
 interface InfoCardProps {

@@ -17,7 +17,7 @@ import { CHIP_MIN_H } from '../glass/GlassChip';
 import type { DockStage } from '../../utils/dockStages';
 import type { AppMode } from '../../utils/modeStrip';
 import { dateShort, shiftDays, type ScoreSample } from '../../utils/timeRuler';
-import { L3, type Language } from '../../utils/i18n';
+import { type Language } from '../../utils/i18n';
 import { color as DARK } from '../../theme/tokens';
 
 export interface CameraChipSpec {
@@ -199,9 +199,6 @@ export const CameraFrame: React.FC<Props> = ({
     </DockSheet>
   );
 };
-
-/** 막대의 칩 줄이 비어 있을 때를 대비한 안내 글(접근성용). */
-export const cameraFrameLabel = (language: Language): string => L3(language, '카메라 조작', 'Camera controls', 'カメラ操作');
 
 const styles = StyleSheet.create({
   chips: { minHeight: CHIP_MIN_H, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'nowrap', gap: 6, paddingHorizontal: 10 },

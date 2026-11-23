@@ -96,7 +96,6 @@ export const ASTRO_NIGHT_PALETTE = {
   warnBg: '#260303',
 } as const;
 
-export const DURATION_PRESETS_SEC = [240, 360, 480, 600] as const;
 export const ISO_PRESETS = [400, 800, 1600, 3200, 6400] as const;
 export const COUNTDOWN_PRESETS_SEC: readonly CountdownDelaySec[] = [0, 3, 5, 10];
 

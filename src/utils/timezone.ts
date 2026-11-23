@@ -15,37 +15,3 @@ export const getSystemTimeFromLocationTime = (locationDate: Date, offsetHours: n
   return new Date(locationDate.getTime() - offsetHours * 60 * 60 * 1000);
 };
 
-/**
- * getLocalTimeAtLocation으로 변환된 가상 Date 객체를 UTC 기준으로 포맷팅합니다.
- * pattern: 'HH:mm' | 'yyyy-MM-dd' | 'yyyy-MM-dd HH:mm' | 'EEE, MMM d, yyyy'
- */
-export const formatLocalTime = (date: Date, pattern: string): string => {
-  const pad = (num: number) => String(num).padStart(2, '0');
-  
-  const yyyy = date.getUTCFullYear();
-  const MM = pad(date.getUTCMonth() + 1);
-  const dd = pad(date.getUTCDate());
-  const HH = pad(date.getUTCHours());
-  const mm = pad(date.getUTCMinutes());
-  const ss = pad(date.getUTCSeconds());
-
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const EEE = days[date.getUTCDay()];
-  const MMM = months[date.getUTCMonth()];
-  const d = String(date.getUTCDate());
-
-  // Replace tokens carefully
-  return pattern
-    .replace('yyyy', String(yyyy))
-    .replace('MMM', MMM)
-    .replace('MM', MM)
-    .replace('dd', dd)
-    .replace('EEE', EEE)
-    .replace('HH', HH)
-    .replace('mm', mm)
-    .replace('ss', ss)
-    .replace('d', d);
-};
-

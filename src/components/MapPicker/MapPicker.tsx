@@ -6,7 +6,7 @@ import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-r
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, L3 } from '../../utils/i18n';
-import { color as DARK, radius, mono, space, type } from '../../theme/tokens';
+import { color as DARK, radius, mono, type } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { springTo, timeTo } from '../../theme/motion';
 import { useAdministrativeArea } from '../../utils/reverseGeocode';

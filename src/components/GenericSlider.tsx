@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { color, radius, mono } from '../theme/tokens';
+import { radius } from '../theme/tokens';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
@@ -35,7 +35,6 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   const color = useThemeColors(); const styles = useStyles();
   const animatedValue = useRef(new Animated.Value(value)).current;
   const [isDragging, setIsDragging] = useState(false);
-  const [localValue, setLocalValue] = useState(value);
 
   const [layoutWidth, setLayoutWidth] = useState(0);
   const trackRef = useRef<View>(null);
@@ -98,7 +97,6 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   useEffect(() => {
     if (layoutWidth > 0) {
       animatedValue.setValue(value);
-      setLocalValue(value);
     }
   }, [layoutWidth]);
 
@@ -106,7 +104,6 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     if (!isDragging) {
       // 외부 값이 갱신될 때 부드러운 spring 보간 딜레이 없이 즉시 셋업되도록 강제 주입
       animatedValue.setValue(value);
-      setLocalValue(value);
     }
   }, [value, isDragging]);
 
@@ -128,7 +125,6 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       
       dragStartValue.current = p;
       dragStartPageX.current = evt.nativeEvent.pageX;
-      setLocalValue(p);
       animatedValue.setValue(p);
       onChangeRef.current(p);
     },
@@ -137,7 +133,6 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       const usableWidth = layoutWidth - 54;
       const dp = ((gestureState.moveX - dragStartPageX.current) / usableWidth) * 100;
       const p = Math.max(0, Math.min(100, dragStartValue.current + dp));
-      setLocalValue(p);
       animatedValue.setValue(p);
       onChangeRef.current(p);
     },

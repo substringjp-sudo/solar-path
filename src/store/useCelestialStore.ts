@@ -13,7 +13,7 @@ import {
 } from '../utils/persistentCache';
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
-  findEntry, fingerprint, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, sameBucket,
+  findEntry, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, sameBucket,
   canaryPrint, canarySaysSkip, canaryIsUsable,
 } from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
@@ -21,7 +21,6 @@ import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, 
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
 import { TerrainData, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister, setRingFallbackFinder } from '../utils/weather';
-import { sunPosition, sunTimes } from '../utils/solarPosition';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
@@ -30,7 +29,7 @@ import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
 import { mergeCompare, type PhotoCompare, type PhotoKind } from '../utils/recordCompare';
-import { addScene, createSampleScenes, mergeSampleScenes, removeScene, renameScene, sanitizeScenes, type AddResult, type SavedScene } from '../utils/savedScenes';
+import { addScene, mergeSampleScenes, removeScene, renameScene, sanitizeScenes, type AddResult, type SavedScene } from '../utils/savedScenes';
 import type { SkyTimeline } from '../utils/skyTimeline';
 import { createClockSlice, type ClockState } from '../utils/liveClock';
 import type { AstroSettingsState } from '../utils/astroCameraUi';
@@ -1233,22 +1232,6 @@ export const useCelestialStore = create<CelestialState>()(
           startupTrace.mark('위치');
  
           const now = new Date();
-          const times = sunTimes(now, lat, lon);
-          let targetEvent = times.sunset;
-          let eventType = 'Sunset';
-          if (now.getTime() > times.sunset.getTime()) {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            targetEvent = sunTimes(tomorrow, lat, lon).sunrise;
-            eventType = 'Sunrise';
-          } else if (now.getTime() < times.sunrise.getTime()) {
-            targetEvent = times.sunrise;
-            eventType = 'Sunrise';
-          }
- 
-          const pos = sunPosition(targetEvent, lat, lon);
-          const az = (pos.azimuth * 180 / Math.PI) + 180;
- 
           // SunCamera 와 **같은 키**를 만들어야 하므로 같은 함수를 씁니다(§59).
           const dateStr = localDateString(now);
  

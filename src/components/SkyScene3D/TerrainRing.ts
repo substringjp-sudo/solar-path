@@ -48,7 +48,6 @@ export const GROUND_ALBEDO = { r: 0.22, g: 0.17, b: 0.13 };
  * 땅과 **같은 식**(조도 × 알베도)으로 바꿉니다. 그러면 낮·노을·밤이
  * 저절로 맞습니다 — 둘 다 같은 하늘빛에서 나오기 때문입니다.
  */
-export const WATER_BODY_ALBEDO = { r: 0.005, g: 0.038, b: 0.055 };
 
 /**
  * 지면에만 거는 국소 순응 배율. 물리가 아니라 **표시** 선택입니다 —
@@ -1033,7 +1032,6 @@ export function updateTerrainColors(
 
   const nightBase = { r: 0.04, g: 0.05, b: 0.10 };
   const dayBase = { r: 0.16, g: 0.22, b: 0.17 };
-  const goldenBase = { r: 0.28, g: 0.14, b: 0.08 };
 
   const nightTop = { r: 0.07, g: 0.08, b: 0.15 };
   const dayTop = { r: 0.28, g: 0.26, b: 0.22 };

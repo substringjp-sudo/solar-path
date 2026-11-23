@@ -213,7 +213,6 @@ export function buildMacroWeatherField(
 
   let sunDirCoverSum = 0;
   let sunDirWeightSum = 0;
-  const sunAzRad = sunAzDeg * DEG_TO_RAD;
 
   for (const p of interpolatedPoints) {
     const dist = p.distance ?? 0;

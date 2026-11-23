@@ -22,7 +22,7 @@ export type Quality = SunsetPrediction['quality'];
 
 /** 낮은 단계부터. 칸 수 = 위치 + 1. */
 export const VERDICT_ORDER: Quality[] = ['Overcast', 'Muted', 'Fair', 'Great', 'Epic'];
-export const verdictLevel = (q: Quality): number => VERDICT_ORDER.indexOf(q) + 1;
+const verdictLevel = (q: Quality): number => VERDICT_ORDER.indexOf(q) + 1;
 
 export const verdictColor = (q: Quality, data: DataPalette = DARK_DATA, c: Palette = DARK): string => {
   switch (q) {
@@ -40,22 +40,6 @@ export const verdictWord = (q: Quality, language: Language): string => t(`verdic
 export const localHHMM = (d: Date, tzHours: number): string => {
   const l = new Date(d.getTime() + tzHours * 3_600_000);
   return `${String(l.getUTCHours()).padStart(2, '0')}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
-};
-
-/** 다섯 칸 — 채운 칸 수가 판정 단계입니다. */
-export const VerdictMeter: React.FC<{ quality: Quality; cellWidth?: number; cellHeight?: number }> = ({
-  quality, cellWidth = 6, cellHeight = 10,
-}) => {
-  const color = useThemeColors(); const dataColor = useDataColors();
-  const n = verdictLevel(quality);
-  const on = verdictColor(quality, dataColor, color);
-  return (
-    <View style={{ flexDirection: 'row', gap: 2 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {VERDICT_ORDER.map((_, i) => (
-        <View key={i} style={{ width: cellWidth, height: cellHeight, borderRadius: 2, backgroundColor: i < n ? on : color.border }} />
-      ))}
-    </View>
-  );
 };
 
 export interface PredictionCardProps {

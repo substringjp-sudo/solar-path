@@ -600,7 +600,6 @@ export const skyColorAtDirection = (
 
 // ─── LEGACY GRADIENT API (used by predictSunset) ────────────────────────────
 
-const NIGHT: RGB = { r: 0.003, g: 0.004, b: 0.018 };
 const OVERCAST: RGB = { r: 0.42, g: 0.44, b: 0.48 };
 const SHADOWED_CLOUD: RGB = { r: 0.22, g: 0.24, b: 0.3 };
 
@@ -740,7 +739,6 @@ export const predictSunset = (
   const beta = aerosolBeta(visibilityM, rhPct, obsAod);
   const pathClarity = Math.max(0.15, beamPathTransmittance(localPath, sunAltDeg));
 
-  const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal, beta, doy);
   const horizonBeam = directBeamRGB(Math.max(sunAltDeg, 0), elevVal, latVal, beta, doy);
 
   const incidentBeam: RGB = {

@@ -83,6 +83,3 @@ export function encodePngRgba(rgba: Uint8Array, width: number, height: number, l
   }
   return out;
 }
-
-export const pngDataUri = (rgba: Uint8Array, width: number, height: number): string =>
-  'data:image/png;base64,' + toBase64(encodePngRgba(rgba, width, height));

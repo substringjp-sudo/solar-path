@@ -167,7 +167,6 @@ export const lightDataColor: DataPalette = {
   qClean: '#0E7490',
 };
 
-export type ThemeMode = 'system' | 'light' | 'dark';
 export type Scheme = 'light' | 'dark';
 export const palettes: Record<Scheme, { color: Palette; data: DataPalette }> = {
   dark: { color, data: dataColor },

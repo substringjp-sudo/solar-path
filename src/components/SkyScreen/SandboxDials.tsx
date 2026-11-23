@@ -168,7 +168,6 @@ interface StickProps {
 
 const STICK = 96;
 const STICK_KNOB = 38;
-const TRAVEL = (STICK - STICK_KNOB) / 2;
 const OFF: StickState = { active: false, east: 0, north: 0, mag: 0 };
 
 export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, relative = false, size = STICK }) => {
@@ -238,84 +237,6 @@ export const MoveStick: React.FC<StickProps> = ({ language, onStick, onNudge, re
         <View style={[styles.crossV, { left: size / 2 - 0.5 }]} />
         <View style={[styles.crossH, { top: size / 2 - 0.5 }]} />
         <Text style={styles.north}>{relative ? L3(language, '앞', 'Fwd', '前') : 'N'}</Text>
-        <View style={[styles.stickKnob, { width: knobSize, height: knobSize, borderRadius: knobSize / 2, left: (size - knobSize) / 2 + knob.x, top: (size - knobSize) / 2 + knob.y }]} />
-      </View>
-    </View>
-  );
-};
-
-interface ViewStickProps {
-  language: Lang;
-  eyeHeightM: number;
-  onEyeHeight: (m: number) => void;
-  zoomX: number;
-  onZoom: (x: number) => void;
-  size?: number;
-}
-
-/** 셔터 자리용 2축 보기 조이스틱: 좌우로 끌면 줌, 위아래로 끌면 눈 높이. */
-export const ViewStick: React.FC<ViewStickProps> = ({ language, eyeHeightM, onEyeHeight, zoomX, onZoom, size = 78 }) => {
-  const knobSize = Math.round(size * (STICK_KNOB / STICK));
-  const travel = (size - knobSize) / 2;
-  const cb = useRef({ eyeHeightM, onEyeHeight, zoomX, onZoom, travel });
-  cb.current = { eyeHeightM, onEyeHeight, zoomX, onZoom, travel };
-  const startRef = useRef({ eyeT: 0, zoomT: 0, eyeVal: eyeHeightM, zoomVal: zoomX });
-  const lastEmit = useRef(0);
-  const [knob, setKnob] = useState({ x: 0, y: 0 });
-
-  const applyDrag = (dx: number, dy: number, final: boolean) => {
-    const now = Date.now();
-    if (!final && now - lastEmit.current < DIAL_EMIT_MS) return;
-    lastEmit.current = now;
-    const spanPx = 110;
-    const nextZoomT = clamp01(startRef.current.zoomT + dx / spanPx);
-    const nextEyeT = clamp01(startRef.current.eyeT - dy / spanPx);
-    const nextZoom = roundZoom(tToValue(nextZoomT, ZOOM_RANGE));
-    const nextEye = roundEye(tToValue(nextEyeT, EYE_RANGE));
-    cb.current.onZoom(final ? snapValue(nextZoom, ZOOM_RANGE, ZOOM_TICKS) : nextZoom);
-    cb.current.onEyeHeight(final ? snapValue(nextEye, EYE_RANGE, EYE_TICKS) : nextEye);
-  };
-
-  const pan = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => {
-      gestureBlock(true);
-      startRef.current = {
-        eyeT: tOf(cb.current.eyeHeightM, EYE_RANGE),
-        zoomT: tOf(cb.current.zoomX, ZOOM_RANGE),
-        eyeVal: cb.current.eyeHeightM,
-        zoomVal: cb.current.zoomX,
-      };
-    },
-    onPanResponderMove: (_e, g) => {
-      setKnob(clampKnob(g.dx, g.dy, cb.current.travel));
-      applyDrag(g.dx, g.dy, false);
-    },
-    onPanResponderRelease: (_e, g) => {
-      gestureBlock(false);
-      setKnob({ x: 0, y: 0 });
-      applyDrag(g.dx, g.dy, true);
-    },
-    onPanResponderTerminate: () => {
-      gestureBlock(false);
-      setKnob({ x: 0, y: 0 });
-    },
-  })).current;
-
-  return (
-    <View
-      {...pan.panHandlers}
-      style={[styles.stick, { width: size, height: size, borderRadius: size / 2 }]}
-      accessible
-      accessibilityLabel={L3(language, '보기 조이스틱, 좌우 줌 · 상하 높이', 'View joystick, sideways zoom and vertical height', '表示ジョイスティック、左右でズーム・上下で高さ')}
-    >
-      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <View style={[styles.crossV, { left: size / 2 - 0.5 }]} />
-        <View style={[styles.crossH, { top: size / 2 - 0.5 }]} />
-        <Text style={styles.north}>{fmtEye(eyeHeightM)}</Text>
-        <Text style={[styles.north, { top: undefined, bottom: 2 }]}>{fmtZoom(zoomX)}</Text>
         <View style={[styles.stickKnob, { width: knobSize, height: knobSize, borderRadius: knobSize / 2, left: (size - knobSize) / 2 + knob.x, top: (size - knobSize) / 2 + knob.y }]} />
       </View>
     </View>

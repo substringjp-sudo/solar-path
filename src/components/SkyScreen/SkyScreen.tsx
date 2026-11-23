@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Platform, Switch, Image, Dimensions } from 'react-native';
-import { SlidersHorizontal, Sun, Sunset, Moon, Target, SlidersVertical, CloudOff, RefreshCw, Globe, ListChecks, Play, Square } from 'lucide-react-native';
+import { Sun, Sunset, Moon, SlidersVertical, CloudOff, RefreshCw, ListChecks, Play, Square } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { HEADER_HEIGHT, belowHeader } from '../../utils/headerLayout';
@@ -65,11 +65,11 @@ import { useForecastDays } from '../../hooks/useForecastDays';
 import { UpcomingCards } from './UpcomingCards';
 import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, type } from '../../theme/tokens';
-import { makeStyles, useThemeColors, OVERLAY_THEME } from '../../theme/useTheme';
+import { makeStyles, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { distanceM } from '../../utils/geoMove';
 import type { MoveMode } from '../../utils/joystickMotion';
-import { SandboxPanel, type FarStatus } from './SandboxPanel';
+import { type FarStatus } from './SandboxPanel';
 import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface } from '../glass/GlassSurface';
@@ -130,16 +130,6 @@ interface SkyScreenProps {
   onOpenData?: () => void;
 }
 
-export interface EventItem {
-  id: string;
-  title: string;
-  time: Date;
-  category: 'featured' | 'general';
-  icon?: string;
-  badge?: string;
-  description: string;
-}
-
 export const SkyScreen: React.FC<SkyScreenProps> = ({
   theme,
   currentTime,
@@ -155,7 +145,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   onOpenLearn,
   onOpenData,
 }) => {
-  const color = useThemeColors(); const styles = useStyles();
+  const styles = useStyles();
   // 2026-11-19 초보자 화면 덜어내기(docs/SANDBOX_MODE_PLAN.md 2.4): 꺼짐이 기본, 켜면 지금까지의 모든 조작.
   const expertMode = useCelestialStore(s => s.expertMode);
   const setExpertMode = useCelestialStore(s => s.setExpertMode);
@@ -1357,42 +1347,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
           )}
     </>
-  );
-
-  // 샌드박스 조작부(눈 높이 · 이동 · 먼 건물 · 내 위치): 지금 위 왼쪽 패널과 새 틀의 "이동" 칸이 같은 것을 씁니다.
-  const sandboxPanelEl = (
-    <SandboxPanel
-              language={language}
-              activeTool="move"
-              far={{ status: farStatus, onLoad: loadFarBuildings }}
-              getView={() => sceneRef.current?.getRenderState?.()?.view ?? null}
-              getLoad={() => sceneRef.current?.getBuildingProgress?.() ?? null}
-              eyeHeightM={eyeH}
-              onEyeHeight={setEyeH}
-              mode={moveMode}
-              onMode={changeMoveMode}
-              drive={{
-                // 움직이는 동안 저장된 위치는 그대로 두고 장면의 눈만 옮깁니다. 손을 놓고 속도가 가라앉으면 그 자리를 새 위치로 한 번 저장하고(날씨 · 지형 · 건물은 그때 받습니다),
-                // 확정 없이 접으면 눈을 저장된 위치로 되돌립니다. 저장소에서 바로 읽어야 방금 확정한 위치가 옵니다.
-                getOrigin: () => {
-                  const c = useCelestialStore.getState().location?.coords ?? { latitude, longitude };
-                  return { latitude: c.latitude, longitude: c.longitude };
-                },
-                setEye: (p) => sceneRef.current?.setEyeLocation?.(p.latitude, p.longitude),
-                clearEye: () => sceneRef.current?.clearEyeLocation?.(),
-                commit: setSpot,
-                onGrab: glide.finish,
-              }}
-              awayM={homeCoords ? distanceM(homeCoords, { latitude, longitude }) : null}
-              home={homeCoords}
-              onHome={() => {
-                if (!homeCoords) return;
-                // 움직이던 눈이 옛 자리로 번쩍 되돌아가지 않게, 눈을 먼저 그 자리로 옮기고 위치를 바꿉니다.
-                glide.cancel();
-                sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
-                setSpot(homeCoords);
-              }}
-            />
   );
 
   const shutterMoveDriver = useJoystickDriver({

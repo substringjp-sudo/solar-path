@@ -508,10 +508,10 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
   ok(!rd(Cu.dir, 'low_tw_plain', 'merged').startsWith('ERR') && rd(Cu.dir, 'low_tw_plain', 'merged').length > 1000, 'EffectPass 합친 글자를 얻음(비교가 비지 않음)');
   ok(OFF_RUNS.every(r => count(rd(Cu.dir, r.tag, 'cloudsFrag'), '§179') === 0 && count(rd(Cu.dir, r.tag, 'shadowFrag'), '§179') === 0), '끈 글자에 §179 표지 없음');
   ok(R.defaults.every(([k, v]) => ({ tsun: 0, tsunN: 128, tsunRangeKm: 400, archLight: 0, archNoT: 0, tsunRef: 0, tsunRefStepM: 200, tsunDebug: 0, tsunSync: false })[k] === v), 'DEFAULT_VOLUMETRIC_OPTIONS: T_sun 손잡이 모두 끔 ' + JSON.stringify(R.defaults));
-  {   // 앱이 넘기지 않음(정적) — SkyScene3D·VolumetricProbe·스토어·개발 패널에 손잡이 이름이 없음
-    const files = ['src/components/SkyScene3D/SkyScene3D.tsx', 'src/components/VolumetricProbe/VolumetricProbe.tsx', 'src/store/useCelestialStore.ts', 'src/components/SkyScreen/DevTuningPanel.tsx'];
+  {   // 앱이 넘기지 않음(정적) — SkyScene3D·스토어·개발 패널에 손잡이 이름이 없음
+    const files = ['src/components/SkyScene3D/SkyScene3D.tsx', 'src/store/useCelestialStore.ts', 'src/components/SkyScreen/DevTuningPanel.tsx'];
     const hits = files.filter(f => fs.existsSync(path.join(ROOT, f)) && /\b(tsun|tsunN|archLight|archNoT|tsunRef|tsunDebug|tsunSync|setTsunAtlas)\b/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
-    ok(hits.length === 0, '앱 길(SkyScene3D·VolumetricProbe·스토어·개발 패널)이 T_sun 손잡이를 넘기지 않음' + (hits.length ? ' — 있음: ' + hits.join(', ') : ''));
+    ok(hits.length === 0, '앱 길(SkyScene3D·스토어·개발 패널)이 T_sun 손잡이를 넘기지 않음' + (hits.length ? ' — 있음: ' + hits.join(', ') : ''));
   }
 
   console.log('\n[U0a] 정적 활성 샘플러 수');

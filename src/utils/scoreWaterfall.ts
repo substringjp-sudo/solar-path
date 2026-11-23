@@ -82,8 +82,6 @@ export function sunsetWaterfall(b: SunsetScoreBreakdown | null | undefined, lang
   };
 }
 
-const fmtMag = (d: number) => `${d <= -0.05 ? '−' : ''}${Math.abs(d).toFixed(1)}`;
-
 export function starWaterfall(r: StarResult, lang: Lang): Waterfall {
   const rows: WaterfallRow[] = [];
   let run = r.startMag;
@@ -111,5 +109,3 @@ export function starWaterfall(r: StarResult, lang: Lang): Waterfall {
     scaleMax: 7,
   };
 }
-
-export { fmtMag as formatWaterfallMag };

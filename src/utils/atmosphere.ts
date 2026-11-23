@@ -136,16 +136,6 @@ export const TWILIGHT_END_DEG = -16.0;
 export const NIGHT_SKY: RGB = { r: 0.0008, g: 0.0011, b: 0.0026 };
 
 /**
- * 다중산란 경로 길이를 직달 경로의 몇 배로 볼지.
- *
- * Why: 상한을 상수로만 두면 해가 지평선에 걸렸을 때 문제가 생깁니다. 그 순간에는
- * 대기로 들어오는 빛 자체가 이미 붉기 때문에 다중산란 성분도 붉어야 하는데,
- * 상한이 낮으면 파랑이 과하게 살아남아 오히려 덜 붉어집니다.
- * 그래서 태양이 낮을수록 다중산란 경로도 함께 길어지도록 비례항을 둡니다.
- */
-export const MS_AIRMASS_FRACTION = 0.35;
-
-/**
  * 유효 산란 고도 — 시선 고도에 따른 대기 척도고도(scale height) 배수.
  *
  * Why: 하늘 전체에 태양 대기질량 하나를 쓰면, 해가 지평선에 걸렸을 때 천정까지
@@ -379,12 +369,6 @@ export function hgPhase(cosGamma: number, g: number): number {
   const gg = g * g;
   const denom = 1 + gg - 2 * g * cosGamma;
   return (1 - gg) / (4 * Math.PI * Math.pow(Math.max(1e-4, denom), 1.5));
-}
-
-/** GLSL smoothstep과 같은 식 — TS/셰이더 게이트가 갈라지지 않게 */
-function smoothstep01(edge0: number, edge1: number, x: number): number {
-  const t = clamp01((x - edge0) / (edge1 - edge0));
-  return t * t * (3 - 2 * t);
 }
 
 /** 천정 방향 Rayleigh 광학두께 (채널별) */
@@ -1115,17 +1099,6 @@ export function cloudTauFromDNI(
   const tauSlant = -Math.log(T);
   const tauVert = tauSlant * Math.sin(Math.max(5, sunAltDeg) * (Math.PI / 180));
   return { tauVert: Math.max(0, tauVert), saturated };
-}
-
-export interface CloudShadingResult {
-  /** 태양을 향한 면 */
-  lit: RGB;
-  /** 그늘진 면 */
-  shadow: RGB;
-  /** 2-stream 확산 반사율 (윗면이 얼마나 흰가) */
-  diffuseReflectance: number;
-  /** 확산 투과율 (아래에서 볼 때 얼마나 빛이 새어나오는가) */
-  diffuseTransmittance: number;
 }
 
 // ── 5) GLSL — 위 TS 구현과 같은 상수를 주입해 생성 ─────────────────────────

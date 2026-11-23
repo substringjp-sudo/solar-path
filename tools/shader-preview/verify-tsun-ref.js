@@ -581,7 +581,7 @@ function runMirror(js, env, args) {
     // 검토 회귀 2: 스냅샷 커밋 안의 고침도 보게 §179 전 커밋부터의 차
     const df = execFileSync('git', ['-C', ROOT, 'diff', '--name-only', PRE179, '--', ...frozen, 'tools/genus-ruler/volsky/capture-core.ts', 'tools/genus-ruler/volsky/run.js', 'docs'], { encoding: 'utf8' }).trim();
     ok(st === '' && df === '', `동결 파일(grain/** · volsky entry·capture* · RULER-tsun 동결 후보 자료 · docs) 작업 트리 그대로 · ${PRE179} 부터 커밋된 고침 없음` + (st || df ? ' — ' + (st + '\n' + df).trim().split('\n').slice(0, 4).join(', ') : ''));
-    const appFiles = ['src/components/SkyScene3D/SkyScene3D.tsx', 'src/components/VolumetricProbe/VolumetricProbe.tsx', 'src/store/useCelestialStore.ts', 'src/components/SkyScreen/DevTuningPanel.tsx'];
+    const appFiles = ['src/components/SkyScene3D/SkyScene3D.tsx', 'src/store/useCelestialStore.ts', 'src/components/SkyScreen/DevTuningPanel.tsx'];
     const hits = appFiles.filter(f => fs.existsSync(path.join(ROOT, f)) && /\b(tsunRef|tsunDebug|tsunRefStepM|entry-tsun|tsun-harness)\b/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
     ok(hits.length === 0, '앱 길이 REF·진단 손잡이를 넘기지 않음' + (hits.length ? ' — ' + hits.join(', ') : ''));
   }

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking, AppState, BackHandler } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking, AppState } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -18,8 +18,8 @@ import { parseTeleportUrl } from './utils/teleport';
 import { t, L3 } from './utils/i18n';
 import { PressScale } from './components/ui';
 import { springTo, timeTo } from './theme/motion';
-import { motion, color } from './theme/tokens';
-import { makeStyles, useThemeColors, useScheme } from './theme/useTheme';
+import { motion } from './theme/tokens';
+import { makeStyles, useThemeColors } from './theme/useTheme';
 
 /** 가운데 창은 94% 에서 스프링으로 커지며 나타납니다(docs/DESIGN_SYSTEM.md §7). */
 const POP_FROM = motion.popFrom;
@@ -74,7 +74,7 @@ const LOAD_IMAGES = [
 ];
 
 export default function App() {
-  const color = useThemeColors(); const styles = useStyles(); const scheme = useScheme();
+  const color = useThemeColors(); const styles = useStyles();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus, setTeleportTarget, statusBarIcon } = useCelestialStore();
   const {
@@ -93,18 +93,11 @@ export default function App() {
     contentOpacity,
     contentTranslateX,
     currentTime,
-    currentTimeLocal,
-    timezoneLabel,
     location,
     locationPermission,
     isTimeMachineEnabled,
-    userRotation,
-    isGyroEnabled,
     savedLocations,
     setLocation,
-    setUserRotation,
-    setGyroEnabled,
-    resetRotation,
     removeSavedLocation,
     addSavedLocation,
     myPhotos,
@@ -121,10 +114,8 @@ export default function App() {
     handleTimeChange,
     handleDateChange,
     datePickerValue,
-    handleSaveLocation,
     handleSelectSavedLocation,
     defaultCoords,
-    isSimulationLoading,
   } = useCelestialApp();
 
   // 앱 마운트 시 백그라운드 데이터(날씨, 지형 캐시 등) 프리로드 실행

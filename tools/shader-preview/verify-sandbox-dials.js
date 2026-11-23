@@ -164,7 +164,7 @@ const RAD = Math.PI / 180;
     ok(/const ref: HeadingRef = rel && getView \? 'view' : 'compass';/.test(panel) && /getHeading: \(\) => getView\?\.\(\)\?\.az \?\? null/.test(panel) && /useJoystickDriver\(\{[^}]*\bref\b/.test(panel),
        "(b) 시선 기준(토글 켜짐 그리고 getView 있음)일 때만 구동기 기준이 'view' 이고, 시선 방위는 getView() 의 az 에서(없으면 null) 읽는다");
     ok(/const \[rel, setRel\] = React\.useState\(true\);/.test(panel), '(c) 시선 기준 토글의 처음 값은 켜짐(기본은 시선 기준)');
-    ok(/getView=\{\(\) => sceneRef\.current\?\.getRenderState\?\.\(\)\?\.view \?\? null\}/.test(sky), '(d) SkyScreen 이 장면의 getRenderState().view 를 getView 로 넘긴다');
+    ok(/getView=\{frameGetView\}/.test(sky) && /<LiveReadout[^>]*getView=\{[^}]*sceneRef\.current\?\.getRenderState\?\.\(\)\?\.view/.test(sky), '(d) SkyScreen 이 장면의 getRenderState().view 를 getView 로 넘긴다');
     const dirsSrc = (dials.match(/const dirs: [^=]*= relative \? \[([\s\S]*?)\] : \[([\s\S]*?)\];/) || ['', '', '']);
     const relBlock = dirsSrc[1], northBlock = dirsSrc[2];
     ok(/relative\?: boolean;/.test(dials) && ['앞으로', '오른쪽으로', '뒤로', '왼쪽으로'].every(w => relBlock.includes(w)) && !/북쪽으로|동쪽으로|남쪽으로|서쪽으로/.test(relBlock) &&

@@ -16,7 +16,7 @@
  */
 import { getPrimarySky, setPrimarySky } from './primarySky';
 import React, { useRef, useCallback, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
-import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated, Platform, PixelRatio } from 'react-native';
+import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, Animated, Platform, PixelRatio } from 'react-native';
 import { registerWorkletModule } from '../VolumetricProbe/skyWorklet';
 
 if (Platform.OS !== 'web') {
@@ -79,21 +79,17 @@ export {
 import { styles } from './SkyScene3D.styles';
 
 import {
-  createTerrainRing,
   createTerrainBands,
   updateTerrainBands,
   type TerrainBandsHandle,
   createGroundPlane,
   setGroundHorizon,
-  makeWaterTexture,
   createCompassGroup,
-  updateTerrainColors,
   updateGroundColors,
   disposeTerrainRing,
   disposeGroundPlane,
   disposeCompassGroup,
   seaHorizonDipDeg,
-  TERRAIN_MAX_ANGLE_DEG,
 } from './TerrainRing';
 import { createSun, updateSun, sunDisplayScale, setSunCloudAlpha, type SunHandle } from './SunMesh';
 import { sunVisibility, aerosolOpticsFromObs } from '../../utils/sunVisibility';
@@ -107,7 +103,6 @@ import {
   createTerrainField,
   updateTerrainFieldEye,
   FIELD_FAR_M,
-  FAR_FIELD_NEAR_M,
   FAR_FIELD_FAR_M,
   FAR_FIELD_RINGS,
   FIELD_RINGS,
@@ -120,7 +115,7 @@ import {
   computeNightWindowGlow,
   type BuildingFieldHandle,
 } from './BuildingField';
-import { fetchNearbyBuildings, buildMergedBuildingGeometry, BUILDING_RADIUS_M, type BuildingMeshData } from '../../utils/buildingTiles';
+import { fetchNearbyBuildings, BUILDING_RADIUS_M, type BuildingMeshData } from '../../utils/buildingTiles';
 import type { LoadProgress } from '../../utils/loadProgress';
 import { loadFarBuildings, type FarTileData } from '../../utils/farBuildingsLoad';
 import { fetchUrbanMask } from '../../utils/mvtTiles';
@@ -165,10 +160,7 @@ import {
   createSceneComposer,
   assignLayer,
   DEFAULT_SOFT_SCALE,
-  LAYER_SOFT_SKY,
   LAYER_MID,
-  LAYER_SOFT_CLOUD,
-  LAYER_FRONT,
   LAYER_CELESTIAL,
   LAYER_TERRAIN_DIST,
   LAYER_TERRAIN_LIT,
@@ -195,15 +187,8 @@ import { fetchNearestMetar, type MetarObs } from '../../utils/metar';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
-  blendedOpticsFromWeather,
   representativeTauForObserver,
-  type BlendedOptics,
 } from '../../utils/cloudPresets';
-
-/** 방향별 광학을 담는 재사용 버퍼 — 갱신마다 576번 불리므로 새로 만들지 않습니다. */
-const _genusOut: BlendedOptics = {
-  tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
-};
 import {
   WeatherFan,
   buildSkyColumns,
@@ -216,8 +201,8 @@ import {
   type ColumnOptics,
 } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
+import { layerTauScale } from '../../utils/cloudProfile';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyTuningUniforms, angularSeparationDeg, groundLighting, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
 import { getApparentAltitude } from '../../utils/sunsetPhysics';
 import { DEFAULT_TUNING, getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -791,7 +776,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 넘기는 점에 닿을 때 관측점으로 돌아오게 조금씩 데려옵니다.
     if (p <= P_FADE_START) mapCenterRef.current = { ...homeRef.current };
     else if (!opts.keepCenter) mapCenterRef.current = homeCenterStep(mapCenterRef.current, homeRef.current, prev, p);
-    const c = mapCenterRef.current;
     // ⚠ 진행도 ↔ 축척은 **관측점 위도**로 풉니다(3D 땅 폭이 거기서 정해짐). 지도 한가운데
     //   위도로 풀면 지도를 위아래로 끈 뒤 다음 손짓에서 축척이 수십 % 튑니다.
     const lonDelta = lonDeltaForProgress(p, homeRef.current.latitude, aspect);
@@ -1612,8 +1596,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** makeAtmosphereParams 결과 캐시 (2분 간격) */
   const cachedAtmosphereRef = useRef<ReturnType<typeof makeAtmosphereParams> | null>(null);
   const cachedAtmosphereMsRef = useRef(0);
-  /** computeEquToHorizon 마지막 갱신 시각 (30초 간격) */
-  const cachedEquToHorizonMsRef = useRef(0);
   /** buildPlanetPoints 결과 캐시 (30초 간격) */
   const cachedPlanetPointsRef = useRef<ReturnType<typeof buildPlanetPoints> | null>(null);
   const cachedPlanetPointsMsRef = useRef(0);
@@ -1624,8 +1606,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** updateCelestialPaths 마지막 갱신 시각 (30초 간격) */
   const sunDiscRadiusDegRef = useRef(0.267);
   const lastCelestialPathsMsRef = useRef(0);
-  /** getSunPath/getMoonPath 날짜 키 캐시 (같은 날이면 재계산 생략) */
-  const cachedSunPathDateRef = useRef('');
   /** setCelestialLabels 마지막 호출 시각 (4fps = 250ms 스로틀) */
   const lastLabelUpdateMsRef = useRef(0);
 
@@ -2053,15 +2033,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 얇은 중층은 얇게(`cloudProfile.layerTauScale`) — 그림자도 화면의 구름과 같은 두께로.
     const k = layerTauScale(layer, obs);
     return k === 1 ? o : { ...o, tau: o.tau * k };
-  }, []);
-
-  /**
-   * 화면 픽셀 하나의 각크기 (rad). 덱의 밉 필터 보정이 이걸로 축소율을
-   * 해석적으로 구합니다 — 미분(dFdx)을 쓰지 않아도 됩니다.
-   */
-  const pixelAngleRad = useCallback(() => {
-    const h = Math.max(1, glRef.current?.drawingBufferHeight ?? 1000);
-    return (fovRef.current * Math.PI) / 180 / h;
   }, []);
 
   const getTouchDist = (touches: any[]) => {
@@ -3817,21 +3788,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [location]);
 
   const rebuildCloudsForDate = useCallback((targetDate: Date, sampled?: SampledSky | null) => {
-    const lat = locationRef.current?.coords?.latitude ?? 37.5;
-
-    const atmosphere =
-      sampled?.atmosphere ??
-      makeAtmosphereParams({
-        visibilityM: observerWeather()?.visibility,
-        humidityPct: observerWeather()?.humidity,
-        aod550: observerWeather()?.aod550,
-        dustUgM3: observerWeather()?.dust,
-        pm10: observerWeather()?.pm10,
-        observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
-        latitude: lat,
-        dayOfYear: dayOfYearOf(targetDate),
-      });
-
     let builtSamples;
     let builtOptics: ColumnOptics;
     if (sampled) {
@@ -4425,7 +4381,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const sceneW = fullScreen ? width : SCENE_WIDTH;
   const sceneH = fullScreen ? height : SCENE_HEIGHT;
-  const minDim = Math.min(sceneW, sceneH);
 
   const curLat = location?.coords?.latitude ?? 37.5;
   const curLon = location?.coords?.longitude ?? 127.0;
