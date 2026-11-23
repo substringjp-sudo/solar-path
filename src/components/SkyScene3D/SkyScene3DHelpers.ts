@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 import SunCalc from 'suncalc';
-import { type HeightSampler, type PickedTarget, type TargetPoint } from '../../utils/demPick';
+import { type HeightSampler, type PickedTarget } from '../../utils/demPick';
 import { makeDemSampler } from '../../utils/demSampler';
-import { type HorizonProfile } from '../../utils/horizon';
 import { type DemPatch } from '../../utils/demTiles';
 import { buildMergedBuildingGeometry, type BuildingMeshData } from '../../utils/buildingTiles';
-import type { LoadProgress } from '../../utils/loadProgress';
 import { picksToElements, concatBuildingMeshData, type FarTileData } from '../../utils/farBuildingsLoad';
 import { FAR_OUTER_M } from '../../utils/farBuildings';
 import { flattenDemPatchUnderBuildings, type BuildingCover } from '../../utils/demBuildingFlatten';
@@ -129,39 +127,6 @@ export interface SkyRenderState {
   slab: null;
   volPhase: VolumetricPhaseOf;
   scene: VolumetricSceneState | null;
-}
-
-export interface SkyScene3DHandle {
-  takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
-  getLastSnapshotError: () => string | null;
-  getLastBufferMean: () => number;
-  getRenderState: () => SkyRenderState | null;
-  isVolumetricReady: () => boolean;
-  renderRemote: (view: { az: number; el: number; fov: number }, opts?: { waitMs?: number; format?: 'jpeg' | 'png'; compress?: number; requireReady?: boolean }) => Promise<{ uri: string | null; ready: boolean; error: string | null; state: SkyRenderState | null }>;
-  renderLongExposure: (
-    view: { az: number; el: number; fov: number; rollDeg?: number },
-    opts: LongExposureSimOptions,
-  ) => Promise<LongExposureSimResult>;
-  cancelLongExposure?: () => void;
-  beginLiveAccum?: (opts?: { lighten?: boolean; exposureGain?: number; shadowLift?: number; starBoost?: number }) => void;
-  stepLiveAccum?: (timeMs: number) => void;
-  endLiveAccum?: () => void;
-  flyToMap: () => void;
-  setCameraView?: (
-    azDeg: number,
-    elDeg: number,
-    fovDeg?: number,
-    opts?: { rollDeg?: number; centerOffsetYFrac?: number },
-  ) => void;
-  clearCameraLensOverride?: () => void;
-  getSkyline?: () => ((azDeg: number) => number | null) | null;
-  getHorizonProfile?: () => HorizonProfile | null;
-  targetFromLatLon?: (latitude: number, longitude: number, elevM: number) => (TargetPoint & { eyeElevM: number }) | null;
-  setEyeLocation?: (latitude: number, longitude: number) => void;
-  clearEyeLocation?: () => void;
-  getEyeState?: () => EyeState;
-  getBuildingProgress?: () => LoadProgress;
-  loadFarBuildings?: (opts?: { onProgress?: (p: { tilesDone: number; tilesTotal: number; bytes: number }) => void }) => Promise<FarBuildingsResult | null>;
 }
 
 const tempPlanetVec = new THREE.Vector3();

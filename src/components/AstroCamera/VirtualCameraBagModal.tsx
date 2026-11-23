@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
   },
   tilePressed: { opacity: 0.82 },
   artWrap: {
-    width: 68,
+    width: 82,
     height: 68,
     alignItems: 'center',
     justifyContent: 'center',
