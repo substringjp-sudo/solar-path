@@ -3297,12 +3297,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         const composerNow = composerRef.current;
         if (composerNow) {
-          const rayAlt = (getApparentAltitude(sunAltRef.current) * Math.PI) / 180;
-          const rayAz = (sunAzRef.current * Math.PI) / 180;
-          composerNow.setSun(
-            sunDirRayVec.set(Math.cos(rayAlt) * Math.sin(rayAz), Math.sin(rayAlt), -Math.cos(rayAlt) * Math.cos(rayAz)),
-            sunAltRef.current,
-          );
+          const useMoonComposerDir = sunAltRef.current < -6 && !!moonRef.current?.group.visible && layersRef.current.moon;
+          if (useMoonComposerDir && moonRef.current) {
+            sunDirRayVec.copy(moonRef.current.group.position).normalize();
+            const moonComposerAlt = (Math.asin(Math.max(-1, Math.min(1, sunDirRayVec.y))) * 180) / Math.PI;
+            composerNow.setSun(sunDirRayVec, moonComposerAlt);
+          } else {
+            const rayAlt = (getApparentAltitude(sunAltRef.current) * Math.PI) / 180;
+            const rayAz = (sunAzRef.current * Math.PI) / 180;
+            composerNow.setSun(
+              sunDirRayVec.set(Math.cos(rayAlt) * Math.sin(rayAz), Math.sin(rayAlt), -Math.cos(rayAlt) * Math.cos(rayAz)),
+              sunAltRef.current,
+            );
+          }
           const volTex = stepVolumetricScene(now, composerNow, altitudeM, effectiveAz, effectiveElev, rv);
           renderFrameWithComposer(composerNow, dw, dh, volTex);
         } else {
@@ -3428,11 +3435,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const nightFade = nightT * nightT * (3 - 2 * nightT);
     const cloudBounce = 1.0 + 0.65 * Math.min(1, Math.max(0, overcast));
     const expComp = cityExpCompRef.current;
-    const baseCityTerrainGain = cityLightsOn ? 0.008 * cloudBounce * nightFade * expComp : 0;
+    const tzOffsetHours = useCelestialStore.getState().timezoneOffsetHours ?? (-targetDate.getTimezoneOffset() / 60);
+    const localD = new Date(targetDate.getTime() + tzOffsetHours * 3600_000);
+    const localHour = localD.getUTCHours() + localD.getUTCMinutes() / 60 + localD.getUTCSeconds() / 3600;
+    const cityTimeScale = localHour >= 22
+      ? 1.0 - 0.32 * (localHour - 22) / 2
+      : localHour < 2
+        ? 0.68 - 0.33 * (localHour / 2)
+        : localHour < 5
+          ? 0.35
+          : localHour < 7
+            ? 0.35 + 0.40 * (localHour - 5) / 2
+            : localHour < 18
+              ? 0.75
+              : 0.75 + 0.25 * (localHour - 18) / 4;
+    const baseCityTerrainGain = cityLightsOn ? 0.008 * cloudBounce * nightFade * expComp * cityTimeScale : 0;
     const hasCityPatch = Boolean(cityLightsOn && cityField && cityField.patch.length > 0);
     const cityTerrainGain = baseCityTerrainGain * skyGlow;
-    const cityPatchScale = hasCityPatch ? 0.024 * nightFade * expComp : 0;
-    const cityWallGain = cityLightsOn ? 0.014 * skyGlow * cloudBounce * nightFade * expComp : 0;
+    const cityPatchScale = 0;
+    const cityWallGain = cityLightsOn ? 0.028 * skyGlow * cloudBounce * nightFade * expComp * cityTimeScale : 0;
 
     if (terrainFieldRef.current) {
       const tf = terrainFieldRef.current;
@@ -3444,6 +3465,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const tu = tf.material.uniforms;
       if (tu.uCityTerrainGain) tu.uCityTerrainGain.value = cityTerrainGain;
       if (tu.uCityPatchScale) tu.uCityPatchScale.value = cityPatchScale;
+      if (tu.uCityTimeScale) tu.uCityTimeScale.value = cityTimeScale;
       if (tu.uCityDirXZ?.value) (tu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
     }
     if (buildingFieldRef.current) {
@@ -3451,15 +3473,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (bu.uCityWallGain) bu.uCityWallGain.value = cityWallGain;
       if (bu.uCityDirXZ?.value) (bu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
       if (bu.uObsElevM) bu.uObsElevM.value = simRef.current?.terrain?.observerElevation ?? 0;
-      const tzOffsetHours = useCelestialStore.getState().timezoneOffsetHours ?? (-targetDate.getTimezoneOffset() / 60);
-      const localD = new Date(targetDate.getTime() + tzOffsetHours * 3600_000);
-      const localHour = localD.getUTCHours() + localD.getUTCMinutes() / 60 + localD.getUTCSeconds() / 3600;
       buildingFieldRef.current.setWindowLighting(
         computeNightWindowRate(localHour),
         computeNightWindowGlow(sunAltRef.current, cityLightsOn, localNorm),
       );
-      const lampT = cityLightsOn ? Math.max(0, Math.min(1, (1 - sunAltRef.current) / 5)) : 0;
-      const lampGlow = lampT * lampT * (3 - 2 * lampT);
+      const lampT = cityLightsOn ? Math.max(0, Math.min(1, (6.5 - sunAltRef.current) / 7.5)) : 0;
+      const lampRegion = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
+      const lampTime = 0.65 + 0.35 * cityTimeScale;
+      const lampGlow = lampT * lampT * (3 - 2 * lampT) * lampRegion * lampTime;
       buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
       terrainFieldRef.current?.setLampGlow(lampGlow);
     }

@@ -1097,40 +1097,18 @@ export async function createVolumetricScene(
       '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
       '}',
       'uniform vec3 cityTerrainIrr;',
-      'uniform vec3 cityGroundIrr;',
       'uniform vec3 cityAir;',
       'uniform float cityAirOn;',
+      'uniform float nightDark;',
       'uniform float cityAz[36];',
       'uniform float cityAzOn;',
       'uniform vec3 cityNorth;',
       'uniform vec3 cityEast;',
-      'uniform sampler2D cityTex;',
-      'uniform float cityTexOn;',
-      'uniform float cityExtentM;',
       'float volCityAzGain(vec3 rd) {',
       '  if (cityAzOn < 0.5) return 1.0;',
       '  float cA = mod(degrees(atan(dot(rd, cityEast), dot(rd, cityNorth))) + 360.0, 360.0) / 10.0 - 0.5;',
       '  int cI = int(floor(cA)); float cU = cA - floor(cA);',
       '  return mix(cityAz[(cI + 36) % 36], cityAz[(cI + 37) % 36], cU);',
-      '}',
-      'vec3 volCitySparkle(vec2 posM, float km, float dens) {',
-      '  float cell1 = mix(36.0, 130.0, smoothstep(1.0, 16.0, km));',
-      '  vec2 g1 = posM / cell1; vec2 id1 = floor(g1); vec2 f1 = fract(g1);',
-      '  float h1 = fract(sin(dot(id1, vec2(127.1, 311.7))) * 43758.5453);',
-      '  float h2 = fract(sin(dot(id1, vec2(269.5, 183.3))) * 43758.5453);',
-      '  float h3 = fract(sin(dot(id1, vec2(419.2, 371.9))) * 43758.5453);',
-      '  float r1 = mix(0.22, 0.36, smoothstep(1.0, 14.0, km));',
-      '  float dot1 = smoothstep(r1, 0.02, length(f1 - vec2(0.22 + 0.56 * h1, 0.22 + 0.56 * h2)));',
-      '  float on1 = smoothstep(0.76 - 0.56 * dens, 0.96 - 0.56 * dens, h3);',
-      '  vec2 g2 = posM / (cell1 * 2.65); vec2 id2 = floor(g2); vec2 f2 = fract(g2);',
-      '  float k1 = fract(sin(dot(id2, vec2(113.5, 271.9))) * 43758.5453);',
-      '  float k2 = fract(sin(dot(id2, vec2(337.1, 149.7))) * 43758.5453);',
-      '  float dot2 = smoothstep(0.34, 0.03, length(f2 - vec2(0.25 + 0.50 * k1, 0.25 + 0.50 * k2)));',
-      '  float on2 = smoothstep(0.84 - 0.45 * dens, 0.99 - 0.45 * dens, k2);',
-      '  vec3 tint1 = h2 < 0.55 ? vec3(1.18, 0.72, 0.34) : (h2 < 0.85 ? vec3(1.08, 0.90, 0.68) : vec3(0.88, 0.95, 1.12));',
-      '  vec3 tint2 = k1 < 0.65 ? vec3(1.22, 0.78, 0.40) : vec3(1.05, 0.96, 0.85);',
-      '  vec3 pts = vec3(1.00, 0.78, 0.52) * 0.14 + tint1 * (dot1 * on1 * 2.35) + tint2 * (dot2 * on2 * 1.45);',
-      '  return mix(pts, vec3(1.04, 0.80, 0.52) * 0.68, smoothstep(14.0, 35.0, km));',
       '}',
       head.replace('void mainImage(', 'void volBaseImage('),
     ].join('\n'));
@@ -1227,23 +1205,8 @@ export async function createVolumetricScene(
       '            // 해 직달(Lambert × 산·구름 그림자) + 하늘빛과 구름을 뚫은 확산 햇빛(수평면 몫) × 하늘 보임·사면 방향.',
       '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
       '            vtRad = vtAlb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + (vtSky + vtSun * vtSunH * vtFill) * vtAmb);',
-      // 야간 스카이글로우 간접광: 암부 바닥을 낮춰 산 실루엣과 건물 외벽 입체 음영을 유지
+      // 야간 스카이글로우 간접광: 암부 대비를 유지하면서 밝은 방향 건물 외벽은 은은하게 드러냄
       '            vtRad += vtAlb * albedoScale * cityTerrainIrr * (0.04 + 0.96 * pow(clamp(vtAmb, 0.0, 1.5), 1.35));',
-      // 원거리 도시 평지 불빛: 도심 근거리(<450m, 3D 창문·가로등 영역)와 산 경사면(vtDistRaw.b≈0)은 제외하고 멀리 있는 도시 평지만 반짝임
-      '            float vtFlatCity = clamp(vtDistRaw.b / 0.4, 0.0, 1.0);',
-      '            float farCityW = smoothstep(0.45, 1.40, vtKm) * vtFlatCity;',
-      '            if (cityTexOn > 0.5 && farCityW > 0.005 && dot(cityGroundIrr, vec3(1.0)) > 1e-6) {',
-      '              vec3 dCityM = (vtP - vCameraPosition) * 1000.0;',
-      '              vec2 cPosM = vec2(dot(dCityM, cityEast), dot(dCityM, cityNorth));',
-      '              vec2 cUv = cPosM / max(1.0, cityExtentM) + 0.5;',
-      '              if (cUv.x > 0.0 && cUv.x < 1.0 && cUv.y > 0.0 && cUv.y < 1.0) {',
-      '                float cEdge = 1.0 - smoothstep(0.85, 1.0, max(abs(cUv.x * 2.0 - 1.0), abs(cUv.y * 2.0 - 1.0)));',
-      '                float cMap = texture(cityTex, cUv).r * cEdge;',
-      '                if (cMap > 0.01) {',
-      '                  vtRad += cityGroundIrr * cMap * farCityW * volCitySparkle(cPosM, vtKm, clamp(cMap, 0.0, 1.0));',
-      '                }',
-      '              }',
-      '            }',
       // 젖은 갯벌·모래: 스치는 각일수록 하늘을 비춥니다(물 n=1.33 Schlick — 바다와 같은 식). 물 쪽 되비침과 한 줄로 이어집니다.
       '            if (vtWet > 0.004) {',
       '              float wCosV = max(0.02, -dot(rayDirection, vtUp));',
@@ -1348,13 +1311,13 @@ export async function createVolumetricScene(
       '    #endif',
       '    float cTer = 0.0;',
       '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) cTer = 1.0; }',
-      '    float cG = min(2.4, pow(1.1 / (max(cSin, 0.0) + 0.14), 0.65));',
-      // 밤 불빛 지도: 방위 10° 칸 세기(평균 1)를 지평선에서 쓰고 위로 갈수록 고르게.
+      '    float cG = min(1.35, pow(0.85 / (max(cSin, 0.0) + 0.16), 0.65));',
+      // 밤 불빛 지도: 방위 10° 칸 세기를 지평선에서 쓰고 천정 부근에서만 완만히 섞음.
       '    if (cityAzOn > 0.5) {',
       '      float cA = mod(degrees(atan(dot(cRd, cityEast), dot(cRd, cityNorth))) + 360.0, 360.0) / 10.0 - 0.5;',
       '      int cI = int(floor(cA)); float cU = cA - floor(cA);',
       '      float cAz = mix(cityAz[(cI + 36) % 36], cityAz[(cI + 37) % 36], cU);',
-      '      cG *= mix(cAz, 1.0, smoothstep(0.1, 0.6, cSin));',
+      '      cG *= mix(cAz, 1.0, smoothstep(0.25, 0.85, cSin));',
       '    }',
       '    outputColor.rgb += cityAir * cG * (1.0 - cOv.a) * (1.0 - fCloudAlpha) * (1.0 - cTer) * step(-0.02, cSin);',
       '  }',
@@ -1395,7 +1358,8 @@ export async function createVolumetricScene(
       '  float hOwnFrac = hCosS > 0.0 ? clamp(hShadowSpanKm / max(hClKm, 0.01), 0.0, 1.0) * hClCov : 0.0;',
       '  volEvalHaze(hRd, hUp, hNSun, hSunE * (1.0 - hOwnFrac), hSkyE, hUCl, hTCl, hLCl);',
       '  vec3 hBgPart = max(outputColor.rgb - hClPart, vec3(0.0));',
-      '  outputColor.rgb = hBgPart * hTBg + hClPart * hTCl + (1.0 - hClCov) * hLBg + hClCov * hLCl;',
+      '  float nDim = 1.0 - 0.72 * clamp(nightDark, 0.0, 1.0);',
+      '  outputColor.rgb = hBgPart * hTBg * nDim + hClPart * hTCl + ((1.0 - hClCov) * hLBg + hClCov * hLCl) * nDim;',
       '}',
     ].join('\n');
     fx.uniforms.set('hazeOn', new Uniform(0));
@@ -1414,11 +1378,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
     fx.uniforms.set('cityAir', new Uniform(new Vector3()));
     fx.uniforms.set('cityTerrainIrr', new Uniform(new Vector3()));
-    fx.uniforms.set('cityGroundIrr', new Uniform(new Vector3()));
-    fx.uniforms.set('cityTex', new Uniform(null));
-    fx.uniforms.set('cityTexOn', new Uniform(0));
-    fx.uniforms.set('cityExtentM', new Uniform(120000));
     fx.uniforms.set('cityAirOn', new Uniform(0));
+    fx.uniforms.set('nightDark', new Uniform(0));
     fx.uniforms.set('cloudSkyT', new Uniform(1));
     fx.uniforms.set('cityAz', new Uniform(new Array(36).fill(1)));
     fx.uniforms.set('cityAzOn', new Uniform(0));
@@ -1989,7 +1950,7 @@ export async function createVolumetricScene(
     const sunAlt = altOf(sun);
     lastTrueSunAlt = sunAlt;
     moonGain = 0;
-    if (opt.moonLight && sunAlt < -10) {
+    if (opt.moonLight && sunAlt < -6) {
       const obsElevM = lastInput ? Math.max(0, (lastInput.heightM ?? 0) + (lastInput.altitudeM ?? 2)) : 0;
       if (lastInput) {
         const mp = getMoonPositionPrecise(date, lastInput.lat, lastInput.lon, obsElevM);
@@ -2019,7 +1980,7 @@ export async function createVolumetricScene(
    * 1차 하네스: 1/64·위상 그대로면 보름도 거의 검고 반달(보름의 1/10)은 완전히 검었음 → 보름 −3 단(1/8), 위상은 제곱근(눈이 위상에도 적응; 반달 ≈ −1.7 단 더).
    */
   const MOON_FULL = 2.5e-6;
-  const MOON_DIM = 1 / 8;
+  const MOON_DIM = 0.065;
   /**
    * 도시 불빛(2026-11-13). 광공해 설정 c(0~1, 6.5 → 3 등급) → 한계 등급 m = 6.5 − 3.5c → 천정 밝기 SQM ≈ 14.5 + 1.08m(mag/arcsec²)
    * → 인공 천정 휘도 L_art = 10.8만·(10^(−0.4·SQM) − 10^(−0.4·21.6)) cd/m²(도심 3 등급 ≈ 0.009). 낮고 두꺼운 구름 밑면은 그 약 8 배
@@ -2036,7 +1997,7 @@ export async function createVolumetricScene(
   const applyCityMap = (p: VolumetricSceneInput) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
-    if (!cityMap) { au.get('cityAzOn')!.value = 0; au.get('cityTexOn')!.value = 0; cu.cityTexOn.value = 0; return; }
+    if (!cityMap) { au.get('cityAzOn')!.value = 0; cu.cityTexOn.value = 0; return; }
     const key = `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
     if (!cityField || cityField.key !== key) {
       cityField?.tex.dispose();
@@ -2053,9 +2014,6 @@ export async function createVolumetricScene(
     const e = curNue.elements;
     (au.get('cityNorth')!.value as Vector3).set(e[0], e[1], e[2]).normalize();
     (au.get('cityEast')!.value as Vector3).set(e[8], e[9], e[10]).normalize();
-    au.get('cityTex')!.value = cityField.tex;
-    au.get('cityTexOn')!.value = 1;
-    au.get('cityExtentM')!.value = cityField.f.halfKm * 2000;
     cu.cityTex.value = cityField.tex;
     cu.cityTexOn.value = 1;
     cu.cityExtentM.value = cityField.f.halfKm * 2000;
@@ -2064,34 +2022,38 @@ export async function createVolumetricScene(
   let cityState: { artCd: number; baseCd: number; adaptCd: number; timeF: number } | null = null;
   const cityTimeF = (date: Date, lonDeg: number) => {
     const h = ((date.getUTCHours() + date.getUTCMinutes() / 60 + lonDeg / 15) % 24 + 24) % 24;
-    if (h >= 22) return 1 - 0.25 * (h - 22) / 2;
-    if (h < 2) return 0.75 - 0.15 * h / 2;
-    if (h < 5) return 0.6;
-    if (h < 6.5) return 0.6 + 0.2 * (h - 5) / 1.5;
-    if (h < 18) return 0.8;
-    return 1;
+    if (h >= 22) return 1.0 - 0.32 * (h - 22) / 2;
+    if (h < 2) return 0.68 - 0.33 * (h / 2);
+    if (h < 5) return 0.35;
+    if (h < 7) return 0.35 + 0.40 * (h - 5) / 2;
+    if (h < 18) return 0.75;
+    return 0.75 + 0.25 * (h - 18) / 4;
   };
   const updateCity = (p: VolumetricSceneInput | null, date: Date) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     if (!p || cityLight <= 0.01) {
-      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (au.get('cityGroundIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
+      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
     applyCityMap(p);
     const f = cityField?.f ?? null;
     if (f && f.skyGlow <= 1e-4 && f.maxPatch <= 1e-4) {
-      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (au.get('cityGroundIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
+      cityState = null; au.get('cityAirOn')!.value = 0; (au.get('cityTerrainIrr')!.value as Vector3).set(0, 0, 0); (cu.cityUp.value as Vector3).set(0, 0, 0); (au.get('farCityUp')!.value as Vector3).set(0, 0, 0); return;
     }
     const m = 6.5 - 3.5 * cityLight, sqm = 14.5 + 1.08 * m;
     const timeF = cityTimeF(date, p.lon);
-    const refArtCd = Math.max(0, 10.8e4 * (Math.pow(10, -0.4 * sqm) - Math.pow(10, -0.4 * 21.6))) * timeF;
+    const peakArtCd = Math.max(0, 10.8e4 * (Math.pow(10, -0.4 * sqm) - Math.pow(10, -0.4 * 21.6)));
+    const refArtCd = peakArtCd * timeF;
     const refBaseCd = 8 * refArtCd;
     const glowScale = f ? f.skyGlow : 1;
     const cloudLocalScale = f ? Math.min(1.25, Math.max(0, f.local / CITY_REF_LOCAL)) : 1;
     const artCd = refArtCd * glowScale;
     const baseCd = refBaseCd * cloudLocalScale;
     const low = p.layers.filter(L => L && L.cover > 0 && (L.band ?? (L.baseKm < 2 ? 'low' : 'mid')) === 'low').reduce((a, L) => Math.max(a, Math.min(1, L.cover)), 0);
-    const adaptCd = artCd + (baseCd - artCd) * low;
+    // 암순응 기준 휘도(adaptCd)는 시간대(timeF)를 빼고 지역 피크 기준으로 고정해, 심야 소등이 노출 상승에 의해 상쇄되지 않게 함
+    const peakLocalArt = peakArtCd * glowScale;
+    const peakLocalBase = 8 * peakArtCd * cloudLocalScale;
+    const adaptCd = peakLocalArt + (peakLocalBase - peakLocalArt) * low;
     cityState = { artCd, baseCd, adaptCd, timeF };
     // 렌더 단위의 눈금 g: 해 빛이면 1, 달빛이면 달빛 세기, 달 없는 밤(해 −12° 아래)이면 보름 세기 — 반 정밀 버퍼에 10⁻⁷ 같은 작은 값이 들어가면
     // 계단 무늬로 깨지거나 0 이 됨(1차 하네스: 도심 띠 무늬, 교외 완전히 검음). 해 −12° → −14° 에서 도시 빛을 서서히 켬(그 사이 박명 잔광은 버림).
@@ -2107,13 +2069,11 @@ export async function createVolumetricScene(
     // 창문·가로등과 함께 자연스럽게 밝아지도록, 현재 노출 대비 야간 기준 노출 비로 환산합니다.
     const sunsetT = Math.max(0, Math.min(1, (2.0 - lastTrueSunAlt) / 8.0));
     const sunsetFade = sunsetT * sunsetT * (3 - 2 * sunsetT);
-    const nightExpBase = autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(adaptCd, 0.0012));
+    const nightExpBase = autoExposure(45) * MOON_DIM * 0.65 * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(adaptCd, 0.0012));
     const curExpBase = Math.max(1e-4, baseExposureFor(lastSunAltForLight, p));
     const terrainIrrScale = ((nightExpBase / MOON_FULL) * sunsetFade) / curExpBase;
-    // 전역 간접광(산·건물 외벽)은 순수 스카이글로우(artCd) 수준으로 절제해 산 실루엣과 건물 음영을 유지하고,
-    // 원거리 도시 자체 발광(cityGroundIrr)은 cityTex × 평지 마스크 × 거리 페이드로 분리 적용합니다.
-    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(artCd * 4.5 * CD_TO_RENDER * cloudBounce * cityTerrainExpScale * terrainIrrScale);
-    (au.get('cityGroundIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(refBaseCd * 12.0 * CD_TO_RENDER * cityTerrainExpScale * terrainIrrScale);
+    // 전역 간접광은 산 실루엣을 살리면서도 밝은 쪽 건물 외벽은 드러나는 수준(artCd * 10.5)으로 유지
+    (au.get('cityTerrainIrr')!.value as Vector3).copy(CITY_COLOR).multiplyScalar(artCd * 10.5 * CD_TO_RENDER * cloudBounce * cityTerrainExpScale * terrainIrrScale);
     au.get('cityAirOn')!.value = glowScale > 1e-4 ? 1 : 0;
   };
   /**
@@ -2149,15 +2109,22 @@ export async function createVolumetricScene(
   const baseExposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
     if (p.exposure != null) return p.exposure;
     const cityA = cityState?.adaptCd ?? 0;
+    const nightDarkVal = moonGain > 0
+      ? Math.max(0, Math.min(1, (-11 - lastTrueSunAlt) / 6)) * (1 - 0.75 * Math.min(1, moonGain / MOON_FULL))
+      : Math.max(0, Math.min(1, (-11 - lastTrueSunAlt) / 6));
+    ((aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('nightDark')!).value = nightDarkVal;
     if (moonGain > 0) {
       const La = MOONLIT_CLOUD_CD * (moonGain / MOON_FULL) + cityA;
-      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
+      const moonAltT = Math.max(0, Math.min(1, (lightAlt + 0.5) / 12.0));
+      const moonAltDim = 0.22 + 0.78 * moonAltT * moonAltT * (3 - 2 * moonAltT);
+      return autoExposure(Math.max(15, lightAlt)) * MOON_DIM * moonAltDim * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
     }
     const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
-    if (!cityState || (cityField == null && cityA <= 1e-5) || lastTrueSunAlt >= -12) return base;
-    // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
-    // 어두운 교외에서도 cityA → 0 으로 노출이 무한 폭등하지 않게 야간 암순응 바닥(0.0012 cd/m²)을 둡니다.
-    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012));
+    if (lastTrueSunAlt >= -10) return base;
+    // 해 -10° -> -17° 구간(일몰 수십 분 뒤)까지 하늘·건물이 보이다가 한밤중에는 산속 포함 깊은 밤 노출로 부드럽게 수렴
+    const nightBlend = Math.min(1, (-10 - lastTrueSunAlt) / 7);
+    const nightExp = autoExposure(45) * MOON_DIM * 0.65 * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012));
+    return base * (1 - nightBlend) + nightExp * nightBlend;
   };
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
     const scale = Math.max(0.1, Math.min(8, exposureScale));

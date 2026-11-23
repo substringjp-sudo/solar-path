@@ -326,6 +326,7 @@ uniform sampler2D uCityPatchTex;
 uniform float uCityPatchValid;
 uniform float uCityPatchHalfM;
 uniform float uCityPatchScale;
+uniform float uCityTimeScale;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -953,9 +954,7 @@ void main() {
   gl_FragColor = vec4(sqrt(clamp(outLitAlb, 0.0, 1.0)), litOut);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
   vec4 distOut = terrainDistEncode(vSlantM / 1000.0);
-  // distOut.b: >0.5 는 바다/물, 0.0~0.4 는 원거리 야간 도시 불빛이 올라올 수 있는 평지/도시 마스크(산 경사면 제외)
-  float flatCitySurface = (1.0 - smoothstep(0.10, 0.26, slope)) * (1.0 - waterMix) * mix(0.68, 1.0, max(urbanMask, paveAny));
-  distOut.b = waterMix > 0.5 ? 1.0 : clamp(flatCitySurface, 0.0, 1.0) * 0.4;
+  if (waterMix > 0.5) distOut.b = 1.0;
   pc_fragColor2 = distOut;
   return;
 #endif
@@ -1001,41 +1000,10 @@ void main() {
     col += uMoonRadiance * spec * f0 * 1.5;
   }
 
-  // ── 지역 빛지도 기반 야간 지형 간접 반사 + 원거리 도시 반짝임 ──────────
-  // 1) 스카이글로우 간접광: 사면 방향에 따라 어두운 산 뒤편 음영을 살림
+  // ── 지역 빛지도 기반 야간 지형 스카이글로우 간접 반사 ──────────────────
   if (uCityTerrainGain > 1e-5) {
     float cSlope = 0.12 + 0.88 * max(0.0, dot(normalize(vec2(n.x, n.z) + vec2(1e-5)), normalize(uCityDirXZ + vec2(1e-5))));
     col += alb * vec3(1.00, 0.787, 0.573) * (uCityTerrainGain * cSlope * (0.40 + 0.60 * clamp(n.y, 0.0, 1.0)));
-  }
-  // 2) 원거리 도시 불빛: 근거리(3D 건물·가로등 구역) 및 산 경사면은 제외하고 평지 도시만 미세 반짝임
-  if (uCityPatchValid > 0.5 && uCityPatchScale > 1e-5) {
-    float farCityFade = smoothstep(450.0, 1400.0, vDistM);
-    float flatCityMask = (1.0 - smoothstep(0.10, 0.26, slope)) * (1.0 - waterMix);
-    if (farCityFade * flatCityMask > 0.005) {
-      vec2 cUv = vec2(vGround.x + uCityPatchHalfM, -vGround.y + uCityPatchHalfM) / max(1.0, 2.0 * uCityPatchHalfM);
-      if (cUv.x > 0.0 && cUv.x < 1.0 && cUv.y > 0.0 && cUv.y < 1.0) {
-        float edge = 1.0 - smoothstep(0.85, 1.0, max(abs(cUv.x * 2.0 - 1.0), abs(cUv.y * 2.0 - 1.0)));
-        float cityPatchVal = texture2D(uCityPatchTex, cUv).r * 1.25 * edge;
-        if (cityPatchVal > 0.01) {
-          float cellM = mix(36.0, 130.0, smoothstep(1000.0, 16000.0, vDistM));
-          vec2 g1 = vGround / cellM;
-          vec2 id1 = floor(g1);
-          vec2 f1 = fract(g1);
-          float h1 = fract(sin(dot(id1, vec2(127.1, 311.7))) * 43758.5453);
-          float h2 = fract(sin(dot(id1, vec2(269.5, 183.3))) * 43758.5453);
-          float h3 = fract(sin(dot(id1, vec2(419.2, 371.9))) * 43758.5453);
-          float r1 = mix(0.22, 0.36, smoothstep(1000.0, 14000.0, vDistM));
-          float dot1 = smoothstep(r1, 0.02, length(f1 - vec2(0.22 + 0.56 * h1, 0.22 + 0.56 * h2)));
-          float dens = clamp(cityPatchVal, 0.0, 1.0);
-          float on1 = smoothstep(0.76 - 0.56 * dens, 0.96 - 0.56 * dens, h3);
-          vec3 lampCol = h2 < 0.55
-            ? vec3(1.18, 0.72, 0.34)
-            : (h2 < 0.85 ? vec3(1.08, 0.90, 0.68) : vec3(0.88, 0.95, 1.12));
-          vec3 citySparkle = mix(vec3(1.00, 0.78, 0.52) * 0.16 + lampCol * (dot1 * on1 * 2.4), vec3(1.04, 0.80, 0.52) * 0.70, smoothstep(14000.0, 35000.0, vDistM));
-          col += citySparkle * (uCityPatchScale * cityPatchVal * farCityFade * flatCityMask);
-        }
-      }
-    }
   }
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────

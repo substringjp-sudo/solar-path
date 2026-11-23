@@ -266,6 +266,7 @@ export function createTerrainField(opts: {
       uCityPatchValid: { value: 0 },
       uCityPatchHalfM: { value: 60000 },
       uCityPatchScale: { value: 0.0 },
+      uCityTimeScale: { value: 1.0 },
       uDemDespike: { value: opts.despike ? 1 : 0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },

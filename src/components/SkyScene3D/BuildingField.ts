@@ -41,7 +41,7 @@ export function computeNightWindowRate(localHour: number): number {
 export function computeNightWindowGlow(sunAltDeg: number, cityLightsEnabled: boolean = true, localNorm: number = 1): number {
   if (!cityLightsEnabled || !Number.isFinite(sunAltDeg)) return 0;
   const regionScale = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
-  return smooth01((2.0 - sunAltDeg) / 8.0) * regionScale;
+  return smooth01((6.0 - sunAltDeg) / 10.0) * regionScale;
 }
 
 const BUILDING_VERT = /* glsl */ `
@@ -260,12 +260,13 @@ void main() {
   vec3 directLit = (uSunRadiance * ndl) / 3.14159265;
   vec3 metalAlb = vec3(0.055, 0.055, 0.058) * (0.78 + 0.22 * n.y);
   vec3 col = metalAlb * (skyIrr + directLit);
-  // 밤에는 기둥 상단과 갓 안쪽·테두리에 은은한 어두운 회색 반사를 더해 밤하늘과 겹쳐도 기둥 형태가 또렷이 보이게 함
-  float topBounce = smoothstep(5.5, 8.6, vLocalY);
-  vec3 lampReflect = vec3(0.055, 0.055, 0.058) * uLampGlow * (0.28 + 0.72 * topBounce);
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
-  col = col * T + lampReflect * T;
-  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + lampReflect * 0.18, 1.0);
+  col *= T;
+  // 기둥·팔·갓 자체는 발광하지 않고(uExposure 미적용), 밤에는 등기구 갓 아랫면(전구 주변)만 은은히 비침
+  float hoodUnder = smoothstep(8.30, 8.60, vLocalY) * max(0.0, -n.y);
+  vec3 hoodBounce = vec3(0.32, 0.23, 0.12) * uLampGlow * hoodUnder * 0.45 * T;
+  vec3 nightSilhouette = vec3(0.022, 0.023, 0.026) * uLampGlow * (0.75 + 0.25 * max(0.0, n.y)) * T;
+  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg) + nightSilhouette + hoodBounce, 1.0);
 }
 `;
 
@@ -443,7 +444,7 @@ uniform float uAngstrom;
 uniform float uElevScale;
 
 void main() {
-  if (uWinGlow <= 0.001 || uWinRate <= 0.0 || vDistM > 1020.0 || uEyeHeightM > 650.0) discard;
+  if (uWinGlow <= 0.001 || uWinRate <= 0.0 || vDistM > 8500.0 || uEyeHeightM > 900.0) discard;
   if (vWallCoord.x < 0.0 || vWallCoord.y < 0.0 || abs(vNormalW.y) > 0.5) discard;
   // 창고/산업 시설(style 3)은 야간 창문 점등 대폭 축소
   float styleRate = vStyle > 2.5 ? uWinRate * 0.15 : uWinRate;
@@ -466,10 +467,11 @@ void main() {
 
   float uF = fract(cellU);
   float vF = fract(cellV);
-  float aa = clamp(vDistM * 0.00055, 0.02, 0.21);
-  float wx = smoothstep(0.25 - aa, 0.25 + aa, uF) * (1.0 - smoothstep(0.75 - aa, 0.75 + aa, uF));
-  float wy = smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
-  float winShape = wx * wy;
+  float farPad = smoothstep(500.0, 2600.0, vDistM) * 0.16;
+  float aa = clamp(vDistM * 0.00055, 0.02, 0.24);
+  float wx = smoothstep(0.25 - farPad - aa, 0.25 - farPad + aa, uF) * (1.0 - smoothstep(0.75 + farPad - aa, 0.75 + farPad + aa, uF));
+  float wy = smoothstep(0.30 - farPad - aa, 0.30 - farPad + aa, vF) * (1.0 - smoothstep(0.74 + farPad - aa, 0.74 + farPad + aa, vF));
+  float winShape = mix(wx * wy, 0.78, smoothstep(1400.0, 3600.0, vDistM));
   if (winShape < 0.01) discard;
 
   float rTone = bf_hash13(vec3(colIdx + 19.0, rowIdx + 7.0, seedZ * 1.37 + 5.0));
@@ -481,7 +483,7 @@ void main() {
 
   float lum = (0.48 + 0.34 * rTone) * uWinGlow * (0.82 + 0.24 * vF);
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
-  float distFade = 1.0 - smoothstep(650.0, 1020.0, vDistM);
+  float distFade = 1.0 - smoothstep(4500.0, 8500.0, vDistM);
   gl_FragColor = vec4(winTint * winShape * lum * T * distFade, 1.0);
 }
 #elif defined(TERRAIN_LIT_OUT)
@@ -524,11 +526,11 @@ void main() {
   vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
   vec2 cPerp = vec2(-cDir.y, cDir.x);
   vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
-  float wallAz = 0.72 + 0.42 * dot(nXZ, cDir) + 0.16 * dot(nXZ, cPerp);
-  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.80 + 0.28 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float wallAz = 0.82 + 0.40 * dot(nXZ, cDir) + 0.16 * dot(nXZ, cPerp);
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.82 + 0.26 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
   float skyHemi = abs(n.y) > 0.5
-    ? (0.94 + 0.14 * n.y)
-    : clamp(0.48 * wallAz * groundAo * heightGrad, 0.10, 1.15);
+    ? (0.96 + 0.14 * n.y)
+    : clamp(0.54 * wallAz * groundAo * heightGrad, 0.16, 1.15);
 
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
@@ -628,8 +630,8 @@ void main() {
 
   // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광, 암부 대비 유지)
   if (uCityWallGain > 1e-5) {
-    float cDirDot = 0.10 + 0.72 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
-    float wallSlope = 0.30 + 0.70 * (1.0 - abs(n.y));
+    float cDirDot = 0.16 + 0.70 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
+    float wallSlope = 0.35 + 0.65 * (1.0 - abs(n.y));
     col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDirDot * wallSlope * groundAo * heightGrad);
   }
 
