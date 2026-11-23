@@ -18,7 +18,8 @@ import { PressScale } from '../ui';
 import { StepCardView } from '../CalcSteps/StepCards';
 import type { TopicResult } from '../../utils/calcTopic';
 import { LEARN_TOPICS, topicHeadline, type LearnTopic } from '../../utils/learnSections';
-import { Collapsible } from './Collapsible';
+import { Collapsible, Fold } from './Collapsible';
+import { WaterfallBars, WaterfallSteps } from './WaterfallBars';
 
 interface Props {
   language: Language;
@@ -99,7 +100,16 @@ export const WhySection: React.FC<Props> = ({ language, results, openTopic, entr
           >
             <Text style={styles.sub}>{r.eventLabel ? `${r.title} · ${r.eventLabel}` : r.title}</Text>
             {!!note && <Text style={styles.noteLine}>{note}</Text>}
-            {r.cards.map((c, i) => <StepCardView key={c.id} index={i + 1} card={c} language={language} inset />)}
+            {r.waterfall ? (
+              <>
+                <WaterfallBars waterfall={r.waterfall} />
+                <View style={styles.sep} />
+                <WaterfallSteps waterfall={r.waterfall} />
+                <Fold label={L3(language, '계산 자세히 보기', 'See the calculation', '計算を詳しく見る')} closeLabel={L3(language, '접기', 'Fold', '閉じる')}>
+                  {r.cards.map((c, i) => <StepCardView key={c.id} index={i + 1} card={c} language={language} inset />)}
+                </Fold>
+              </>
+            ) : r.cards.map((c, i) => <StepCardView key={c.id} index={i + 1} card={c} language={language} inset />)}
             <Text style={styles.footnote}>{r.footnote}</Text>
             {topic === 'score' && onOpenData && (
               <PressScale
@@ -125,6 +135,7 @@ const useStyles = makeStyles((color) => ({
   sub: { ...type.body, color: color.textDim },
   noteLine: { ...type.body, color: color.textDim },
   footnote: { fontSize: 11, color: color.textMute },
+  sep: { height: 1, backgroundColor: color.border, marginVertical: space.xs },
   emptyCard: { backgroundColor: color.panel, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.sm, gap: space.xs },
   emptyHead: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
   emptyTitle: { ...type.title, fontSize: 16, color: color.text },
