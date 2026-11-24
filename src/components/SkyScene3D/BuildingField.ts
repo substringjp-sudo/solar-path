@@ -494,6 +494,9 @@ uniform float uSunAzRad;
 uniform float uSunAltRad;
 uniform float uMoonAzRad;
 uniform float uMoonAltRad;
+uniform vec3  uSurfaceIrr;
+uniform vec3  uSunRadiance;
+uniform vec3  uMoonRadiance;
 uniform float uOvercast;
 uniform vec2  uCityDirXZ;
 
@@ -540,10 +543,17 @@ void main() {
   if (abs(n.y) > 0.5) {
     litAlb *= 0.84;
   }
-  float litDirect = clamp(max(ndl, ndlMoon) * cloudT, 0.0, 1.0);
+  // 존재 여부 스위치가 아니라 태양/하늘 조도 대비 달빛 복사휘도의 실제 물리 비율로 음영 기여도를 결정
+  float sunLum = dot(uSunRadiance, vec3(0.2126, 0.7152, 0.0722));
+  float surfLum = dot(uSurfaceIrr, vec3(0.2126, 0.7152, 0.0722));
+  float moonLum = dot(uMoonRadiance, vec3(0.2126, 0.7152, 0.0722));
+  float moonShare = moonLum / max(max(sunLum, surfLum) + moonLum, 1e-6);
+  float litDirect = clamp(mix(ndl, ndlMoon, moonShare) * cloudT, 0.0, 1.0);
   gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), litDirect);
   pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
-  pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
+  vec4 bldDist = terrainDistEncode(vSlantM / 1000.0);
+  bldDist.b = 0.4;
+  pc_fragColor2 = bldDist;
 }
 #else
 

@@ -272,10 +272,28 @@ export function layerPhysics(genus: GenusKey, baseM: number, heightM: number, th
     tauRendered = betaTop * H * (sum / N);
   }
   const iceOptical = tauCore > 0 ? tauI / tauCore : 0;
+  const tMidPhys = thermoAt(baseM + H / 2, th).tC;
+  const rhMid = (() => {
+    const rl = th?.rhLevels;
+    if (!rl?.length) return 75;
+    let best = rl[0], minD = Math.abs(rl[0].zM - (baseM + H / 2));
+    for (const q of rl) { const d = Math.abs(q.zM - (baseM + H / 2)); if (d < minD) { best = q; minD = d; } }
+    return best.rhPct;
+  })();
+  const windMps = th?.windLowMps ? Math.hypot(th.windLowMps[0], th.windLowMps[1]) : 4;
+  const pOpt = particleCloudState({
+    tCloudC: tMidPhys,
+    t2mC: th?.t2mC,
+    rhPct: rhMid,
+    precipMm: th?.precipMm ?? 0,
+    windSpeedMps: windMps,
+    freezingLevelM: th?.freezingLevelM,
+    cloudBaseM: baseM,
+  });
   return {
     betaTop, profile, tauCore, tauRendered, iceOptical,
-    halo: m.halo * iceOptical,
-    powder: smooth(1, 5, tauRendered),
+    halo: m.halo * iceOptical * pOpt.haloScale,
+    powder: smooth(1, 5, tauRendered) * pOpt.powderScale,
     tBaseC: base.tC, tTopC: tTop, pBaseHPa: base.pHPa, lwcTop, iwcTop,
     reffLiqUm: rlTop * 1e6, reffIceUm: riTop * 1e6, source: base.source,
   };
@@ -294,6 +312,26 @@ export function iceLaneHand(genus: GenusKey, o: { halo: boolean; powderOff: bool
 }
 
 /**
+ * 입자 물리 기반 연속 광학 레인(햇무리 halo · 가루 효과 powder).
+ * 층 opts 에 입자 상태에서 유도된 haloWeight / powderWeight 가 있으면 연속 반영하고,
+ * 없으면 기존 손값 얼음 레인(iceLaneHand)으로 물러납니다.
+ */
+export function particleOpticalLane(
+  genus: GenusKey,
+  opts?: { haloWeight?: number; powderWeight?: number },
+  handOpts?: { halo: boolean; powderOff: boolean },
+): { halo: number; powder: number } | null {
+  const hw = opts?.haloWeight;
+  const pw = opts?.powderWeight;
+  if (typeof hw === 'number' || typeof pw === 'number') {
+    const halo = typeof hw === 'number' && Number.isFinite(hw) ? clamp(hw, 0, 1) : 0;
+    const powder = typeof pw === 'number' && Number.isFinite(pw) ? clamp(pw, 0, 1) : 1;
+    return halo > 0.01 || powder < 0.98 ? { halo, powder } : null;
+  }
+  return handOpts ? iceLaneHand(genus, handOpts) : null;
+}
+
+/**
  * 적운류 밑면 = 지면 + 응결고도(§136). 지상 기온·이슬점이 없으면 null(예보 단면의 밑면을 그대로 씀). 지면 위 0.3 ~ 3.5 km 로 자릅니다.
  */
 export function lclBaseKm(th?: ThermoInput | null): number | null {
@@ -309,3 +347,176 @@ export function lclBaseKm(th?: ThermoInput | null): number | null {
 export const TAU_RANGE: Partial<Record<GenusKey, [number, number]>> = {
   cu: [10, 300], sc: [5, 80], st: [5, 60], ac: [2, 20], as: [2, 40], ns: [40, 400], ci: [0.03, 3], cs: [0.1, 4], cbanvil: [1, 50],
 };
+
+/** 얼음 위 포화수증기압(hPa, Murphy & Koop 2005 근사). */
+export function esatIce(tC: number): number {
+  return 6.1115 * Math.exp((22.452 * tC) / (tC + 272.55));
+}
+
+/**
+ * 구름 구성 입자 상태 벡터 및 연속 형태·수명·광학 산란 매개변수.
+ * 날씨·구름 종류 분기가 아니라 기온·습도·강수량·풍속·연직 시어로부터
+ * [작은 물방울, 큰 물방울, 빙정, 눈송이] 4개 입자군의 연속 비율과
+ * 낙하 종단속도(v_t), 상이완 시정수(τ_p), 스펙트럼 가우시안 감쇠 길이(σ_b),
+ * 경계 선명도 배율(edgeScale), 하단 낙하·승화 커튼 깊이(fallScaleM),
+ * 광학 산란 특성(effectiveG, haloScale, powderScale, thruBoost, aoScale)을 유도합니다.
+ */
+export interface ParticleCloudState {
+  /** 작은 구름 물방울 비율 (r ≈ 5~12 μm, v_t ≈ 0.01~0.05 m/s) */
+  smallDropFrac: number;
+  /** 큰 물방울·빗방울 비율 (r ≈ 50~500 μm, v_t ≈ 1~5 m/s) */
+  largeDropFrac: number;
+  /** 빙정 입자 비율 (r ≈ 20~80 μm, v_t ≈ 0.1~0.4 m/s) */
+  iceCrystalFrac: number;
+  /** 얼음에서 응집·부착 성장한 눈송이 입자 비율 (r ≈ 300~2000 μm, v_t ≈ 0.8~1.5 m/s) */
+  snowFlakeFrac: number;
+  /** 대표 낙하 종단 속도 v_t (m/s) */
+  terminalVelMps: number;
+  /** 상이완(증발·승화) 시간 척도 배율 (물방울 1.0 → 빙정·눈송이 최대 3.5) */
+  phaseTauScale: number;
+  /** 푸리에 수분 스펙트럼 가우시안 저역통과 감쇠 길이 σ_b (km, 0 ~ 1.6) */
+  spectralSigmaKm: number;
+  /** 셰이더 경계 기울기(edge / flowEdge) 배율 (0.38 ~ 1.15) */
+  edgeScale: number;
+  /** 구름 밑면 아래 낙하·승화 커튼 깊이 L_fall (m, 0 ~ 750) */
+  fallScaleM: number;
+  /** 저층 대기 눈·빙정 산란 연무 가중치 (0 ~ 1) */
+  snowHazeWeight: number;
+  /** 입자 상이완·낙하·난류 혼합이 결합된 연속 구름 수명 주기도 τ_life (초, 900 ~ 4800, 300초 단위 양자화) */
+  lifeSec: number;
+  /** 바람결·낙하 가닥(flowWisp) 보강량 (0 ~ 0.45) */
+  wispBoost: number;
+  /** 날카로운 Worley 가장자리 침식(flowCarve) 감쇠 배율 (0.25 ~ 1.0, 눈·빙정에서 부드럽게 퍼짐) */
+  carveScale: number;
+  /** 연직 시어 낙하 꼬리 기울임(flowTilt) 보강량 (0 ~ 0.65) */
+  tiltBoost: number;
+  /** 입자군 가중 유효 비대칭 산란 인자 g_eff (0.73 ~ 0.88) */
+  effectiveG: number;
+  /** 순수 육각 빙정 대비 응집 눈송이 혼합에 따른 22°·46° 햇무리 유효 비율 (0 ~ 1) */
+  haloScale: number;
+  /** 가루 효과(takram powder) 가중치 (작은 물방울 1.0 → 눈송이·빙정 0.22로 감쇠해 포근한 회백색 확산) */
+  powderScale: number;
+  /** 다중 산란 확산 투과(genusThru) 연속 보강량 (0 ~ 0.85) */
+  thruBoost: number;
+  /** 하늘빛 가림(genusAO) 완화 배율 (0.55 ~ 1.0) */
+  aoScale: number;
+}
+
+export function particleCloudState(input: {
+  tCloudC: number;
+  t2mC?: number;
+  rhPct: number;
+  precipMm: number;
+  windSpeedMps: number;
+  shearPerSec?: number;
+  freezingLevelM?: number;
+  cloudBaseM?: number;
+}): ParticleCloudState {
+  const tC = Number.isFinite(input.tCloudC) ? input.tCloudC : 5;
+  const tSurf = input.t2mC != null && Number.isFinite(input.t2mC) ? input.t2mC : tC + 6;
+  const rh = clamp(Number.isFinite(input.rhPct) ? input.rhPct : 75, 10, 100);
+  const precip = Math.max(0, Number.isFinite(input.precipMm) ? input.precipMm : 0);
+  const wind = Math.max(0, Number.isFinite(input.windSpeedMps) ? input.windSpeedMps : 3);
+  const shear = Math.max(0, Number.isFinite(input.shearPerSec) ? input.shearPerSec! : 0.002);
+
+  // 1) 혼합상 얼음 비율 f_ice(T) 및 베르게론-핀데어젠(WBF) 얼음 과포화 성장 구동력
+  const fIce = iceFraction(tC);
+  const esW = esatWater(tC);
+  const esI = tC < 0 ? esatIce(tC) : esW;
+  const sIce = tC < 0 ? Math.max(0, (rh / 100) * (esW / Math.max(1e-4, esI)) - 1) : 0;
+  const wbfPeak = tC < 0 ? Math.exp(-0.5 * Math.pow((tC + 14) / 6.5, 2)) : 0;
+
+  // 2) 액체상 내 작은 물방울 vs 충돌·병합 큰 물방울 비율
+  const coalDrive = clamp((rh - 78) / 22, 0, 1) * 0.35 + clamp(precip / 1.5, 0, 1) * 0.65;
+  const liqTotal = 1 - fIce;
+  const largeDropFrac = liqTotal * clamp(coalDrive, 0, 0.85);
+  const smallDropFrac = Math.max(0, liqTotal - largeDropFrac);
+
+  // 3) 빙정 vs 눈송이(응집·림 성장) 비율 — 지상 기온·영하고도가 낮고 강수·과포화가 있을수록 눈송이 우세
+  const coldColumn = clamp((2.5 - tSurf) / 5.5, 0, 1);
+  const aggDrive = clamp(
+    sIce * 1.4 + wbfPeak * (0.35 + 0.45 * clamp(rh / 100, 0, 1)) + clamp(precip / 0.6, 0, 1) * (0.45 + 0.55 * coldColumn),
+    0,
+    0.92,
+  );
+  const snowFromSurface = coldColumn * clamp(precip / 0.4, 0, 1) * 0.65;
+  const effectiveIce = clamp(Math.max(fIce, snowFromSurface), 0, 1);
+  const snowFlakeFrac = effectiveIce * aggDrive;
+  const iceCrystalFrac = Math.max(0, effectiveIce - snowFlakeFrac);
+
+  const sum = Math.max(1e-6, smallDropFrac + largeDropFrac + iceCrystalFrac + snowFlakeFrac);
+  const pSmall = smallDropFrac / sum;
+  const pLarge = largeDropFrac / sum;
+  const pIce = iceCrystalFrac / sum;
+  const pSnow = snowFlakeFrac / sum;
+
+  // 4) 입자군별 물리 특성 합성
+  const terminalVelMps = pSmall * 0.03 + pIce * 0.28 + pSnow * 1.15 + pLarge * 3.4;
+  const subSat = Math.max(0.03, 1 - rh / 100);
+  const phaseTauScale = (pSmall * 0.25 + pLarge * 0.9 + pIce * 2.1 + pSnow * 3.2) * clamp(0.12 / subSat, 0.5, 2.2);
+
+  // 5) 푸리에 스펙트럼 가우시안 감쇠 길이 σ_b (km)
+  const windDiff = clamp(wind / 14, 0, 1);
+  const iceSnowMix = pIce * 0.65 + pSnow * 1.0;
+  const spectralSigmaKm = clamp(
+    iceSnowMix * (0.55 + 0.65 * windDiff + 0.35 * clamp((rh - 70) / 30, 0, 1)) + pLarge * 0.22 * windDiff,
+    0,
+    1.6,
+  );
+
+  // 6) 셰이더 경계 기울기 배율 (edgeScale)
+  const sharpBoost = pSmall * clamp((75 - rh) / 35, 0, 1) * 0.14;
+  const blurDrop = iceSnowMix * (0.42 + 0.18 * windDiff) + pLarge * 0.16;
+  const edgeScale = clamp(1 + sharpBoost - blurDrop, 0.38, 1.14);
+
+  // 7) 하단 낙하·승화 커튼 깊이 L_fall (m)
+  const fallRaw = (pSnow * 520 + pIce * 220 + pLarge * 340) * clamp(phaseTauScale / 1.8, 0.4, 1.5) * (0.75 + 0.35 * windDiff);
+  const fallScaleM = Math.round(clamp(fallRaw, 0, 750));
+
+  const snowHazeWeight = clamp(pSnow * 1.15 + pIce * 0.45 * coldColumn, 0, 1);
+
+  // 8) 입자군별 연속 구름 수명 τ_life = (τ_evap⁻¹ + 0.35·τ_fall⁻¹ + 0.55·τ_mix⁻¹)⁻¹
+  //  - 작은 물방울 + 건조 + 강풍: 빠른 증발·난류 혼합으로 수명 단축 (15~25분)
+  //  - 빙정·눈송이 + 높은 얼음 과포화: 느린 승화로 수명 연장 (45~80분), 큰 빗방울은 낙하 침강으로 수명 제한
+  const tauEvapSec = 1800 * clamp(phaseTauScale, 0.45, 3.2);
+  const tauFallSec = 1000 / Math.max(0.08, terminalVelMps);
+  const tauMixSec = 2600 / (0.6 + 0.9 * windDiff + 80 * shear);
+  const invLife = 1 / tauEvapSec + 0.35 / Math.max(450, tauFallSec) + 0.55 / Math.max(600, tauMixSec);
+  const lifeSec = Math.round(clamp(1 / invLife, 900, 4800) / 300) * 300;
+
+  // 9) 셰이더 미세 결·낙하 꼬리 매개변수
+  //  - 눈송이·빙정이 바람과 시어를 타면 둥근 Worley 세포(flowCarve)는 무뎌지고 바람 방향 낙하 가닥(wisp)과 기울임(tilt)이 살아납니다.
+  const wispBoost = Math.round(clamp(iceSnowMix * (0.22 + 0.23 * windDiff) + pLarge * 0.12 * windDiff, 0, 0.45) * 20) / 20;
+  const carveScale = Math.round(clamp(1 - iceSnowMix * 0.68 - pLarge * 0.25, 0.25, 1.0) * 20) / 20;
+  const tiltBoost = Math.round(clamp((iceSnowMix * 0.45 + pLarge * 0.30) * (0.5 + 0.5 * clamp(shear / 0.004, 0, 1.5)), 0, 0.65) * 20) / 20;
+
+  // 10) 입자 종류별 광학 산란 특성
+  //  - 작은 물방울(g=0.85), 큰 물방울(g=0.88), 육각 빙정(g=0.77, 22° 햇무리 선명), 응집 눈송이(g=0.73, 내부 다중 반사로 무리 소멸 및 등방 산란 증가)
+  const effectiveG = Math.round((pSmall * 0.85 + pLarge * 0.88 + pIce * 0.77 + pSnow * 0.73) * 1000) / 1000;
+  const haloScale = Math.round(clamp(pIce / Math.max(1e-4, pIce + 1.6 * pSnow), 0, 1) * 20) / 20;
+  const powderScale = Math.round(clamp(1 - pSnow * 0.72 - pIce * 0.55 - pLarge * 0.18, 0.22, 1.0) * 20) / 20;
+  const thruBoost = Math.round(clamp(pSnow * 0.75 + pIce * 0.35 + pLarge * 0.25, 0, 0.85) * 20) / 20;
+  const aoScale = Math.round(clamp(1 - pSnow * 0.35 - pIce * 0.20, 0.55, 1.0) * 20) / 20;
+
+  return {
+    smallDropFrac: pSmall,
+    largeDropFrac: pLarge,
+    iceCrystalFrac: pIce,
+    snowFlakeFrac: pSnow,
+    terminalVelMps,
+    phaseTauScale,
+    spectralSigmaKm: Math.round(spectralSigmaKm * 20) / 20,
+    edgeScale: Math.round(edgeScale * 20) / 20,
+    fallScaleM,
+    snowHazeWeight,
+    lifeSec,
+    wispBoost,
+    carveScale,
+    tiltBoost,
+    effectiveG,
+    haloScale,
+    powderScale,
+    thruBoost,
+    aoScale,
+  };
+}

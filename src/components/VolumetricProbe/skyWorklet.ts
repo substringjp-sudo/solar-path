@@ -115,9 +115,12 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
               warpCosD[m] = Math.cos(d);
               warpSinD[m] = Math.sin(d);
             }
-            const bigStepX = new Float64Array(nAll);
+            const bigCosD = new Float64Array(nAll);
+            const bigSinD = new Float64Array(nAll);
             for (let m = 0; m < nAll; m++) {
-              bigStepX[m] = wKx[m] * dx;
+              const d = wKx[m] * dx;
+              bigCosD[m] = Math.cos(d);
+              bigSinD[m] = Math.sin(d);
             }
             const wxRow = new Float64Array(n);
             const wyRow = new Float64Array(n);
@@ -152,10 +155,18 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
                 const ky = wKy[m];
                 const kz = wKz[m];
                 const amp = wAmp[m];
-                const dpx = bigStepX[m];
+                const cd = bigCosD[m];
+                const sd = bigSinD[m];
                 const p0 = kx * x0 + ky * y + kz * z + wPh[m];
+                let c = Math.cos(p0);
+                let s = Math.sin(p0);
                 for (let ix = 0; ix < n; ix++) {
-                  fRow[ix] += amp * Math.cos(p0 + ix * dpx + kx * wxRow[ix] + ky * wyRow[ix] + kz * wzRow[ix]);
+                  const eps = kx * wxRow[ix] + ky * wyRow[ix] + kz * wzRow[ix];
+                  const eps2 = eps * eps;
+                  fRow[ix] += amp * ((1 - 0.5 * eps2) * c - eps * (1 - 0.16666667 * eps2) * s);
+                  const nc = c * cd - s * sd;
+                  s = s * cd + c * sd;
+                  c = nc;
                 }
               }
               for (let ix = 0; ix < n; ix++) packed[dstOff + ix] = fRow[ix];

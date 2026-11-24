@@ -79,6 +79,8 @@ export interface FlowSceneParams {
   s90?: number;
   hoursMin?: number;
   hoursMax?: number;
+  /** 입자 물리 기반 푸리에 스펙트럼 가우시안 감쇠 길이 σ_b (km, 0 = 감쇠 없음, 눈구름·빙정에서 고주파 경계 흐림) */
+  spectralSigmaKm?: number;
 }
 
 /** 흐름 핵 결과 — 모든 층이 공유. 배열은 n² (행 j = 북쪽 v, 열 i = 동쪽 u, 셀 중심 (i+0.5)/n). */
@@ -195,6 +197,18 @@ export interface FlowLayerParams {
   beamTransmittance?: number;
   /** 태양 쪽 하늘 빛 틈 비율 (0 ~ 1) */
   sunGap?: number;
+  /** 입자 물리 기반 푸리에 스펙트럼 가우시안 감쇠 길이 σ_b (km) */
+  spectralSigmaKm?: number;
+  /** 입자 물리 기반 구름 형태 생애주기 τ_life (초) */
+  flowLifeSec?: number;
+  /** 입자 물리 기반 22°·46° 햇무리 가중치 (0 ~ 1) */
+  haloWeight?: number;
+  /** 입자 물리 기반 가루 효과(powder) 가중치 (0 ~ 1) */
+  powderWeight?: number;
+  /** 입자 물리 기반 유효 산란 비대칭 인자 g_eff (0.72 ~ 0.88) */
+  effectiveG?: number;
+  /** 종류 전환(cu↔sc↔st, ac↔as, ci↔cs) 시 2D 베이스 타일 캐시를 고정하는 대표 종류 */
+  tileGenus?: string;
 }
 
 /**
@@ -469,8 +483,10 @@ export function distortionRatios(DX: ArrayLike<number>, DY: ArrayLike<number>, n
  *    ε = e^G / ⟨e^G⟩, q₀ = 표준화(F⁻¹[|k|^−H·F(ε^a)]). 분수 적분을 ln ε 가 아니라 ε^a 에 걸어야 간헐성(첨도)이 남습니다(조사서 A6).
  *  모드 2 의 옥타브 분산은 실현값으로 맞춥니다(정수 격자 껍질의 모드 수 편차를 지움). 모든 FFT 는 fft2(radix-2, 결정론).
  */
-function* qFieldSteps(p: FlowSceneParams, mode: 1 | 2, qn: number, Z0n: Float32Array, n: number, Q0: Float32Array): Generator<void> {
+function* qFieldSteps(p: FlowSceneParams, mode: 1 | 2, qn: number, Z0n: Float32Array, n: number, Q0: Float32Array, tileKm = 24): Generator<void> {
   const q2 = qn * qn, H = p.qH ?? 0.5, kTop = qn / 2;
+  const sigmaNorm = ((p.spectralSigmaKm ?? 0) / Math.max(1, tileKm)) * TWO_PI;
+  const dampK2 = 0.5 * sigmaNorm * sigmaNorm;
   const re = new Float64Array(q2), im = new Float64Array(q2);
   const Zq = new Float32Array(q2);
   for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) Zq[j * qn + i] = bilinearPeriodic(Z0n, n, (i + 0.5) / qn, (j + 0.5) / qn);
@@ -481,7 +497,8 @@ function* qFieldSteps(p: FlowSceneParams, mode: 1 | 2, qn: number, Z0n: Float32A
       const [kx, ky, k] = kOf(i, j);
       if (k < 1 || k >= kTop) continue;
       if (ky < 0 || (ky === 0 && kx < 0)) continue;
-      const amp = Math.pow(k, -(1 + H)) * gauss(r2), ph = r2() * TWO_PI;
+      const lpFilter = dampK2 > 0 ? Math.exp(-dampK2 * k * k) : 1;
+      const amp = Math.pow(k, -(1 + H)) * lpFilter * gauss(r2), ph = r2() * TWO_PI;
       const i2 = ((-kx % qn) + qn) % qn, j2 = ((-ky % qn) + qn) % qn;
       re[j * qn + i] = amp * Math.cos(ph); im[j * qn + i] = amp * Math.sin(ph); re[j2 * qn + i2] = amp * Math.cos(ph); im[j2 * qn + i2] = -amp * Math.sin(ph);
     }
@@ -528,7 +545,7 @@ function* qFieldSteps(p: FlowSceneParams, mode: 1 | 2, qn: number, Z0n: Float32A
   for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) {
     const k = kOf(i, j)[2], idx = j * qn + i;
     if (k < 1) { re[idx] = 0; im[idx] = 0; continue; }
-    const w = Math.pow(k, -H); re[idx] *= w; im[idx] *= w;
+    const w = Math.pow(k, -H) * (dampK2 > 0 ? Math.exp(-dampK2 * k * k) : 1); re[idx] *= w; im[idx] *= w;
   }
   fft2(re, im, qn, true);
   for (let i = 0; i < q2; i++) Q0[i] = re[i];
@@ -600,13 +617,17 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
   standardize(Z0n);
   if (qMode === 0) {
     // 1회차: |k| ≤ kq 의 k^−qPow GRF 를 ζ̂₀ 와 상관 qCorr 로 섞음(저기압 = 습함).
+    // 입자 물리 기반 스펙트럼 가우시안 감쇠 exp(−2π² σ_b² |k|² / L²) 적용.
     const r2 = rng(p.seed * 104729 + 29);
+    const sigmaNorm = ((p.spectralSigmaKm ?? 0) / Math.max(1, tileKm)) * TWO_PI;
+    const dampK2 = 0.5 * sigmaNorm * sigmaNorm;
     re.fill(0); im.fill(0);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const kx = i <= n / 2 ? i : i - n, ky = j <= n / 2 ? j : j - n, k = Math.sqrt(kx * kx + ky * ky);
       if (k < 1 || k > p.kq) continue;
       if (ky < 0 || (ky === 0 && kx < 0)) continue;
-      const amp = Math.pow(k, -p.qPow) * gauss(r2), ph = r2() * TWO_PI;
+      const lpFilter = dampK2 > 0 ? Math.exp(-dampK2 * k * k) : 1;
+      const amp = Math.pow(k, -p.qPow) * lpFilter * gauss(r2), ph = r2() * TWO_PI;
       const i2 = ((-kx % n) + n) % n, j2 = ((-ky % n) + n) % n;
       const qr = amp * Math.cos(ph), qi = amp * Math.sin(ph);
       re[j * n + i] = qr; im[j * n + i] = qi; re[j2 * n + i2] = qr; im[j2 * n + i2] = -qi;
@@ -618,7 +639,7 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
     for (let i = 0; i < n2; i++) Q0[i] = c * Z0n[i] + cq * Q0[i];
     standardize(Q0);   // 섞은 뒤 다시 평균 0·분산 1(wQ 가 '단위 분산 수분' 가중이 되게)
   } else {
-    yield* qFieldSteps(p, qMode, qn, Z0n, n, Q0);
+    yield* qFieldSteps(p, qMode, qn, Z0n, n, Q0, tileKm);
   }
   yield;
 

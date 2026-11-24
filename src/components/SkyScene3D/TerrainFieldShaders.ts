@@ -817,7 +817,11 @@ void main() {
   // ⚠ 알베도는 **sqrt 로 적습니다.** 땅 알베도가 0.05 안팎이라 8비트에 선형으로 담으면 단계가 값의 8% 입니다 —
   //   어두운 땅이 층지고 흙·암반·젖은 물가의 비율 차이(×0.52~×1.3)가 정수 몇 칸으로 뭉개졌습니다. 볼륨 하늘의 대기 효과가
   //   제곱해서 읽습니다(volumetricScene.ts 의 vtAlb).
-  float litFactor = clamp(max(ndl, ndlMoon), 0.0, 1.0);
+  float sunLum = dot(uSunRadiance, vec3(0.2126, 0.7152, 0.0722));
+  float surfLum = dot(uSurfaceIrr, vec3(0.2126, 0.7152, 0.0722));
+  float moonLum = dot(uMoonRadiance, vec3(0.2126, 0.7152, 0.0722));
+  float moonShare = moonLum / max(max(sunLum, surfLum) + moonLum, 1e-6);
+  float litFactor = clamp(mix(ndl, ndlMoon, moonShare), 0.0, 1.0);
   float rockMaskHi = nearW > 0.001 ? mix(rockMask, tn_hblend(rockMask, detailH, detailRockH), nearW) : rockMask;
   if (nearW > 0.001) {
     alb = mix(albSoil, albRock, rockMaskHi);

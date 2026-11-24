@@ -358,10 +358,20 @@ const lifeHash = (n: number, k: number) => { const x = Math.sin(n * 127.1 + k * 
  * 같은 구름이 같은 자리로 돌아와 멈춘 듯 보였음. 주기 n 마다 타일 안 읽는 자리(오프셋)를 해시로 뽑고, n → n+1 을 smoothstep 으로 섞음.
  * 시각(초)은 장면 시각 + 흐른 시간(드리프트 시계) — 시간 막대를 끌어도 이어짐.
  */
-export function setGenusLife(mat: PatchableMaterial, absSec: number): void {
+export function setGenusLife(mat: PatchableMaterial, absSec: number, layers?: (GenusLayer | null)[]): void {
   const u = mat.uniforms.genusLife?.value as Vector4 | undefined;
   if (!u) return;
-  const f = absSec / GENUS_LIFE_SEC, n = Math.floor(f), t = f - n;
+  let lifeSec = GENUS_LIFE_SEC;
+  if (layers) {
+    for (const L of layers) {
+      const fls = (L?.opts as { flowLifeSec?: number } | undefined)?.flowLifeSec;
+      if (typeof fls === 'number' && Number.isFinite(fls) && fls >= 600) {
+        lifeSec = fls;
+        break;
+      }
+    }
+  }
+  const f = absSec / lifeSec, n = Math.floor(f), t = f - n;
   const w = t * t * (3 - 2 * t);
   u.set(lifeHash(n, 1), lifeHash(n, 2), lifeHash(n + 1, 1), lifeHash(n + 1, 2));
   mat.uniforms.genusLifeW.value = w;

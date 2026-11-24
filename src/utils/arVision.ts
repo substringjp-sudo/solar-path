@@ -920,6 +920,84 @@ export interface FrameAnalysis {
 }
 
 /**
+ * 해나 달이 건물·구름에 가렸을 때, 위쪽 하늘의 전방 산란광(밝기 + 붉은/노란빛 편차)이
+ * 가장 강한 방위 열을 찾습니다. 방위만 약하게 보정할 때 쓰며, 좁은 가로등·창문 반사는
+ * 넓은 폭 검사로 거릅니다.
+ */
+export function detectSkyGlowColumn(
+  frame: RgbFrame,
+  skyline: Skyline | null,
+  nearX: number,
+  searchRadiusPx: number,
+): { x: number; y: number; contrast: number } | null {
+  const { width: w, height: h, data, channels: ch } = frame;
+  const x0 = Math.max(0, Math.floor(nearX - searchRadiusPx));
+  const x1 = Math.min(w - 1, Math.ceil(nearX + searchRadiusPx));
+  const len = x1 - x0 + 1;
+  if (len < 12) return null;
+
+  const rawScore = new Float32Array(len);
+  const peakY = new Float32Array(len);
+  const defaultSkyBottom = Math.max(4, Math.floor(h * 0.45));
+
+  for (let i = 0; i < len; i++) {
+    const x = x0 + i;
+    const skyRow = skyline && Number.isFinite(skyline.row[x])
+      ? Math.max(4, Math.min(Math.floor(skyline.row[x]) - 2, Math.floor(h * 0.65)))
+      : defaultSkyBottom;
+    let sum = 0;
+    let bestRow = skyRow >> 1;
+    let bestRowVal = -1;
+    for (let y = 0; y < skyRow; y++) {
+      const p = (y * w + x) * ch;
+      const r = data[p] / 255;
+      const g = data[p + 1] / 255;
+      const b = data[p + 2] / 255;
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const warm = Math.max(0, r - 0.55 * b);
+      const val = 0.7 * lum + 0.6 * warm;
+      sum += val;
+      if (val > bestRowVal) {
+        bestRowVal = val;
+        bestRow = y;
+      }
+    }
+    rawScore[i] = sum / skyRow;
+    peakY[i] = bestRow + 0.5;
+  }
+
+  // 넓은 대기 산란광만 남기기 위해 가로 박스 평활화 (좁은 인공광 제거)
+  const smoothR = Math.max(2, Math.round(w / 48));
+  const smooth = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const a = Math.max(0, i - smoothR);
+    const b = Math.min(len - 1, i + smoothR);
+    let s = 0;
+    for (let j = a; j <= b; j++) s += rawScore[j];
+    smooth[i] = s / (b - a + 1);
+  }
+
+  const sorted = Array.from(smooth).sort((a, b) => a - b);
+  const med = sorted[sorted.length >> 1];
+  let bestI = 0;
+  for (let i = 1; i < len; i++) {
+    if (smooth[i] > smooth[bestI]) bestI = i;
+  }
+  const contrast = smooth[bestI] - med;
+  if (contrast < 0.08) return null;
+
+  // 반치폭(FWHM)이 충분히 넓어야 대기 산란광으로 인정
+  const halfThr = med + contrast * 0.5;
+  let broadCount = 0;
+  for (let i = 0; i < len; i++) {
+    if (smooth[i] >= halfThr) broadCount++;
+  }
+  if (broadCount < Math.max(4, Math.round(w * 0.06))) return null;
+
+  return { x: x0 + bestI + 0.5, y: peakY[bestI], contrast };
+}
+
+/**
  * 카메라 한 장으로 센서 자세 보정을 풉니다.
  *
  * 해·달은 **능선과 맞을 때만** 씁니다 — 밝은 구름 조각을 해로 읽으면 점 하나가 방위를 통째로
@@ -961,7 +1039,47 @@ export function analyzeFrame(inp: {
   const skyline = detectSkyline(inp.frame, { maskColumns: mask });
   const base = { intrinsics: k, sensor: inp.sensor, horizon: inp.horizon, skyline };
   const skyOnly = solveAttitude(base);
-  if (!body) return { result: skyOnly, skyline, body: null, bodyRejected: false };
+  if (!body) {
+    // 3. 가려진 해 보조 단서: 건물·구름에 해 원반이 가려졌을 때 위쪽 하늘 산란광의 방위 피크로 보정
+    const sunDef = inp.bodies.find(b => b.kind === 'sun');
+    if (sunDef && sunDef.altDeg >= -6) {
+      const dir = dirFromAzEl(sunDef.azDeg, sunDef.altDeg);
+      const f = cameraBasis(inp.sensor).f;
+      const cosAng = dir[0] * f[0] + dir[1] * f[1] + dir[2] * f[2];
+      if (cosAng >= Math.cos((HFOV_GUARD(k) / 2 + 25) * D2R)) {
+        const p = project(dir, inp.sensor, k);
+        const centerX = p ? p.x : k.width / 2;
+        const glow = detectSkyGlowColumn(inp.frame, skyline, centerX, k.fx * Math.tan(25 * D2R));
+        if (glow) {
+          const glowUnproj = unproject(glow.x, glow.y, inp.sensor, k);
+          const glowPt: PointObservation = {
+            x: glow.x,
+            y: glow.y,
+            azDeg: sunDef.azDeg,
+            elDeg: glowUnproj.el, // 산란광은 방위만 제약하고 앙각은 중립 유지
+            weight: 0.35,
+          };
+          if (skyOnly.yawObservable) {
+            const withGlow = solveAttitude({ ...base, points: [glowPt] });
+            if (Math.abs(wrap180(withGlow.dYaw - skyOnly.dYaw)) <= 4) {
+              return { result: withGlow, skyline, body: null, bodyRejected: false };
+            }
+          } else {
+            const glowOnly = solveAttitude({ intrinsics: k, sensor: inp.sensor, points: [glowPt] });
+            if (glowOnly.yawObservable) {
+              return {
+                result: { ...glowOnly, confidence: Math.min(0.65, 0.45 + glow.contrast) },
+                skyline,
+                body: null,
+                bodyRejected: false,
+              };
+            }
+          }
+        }
+      }
+    }
+    return { result: skyOnly, skyline, body: null, bodyRejected: false };
+  }
   const bdef = inp.bodies.find(b => b.kind === body!.kind)!;
   const withBody = solveAttitude({ ...base, points: [{ x: body.x, y: body.y, azDeg: bdef.azDeg, elDeg: bdef.altDeg }] });
   if (skyOnly.yawObservable && Math.abs(wrap180(withBody.dYaw - skyOnly.dYaw)) > 1) {

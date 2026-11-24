@@ -102,6 +102,7 @@ export function useSunCameraSensors(args: {
   const deviceRotationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
   const posePoseRef = useRef<DevicePose | null>(null);
   const magRef = useRef({ x: 0, y: 0, z: 0 });
+  const hasInterferenceRef = useRef(false);
   const fusionRef = useRef(createHeadingFusion());
 
   const rawRotationRef = useRef<{ a: number; b: number; g: number } | null>(null);
@@ -182,19 +183,21 @@ export function useSunCameraSensors(args: {
     return () => sub.remove();
   }, [visible]);
 
-  // Magnetometer 10Hz: 자기장 왜곡만 감지
+  // Magnetometer 10Hz: 자기장 왜곡 감지 및 나침반 추적 게이트
   useEffect(() => {
     if (!visible) return;
     Magnetometer.setUpdateInterval(100);
     const sub = Magnetometer.addListener((data) => {
       magRef.current = data;
       const magNorm = Math.hypot(data.x, data.y, data.z);
-      setHasInterference(magNorm > 0 && (magNorm < 22 || magNorm > 68));
+      const interfered = magNorm > 0 && (magNorm < 22 || magNorm > 68);
+      hasInterferenceRef.current = interfered;
+      setHasInterference(interfered);
     });
     return () => sub.remove();
   }, [visible]);
 
-  // Location Heading: 진북 보정 오프셋만 계산
+  // Location Heading: 진북 보정 오프셋만 계산 (자기 간섭 구간에서는 자이로 보호를 위해 반영 보류)
   useEffect(() => {
     if (!visible) return;
     let subscription: Location.LocationSubscription | null = null;
@@ -202,6 +205,7 @@ export function useSunCameraSensors(args: {
     const startWatching = async () => {
       try {
         subscription = await Location.watchHeadingAsync((data) => {
+          if (hasInterferenceRef.current) return;
           const isTrue = data.trueHeading !== -1;
           const rawCompass = isTrue ? data.trueHeading : data.magHeading;
           const pose = posePoseRef.current;

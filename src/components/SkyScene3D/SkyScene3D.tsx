@@ -2933,7 +2933,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
         if (qKey !== volQualityRef.current) {
           vol.setQuality(q);
-          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 15 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunMarch: (volSet.volumetricBillow ?? true) ? [10, 60, 1.5] : [6, 250, 1.6], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
+          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 15 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
           volKeyRef.current = '';
           const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
           if (changed != null) vol.setResolutionScale(changed);
@@ -3453,7 +3453,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const hasCityPatch = Boolean(cityLightsOn && cityField && cityField.patch.length > 0);
     const cityTerrainGain = baseCityTerrainGain * skyGlow;
     const cityPatchScale = 0;
-    const cityWallGain = cityLightsOn ? 0.028 * skyGlow * cloudBounce * nightFade * expComp * cityTimeScale : 0;
+    const cityWallGain = cityLightsOn ? 0.045 * Math.pow(Math.max(0, localNorm), 1.45) * cloudBounce * nightFade * expComp * cityTimeScale : 0;
 
     if (terrainFieldRef.current) {
       const tf = terrainFieldRef.current;

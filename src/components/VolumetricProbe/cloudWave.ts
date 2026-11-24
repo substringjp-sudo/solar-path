@@ -179,8 +179,13 @@ function createWaveRowEval(setup: {
     warpCosD[m] = Math.cos(d);
     warpSinD[m] = Math.sin(d);
   }
-  const bigStepX = new Float64Array(nAll);
-  for (let m = 0; m < nAll; m++) bigStepX[m] = wKx[m] * dx;
+  const bigCosD = new Float64Array(nAll);
+  const bigSinD = new Float64Array(nAll);
+  for (let m = 0; m < nAll; m++) {
+    const d = wKx[m] * dx;
+    bigCosD[m] = Math.cos(d);
+    bigSinD[m] = Math.sin(d);
+  }
   const wxRow = new Float64Array(n);
   const wyRow = new Float64Array(n);
   const wzRow = new Float64Array(n);
@@ -202,11 +207,20 @@ function createWaveRowEval(setup: {
       }
     }
     fRow.fill(0);
+    // 삼각함수 덧셈정리 회전 점화식 + 2차 테일러 위상 섭동 전개:
+    // cos(θ_ix + ε) ≈ (1 - 0.5·ε²)·cos(θ_ix) - ε·(1 - ε²/6)·sin(θ_ix)
     for (let m = 0; m < nAll; m++) {
-      const kx = wKx[m], ky = wKy[m], kz = wKz[m], amp = wAmp[m], dpx = bigStepX[m];
+      const kx = wKx[m], ky = wKy[m], kz = wKz[m], amp = wAmp[m];
+      const cd = bigCosD[m], sd = bigSinD[m];
       const p0 = kx * x0 + ky * y + kz * z + wPh[m];
+      let c = Math.cos(p0), s = Math.sin(p0);
       for (let ix = 0; ix < n; ix++) {
-        fRow[ix] += amp * Math.cos(p0 + ix * dpx + kx * wxRow[ix] + ky * wyRow[ix] + kz * wzRow[ix]);
+        const eps = kx * wxRow[ix] + ky * wyRow[ix] + kz * wzRow[ix];
+        const eps2 = eps * eps;
+        fRow[ix] += amp * ((1 - 0.5 * eps2) * c - eps * (1 - 0.16666667 * eps2) * s);
+        const nc = c * cd - s * sd;
+        s = s * cd + c * sd;
+        c = nc;
       }
     }
     for (let ix = 0; ix < n; ix++) out[dstOff + ix] = fRow[ix];
@@ -699,9 +713,11 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * mix(smoothstep(0.0, 0.3, wfb), 1.0, waveBox.w) * waveSmall(vec3(wxy, wz));',
     '    float wprof = 0.25 + 0.75 * pow(wfb, 0.6667);',
     '    float wc = clamp(waveP.z * ws, 0.0, 1.0);',
-    // 표면 깎기(2026-11-12): 다른 구름과 같은 takram 모양 잡음으로, 세기는 대류성 χ 로 0.4(판)~1(뭉게). 속(wc≈1)은 그대로.
+    // 표면 깎기(2026-11-12): 다른 구름과 같은 takram 모양 잡음으로, 세기는 대류성 χ 로 0.4(판)~1(뭉게).
+    // 눈구름·빙정 커튼처럼 가장자리 기울기(waveP.z = edge)가 낮을수록 바닥을 0.14까지 낮춰 Worley 세포 경계가 뿌옇게 풀어지게 합니다.
     '    float wsh = texture(shapeTexture, position * shapeRepeat + shapeOffset).r;',
-    '    wc = remapClamped(wc, (1.0 - wsh) * mix(0.4, 1.0, waveP.y), 1.0);',
+    '    float wCarveFloor = clamp(waveP.z * 0.22, 0.14, 0.4);',
+    '    wc = remapClamped(wc, (1.0 - wsh) * mix(wCarveFloor, 1.0, waveP.y), 1.0);',
     '    // 가장자리 솜털: takram 잔무늬로 얇은 곳만 깎음(속 wc≈1 은 그대로). 위는 몽글, 아래는 가닥(takram 규칙).',
     '#ifdef SHAPE_DETAIL',
     '    if (waveP.w > 0.0 && wc > 0.0 && wc < 1.0) {',

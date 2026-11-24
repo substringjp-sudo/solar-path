@@ -12,7 +12,7 @@ import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { findPresetTerrain } from '../utils/presetTerrains';
 import { scenePrediction } from '../utils/scenePrediction';
 import { canGlow, lowCloudWindow, peakWindow, sampleScores, scoreWindow } from '../utils/scoreSeries';
-import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, predictSkyline, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
+import { analyzeFrame, attitudeFromEuler, createVisionCalibrator, intrinsicsFromHfov, apparentAltitude, predictSkyline, wrap180, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
 import { loadHorizon, loadTerrainSampler, frameFromPhoto, hfovFromExif, type TerrainSamplerData } from '../utils/arVisionNative';
 import * as MediaLibrary from 'expo-media-library';
 import { useSunCameraSensors } from '../hooks/useSunCameraSensors';
@@ -404,6 +404,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const autoTriggerCooldownRef = useRef(0);
   const [visionStatus, setVisionStatus] = useState<string | null>(null);
   const [isVisionRunning, setIsVisionRunning] = useState(false);
+  const visionCalibratorRef = useRef(createVisionCalibrator({ window: 5, agreeDeg: 1.5, maxSpeedDegS: 10, minConfidence: 0.5 }));
+  useEffect(() => {
+    if (!visible) visionCalibratorRef.current.reset();
+  }, [visible]);
   /** 사진 EXIF 로 잰 이 폰 카메라의 가로 화각(세로로 든 사진 기준). 표시만 합니다. */
   const [measuredHfov, setMeasuredHfov] = useState<number | null>(null);
 
@@ -772,7 +776,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     if (cameraFacing !== 'back') return L3(language, '뒤 카메라에서만 됩니다', 'Works with the back camera only', '背面カメラでのみ使えます');
     if (currentMagnification > 1.02) return L3(language, '1배율에서만 됩니다', 'Works at 1× zoom only', '1倍ズームでのみ使えます');
     if (Math.abs(sensor.rollDeg) > 30) return L3(language, '폰을 세로로 들어 주세요', 'Hold the phone upright', 'スマホを縦に持ってください');
-    if (speedDegS > 15) return L3(language, '폰을 멈춘 채 찍어 주세요', 'Hold still while shooting', '静止して撮影してください');
+    if (speedDegS > 10) return L3(language, '폰을 멈춘 채 찍어 주세요', 'Hold still while shooting', '静止して撮影してください');
     const frame = await frameFromPhoto(uri);
     if (!frame) return L3(language, '사진을 읽지 못했습니다', "Couldn't read the photo", '写真を読み取れませんでした');
     const hfov = hfovFromExif(exif, frame.width, frame.height);
@@ -794,12 +798,21 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
     const now = fusionRef.current.heading();
     if (now == null) return L3(language, '방위 센서가 아직 준비되지 않았습니다', 'Heading sensor not ready yet', '方位センサーの準備中です');
+    const curOffset = fusionRef.current.status().offsetDeg;
+    const totalYawOffset = wrap180(curOffset + r.dYaw);
+    visionCalibratorRef.current.push({ ...r, dYaw: totalYawOffset }, speedDegS, when.getTime());
+    const calStatus = visionCalibratorRef.current.status();
+    const applyYaw = calStatus.locked
+      ? wrap180(visionCalibratorRef.current.correction().dYaw - curOffset)
+      : r.dYaw;
     // 찍은 뒤 폰이 돌아갔어도 됩니다 — 보정은 방위 **오프셋**에 대한 것이라 지금 방위에 더합니다.
-    fusionRef.current.snapTo(wrap360(now + r.dYaw));
+    fusionRef.current.snapTo(wrap360(now + applyYaw));
     setHeadingStatus(fusionRef.current.status());
-    const sunW = L3(language, '해', 'Sun', '太陽'), moonW = L3(language, '달', 'Moon', '月'), ridgeW = L3(language, '능선', 'ridgeline', '稜線');
-    const by = a.body ? (a.body.kind === 'sun' ? sunW : moonW) + (r.samples ? ` + ${ridgeW}` : '') : ridgeW;
-    const dy = `${r.dYaw >= 0 ? '+' : ''}${r.dYaw.toFixed(1)}°`;
+    const sunW = L3(language, '해', 'Sun', '太陽'), moonW = L3(language, '달', 'Moon', '月'), ridgeW = L3(language, '능선', 'ridgeline', '稜線'), glowW = L3(language, '하늘 산란광', 'sky glow', '空の散乱光');
+    const by = a.body
+      ? (a.body.kind === 'sun' ? sunW : moonW) + (r.samples ? ` + ${ridgeW}` : '')
+      : (r.source === 'point' ? glowW : r.source === 'skyline+point' ? `${ridgeW} + ${glowW}` : ridgeW);
+    const dy = `${applyYaw >= 0 ? '+' : ''}${applyYaw.toFixed(1)}°`;
     return L3(language, `${by}으로 방위를 ${dy} 맞췄습니다`, `Heading corrected ${dy} using ${by}`, `${by}で方位を${dy}補正しました`);
   }, [cameraFacing, currentMagnification, latitude, longitude, language]);
 
@@ -836,6 +849,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const trueSunAz = sunPos.azimuth; // SunCalc 계산 방위각
     // 정답을 아는 경우라 오프셋을 바로 못 박습니다. 그 뒤로는 자기계가
     // 천천히만 끌어갑니다(융합이 그렇게 잡아 둡니다).
+    visionCalibratorRef.current.reset();
     fusionRef.current.snapTo(trueSunAz);
     setHeadingStatus(fusionRef.current.status());
 
@@ -2625,7 +2639,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     )}
                     <PressScale
                       style={styles.alignPopoverBtn}
-                      onPress={() => { setAlignMenuOpen(false); handleCalibrate(); }}
+                      onPress={() => { setAlignMenuOpen(false); visionCalibratorRef.current.reset(); handleCalibrate(); }}
                     >
                       <RotateCcw size={14} color={TEXT} />
                       <Text style={styles.alignPopoverText}>

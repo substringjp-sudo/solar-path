@@ -389,6 +389,7 @@ export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5
     if (d <= 80) return 0.2;
     return 0.35;
   });
+  const obsWater = path.find(p => p.distance === 0)?.totalColumnWaterVapour ?? activePath[0]?.totalColumnWaterVapour ?? 15.0;
   let totalOpticalDepth = 0;
   for (let i = 0; i < activePath.length; i++) {
     const x = distances[i];
@@ -408,7 +409,7 @@ export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5
       if (hRay < 7.0) { const t = (hRay - 6.0) / 1.0; wMid = 1 - t; wHigh = t; }
       else wHigh = 1.0;
     }
-    const waterDensity = s.totalColumnWaterVapour ?? 15.0;
+    const waterDensity = s.totalColumnWaterVapour ?? obsWater;
     const waterMultiplier = Math.max(0.6, Math.min(2.5, waterDensity / 20.0));
     const extLow = 4.0 * waterMultiplier;
     const extMid = 2.0 * waterMultiplier;

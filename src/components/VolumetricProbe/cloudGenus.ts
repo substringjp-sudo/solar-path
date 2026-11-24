@@ -208,6 +208,7 @@ export function planFlowScene(gl: (GenusLayer | null)[], o: FlowPlanOptions): Fl
     // §131: 기본값(qMode 0·s90 0)이면 1회차와 같은 바이트.
     ...(o.qMode ? { qMode: o.qMode, qN: o.qN ?? 128, qH: o.qH ?? FLOW_DEFAULTS.qH } : {}),
     ...(o.s90 && o.s90 > 0 ? { s90: o.s90 } : {}),
+    ...(op.spectralSigmaKm && op.spectralSigmaKm > 0 ? { spectralSigmaKm: op.spectralSigmaKm } : {}),
   };
 }
 
@@ -1007,10 +1008,11 @@ function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer)
  * 다중 스케일 능선 난류(1 − |2n − 1|) 및 도메인 워프를 생성해 flowComposeSteps 의 q0·z0n 에 합성합니다.
  */
 function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer, flow: FlowSceneParams): FieldPx {
+  const tGenus = ((L.opts as { tileGenus?: GenusKey } | undefined)?.tileGenus ?? L.genus) as GenusKey;
   const windDeg = flow.windDeg ?? param(L, 'windDeg') ?? 30;
   const warpU = fbm(8, 3, seed + 11), warpV = fbm(8, 3, seed + 13);
   const fineWarpU = fbm(20, 2, seed + 17), fineWarpV = fbm(20, 2, seed + 19);
-  if (L.genus === 'ci') {
+  if (tGenus === 'ci') {
     const band = alignedFbm(windDeg, 12, 2.5, tileKm, 3, seed + 1);
     const fib = alignedFbm(windDeg, 4, 0.25, tileKm, 2, seed + 7);
     return (x, y) => {
@@ -1020,8 +1022,8 @@ function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer,
       return band(u, v) * (0.25 + 0.75 * r * r * r);
     };
   }
-  if (L.genus === 'sc' || L.genus === 'ac') {
-    const cellKm = L.genus === 'ac' ? 0.8 : 2.0;
+  if (tGenus === 'sc' || tGenus === 'ac') {
+    const cellKm = tGenus === 'ac' ? 0.8 : 2.0;
     const band = alignedFbm(windDeg, cellKm * 3.5, cellKm * 0.9, tileKm, 3, seed + 3);
     const coarse = fbm(Math.max(4, Math.round(tileKm / (cellKm * 1.3))), 3, seed + 5);
     const fine = fbm(Math.max(10, Math.round(tileKm / (cellKm * 0.35))), 3, seed + 7);
@@ -1035,7 +1037,7 @@ function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer,
       return 0.34 * band(u, v) + 0.34 * ridge1 + 0.18 * ridge2 + 0.14 * fine(u, v);
     };
   }
-  const cellKm = L.genus === 'cb' ? 6.0 : L.genus === 'cg' ? 3.2 : 1.9;
+  const cellKm = tGenus === 'cb' ? 6.0 : tGenus === 'cg' ? 3.2 : 1.9;
   const macro = fbm(Math.max(2, Math.round(tileKm / (cellKm * 1.8))), 3, seed + 3);
   const eddy = fbm(Math.max(5, Math.round(tileKm / (cellKm * 0.7))), 3, seed + 5);
   const detail = alignedFbm(windDeg, cellKm * 1.6, cellKm * 0.42, tileKm, 3, seed + 7);
@@ -1087,6 +1089,8 @@ function layerPatternKey(
     densityScale: _ds,
     ao: _ao,
     thru: _th,
+    base: _bs,
+    top: _tp,
     domePow: _dp,
     topQuantile: _tq,
     flowDPow: _fdp,
@@ -1097,6 +1101,13 @@ function layerPatternKey(
     flowMode: _fm,
     flowTop: _ft,
     flowEdge: _fe,
+    edge: _ed,
+    spectralSigmaKm: _ssk,
+    flowLifeSec: _fls,
+    haloWeight: _hw,
+    powderWeight: _pw,
+    effectiveG: _eg,
+    tileGenus: _tg,
     flowTilt: _fti,
     densPow: _fd,
     flowErode: _fer,
@@ -1106,7 +1117,8 @@ function layerPatternKey(
     ...patternOpts
   } = o;
   if (useFlow) delete patternOpts.spacingKm;
-  return JSON.stringify([L.genus, S, tileKm, seed, k, useFlow ? flow : 0, patternOpts]);
+  const keyGenus = (typeof _tg === 'string' && _tg ? _tg : L.genus) as GenusKey;
+  return JSON.stringify([keyGenus, S, tileKm, seed, k, useFlow ? flow : 0, patternOpts]);
 }
 
 function* genusWeatherSteps(
@@ -1178,7 +1190,8 @@ function* genusWeatherSteps(
         const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 128));
         const tSeed = (((L.opts?.seed ?? seed + k * 1000) % 4) + 4) % 4;
         const lo = L.opts as Record<string, unknown> | undefined;
-        const tKey = `${L.genus}|${TS}|${tileKm}|${tSeed}|${lo?.scale ?? ''}|${lo?.detail ?? ''}`;
+        const tGenus = (typeof lo?.tileGenus === 'string' && lo.tileGenus ? lo.tileGenus : L.genus) as GenusKey;
+        const tKey = `${tGenus}|${TS}|${tileKm}|${tSeed}|${lo?.scale ?? ''}|${lo?.detail ?? ''}`;
         let T = flowTemplateCache.get(tKey);
         if (T) {
           flowTemplateCache.delete(tKey);
@@ -1433,7 +1446,19 @@ export function patchGenusShader(mat: PatchableMaterial): void {
     const sunLine = '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
     if (!src.includes(sunLine)) throw new Error('cloudGenus: sun term anchor missing');
     src = src.replace(sunLine, sunLine + '\n      vec3 gSunPart = radiance;');
-    src = src.replace(amb, amb + THRU_BLOCK);
+    src = src.replace(amb, amb + THRU_BLOCK + [
+      '',
+      '      {',
+      '        // 레일리 산란으로 붉어진 직사광일수록(적/청 휘도비 차이) 얇은 가장자리 산란과 ACES 탈색 보정을 연속적으로 적용',
+      '        float gSunL = dot(sunIrradiance, vec3(0.2126, 0.7152, 0.0722));',
+      '        vec3 gSunChroma = sunIrradiance / max(gSunL, 1e-6);',
+      '        float gRedness = clamp((gSunChroma.r - gSunChroma.b - 0.25) * 0.75, 0.0, 1.0) * dot(genusOn, media.weight);',
+      '        float gRim = exp(-0.045 * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
+      '        radiance += sunIrradiance * (0.14 * gRim * gRedness);',
+      '        vec3 gWarmChroma = mix(vec3(1.0), clamp(vec3(gSunChroma.r * 0.85, gSunChroma.g * 0.90, max(gSunChroma.b, 0.80)), 0.70, 1.38), gRedness * (0.45 + 0.35 * max(0.0, cosTheta)));',
+      '        radiance *= gWarmChroma;',
+      '      }',
+    ].join('\n'));
   }
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',

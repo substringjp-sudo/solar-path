@@ -382,55 +382,23 @@ const persistRing = (key: string, lat: number, lon: number, data: CloudPathData[
 
 /** 원거리 고리용 8방위 (45° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
 const RING_AZIMUTHS_OCT = [0, 45, 90, 135, 180, -135, -90, -45];
-/** 가까운 고리용 6방위 (60° 간격). 아래 `RING` 주석 참고. */
-const RING_AZIMUTHS_NEAR = [0, 60, 120, 180, -120, -60];
+/** 엇갈림(체스판) 샘플링용 정방위 4점 (90° 간격) 및 대각 4점, 일출·일몰 보강 6점. */
+const RING_AZIMUTHS_CARD = [0, 90, 180, -90];
+const RING_AZIMUTHS_DIAG = [45, 135, -135, -45];
+const RING_AZIMUTHS_SIX = [45, 90, 135, -135, -90, -45];
 
 /**
- * 링의 거리 고리와 각 고리가 쓸 방위.
- *
- * ## 왜 5km 고리를 더했나 — 머리 위 하늘이 값 하나였습니다
- *
- * 예전 최단 거리는 10km 였습니다. 그 거리가 하늘 어디에 떨어지는지 재보면:
- *
- *   | 층 | 10km 가 놓이는 고도각 | 그 **위**는 전부 관측점 값 하나 |
- *   |---|---|---|
- *   | 저 1.5km | 8.5° | 하늘의 거의 전부 |
- *   | 중 4.5km | 24.2° | |
- *   | 상 10km | 44.9° | |
- *
- * 저층은 **고도 8.5° 위가 통째로 단일값**이었습니다. 황금비로 잘라 배치를
- * 맞춰 보는 판정(1절)이 원리적으로 통과할 수 없는 구조입니다.
- *
- * 5km 고리를 더하면 그 경계가 저층 15°, 중층 38°, 상층 60°로 올라갑니다.
- *
- * ## 왜 5km 인가 — 그보다 가까우면 같은 격자칸입니다
- *
- * 관측점에서 동쪽으로 0/1/2/3/5/8/12/20/30km 떨어진 점을 한 번에 물어
- * 모델이 언제 다른 칸을 주는지 쟀습니다 (2026-09, 서울):
- *
- *   0~3km  → 전부 같은 칸, 값도 소수점까지 동일
- *   5km    → 처음으로 다른 칸
- *
- * 유효 격자가 **약 5.5km** 입니다(경도 0.0625°). `best_match` 가 이 지역에서
- * 실제로 JMA MSM 을 쓰고 있고, 둘의 응답이 완전히 같습니다. 2~3km 고리를
- * 더해 봐야 관측점 값의 복사본만 늘어납니다.
- *
- * ## 왜 가까운 고리만 방위 6개인가
- *
- * 반경 5km 에서 12방위는 이웃 점 간격이 2.6km 로 격자(5.5km)보다 촘촘합니다 —
- * 같은 값 12개를 받으려고 요청을 12번 하는 셈입니다. 6방위면 간격이 5km 라
- * 격자와 맞고, 요청점은 85 → 91 로 7%만 늘어납니다.
+ * 수치예보 모델 격자 해상도(11~25km)에 맞춘 5단계 동심원 및 체스판(엇갈림) 방위 샘플링.
+ * - API 요청(`queryAzimuths`)은 관측점(1) + 8km(4) + 28km(4) + 80km(4) + 180km(6) + 360km(8) = 총 27점만 조회합니다.
+ * - 조회하지 않은 사잇각 방위(`azimuths` 중 나머지)는 같은 고리의 좌우 인접 방위와 안팎 고리의 동일 방위 실측점 4곳으로부터
+ *   클라이언트에서 2차원 양선형 근사해 5개 고리 × 8방위(41점 + 이음매 5점 = 46점) 격자를 완비합니다.
  */
-// 근거리(5·10·30km)는 6방위, 원거리(70~380km)는 8방위로 총 59점으로 경량화해 Open-Meteo 응답 지연을 줄입니다.
-const RING: { dist: number; azimuths: number[] }[] = [
-  { dist: 5, azimuths: RING_AZIMUTHS_NEAR },
-  { dist: 10, azimuths: RING_AZIMUTHS_NEAR },
-  { dist: 30, azimuths: RING_AZIMUTHS_NEAR },
-  { dist: 70, azimuths: RING_AZIMUTHS_OCT },
-  { dist: 130, azimuths: RING_AZIMUTHS_OCT },
-  { dist: 200, azimuths: RING_AZIMUTHS_OCT },
-  { dist: 280, azimuths: RING_AZIMUTHS_OCT },
-  { dist: 380, azimuths: RING_AZIMUTHS_OCT },
+const RING: { dist: number; azimuths: number[]; queryAzimuths: number[] }[] = [
+  { dist: 8, azimuths: RING_AZIMUTHS_OCT, queryAzimuths: RING_AZIMUTHS_CARD },
+  { dist: 28, azimuths: RING_AZIMUTHS_OCT, queryAzimuths: RING_AZIMUTHS_DIAG },
+  { dist: 80, azimuths: RING_AZIMUTHS_OCT, queryAzimuths: RING_AZIMUTHS_CARD },
+  { dist: 180, azimuths: RING_AZIMUTHS_OCT, queryAzimuths: RING_AZIMUTHS_SIX },
+  { dist: 360, azimuths: RING_AZIMUTHS_OCT, queryAzimuths: RING_AZIMUTHS_OCT },
 ];
 
 /** 고리 거리(km). 16일 예보(`sunForecast.ts`)가 같은 거리로 해 쪽 줄을 받아 오늘 판정과 맞춥니다. */
@@ -452,15 +420,51 @@ const ringCache = new Map<string, CloudPathData[]>();
  */
 const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
 
-/** 하루치 층별 바람 시계열. 성분(동/북, km/h)으로 저장합니다. */
-/**
- * 단면을 받을 기압면. 16개 전부는 필요 없고 층마다 두세 면이면 무게중심이
- * 잡힙니다. 늘리면 그만큼 호출 가중치가 오릅니다.
- */
-// 975·950·900·800·750 은 저층 덱의 윗면을 250m 간격으로 잡으려고 넣었습니다
-// (§82). 없으면 850(1.45km)과 700(3.0km) 사이 1.5km 가 비어 운해의 윗면을
-// 못 냅니다. 관측점 1점 요청이라 변수 10개 = 가중치 1.0 이 늡니다.
+/** 소비자(`cloudProfile.ts`, `liveScene.ts`)가 읽는 표준 15개 기압면 격자. */
 export const PROFILE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200] as const;
+/**
+ * 실제 API로 요청할 기압면 부분집합:
+ * - 지오퍼텐셜 고도는 정역학 평형(dz ∝ -d ln p)에 의해 ln(p)에 대해 거의 직선이므로 4개 기준면만 받아 ln(p) 보간합니다.
+ * - 운량 단면은 중간 950·800·250 hPa 3개 면을 상하 기압면 ln(p) 보간으로 채웁니다.
+ */
+const PROFILE_HEIGHT_ANCHORS = [1000, 850, 500, 200] as const;
+const PROFILE_COVER_ANCHORS = [1000, 975, 925, 900, 850, 750, 700, 600, 500, 400, 300, 200] as const;
+
+/**
+ * 부분집합 기압면만 조회한 응답 객체 `h` 에서 빠진 사잇값 기압면을 ln(p) 선형 보간으로 복원합니다.
+ */
+function fillMissingPressureLevelsLnP(
+  h: Record<string, any> | null | undefined,
+  targetLevels: readonly number[],
+  prefix: string,
+  timeLen: number,
+): void {
+  if (!h || timeLen <= 0) return;
+  const avail = targetLevels.filter(p => Array.isArray(h[`${prefix}_${p}hPa`]));
+  if (avail.length < 2) return;
+  for (const p of targetLevels) {
+    const key = `${prefix}_${p}hPa`;
+    if (Array.isArray(h[key])) continue;
+    let k = 0;
+    while (k < avail.length - 2 && avail[k + 1] >= p) k++;
+    const p0 = avail[k];
+    const p1 = avail[Math.min(avail.length - 1, k + 1)];
+    const arr0 = h[`${prefix}_${p0}hPa`] as (number | null)[];
+    const arr1 = h[`${prefix}_${p1}hPa`] as (number | null)[];
+    if (!Array.isArray(arr0) || !Array.isArray(arr1)) continue;
+    const denom = Math.log(p1) - Math.log(p0);
+    const t = Math.abs(denom) > 1e-9 ? Math.max(0, Math.min(1, (Math.log(p) - Math.log(p0)) / denom)) : 0;
+    const out = new Array<number | null>(timeLen);
+    for (let i = 0; i < timeLen; i++) {
+      const v0 = arr0[i];
+      const v1 = arr1[i];
+      out[i] = typeof v0 === 'number' && Number.isFinite(v0) && typeof v1 === 'number' && Number.isFinite(v1)
+        ? v0 + (v1 - v0) * t
+        : (typeof v0 === 'number' && Number.isFinite(v0) ? v0 : (typeof v1 === 'number' && Number.isFinite(v1) ? v1 : null));
+    }
+    h[key] = out;
+  }
+}
 
 /**
  * 위성 편향 캐시. 같은 격자칸·같은 날이면 다시 안 받습니다.
@@ -756,6 +760,13 @@ export function attachAirQuality(hourly: HourlyCloudData, aq: AirQualityHourly):
 export const THERMO_TEMP_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200] as const;
 /** 상대습도는 300 hPa 위(권운 높이)는 모델이 믿을 만하지 않아 받지 않습니다. */
 export const THERMO_RH_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300] as const;
+/**
+ * 실제 API로 조회할 열역학 기준 기압면:
+ * - 기온은 대류권 감률이 완만하므로 7개 기준면만 받아 나머지 8개 면을 ln(p) 선형 보간합니다.
+ * - 상대습도는 연무층(975·925 hPa → 950 보간 시 평균 동일)·역전층(850·750 hPa)·상층(500·300 hPa) 8개 기준면만 받아 나머지 5개 면을 ln(p) 보간합니다.
+ */
+const THERMO_TEMP_ANCHORS = [1000, 925, 850, 700, 500, 300, 200] as const;
+const THERMO_RH_ANCHORS = [1000, 975, 925, 850, 750, 600, 500, 300] as const;
 
 export interface ThermoHourly {
   time: string[];
@@ -790,8 +801,8 @@ export const fetchThermoProfile = async (
   if (!forceRefresh && missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
   const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height', 'wind_gusts_10m', 'weather_code']
-    .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
-    .concat(THERMO_RH_LEVELS.map(p => `relative_humidity_${p}hPa`))
+    .concat(THERMO_TEMP_ANCHORS.map(p => `temperature_${p}hPa`))
+    .concat(THERMO_RH_ANCHORS.map(p => `relative_humidity_${p}hPa`))
     .join(',');
   // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
   let src = weatherSourceFor(dateStr, localDateString(new Date(nowMs ?? Date.now())), 'point', { historicalForbidden: isHistoricalForbidden() });
@@ -811,6 +822,8 @@ export const fetchThermoProfile = async (
     const h = data?.hourly;
     const time: string[] = Array.isArray(h?.time) ? h.time : [];
     if (time.length === 0) throw new Error('empty');
+    fillMissingPressureLevelsLnP(h, THERMO_TEMP_LEVELS, 'temperature', time.length);
+    fillMissingPressureLevelsLnP(h, THERMO_RH_LEVELS, 'relative_humidity', time.length);
     const col = (k: string): number[] => time.map((_, i) => {
       const v = (h[k] as (number | null)[] | undefined)?.[i];
       return typeof v === 'number' && Number.isFinite(v) ? v : NaN;
@@ -889,13 +902,12 @@ export const fetchLayerWinds = async (
   const missAt = windMiss.get(key);
   if (!forceRefresh && missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
-  // 바람 6 + 시정 1 + 기압면 단면 20 = 27개 → 가중치 2.7회. **관측점 1점**
-  // 요청이라 절대량은 미미합니다(§58 의 합계 186 에 2.7). 팬에는 안 붙입니다 —
-  // 36점에 붙이면 감당이 안 됩니다.
+  // 바람 6 + 시정 1 + 기압면 운량 12 + 지오퍼텐셜 고도 기준면 4 = 23개(기존 37개에서 14개 감축).
   const vars = (['low', 'mid', 'high'] as const)
     .flatMap(k => [`wind_speed_${WIND_LEVELS[k]}`, `wind_direction_${WIND_LEVELS[k]}`])
     .concat(['visibility'])
-    .concat(PROFILE_LEVELS.flatMap(p => [`cloud_cover_${p}hPa`, `geopotential_height_${p}hPa`]))
+    .concat(PROFILE_COVER_ANCHORS.map(p => `cloud_cover_${p}hPa`))
+    .concat(PROFILE_HEIGHT_ANCHORS.map(p => `geopotential_height_${p}hPa`))
     .join(',');
 
   // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
@@ -950,9 +962,10 @@ export const fetchLayerWinds = async (
       out.visibility = h.visibility;
     }
 
-    // 단면에서 시각마다 층 높이를 뽑습니다. 단면이 없으면 아예 안 싣고,
-    // 그러면 소비자가 예전 상수를 그대로 씁니다.
+    // 단면에서 시각마다 층 높이를 뽑습니다. 조회를 생략한 사잇값 기압면은 정역학 ln(p) 선형 보간으로 먼저 채웁니다.
     if (PROFILE_LEVELS.some(p => Array.isArray(h[`cloud_cover_${p}hPa`]))) {
+      fillMissingPressureLevelsLnP(h, PROFILE_LEVELS, 'geopotential_height', time.length);
+      fillMissingPressureLevelsLnP(h, PROFILE_LEVELS, 'cloud_cover', time.length);
       const lo: number[] = [], mi: number[] = [], hi: number[] = [];
       // 덱 밑면·윗면. 저층이 빈 시각은 NaN — 보간이 NaN 을 퍼뜨리므로
       // 소비자는 Number.isFinite 로 거릅니다(null 은 배열 보간이 못 받음).
@@ -1103,29 +1116,33 @@ export const fetchDayWeatherRing = async (
   }
 
   const ringPromise = (async () => {
-    // 관측점 + 고리별 방위 (위 `RING` 주석: 가까운 고리는 방위 6개)
+    // 1) 출력용 전체 가상 격자(관측점 1 + 5개 고리 × 8방위 = 41점)와 실제 API 조회용 체스판 부분집합(27점)을 분리합니다.
     const virtualPoints: { dist: number; az: number; lat: number; lon: number }[] = [
+      { dist: 0, az: 0, lat, lon },
+    ];
+    const queryPoints: { dist: number; az: number; lat: number; lon: number }[] = [
       { dist: 0, az: 0, lat, lon },
     ];
     for (const ring of RING) {
       for (const az of ring.azimuths) {
         const dest = calculateDestination(lat, lon, ring.dist, az);
         virtualPoints.push({ dist: ring.dist, az, lat: dest.latitude, lon: dest.longitude });
+        if (ring.queryAzimuths.includes(az)) {
+          queryPoints.push({ dist: ring.dist, az, lat: dest.latitude, lon: dest.longitude });
+        }
       }
     }
 
-    // 가까운 고리는 12방위가 수 km 간격이라 예보 격자(약 11km) 한 칸에 여럿이
-    // 들어갑니다. 좌표를 반올림해 중복 요청을 없앱니다.
     const uniquePoints: { lat: number; lon: number; key: string }[] = [];
     const seen = new Map<string, number>();
     const keyOf = (la: number, lo: number) => `${la.toFixed(4)},${lo.toFixed(4)}`;
-    const idxOf: number[] = virtualPoints.map(vp => {
-      const k = keyOf(vp.lat, vp.lon);
+    const queryIdxOf: number[] = queryPoints.map(qp => {
+      const k = keyOf(qp.lat, qp.lon);
       let i = seen.get(k);
       if (i === undefined) {
         i = uniquePoints.length;
         seen.set(k, i);
-        uniquePoints.push({ lat: vp.lat, lon: vp.lon, key: k });
+        uniquePoints.push({ lat: qp.lat, lon: qp.lon, key: k });
       }
       return i;
     });
@@ -1228,8 +1245,10 @@ export const fetchDayWeatherRing = async (
       thermo,
     });
 
-    const out: CloudPathData[] = virtualPoints.map((vp, i) => {
-      const res = results[idxOf[i]];
+    // 실제 조회한 27개 지점의 시계열을 먼저 파싱합니다. 외곽 지점(dist > 0)은 실제로 쓰이는 운량 4종만 유지해 메모리·보간 부하를 줄입니다.
+    const queriedHourly = new Map<string, HourlyCloudData>();
+    queryPoints.forEach((qp, qi) => {
+      const res = results[queryIdxOf[qi]];
       const rh = blendHourly(res?.hourly) as any;
       const time: string[] = rh?.time ?? [];
       const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
@@ -1240,11 +1259,11 @@ export const fetchDayWeatherRing = async (
         mid: fill(rh?.cloud_cover_mid),
         high: fill(rh?.cloud_cover_high),
         total: Array.isArray(rh?.cloud_cover) ? rh.cloud_cover : undefined,
-        directNormalIrradiance: rh?.direct_normal_irradiance,
-        totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
-        precipitation: rh?.precipitation,
       };
-      if (i === 0) {
+      if (qp.dist === 0) {
+        hourly.directNormalIrradiance = rh?.direct_normal_irradiance;
+        hourly.totalColumnWaterVapour = rh?.total_column_integrated_water_vapour;
+        hourly.precipitation = rh?.precipitation;
         if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
         if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
         if (winds) attachLayerWinds(hourly, winds);
@@ -1252,6 +1271,61 @@ export const fetchDayWeatherRing = async (
         if (air) attachAirQuality(hourly, air);
         if (satIrr) attachSatelliteIrradiance(hourly, satIrr);
       }
+      queriedHourly.set(`${qp.dist}:${qp.az}`, hourly);
+    });
+
+    const obsH = queriedHourly.get('0:0')!;
+    const blendSeries = (
+      a: number[] | undefined,
+      b: number[] | undefined,
+      inner: number[] | undefined,
+      outer: number[] | undefined,
+      rFrac: number,
+      wRad: number,
+    ): number[] | undefined => {
+      if (!a || !b) return a ?? b;
+      const n = a.length;
+      const res = new Array<number>(n);
+      const wAng = 1 - wRad;
+      for (let t = 0; t < n; t++) {
+        const hAvg = 0.5 * ((a[t] ?? 0) + (b[t] ?? 0));
+        if (inner && outer && inner[t] != null && outer[t] != null) {
+          const rAvg = inner[t] + (outer[t] - inner[t]) * rFrac;
+          res[t] = Math.round((wAng * hAvg + wRad * rAvg) * 10) / 10;
+        } else if (inner && inner[t] != null) {
+          res[t] = Math.round((wAng * hAvg + wRad * inner[t]) * 10) / 10;
+        } else {
+          res[t] = Math.round(hAvg * 10) / 10;
+        }
+      }
+      return res;
+    };
+
+    const out: CloudPathData[] = virtualPoints.map((vp) => {
+      const direct = queriedHourly.get(`${vp.dist}:${vp.az}`);
+      if (direct) {
+        return { distance: vp.dist, azimuthOffset: vp.az, hourly: direct, source: 'standard' as const, origin: src.origin };
+      }
+      const rIdx = RING.findIndex(r => r.dist === vp.dist);
+      const k = RING_AZIMUTHS_OCT.indexOf(vp.az);
+      const azL = RING_AZIMUTHS_OCT[(k + 7) % 8];
+      const azR = RING_AZIMUTHS_OCT[(k + 1) % 8];
+      const hL = queriedHourly.get(`${vp.dist}:${azL}`) ?? obsH;
+      const hR = queriedHourly.get(`${vp.dist}:${azR}`) ?? obsH;
+      const dInner = rIdx > 0 ? RING[rIdx - 1].dist : 0;
+      const hInner = rIdx > 0 ? (queriedHourly.get(`${dInner}:${vp.az}`) ?? obsH) : obsH;
+      const dOuter = rIdx + 1 < RING.length ? RING[rIdx + 1].dist : vp.dist;
+      const hOuter = rIdx + 1 < RING.length ? queriedHourly.get(`${dOuter}:${vp.az}`) : undefined;
+      const rFrac = dOuter > dInner ? (vp.dist - dInner) / (dOuter - dInner) : 0;
+      const wRad = hOuter ? 0.35 : 0.2;
+      const hourly: HourlyCloudData = {
+        time: obsH.time,
+        timeMs: obsH.timeMs,
+        low: blendSeries(hL.low, hR.low, hInner.low, hOuter?.low, rFrac, wRad)!,
+        mid: blendSeries(hL.mid, hR.mid, hInner.mid, hOuter?.mid, rFrac, wRad)!,
+        high: blendSeries(hL.high, hR.high, hInner.high, hOuter?.high, rFrac, wRad)!,
+        total: obsH.total ? blendSeries(hL.total, hR.total, hInner.total, hOuter?.total, rFrac, wRad) : undefined,
+      };
       return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const, origin: src.origin };
     });
 

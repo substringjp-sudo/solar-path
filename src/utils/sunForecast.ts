@@ -106,13 +106,22 @@ export function sideBearings(lat: number, lon: number, noonsMs: number[]): Recor
   return out;
 }
 
-/** 요청할 점들 — 관측점이 첫 점입니다(`getInterpolatedWeather(...)[0]` 이 관측점이어야 합니다). */
+/**
+ * 요청할 점들 — 관측점이 첫 점입니다(`getInterpolatedWeather(...)[0]` 이 관측점이어야 합니다).
+ * 16일 동안 출몰 방위 변화폭(약 4~7°)은 중·근거리에서 동일한 수치예보 모델 격자(11~25km) 안에 들어가므로,
+ * 양 끝 방위(`lo`, `hi`)의 위경도는 그쪽 중앙 방위 1줄로 통일해 실제 API 조회 좌표 수를 절반(33점 → 11점)으로 줄입니다.
+ */
 export function forecastPoints(lat: number, lon: number, bearings: Record<EventSide, number[]>) {
   const pts: { dist: number; az: number; lat: number; lon: number }[] = [{ dist: 0, az: 0, lat, lon }];
-  for (const az of [...bearings.sunrise, ...bearings.sunset]) {
-    for (const dist of RING_DISTANCES_KM) {
-      const d = calculateDestination(lat, lon, dist, az);
-      pts.push({ dist, az, lat: d.latitude, lon: d.longitude });
+  for (const side of ['sunrise', 'sunset'] as EventSide[]) {
+    const bs = bearings[side];
+    if (!bs.length) continue;
+    const midAz = bs.length >= 2 ? wrap180(bs[0] + wrap180(bs[1] - bs[0]) / 2) : bs[0];
+    for (const az of bs) {
+      for (const dist of RING_DISTANCES_KM) {
+        const d = calculateDestination(lat, lon, dist, midAz);
+        pts.push({ dist, az, lat: d.latitude, lon: d.longitude });
+      }
     }
   }
   return pts;
@@ -135,9 +144,11 @@ export function sunForecastUrl(points: { lat: number; lon: number }[]): string {
 export function pathFromResponse(
   points: { dist: number; az: number }[],
   results: any[],
+  idxOf?: number[],
 ): CloudPathData[] {
   return points.map((vp, i) => {
-    const rh = blendHourly(results[i]?.hourly) as any;
+    const resIdx = idxOf ? idxOf[i] : i;
+    const rh = blendHourly(results[resIdx]?.hourly) as any;
     const time: string[] = rh?.time ?? [];
     const col = (a: any): number[] => (Array.isArray(a) ? a : time.map(() => null)) as number[];
     const hourly: HourlyCloudData = {
@@ -148,11 +159,13 @@ export function pathFromResponse(
       mid: col(rh?.cloud_cover_mid),
       high: col(rh?.cloud_cover_high),
       total: Array.isArray(rh?.cloud_cover) ? rh.cloud_cover : undefined,
-      directNormalIrradiance: rh?.direct_normal_irradiance,
-      totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
-      precipitation: rh?.precipitation,
     };
-    if (i === 0 && Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
+    if (i === 0) {
+      hourly.directNormalIrradiance = rh?.direct_normal_irradiance;
+      hourly.totalColumnWaterVapour = rh?.total_column_integrated_water_vapour;
+      hourly.precipitation = rh?.precipitation;
+      if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
+    }
     return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
   });
 }
@@ -329,12 +342,24 @@ export async function fetchSunForecast(
   }
   const job = (async () => {
     const points = forecastPoints(lat, lon, sideBearings(lat, lon, localNoons(now, opts.tzHours ?? 0, FORECAST_DAYS)));
-    const res = await fetchWithTimeout(sunForecastUrl(points), { signal: opts.signal }, 20000);
+    const uniquePoints: { lat: number; lon: number }[] = [];
+    const seen = new Map<string, number>();
+    const idxOf = points.map(p => {
+      const k = `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`;
+      let i = seen.get(k);
+      if (i === undefined) {
+        i = uniquePoints.length;
+        seen.set(k, i);
+        uniquePoints.push({ lat: p.lat, lon: p.lon });
+      }
+      return i;
+    });
+    const res = await fetchWithTimeout(sunForecastUrl(uniquePoints), { signal: opts.signal }, 20000);
     if (!res.ok) throw new Error(res.status === 429 ? 'RATE_LIMIT' : `HTTP_${res.status}`);
     const json = await res.json();
     if (json?.error) throw new Error(/limit/i.test(String(json?.reason ?? '')) ? 'RATE_LIMIT' : String(json?.reason ?? 'ERROR'));
     const results = Array.isArray(json) ? json : [json];
-    const data: SunForecastData = { path: pathFromResponse(points, results), fetchedAt: Date.now() };
+    const data: SunForecastData = { path: pathFromResponse(points, results, idxOf), fetchedAt: Date.now() };
     MEM.set(key, data);
     return data;
   })();

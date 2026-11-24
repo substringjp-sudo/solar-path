@@ -160,6 +160,7 @@ half4 main(float2 coord) {
 // 2) 공간 광학 pass: 3D 샤임플러그 가변 보케 + ND1000 구름 방향성 적분 + 고스트 클린 + 선스타/아나모픽/Pro-Mist
 const SPATIAL_SKSL = `
 uniform shader uImage;
+uniform shader uBokehLow;
 uniform shader uMaskA;
 uniform shader uGeom;
 uniform float2 uRes;
@@ -210,19 +211,37 @@ half4 main(float2 coord) {
   }
 
   // 3D 샤임플러그 기울어진 초점 평면 착란원(CoC) 가변 보케
+  // 단일 외곽 링 8점 샘플링은 큰 반경에서 사진이 여러 겹 겹치는 고스팅을 만들므로,
+  // 다중 동심원(3링×8점) 디스크 샘플링 + 다단 다운샘플링 저주파 이미지(uBokehLow)를 CoC 크기에 따라 연속 블렌딩합니다.
   if (uBokehOn > 0.5) {
     float coc = abs(g.b - 0.5) * 0.08; // 정규화 폭 비율 (최대 ~0.04)
     if (coc > 0.0012) {
-      float3 bAcc = rgb;
-      float bW = 1.0;
-      for (int k = 0; k < 8; k++) {
-        float ang = float(k) * 0.78539816;
-        float2 off = float2(cos(ang), sin(ang) * (uRes.x / max(1.0, uRes.y))) * coc;
-        float2 buv = clamp(uv + off, float2(0.0), float2(1.0));
-        bAcc += float3(uImage.eval(buv * uRes).rgb);
-        bW += 1.0;
+      float aspectScale = uRes.x / max(1.0, uRes.y);
+      float3 hiAcc = rgb;
+      float hiW = 1.0;
+      float3 loAcc = float3(uBokehLow.eval(coord).rgb);
+      float loW = 1.0;
+      for (int ring = 0; ring < 3; ring++) {
+        float rFrac = (float(ring) + 1.0) / 3.0;
+        float angOff = float(ring) * 0.39269908; // 링마다 22.5도 엇갈림
+        float ringW = 1.0 - 0.25 * rFrac;
+        for (int k = 0; k < 8; k++) {
+          float ang = float(k) * 0.78539816 + angOff;
+          float2 off = float2(cos(ang), sin(ang) * aspectScale) * (coc * rFrac);
+          float2 buv = clamp(uv + off, float2(0.0), float2(1.0));
+          hiAcc += float3(uImage.eval(buv * uRes).rgb) * ringW;
+          hiW += ringW;
+          if (ring >= 1) {
+            loAcc += float3(uBokehLow.eval(buv * uRes).rgb) * ringW;
+            loW += ringW;
+          }
+        }
       }
-      rgb = mix(rgb, bAcc / bW, smoothstep(0.0012, 0.0045, coc));
+      float3 diskBlur = hiAcc / hiW;
+      float3 softBlur = loAcc / loW;
+      float lowMix = smoothstep(0.004, 0.016, coc);
+      float3 bokehCol = mix(diskBlur, softBlur, lowMix);
+      rgb = mix(rgb, bokehCol, smoothstep(0.0012, 0.0045, coc));
     }
   }
 
@@ -749,6 +768,38 @@ export async function applyOpticalGearToPhoto(
 
   const needSpatial = useBokeh || useCloud || useProMist || useGhostClean || useAnamorphic;
   if (needSpatial && sFx && maskAImg && geomImg) {
+    // 틸트시프트 큰 CoC 구간에서 고주파 고스팅을 없애기 위한 3단 피라미드 다운샘플링(1/2 → 1/4 → 1/8)
+    let bokehLowImg: SkImage = curImg;
+    if (useBokeh) {
+      let downImg = curImg;
+      for (const div of [2, 4, 8]) {
+        const dw = Math.max(16, Math.round(workW / div));
+        const dh = Math.max(16, Math.round(workH / div));
+        const ds = Skia.Surface.Make(dw, dh);
+        if (ds) {
+          ds.getCanvas().drawImageRect(
+            downImg,
+            rect(0, 0, downImg.width(), downImg.height()),
+            rect(0, 0, dw, dh),
+            Skia.Paint(),
+          );
+          ds.flush();
+          downImg = ds.makeImageSnapshot();
+        }
+      }
+      // 원본 해상도로 1/8 저주파 이미지를 매핑해 셰이더 내 coord 좌표계와 1:1 일치시킴
+      const upSurf = Skia.Surface.Make(workW, workH);
+      if (upSurf) {
+        upSurf.getCanvas().drawImageRect(
+          downImg,
+          rect(0, 0, downImg.width(), downImg.height()),
+          rect(0, 0, workW, workH),
+          Skia.Paint(),
+        );
+        upSurf.flush();
+        bokehLowImg = upSurf.makeImageSnapshot();
+      }
+    }
     const g0 = ghostRes?.ghosts[0];
     const g1 = ghostRes?.ghosts[1];
     const g2 = ghostRes?.ghosts[2];
@@ -777,7 +828,7 @@ export async function applyOpticalGearToPhoto(
           g1 ? g1.u : 0, g1 ? g1.v : 0, g1 ? g1.radiusNorm : 0.04, g1 ? g1.intensity : 0,
           g2 ? g2.u : 0, g2 ? g2.v : 0, g2 ? g2.radiusNorm : 0.05, g2 ? g2.intensity : 0,
         ],
-        [imgShader(curImg), imgShader(maskAImg), imgShader(geomImg)],
+        [imgShader(curImg), imgShader(bokehLowImg), imgShader(maskAImg), imgShader(geomImg)],
       );
       const p = Skia.Paint();
       p.setShader(shader);

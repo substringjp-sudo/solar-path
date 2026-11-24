@@ -53,9 +53,9 @@ import { WeatherFan } from './skyColumn';
 import { classifyCloud, CloudClass } from './cloudMatrix';
 
 /** 고리가 실제로 받는 거리(km). `weather.ts` 의 `RING` 과 같아야 합니다. */
-export const RADAR_RINGS_KM = [0, 5, 10, 30, 70, 130, 200, 280, 380] as const;
+export const RADAR_RINGS_KM = [0, 8, 28, 80, 180, 360] as const;
 /** 원반 반지름(km). */
-export const RADAR_RADIUS_KM = 380;
+export const RADAR_RADIUS_KM = 360;
 
 /**
  * ⚠ **문턱은 도(度)가 아니라 km 입니다.**
