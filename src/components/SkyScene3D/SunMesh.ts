@@ -50,12 +50,52 @@ uniform float uBlur;
 uniform float uHalo;
 // §152 분광 모형: 최댓값 1 정규화 색(uColor)에 곱할 표시 단계 목표 밝기. 0 이면 옛 경로(uColor·uIntensity).
 uniform float uPeak;
+uniform float uRotRad;
+uniform float uZoomDetail;
 // 볼륨 하늘이 켜져 있으면 그 텍스처(볼륨 하늘 renderToTexture)의 알파 = 화소마다 구름(과 지형) 불투명도.
 // 해 판은 볼륨 하늘을 깐 **뒤** 그 위에 그려지므로, 이것으로 화소마다 가리지 않으면 해가 구름 앞에 뜹니다.
 uniform sampler2D uCloudAlphaTex;
 uniform float uCloudAlphaOn;
 varying vec2 vUv;
 varying vec4 vClip;
+
+float sunHash3(vec3 p) {
+  p = fract(p * vec3(443.897, 441.423, 437.195));
+  p += dot(p, p.yzx + 19.19);
+  return fract((p.x + p.y) * p.z);
+}
+
+float sunNoise3(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float n000 = sunHash3(i);
+  float n100 = sunHash3(i + vec3(1.0, 0.0, 0.0));
+  float n010 = sunHash3(i + vec3(0.0, 1.0, 0.0));
+  float n110 = sunHash3(i + vec3(1.0, 1.0, 0.0));
+  float n001 = sunHash3(i + vec3(0.0, 0.0, 1.0));
+  float n101 = sunHash3(i + vec3(1.0, 0.0, 1.0));
+  float n011 = sunHash3(i + vec3(0.0, 1.0, 1.0));
+  float n111 = sunHash3(i + vec3(1.0, 1.0, 1.0));
+  float nx00 = mix(n000, n100, f.x);
+  float nx10 = mix(n010, n110, f.x);
+  float nx01 = mix(n001, n101, f.x);
+  float nx11 = mix(n011, n111, f.x);
+  return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+}
+
+float sunSpotMask(vec3 p, vec3 center, float rad) {
+  float d = length(p - center) / rad;
+  if (d > 2.2) return 0.0;
+  vec3 t = normalize(cross(abs(center.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), center));
+  vec3 b = cross(center, t);
+  float ang = atan(dot(p - center, b), dot(p - center, t));
+  float fibril = 0.86 + 0.24 * sin(ang * 14.0 + sunNoise3(p * 42.0) * 3.0);
+  float dw = d * fibril;
+  float umbra = 1.0 - smoothstep(0.28, 0.56, dw);
+  float penumbra = (1.0 - smoothstep(0.65, 1.25, dw)) * 0.52;
+  return clamp(max(umbra * 0.86, penumbra), 0.0, 0.86);
+}
 
 void main() {
   // 판 가운데로부터 반경(0~1)과, 원반 반지름을 1 로 한 반경 r
@@ -92,18 +132,50 @@ void main() {
   float glare = (uGlare * 0.15) / (r * r + 1.0) * fade;
   float halo = aur + glare;
 
-  // 중심부를 더 밝게 (원반 중심 주연감광 역보정)
+  // 중심부를 더 밝게 (원반 중심 주연감광 + 고배율 줌 시 쌀알무늬·백반·흑점)
   float core = smoothstep(1.0, 0.0, r);
   float discRadiance = 1.0 + core * 0.4;
+  vec3 surfaceTint = vec3(1.0);
+  float spotDark = 1.0;
 
-  // 원반과 헤일로를 단차 없이 매끄럽게 합성:
-  // 원반은 disc * discRadiance로 중심에서 빛나고, 헤일로는 전체 영역에 걸쳐 부드럽게 감쇠하여
-  // (1.0 - disc) * halo에 의해 생기던 링/단차를 원천 방지
-  float total = disc * discRadiance + halo;
-  vec3 radiance = uColor * uIntensity * total * T;
+  if (r < 1.0 && uZoomDetail > 0.005) {
+    float mu = sqrt(max(0.0, 1.0 - r * r));
+    // 1) 물리적 주연감광 (Limb Darkening: 중심 1.0 -> 가장자리 ~0.42) + 가장자리 적색화
+    float limbDark = 1.0 - 0.56 * (1.0 - mu) - 0.18 * (1.0 - mu) * (1.0 - mu);
+    surfaceTint *= mix(vec3(1.0), vec3(1.04, 0.82 - 0.14 * (1.0 - mu), 0.58 - 0.18 * (1.0 - mu)), uZoomDetail * 0.85);
+
+    // 2) 태양 자전(약 27.28일 주기) 적용된 광구 3D 단위벡터
+    float cs = cos(uRotRad), sn = sin(uRotRad);
+    vec3 sBase = vec3(st.x * uHalo, st.y * uHalo, mu);
+    vec3 sRot = vec3(sBase.x * cs + sBase.z * sn, sBase.y, -sBase.x * sn + sBase.z * cs);
+
+    // 3) 쌀알무늬 (Solar Granulation) + 가장자리 백반 (Faculae)
+    float g1 = 1.0 - abs(sunNoise3(sRot * 36.0) - 0.5) * 2.0;
+    float g2 = 1.0 - abs(sunNoise3(sRot * 78.0 + 4.3) - 0.5) * 2.0;
+    float gran = 1.0 + ((g1 * 0.6 + g2 * 0.4) - 0.62) * 0.18 * uZoomDetail;
+    float facNoise = sunNoise3(sRot * 14.0 + 2.1);
+    float faculae = smoothstep(0.66, 0.92, facNoise) * (1.0 - mu) * 0.28 * uZoomDetail;
+
+    // 4) 적도 ±10~28° 흑점 군 (Umbra + Penumbra)
+    float spot = 0.0;
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3( 0.26,  0.24,  0.93)), 0.042));
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3( 0.34,  0.21,  0.92)), 0.024));
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3(-0.42, -0.28,  0.86)), 0.036));
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3(-0.35, -0.31,  0.88)), 0.019));
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3( 0.68, -0.22, -0.70)), 0.038));
+    spot = max(spot, sunSpotMask(sRot, normalize(vec3(-0.75,  0.25, -0.61)), 0.034));
+
+    spotDark = 1.0 - spot * uZoomDetail;
+    discRadiance = mix(discRadiance, limbDark * gran + faculae, uZoomDetail);
+  }
+
+  float total = disc * discRadiance * spotDark + halo;
+  vec3 radiance = uColor * surfaceTint * uIntensity * total * T;
   if (uPeak > 0.0) {
-    float totalP = disc * (1.0 + core * 0.15) + halo;
-    vec3 hdrTarget = uColor * uPeak * totalP * T;
+    // 줌인 시 포화를 살짝 눌러 흑점·주연감광·쌀알무늬가 하얗게 날아가지 않게 함
+    float detailGain = mix(1.0, 0.28, uZoomDetail);
+    float totalP = disc * mix(1.0 + core * 0.15, discRadiance * spotDark, uZoomDetail) + halo * mix(1.0, 0.45, uZoomDetail);
+    vec3 hdrTarget = uColor * surfaceTint * uPeak * detailGain * totalP * T;
     radiance = hdrTarget / (DISP_EXPO * atm_adaptation(uSunAltDeg) * atm_whiteBalance(uSunAltDeg));
   }
 
@@ -151,6 +223,8 @@ export function createSun(): SunHandle {
       uBlur: { value: 0 },
       uHalo: { value: SUN_HALO_RADII },
       uPeak: { value: 0 },
+      uRotRad: { value: 0 },
+      uZoomDetail: { value: 0 },
       uCloudAlphaTex: { value: null },
       uCloudAlphaOn: { value: 0 },
     },
@@ -197,7 +271,9 @@ export function updateSun(
   /** 보이는 크기 배율(1 = 실제 0.267°). 화면이 눈에 주는 시야각보다 훨씬 넓게 그려질 때 키움. */
   displayScale: number = 1,
   /** §151 가시성(둘레빛·눈부심·경계 흐림). 없으면 예전처럼 깨끗한 원반. */
-  vis?: { aureoleRel: number; glareGain: number; edgeBlur: number; rgb?: { r: number; g: number; b: number }; displayPeak?: number }
+  vis?: { aureoleRel: number; glareGain: number; edgeBlur: number; rgb?: { r: number; g: number; b: number }; displayPeak?: number },
+  /** 고배율 줌 시 주연감광·흑점(자전)·쌀알무늬 표현용 옵션 */
+  detail?: { fovDeg?: number; dateMs?: number }
 ): void {
   const altRad = (placeAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
@@ -223,6 +299,15 @@ export function updateSun(
   u.uAureole.value = vis ? vis.aureoleRel : 0;
   u.uGlare.value = vis ? vis.glareGain : 0;
   u.uBlur.value = vis ? vis.edgeBlur : 0;
+  if (detail?.dateMs != null && Number.isFinite(detail.dateMs)) {
+    u.uRotRad.value = ((detail.dateMs / 86400_000) * Math.PI * 2) / 27.2753;
+  }
+  if (detail?.fovDeg != null && Number.isFinite(detail.fovDeg)) {
+    const t = Math.max(0, Math.min(1, (18 - detail.fovDeg) / 14));
+    u.uZoomDetail.value = t * t * (3 - 2 * t);
+  } else {
+    u.uZoomDetail.value = 0;
+  }
 
   // 겉보기 위 끝이 해수면 수평선(높은 산·전망대 수평선 낙차까지 감안해 약 −4.5°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
   handle.mesh.visible = placeAltDeg > -4.5;

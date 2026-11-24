@@ -3694,7 +3694,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const cloudOcc = (currentLayers.clouds && lastCloudOpticsRef.current)
         ? lastCloudOpticsRef.current.sunTransmittance
         : 1;
-      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, cloudOcc, sunPlaceAlt, sunScale.scale, sunVis);
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, cloudOcc, sunPlaceAlt, sunScale.scale, sunVis, {
+        fovDeg: fovRef.current,
+        dateMs: targetDate.getTime(),
+      });
       sunDiscRadiusDegRef.current = sunScale.radiusDeg;
       if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
