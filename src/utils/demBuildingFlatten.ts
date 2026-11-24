@@ -389,39 +389,29 @@ export function flattenDemPatchUnderBuildings(
   }
   const texelM = patch.tileSpanM / DEM_TILE_SIZE_PX;
   const cs = cover.size, ch = cover.halfM, cScale = cs / (2 * ch);
-  // DEM 칸 (i, j) 의 지상 좌표: g = ((i + 0.5) / 256 − observerU) · tileSpanM (동), j 는 남쪽.
-  // 칸 넓이 안 3×3 점의 덮개 평균.
+  // DEM 칸 (i, j) 중심의 지상 좌표: 직후 boxBlur(반경 6~16칸)가 공간 평균을 수행하므로 칸당 1회 샘플링으로 530만 회 중복 루프를 줄입니다.
   const coverAt = (i: number, j: number): number => {
-    let acc = 0;
-    for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
-      const gx = ((i + (sx + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
-      const gz = ((j + (sy + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
-      const cx = Math.floor((gx + ch) * cScale), cy = Math.floor((gz + ch) * cScale);
-      if (cx < 0 || cy < 0 || cx >= cs || cy >= cs) continue;
-      if (cover.data[cy * cs + cx] >= 128) acc++;
-    }
-    return acc / 9;
+    const gx = ((i + 0.5) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
+    const gz = ((j + 0.5) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
+    const cx = Math.floor((gx + ch) * cScale), cy = Math.floor((gz + ch) * cScale);
+    if (cx < 0 || cy < 0 || cx >= cs || cy >= cs) return 0;
+    return cover.data[cy * cs + cx] >= 128 ? 1 : 0;
   };
   const bRes = flattenHeights(h, n, texelM, coverAt);
   let heights = bRes.heights;
   const stats = bRes.stats;
   if (cover.water?.length) {
     const grids = cover.water;
-    // 물 덮개: 칸 넓이 안 3×3 점, 점마다 그 점을 담는 가장 촘촘한 격자.
     const waterAt = (i: number, j: number): number => {
-      let acc = 0;
-      for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
-        const gx = ((i + (sx + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
-        const gz = ((j + (sy + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
-        for (const g of grids) {
-          const sc = g.size / (2 * g.halfM);
-          const cx = Math.floor((gx + g.halfM) * sc), cy = Math.floor((gz + g.halfM) * sc);
-          if (cx < 0 || cy < 0 || cx >= g.size || cy >= g.size) continue;
-          if (g.data[cy * g.size + cx] >= 128) acc++;
-          break;
-        }
+      const gx = ((i + 0.5) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
+      const gz = ((j + 0.5) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
+      for (const g of grids) {
+        const sc = g.size / (2 * g.halfM);
+        const cx = Math.floor((gx + g.halfM) * sc), cy = Math.floor((gz + g.halfM) * sc);
+        if (cx < 0 || cy < 0 || cx >= g.size || cy >= g.size) continue;
+        return g.data[cy * g.size + cx] >= 128 ? 1 : 0;
       }
-      return acc / 9;
+      return 0;
     };
     const wRes = flattenWaterHeights(heights, n, texelM, waterAt);
     heights = wRes.heights;
@@ -455,16 +445,12 @@ export function flattenDemPatchUnderBuildings(
     const roadW = new Float32Array(n * n);
     let rx0 = n, rx1 = -1, ry0 = n, ry1 = -1;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      let maxP = 0;
-      for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
-        const gx = ((i + (sx + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
-        const gz = ((j + (sy + 0.5) / 3) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
-        const cx = Math.floor((gx + pv.halfM) * pScale), cy = Math.floor((gz + pv.halfM) * pScale);
-        if (cx < 0 || cy < 0 || cx >= pv.size || cy >= pv.size) continue;
-        const o = (cy * pv.size + cx) * 2;
-        const v = Math.max(pv.data[o], pv.data[o + 1]) / 255;
-        if (v > maxP) maxP = v;
-      }
+      const gx = ((i + 0.5) / DEM_TILE_SIZE_PX - patch.observerU) * patch.tileSpanM;
+      const gz = ((j + 0.5) / DEM_TILE_SIZE_PX - patch.observerV) * patch.tileSpanM;
+      const cx = Math.floor((gx + pv.halfM) * pScale), cy = Math.floor((gz + pv.halfM) * pScale);
+      if (cx < 0 || cy < 0 || cx >= pv.size || cy >= pv.size) continue;
+      const o = (cy * pv.size + cx) * 2;
+      const maxP = Math.max(pv.data[o], pv.data[o + 1]) / 255;
       const w = smoothstep(0.25, 0.55, maxP);
       roadW[j * n + i] = w;
       if (w > 0.01) {

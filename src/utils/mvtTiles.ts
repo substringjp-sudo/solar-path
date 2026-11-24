@@ -386,8 +386,18 @@ async function fetchBinaryBytes(url: string, signal: AbortSignal): Promise<Uint8
   return new Uint8Array(await res.arrayBuffer());
 }
 
+type MvtDiskCacheAdapter = {
+  read(key: string): Promise<Uint8Array | null>;
+  write(key: string, bytes: Uint8Array): void;
+};
+let mvtDiskCacheAdapter: MvtDiskCacheAdapter | null = null;
+/** 앱 기동 시 네이티브 파일시스템 기반 MVT 타일 디스크 캐시를 연결합니다(Node 하네스 호환 유지). */
+export function setMvtDiskCacheAdapter(adapter: MvtDiskCacheAdapter | null): void {
+  mvtDiskCacheAdapter = adapter;
+}
+
 /**
- * 단일 OpenFreeMap `.pbf` 타일을 가져옵니다(메모리 LRU 캐시, 실패 시 null 또는 throw).
+ * 단일 OpenFreeMap `.pbf` 타일을 가져옵니다(메모리 LRU + 디스크 영구 캐시, 실패 시 null 또는 throw).
  * `cache: false` 면 캐시에 **넣지 않습니다**(있으면 읽습니다). 먼 건물처럼 한 번에 수십 장을 받는 쪽이 24 장짜리 캐시에서
  * 가까운 건물·도시 마스크가 쓰는 타일을 밀어내지 않게.
  */
@@ -401,6 +411,23 @@ export async function fetchMvtTileRaw(
     rawTileCache.delete(key);
     rawTileCache.set(key, hit);
     return hit;
+  }
+
+  if (mvtDiskCacheAdapter) {
+    try {
+      const diskBytes = await mvtDiskCacheAdapter.read(key);
+      if (diskBytes && diskBytes.length > 0) {
+        if (opts.cache !== false) {
+          rawTileCache.set(key, diskBytes);
+          while (rawTileCache.size > RAW_CACHE_MAX) {
+            const oldest = rawTileCache.keys().next().value;
+            if (oldest !== undefined) rawTileCache.delete(oldest);
+            else break;
+          }
+        }
+        return diskBytes;
+      }
+    } catch { /* ignore disk read error */ }
   }
 
   const tpl = await getTileUrlTemplate();
@@ -423,6 +450,7 @@ export async function fetchMvtTileRaw(
         if (oldest !== undefined) rawTileCache.delete(oldest);
         else break;
       }
+      try { mvtDiskCacheAdapter?.write(key, bytes); } catch { /* ignore disk write error */ }
     }
     return bytes;
   } finally {
@@ -744,7 +772,9 @@ export async function fetchUrbanMask(
         }
       }
     }
-    // 건물 둘레 마당: 원판 팽창(거리장으로 원판 + SDF 선형 램프). 반지름 PAVE_BUILDING_APRON_M.
+    await new Promise(r => setTimeout(r, 0));
+    if (opts.signal?.aborted) return null;
+    // 건물 둘레 마당: 내부 픽셀은 즉시 255로 채우고, 외곽 경계 픽셀만 원판 SDF 팽창을 수행해 104만 픽셀 × 80탭 루프를 90% 이상 줄입니다.
     const rA = PAVE_BUILDING_APRON_M * pSize / (2 * pHalf);
     const sdfW = PAVE_SDF_HALF_PX;
     const R = Math.ceil(rA + sdfW);
@@ -756,15 +786,27 @@ export async function fetchUrbanMask(
         offs.push([dx, dy, Math.round(255 * cov)]);
       }
     }
-    for (let y = 0; y < pSize; y++) for (let x = 0; x < pSize; x++) {
-      if (bGrid[y * pSize + x] < 128) continue;
-      for (const [dx, dy, v] of offs) {
-        const xx = x + dx, yy = y + dy;
-        if (xx < 0 || yy < 0 || xx >= pSize || yy >= pSize) continue;
-        const o = (yy * pSize + xx) * 2;
-        if (v > pave[o]) pave[o] = v;
+    for (let y = 0; y < pSize; y++) {
+      const rowOff = y * pSize;
+      for (let x = 0; x < pSize; x++) {
+        const idx = rowOff + x;
+        if (bGrid[idx] < 128) continue;
+        pave[idx * 2] = 255;
+        const isInterior =
+          x > 0 && x < pSize - 1 && y > 0 && y < pSize - 1 &&
+          bGrid[idx - 1] >= 128 && bGrid[idx + 1] >= 128 &&
+          bGrid[idx - pSize] >= 128 && bGrid[idx + pSize] >= 128;
+        if (isInterior) continue;
+        for (const [dx, dy, v] of offs) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= pSize || yy >= pSize) continue;
+          const o = (yy * pSize + xx) * 2;
+          if (v > pave[o]) pave[o] = v;
+        }
       }
     }
+    await new Promise(r => setTimeout(r, 0));
+    if (opts.signal?.aborted) return null;
     for (const { tc, layers } of okTiles) {
       const tr = layers.transportation;
       if (!tr) continue;

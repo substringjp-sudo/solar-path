@@ -56,8 +56,8 @@ import {
 import { getMoonPositionPrecise, moonSemidiameterDeg } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
 import { starArgsFor, hourlyCovers, starWeatherOf, type StarWeather } from '../../utils/starTonight';
-import { estimateLightPollution, type NightLights } from '../../utils/cityLightMap';
-import { getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
+import { estimateLightPollution, getPrehydratedLightPollution, type NightLights } from '../../utils/cityLightMap';
+import { ensureNightLightsForLocation, getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
 import { upcomingMoments, starMoment } from '../../utils/upcomingMoments';
 import { localNoons, type EventSide } from '../../utils/sunForecast';
 import type { LearnEntry, LearnSection, LearnTopic } from '../../utils/learnSections';
@@ -1192,25 +1192,32 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // "오늘 밤 별 보기" 카드의 입력(`utils/starTonight.ts`): 별을 볼 시각(이미 밤이면 그 시각, 아니면 그날 천문 박명 30분 뒤)의
   // 구름·연무 예보와 해·달, 밤 불빛 지도의 한계등급. 그 시각의 예보가 받아 둔 시간 범위 밖이면 "모름"으로 둡니다(가장자리 값을 지어 쓰지 않음).
   const [nightLights, setNightLights] = useState<NightLights | null>(() => getCachedNightLights());
+  const [nightLightVersion, setNightLightVersion] = useState(0);
   useEffect(() => {
-    if (nightLights) return;
+    if (nightLights || getPrehydratedLightPollution(latitude, longitude)) return;
     let alive = true;
-    loadNightLights().then(m => { if (alive && m) setNightLights(m); });
+    ensureNightLightsForLocation(latitude, longitude).then(() => {
+      if (!alive) return;
+      const m = getCachedNightLights();
+      if (m) setNightLights(m);
+      setNightLightVersion(v => v + 1);
+    });
     return () => { alive = false; };
-  }, [nightLights]);
+  }, [nightLights, latitude, longitude]);
   const starArgsAt = (date: Date) => {
     const weatherAt = (when: Date): StarWeather | null => {
       const h = pathData[0]?.hourly;
       const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
       return hourlyCovers(times, when.getTime()) ? starWeatherOf(getInterpolatedWeather(pathData, when)[0]) : null;
     };
+    const lpEst = getPrehydratedLightPollution(latitude, longitude) ?? (nightLights ? estimateLightPollution(nightLights, latitude, longitude) : null);
     return starArgsFor({
       date,
       lat: latitude,
       lon: longitude,
       elevM: terrainData.observerElevation ?? 0,
       weatherAt,
-      lightPollutionMag: nightLights ? estimateLightPollution(nightLights, latitude, longitude).magLimit : null,
+      lightPollutionMag: lpEst ? lpEst.magLimit : null,
     });
   };
 
@@ -1222,7 +1229,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const a = starArgsAt(now);
     return starMoment({ timeMs: a.timeMs, nowMs: now.getTime(), input: a.input, cloudKnown: a.cloudKnown });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardsOn, pathData, nightLights, latitude, longitude, terrainData.observerElevation]);
+  }, [cardsOn, pathData, nightLights, nightLightVersion, latitude, longitude, terrainData.observerElevation]);
   const sunsetText = events?.sunset
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';

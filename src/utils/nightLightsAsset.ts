@@ -5,7 +5,16 @@
  */
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { decodeGrayPng, type NightLights } from './cityLightMap';
+import {
+  cityLightField,
+  decodeGrayPng,
+  getPrehydratedCityLightField,
+  primeCityLightFieldCache,
+  setCityLightFieldPersister,
+  type CityLightField,
+  type NightLights,
+} from './cityLightMap';
+import { setMvtDiskCacheAdapter } from './mvtTiles';
 
 const { Asset } = require('expo-asset') as {
   Asset: {
@@ -35,8 +44,168 @@ export function fromBase64(s: string): Uint8Array {
   return out.subarray(0, o);
 }
 
+function toBase64(bytes: Uint8Array): string {
+  let out = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    const n = (b0 << 16) | (b1 << 8) | b2;
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
+    out += i + 1 < len ? B64[(n >> 6) & 63] : '=';
+    out += i + 2 < len ? B64[n & 63] : '=';
+  }
+  return out;
+}
+
+const MVT_CACHE_DIR = Platform.OS !== 'web' && FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}mvt_tiles/`
+  : null;
+let mvtDirReady = false;
+
+if (MVT_CACHE_DIR) {
+  setMvtDiskCacheAdapter({
+    read: async (key: string) => {
+      try {
+        const path = `${MVT_CACHE_DIR}${key.replace(/\//g, '_')}.b64`;
+        const info = await FileSystem.getInfoAsync(path);
+        if (!info.exists || !info.size) return null;
+        const b64 = await FileSystem.readAsStringAsync(path);
+        return b64 ? fromBase64(b64) : null;
+      } catch {
+        return null;
+      }
+    },
+    write: (key: string, bytes: Uint8Array) => {
+      void (async () => {
+        try {
+          if (!mvtDirReady) {
+            const info = await FileSystem.getInfoAsync(MVT_CACHE_DIR);
+            if (!info.exists) await FileSystem.makeDirectoryAsync(MVT_CACHE_DIR, { intermediates: true });
+            mvtDirReady = true;
+          }
+          const path = `${MVT_CACHE_DIR}${key.replace(/\//g, '_')}.b64`;
+          await FileSystem.writeAsStringAsync(path, toBase64(bytes));
+        } catch {
+          // ignore disk cache write failure
+        }
+      })();
+    },
+  });
+}
+
+const FIELD_CACHE_FILE = Platform.OS !== 'web' && FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}nightlights_field_v1.json`
+  : null;
+const RAW_BIN_CACHE_FILE = Platform.OS !== 'web' && FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}nightlights_3600x1800_v1.b64`
+  : null;
+const MAX_PERSISTED_FIELDS = 24;
+
+interface SerializedCityField {
+  n: number;
+  halfKm: number;
+  maxPatch: number;
+  local: number;
+  walker: number;
+  skyGlow: number;
+  pollution: number;
+  magLimit: number;
+  azGain: number[];
+  patch: number[];
+}
+
+let persistedFieldsMap: Record<string, SerializedCityField> = {};
+let fieldCacheHydratedPromise: Promise<void> | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSaveFieldCache(): void {
+  if (!FIELD_CACHE_FILE) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    FileSystem.writeAsStringAsync(FIELD_CACHE_FILE, JSON.stringify(persistedFieldsMap)).catch(() => {});
+  }, 1200);
+}
+
+setCityLightFieldPersister((key, field) => {
+  if (!FIELD_CACHE_FILE) return;
+  const keys = Object.keys(persistedFieldsMap);
+  if (!persistedFieldsMap[key] && keys.length >= MAX_PERSISTED_FIELDS) {
+    delete persistedFieldsMap[keys[0]];
+  }
+  persistedFieldsMap[key] = {
+    n: field.n,
+    halfKm: field.halfKm,
+    maxPatch: field.maxPatch,
+    local: field.local,
+    walker: field.walker,
+    skyGlow: field.skyGlow,
+    pollution: field.pollution,
+    magLimit: field.magLimit,
+    azGain: Array.from(field.azGain, v => Math.round(v * 10000) / 10000),
+    patch: Array.from(field.patch, v => Math.round(v * 10000) / 10000),
+  };
+  scheduleSaveFieldCache();
+});
+
+/** 디스크에 영구 저장된 위치별 밤 불빛 계산 결과(CityLightField)를 읽어 메모리에 적재합니다(약 1~2ms). */
+export function hydrateNightLightsFieldCache(): Promise<void> {
+  if (!FIELD_CACHE_FILE) return Promise.resolve();
+  if (!fieldCacheHydratedPromise) {
+    fieldCacheHydratedPromise = (async () => {
+      try {
+        const info = await FileSystem.getInfoAsync(FIELD_CACHE_FILE);
+        if (!info.exists) return;
+        const raw = await FileSystem.readAsStringAsync(FIELD_CACHE_FILE);
+        const parsed = JSON.parse(raw) as Record<string, SerializedCityField>;
+        if (!parsed || typeof parsed !== 'object') return;
+        persistedFieldsMap = parsed;
+        const hydrated: Record<string, CityLightField> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (!v || !Array.isArray(v.azGain) || !Array.isArray(v.patch)) continue;
+          hydrated[k] = {
+            n: v.n,
+            halfKm: v.halfKm,
+            maxPatch: v.maxPatch,
+            local: v.local,
+            walker: v.walker,
+            skyGlow: v.skyGlow,
+            pollution: v.pollution,
+            magLimit: v.magLimit,
+            azGain: new Float32Array(v.azGain),
+            patch: new Float32Array(v.patch),
+          };
+        }
+        primeCityLightFieldCache(hydrated);
+      } catch {
+        // ignore corrupted cache
+      }
+    })();
+  }
+  return fieldCacheHydratedPromise;
+}
+
 let cache: Promise<NightLights | null> | null = null;
 let resolvedCache: NightLights | null = null;
+const PREHYDRATED_STUB: NightLights = { w: 3600, h: 1800, data: new Uint8Array(0) };
+
+/**
+ * 해당 위치(lat, lon)의 밤 불빛 계산 결과가 디스크 캐시에 있으면 3600×1800 PNG 디코딩을 아예 생략하고 즉시 반환합니다.
+ * 캐시에 없는 새 위치로 이동했을 때만 원본 밤지도를 로드해 계산·영구 저장합니다.
+ */
+export async function ensureNightLightsForLocation(lat: number, lon: number): Promise<CityLightField | null> {
+  await hydrateNightLightsFieldCache();
+  const hit = getPrehydratedCityLightField(lat, lon);
+  if (hit) {
+    if (!resolvedCache) resolvedCache = PREHYDRATED_STUB;
+    return hit;
+  }
+  const map = await loadNightLights();
+  if (!map) return null;
+  return cityLightField(map, lat, lon);
+}
 
 /** 이미 로드가 끝난 밤 불빛 지도가 있으면 동기로 반환합니다. */
 export function getCachedNightLights(): NightLights | null {
@@ -47,12 +216,15 @@ export function loadNightLights(): Promise<NightLights | null> {
   if (!cache) {
     cache = (async () => {
       try {
+        await hydrateNightLightsFieldCache();
         const asset = Asset.fromModule(require('../../assets/nightlights/lights_01deg.png'));
         await asset.downloadAsync();
         const uri = asset.localUri ?? asset.uri;
         const bytes = Platform.OS === 'web'
           ? new Uint8Array(await (await fetch(uri)).arrayBuffer())
           : fromBase64(await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }));
+        // PNG 디코딩 전후로 이벤트 루프에 양보해 UI/렌더 스레드가 멈추지 않게 합니다.
+        await new Promise(r => setTimeout(r, 0));
         resolvedCache = decodeGrayPng(bytes);
         return resolvedCache;
       } catch (e) {

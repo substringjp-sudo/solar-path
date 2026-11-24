@@ -135,8 +135,18 @@ import {
 } from './StarField';
 import { computeTrackedAttitudeAt } from '../../utils/astroStackMath';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
-import { loadNightLights, getCachedNightLights } from '../../utils/nightLightsAsset';
-import { CITY_REF_LOCAL, cityGlowDirection, cityLightField, estimateLightPollution, type LightPollutionEstimate, type NightLights } from '../../utils/cityLightMap';
+import { ensureNightLightsForLocation, loadNightLights, getCachedNightLights } from '../../utils/nightLightsAsset';
+import {
+  CITY_REF_LOCAL,
+  cityGlowDirection,
+  cityLightField,
+  estimateLightPollution,
+  getPrehydratedCityLightField,
+  getPrehydratedLightPollution,
+  type CityLightField,
+  type LightPollutionEstimate,
+  type NightLights,
+} from '../../utils/cityLightMap';
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
@@ -725,18 +735,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
   const lastCityPatchRef = useRef<{ field: TerrainFieldHandle; patch: Float32Array | null } | null>(null);
   const cachedCityFieldRef = useRef<{
-    map: NightLights;
+    map: NightLights | null;
     key: string;
-    field: ReturnType<typeof cityLightField>;
+    field: CityLightField;
     dir: { x: number; z: number };
   } | null>(null);
   const getCachedCityField = (lat: number, lon: number) => {
     const m = nightLightsRef.current;
-    if (!m) return null;
     const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
     const hit = cachedCityFieldRef.current;
     if (hit && hit.map === m && hit.key === key) return hit;
-    const field = cityLightField(m, lat, lon);
+    const pre = getPrehydratedCityLightField(lat, lon);
+    if (!m && !pre) return null;
+    const field = pre ?? cityLightField(m!, lat, lon);
     const dir = cityGlowDirection(field.azGain);
     const next = { map: m, key, field, dir };
     cachedCityFieldRef.current = next;
@@ -746,10 +757,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const overrideStartBucketMsRef = useRef<number | null>(null);
   const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
   const getLightEst = (lat: number, lon: number): LightPollutionEstimate | null => {
-    const m = nightLightsRef.current;
-    if (!m) return null;
     const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     if (cachedLightEstRef.current?.key === key) return cachedLightEstRef.current.est;
+    const pre = getPrehydratedLightPollution(lat, lon);
+    if (pre) {
+      cachedLightEstRef.current = { key, est: pre };
+      return pre;
+    }
+    const m = nightLightsRef.current;
+    if (!m) return null;
     const est = estimateLightPollution(m, lat, lon);
     cachedLightEstRef.current = { key, est };
     return est;
@@ -1677,19 +1693,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [location, requestRender]);
   useEffect(() => {
     let alive = true;
-    loadNightLights().then((m) => {
+    const lat = location?.coords?.latitude ?? 37.5665;
+    const lon = location?.coords?.longitude ?? 126.9780;
+    ensureNightLightsForLocation(lat, lon).then(() => {
       if (!alive) return;
-      nightLightsRef.current = m;
+      nightLightsRef.current = getCachedNightLights();
       cachedLightEstRef.current = null;
+      cachedCityFieldRef.current = null;
       cachedMoonBaseMagRef.current = Number.NaN;
       lastCityLightValRef.current = -1;
       lastVolCityLightRef.current = -1;
-      if (volRef.current) volRef.current.setCityMap(m);
+      if (volRef.current && nightLightsRef.current) volRef.current.setCityMap(nightLightsRef.current);
       sceneDirtyRef.current = true;
       requestRender(6);
     });
     return () => { alive = false; };
-  }, [requestRender]);
+  }, [location?.coords?.latitude, location?.coords?.longitude, requestRender]);
   // §160 METAR — 자리가 바뀌면 바로, 그 뒤 10 분마다. 실패하면 null(예보 그대로). 볼륨 하늘이 꺼져 있으면 받지 않습니다.
   const metarLat = location?.coords?.latitude, metarLon = location?.coords?.longitude;
   useEffect(() => {
@@ -2850,8 +2869,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           volQualityRef.current = '';
           volRef.current = v;
           lastVolCityLightRef.current = -1;
+          const curLat = locationRef.current?.coords?.latitude ?? 37.5665;
+          const curLon = locationRef.current?.coords?.longitude ?? 126.9780;
           if (nightLightsRef.current) v.setCityMap(nightLightsRef.current);
-          else loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); });
+          else if (!getPrehydratedCityLightField(curLat, curLon)) {
+            ensureNightLightsForLocation(curLat, curLon).then(() => {
+              if (volRef.current === v && getCachedNightLights()) v.setCityMap(getCachedNightLights());
+            });
+          }
           volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
           volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 18;
           setVolumetricStatus({ phase: 'running' }); requestRender(3);
@@ -2886,7 +2911,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         volSettleRef.current > 0;
       (async () => {
         const totalHours = hourBuckets.length;
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 1500));
         let reportedActive = false;
         const readyMs: number[] = [];
         setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
@@ -3046,7 +3071,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (framesToRenderRef.current > 1) framesToRenderRef.current = 1;
             const myBuildSeq = ++volBuildSeqRef.current;
             const tW = Date.now();
-            const asyncSliceMs = isFirstCloudScene ? 24 : (isSlidingNow ? 4 : 12);
+            const asyncSliceMs = isFirstCloudScene ? 8 : (isSlidingNow ? 4 : 10);
             vol.setSceneAsync(built.input, isFast, asyncSliceMs).then(applied => {
               if (volBuildSeqRef.current !== myBuildSeq) return;
               volPendingRef.current = false;

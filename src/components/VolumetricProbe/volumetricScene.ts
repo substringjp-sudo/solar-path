@@ -39,7 +39,13 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { cityLightField, CITY_REF_LOCAL, type CityLightField, type NightLights } from '../../utils/cityLightMap';
+import {
+  cityLightField,
+  CITY_REF_LOCAL,
+  getPrehydratedCityLightField,
+  type CityLightField,
+  type NightLights,
+} from '../../utils/cityLightMap';
 import { getMoonPositionPrecise } from '../../utils/moonPosition';
 import { seaHorizonDipDeg } from '../../utils/earth';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getMoonDirectionECEF, getSunDirectionECEF } from '@takram/three-atmosphere';
@@ -372,6 +378,10 @@ function makeWhiteNoise3D(): Data3DTexture {
 const atmosGeneratorCache = new WeakMap<
   WebGLRenderer,
   Map<string, { generator: PrecomputedTexturesGenerator; spectral: boolean }>
+>();
+const cloudNoiseCache = new WeakMap<
+  WebGLRenderer,
+  { shape: CloudShape; shapeDetail: CloudShapeDetail; turbulence: Turbulence; stbn: Data3DTexture }
 >();
 
 /** 종류별 모형의 날씨 텍스처 한 장이 덮는 길이(km). 512 칸이면 47m/칸. */
@@ -1726,10 +1736,21 @@ export async function createVolumetricScene(
     setTsunShader(mat, lastShadow === false ? { arch: opt.archLight === 1, ...(opt.tsunDebug === 1 ? { debug: 1 as const } : {}) } : null);
   };
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
-  clouds.shapeTexture = new CloudShape();
-  clouds.shapeDetailTexture = new CloudShapeDetail();
-  clouds.turbulenceTexture = new Turbulence();
-  clouds.stbnTexture = makeWhiteNoise3D();
+  let cachedNoise = cloudNoiseCache.get(renderer);
+  if (!cachedNoise) {
+    const shape = new CloudShape();
+    await new Promise(r => setTimeout(r, 0));
+    const shapeDetail = new CloudShapeDetail();
+    const turbulence = new Turbulence();
+    const stbn = makeWhiteNoise3D();
+    await new Promise(r => setTimeout(r, 0));
+    cachedNoise = { shape, shapeDetail, turbulence, stbn };
+    cloudNoiseCache.set(renderer, cachedNoise);
+  }
+  clouds.shapeTexture = cachedNoise.shape;
+  clouds.shapeDetailTexture = cachedNoise.shapeDetail;
+  clouds.turbulenceTexture = cachedNoise.turbulence;
+  clouds.stbnTexture = cachedNoise.stbn;
 
   // 대기 표: 기기 GPU 에서 만듭니다(자산 25MB 를 싣지 않으려고). 하네스는 takram 의 미리 만든 표를 넘겨 비교할 수 있습니다.
   let generator: PrecomputedTexturesGenerator | null = null;
@@ -2032,11 +2053,12 @@ export async function createVolumetricScene(
   const applyCityMap = (p: VolumetricSceneInput) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
-    if (!cityMap) { au.get('cityAzOn')!.value = 0; cu.cityTexOn.value = 0; return; }
+    const preField = !cityMap ? getPrehydratedCityLightField(p.lat, p.lon) : null;
+    if (!cityMap && !preField) { au.get('cityAzOn')!.value = 0; cu.cityTexOn.value = 0; return; }
     const key = `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
     if (!cityField || cityField.key !== key) {
       cityField?.tex.dispose();
-      const f = cityLightField(cityMap, p.lat, p.lon);
+      const f = preField ?? cityLightField(cityMap!, p.lat, p.lon);
       const half = new Uint16Array(f.n * f.n);
       for (let i = 0; i < half.length; i++) half[i] = DataUtils.toHalfFloat(f.patch[i]);
       const tex = new DataTexture(half, f.n, f.n, RedFormat, HalfFloatType);
@@ -2157,11 +2179,10 @@ export async function createVolumetricScene(
       const moonAltT = Math.max(0, Math.min(1, (lightAlt + 0.5) / 12.0));
       const moonAltDim = 0.22 + 0.78 * moonAltT * moonAltT * (3 - 2 * moonAltT);
       const moonExp = autoExposure(Math.max(15, lightAlt)) * MOON_DIM * moonAltDim * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
-      const sunNightExp = autoExposure(45) * MOON_DIM * 0.65 * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012));
-      const sunTailBase = autoExposure(lastTrueSunAlt) * overcastGain(p, lastTrueSunAlt);
-      const tailBlend = Math.max(0, Math.min(1, (-10 - lastTrueSunAlt) / 7));
-      const sunTailExp = sunTailBase * (1 - tailBlend) + sunNightExp * tailBlend;
-      return sunTailExp * (1 - moonBlend) + moonExp * moonBlend;
+      // 광원이 이미 달(해 세기 그대로 렌더)이므로 달 눈금 노출만 씁니다. 지평선 아래 해용 박명 노출(~2000)을 섞으면
+      // 낮 세기 복사휘도에 곱해져 해 -11.5° 부근에서 하늘·구름이 수천 배 타오릅니다.
+      overcastGain(p, lastTrueSunAlt);   // cloudSkyT 균일변수 갱신 부수효과 유지
+      return moonExp;
     }
     const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
     if (lastTrueSunAlt >= -10) return base;

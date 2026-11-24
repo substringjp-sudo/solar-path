@@ -114,7 +114,43 @@ interface WalkerStats {
 
 const walkerCache = new WeakMap<NightLights, Map<string, WalkerStats>>();
 const fieldCache = new WeakMap<NightLights, Map<string, CityLightField>>();
+const prehydratedFieldCache = new Map<string, CityLightField>();
 const MAP_CACHE_MAX = 16;
+
+type CityFieldPersister = (key: string, field: CityLightField) => void;
+let cityFieldPersister: CityFieldPersister | null = null;
+
+/** 디스크에서 복원한 위치별 광해 계산 결과(CityLightField)를 메모리에 미리 적재합니다. */
+export function primeCityLightFieldCache(entries: Record<string, CityLightField>): void {
+  for (const [k, v] of Object.entries(entries)) {
+    if (!v || !(v.azGain instanceof Float32Array) || !(v.patch instanceof Float32Array)) continue;
+    prehydratedFieldCache.set(k, v);
+  }
+}
+
+/** 새 위치의 CityLightField 가 계산될 때 디스크에 영구 저장할 콜백을 등록합니다. */
+export function setCityLightFieldPersister(fn: CityFieldPersister | null): void {
+  cityFieldPersister = fn;
+}
+
+/** 원본 3600×1800 밤 불빛 지도 PNG 를 디코딩하지 않고도 프리하이드레이션된 위치 캐시가 있으면 즉시 반환합니다. */
+export function getPrehydratedCityLightField(lat: number, lon: number, n = 48, halfKm = 60): CityLightField | null {
+  const key = `${lat.toFixed(2)}|${lon.toFixed(2)}|${n}|${halfKm}`;
+  return prehydratedFieldCache.get(key) ?? null;
+}
+
+/** 프리하이드레이션된 캐시에서 광해 등급(LightPollutionEstimate)을 즉시 조회합니다. */
+export function getPrehydratedLightPollution(lat: number, lon: number): LightPollutionEstimate | null {
+  const f = getPrehydratedCityLightField(lat, lon);
+  if (!f) return null;
+  return {
+    local: f.local,
+    walker: f.walker,
+    skyGlow: f.skyGlow,
+    pollution: f.pollution,
+    magLimit: f.magLimit,
+  };
+}
 
 function putLru<T>(cache: WeakMap<NightLights, Map<string, T>>, m: NightLights, key: string, val: T): T {
   let map = cache.get(m);
@@ -194,12 +230,33 @@ function computeWalkerStats(m: NightLights, lat: number, lon: number): WalkerSta
  * 밤 불빛 지도만으로 관측점의 광해 지수·추정 한계 등급(3.0~6.5)을 빠르게 계산합니다(48×48 구름 격자 생략).
  */
 export function estimateLightPollution(m: NightLights, lat: number, lon: number): LightPollutionEstimate {
+  const pre = getPrehydratedLightPollution(lat, lon);
+  if (pre) return pre;
+  if (!m.data || m.data.length === 0) {
+    return { local: 0, walker: 0, skyGlow: 0, pollution: 0, magLimit: 6.5 };
+  }
   const { local, walker, skyGlow, pollution, magLimit } = computeWalkerStats(m, lat, lon);
   return { local, walker, skyGlow, pollution, magLimit };
 }
 
 export function cityLightField(m: NightLights, lat: number, lon: number, n = 48, halfKm = 60): CityLightField {
   const key = `${lat.toFixed(2)}|${lon.toFixed(2)}|${n}|${halfKm}`;
+  const pre = prehydratedFieldCache.get(key);
+  if (pre) return pre;
+  if (!m.data || m.data.length === 0) {
+    return {
+      azGain: new Float32Array(36).fill(1),
+      patch: new Float32Array(n * n),
+      n,
+      halfKm,
+      maxPatch: 0,
+      local: 0,
+      walker: 0,
+      skyGlow: 0,
+      pollution: 0,
+      magLimit: 6.5,
+    };
+  }
   const cached = getLru(fieldCache, m, key);
   if (cached) return cached;
 
@@ -219,7 +276,7 @@ export function cityLightField(m: NightLights, lat: number, lon: number, n = 48,
     if (val > maxPatch) maxPatch = val;
   }
 
-  return putLru(fieldCache, m, key, {
+  const built: CityLightField = {
     azGain: stats.azGain,
     patch,
     n,
@@ -230,7 +287,10 @@ export function cityLightField(m: NightLights, lat: number, lon: number, n = 48,
     skyGlow: stats.skyGlow,
     pollution: stats.pollution,
     magLimit: stats.magLimit,
-  });
+  };
+  prehydratedFieldCache.set(key, built);
+  try { cityFieldPersister?.(key, built); } catch { /* ignore persistence errors */ }
+  return putLru(fieldCache, m, key, built);
 }
 
 /**
