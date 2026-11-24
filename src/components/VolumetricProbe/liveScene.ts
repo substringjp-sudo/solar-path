@@ -416,6 +416,117 @@ function integratedDriftKm(a: LiveSceneArgs, band: 'low' | 'mid' | 'high', fallb
 const macroKnotCache = new Map<string, Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>>>();
 const MACRO_KNOT_CACHE_MAX = 24;
 
+interface DayPathStatsCacheEntry {
+  dayT0: number;
+  obsPt: CloudPathData | undefined;
+  dLow: [number, number] | null;
+  dMid: [number, number] | null;
+  dHigh: [number, number] | null;
+  dayBandMax: Record<'low' | 'mid' | 'high', number>;
+  dayFairLowGenus: 'cu' | 'sc' | null;
+  dayHighMeanPct: number | null;
+}
+const dayPathStatsCache = new WeakMap<CloudPathData[], DayPathStatsCacheEntry>();
+
+function getDayPathStats(ptsAll: CloudPathData[], dayT0: number, dayT1: number): DayPathStatsCacheEntry {
+  const hit = dayPathStatsCache.get(ptsAll);
+  if (hit && hit.dayT0 === dayT0) return hit;
+
+  let obsPt = ptsAll[0];
+  for (const q of ptsAll) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
+
+  const dayWindOf = (band: 'low' | 'mid' | 'high'): [number, number] | null => {
+    if (!ptsAll.length) return null;
+    const h = obsPt?.hourly;
+    const ts = h?.timeMs;
+    const key = band === 'low' ? 'Low' : band === 'mid' ? 'Mid' : 'High';
+    const us = h?.[`windU${key}` as const], vs = h?.[`windV${key}` as const];
+    if (!ts || !us || !vs || ts.length === 0) return null;
+    let su = 0, sv = 0, cnt = 0;
+    for (let i = 0; i < ts.length; i++) {
+      if (ts[i] >= dayT0 && ts[i] <= dayT1 && Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
+        su += us[i]; sv += vs[i]; cnt++;
+      }
+    }
+    if (cnt === 0) {
+      for (let i = 0; i < ts.length; i++) {
+        if (Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
+          su += us[i]; sv += vs[i]; cnt++;
+        }
+      }
+    }
+    return cnt > 0 ? [su / cnt, sv / cnt] : null;
+  };
+
+  const dLow = dayWindOf('low'), dMid = dayWindOf('mid'), dHigh = dayWindOf('high');
+  const hasDayWind = !!(dLow && dMid && dHigh);
+
+  const dayBandMax: Record<'low' | 'mid' | 'high', number> = { low: 0, mid: 0, high: 0 };
+  if (ptsAll.length >= 20) {
+    const uniqPts = dropSeamCopies(ptsAll);
+    for (const p of uniqPts) {
+      if (!Number.isFinite(p.distance) || (p.distance ?? 0) > 400) continue;
+      const h = p.hourly;
+      const ts = h?.timeMs;
+      if (!h) continue;
+      const n = ts?.length ?? h.low?.length ?? 0;
+      for (let i = 0; i < n; i++) {
+        if (ts && ts.length === n && (ts[i] < dayT0 - 3600000 || ts[i] > dayT1 + 3600000)) continue;
+        const lv = (h.low?.[i] ?? 0) / 100;
+        const mv = (h.mid?.[i] ?? 0) / 100;
+        const hv = (h.high?.[i] ?? 0) / 100;
+        if (lv > dayBandMax.low) dayBandMax.low = lv;
+        if (mv > dayBandMax.mid) dayBandMax.mid = mv;
+        if (hv > dayBandMax.high) dayBandMax.high = hv;
+      }
+    }
+  }
+
+  const dayFairLowGenus = ((): 'cu' | 'sc' | null => {
+    if (!hasDayWind || !obsPt?.hourly) return null;
+    const h = obsPt.hourly;
+    const ts = h.timeMs;
+    const db = h.lowDeckBaseKm, dt = h.lowDeckTopKm;
+    if (!ts || !db || !dt) return null;
+    let sumLow = 0, cntLow = 0, sumThick = 0, cntThick = 0;
+    for (let i = 0; i < ts.length; i++) {
+      if (ts[i] < dayT0 + 8 * 3600000 || ts[i] > dayT0 + 18 * 3600000) continue;
+      const c = h.low?.[i] ?? 0;
+      if (c >= 5) { sumLow += c; cntLow++; }
+      const b = db[i], t = dt[i];
+      if (Number.isFinite(b) && Number.isFinite(t) && t > b) { sumThick += (t - b); cntThick++; }
+    }
+    if (cntLow === 0 || cntThick === 0) return null;
+    return (sumLow / cntLow) < 55 && (sumThick / cntThick) >= 0.6 ? 'cu' : 'sc';
+  })();
+
+  const dayHighMeanPct = ((): number | null => {
+    if (!hasDayWind || !obsPt?.hourly?.high) return null;
+    const h = obsPt.hourly;
+    const ts = h.timeMs;
+    let s = 0, c = 0;
+    for (let i = 0; i < h.high.length; i++) {
+      if (ts && (ts[i] < dayT0 || ts[i] > dayT1)) continue;
+      const v = h.high[i] ?? 0;
+      if (v > 5) { s += v; c++; }
+    }
+    return c > 0 ? s / c : 50;
+  })();
+
+  const entry: DayPathStatsCacheEntry = {
+    dayT0,
+    obsPt,
+    dLow,
+    dMid,
+    dHigh,
+    dayBandMax,
+    dayFairLowGenus,
+    dayHighMeanPct,
+  };
+  if (ptsAll.length > 0) dayPathStatsCache.set(ptsAll, entry);
+  return entry;
+}
+
 function toMacroRing(list: CloudData[]): Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>> | undefined {
   const ringPts = dropSeamCopies(list.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
   if (ringPts.length < 20) return undefined;
@@ -507,96 +618,19 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   };
   const W = { low: windOf('low'), mid: windOf('mid'), high: windOf('high') };
   const ptsAll = a.pathData ?? [];
-  let obsPt = ptsAll[0];
-  for (const q of ptsAll) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
   const DAY = 86400000, lonMs = (a.lon / 360) * DAY;
   const dayT0 = Math.floor((a.date.getTime() + lonMs) / DAY) * DAY - lonMs;
   const dayT1 = dayT0 + DAY;
-
-  const dayWindOf = (band: 'low' | 'mid' | 'high'): [number, number] | null => {
-    if (!ptsAll.length) return null;
-    const h = obsPt?.hourly;
-    const ts = h?.timeMs;
-    const key = band === 'low' ? 'Low' : band === 'mid' ? 'Mid' : 'High';
-    const us = h?.[`windU${key}` as const], vs = h?.[`windV${key}` as const];
-    if (!ts || !us || !vs || ts.length === 0) return null;
-    let su = 0, sv = 0, cnt = 0;
-    for (let i = 0; i < ts.length; i++) {
-      if (ts[i] >= dayT0 && ts[i] <= dayT1 && Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
-        su += us[i]; sv += vs[i]; cnt++;
-      }
-    }
-    if (cnt === 0) {
-      for (let i = 0; i < ts.length; i++) {
-        if (Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
-          su += us[i]; sv += vs[i]; cnt++;
-        }
-      }
-    }
-    return cnt > 0 ? [su / cnt, sv / cnt] : null;
-  };
-  const dLow = dayWindOf('low'), dMid = dayWindOf('mid'), dHigh = dayWindOf('high');
+  const { dLow, dMid, dHigh, dayBandMax, dayFairLowGenus, dayHighMeanPct } = getDayPathStats(ptsAll, dayT0, dayT1);
   const hasDayWind = !!(dLow && dMid && dHigh);
   const Wpat = hasDayWind ? { low: dLow!, mid: dMid!, high: dHigh! } : W;
 
-  // 하루 전체 고리 예보에서 띠별 최대 운량 상한과 주간 대표 대류/상층 상태를 구해,
-  // 정시(13:00 등)를 넘을 때 2D 베이스 타일이 다른 문턱이나 종류(cu↔sc)로 재합성되어 구름 형태가 튀는 현상을 막습니다.
-  const dayBandMax: Record<'low' | 'mid' | 'high', number> = { low: 0, mid: 0, high: 0 };
-  if (ptsAll.length >= 20) {
-    for (const p of ptsAll) {
-      if (!Number.isFinite(p.distance) || (p.distance ?? 0) > 400) continue;
-      const h = p.hourly;
-      const ts = h?.timeMs;
-      if (!h) continue;
-      const n = ts?.length ?? h.low?.length ?? 0;
-      for (let i = 0; i < n; i++) {
-        if (ts && ts.length === n && (ts[i] < dayT0 - 3600000 || ts[i] > dayT1 + 3600000)) continue;
-        const lv = (h.low?.[i] ?? 0) / 100;
-        const mv = (h.mid?.[i] ?? 0) / 100;
-        const hv = (h.high?.[i] ?? 0) / 100;
-        if (lv > dayBandMax.low) dayBandMax.low = lv;
-        if (mv > dayBandMax.mid) dayBandMax.mid = mv;
-        if (hv > dayBandMax.high) dayBandMax.high = hv;
-      }
-    }
-  }
   const envCoverOf = (m: number) => (m >= 0.82 ? Math.round((0.96 + 0.04 * smooth01(m, 0.82, 0.92)) * 100) / 100 : m >= 0.02 ? 0.96 : 0);
   const tileCoverEnvelope: Partial<Record<'low' | 'mid' | 'high', number>> | undefined = ptsAll.length >= 20 ? {
     low: envCoverOf(dayBandMax.low),
     mid: envCoverOf(dayBandMax.mid),
     high: envCoverOf(dayBandMax.high),
   } : undefined;
-
-  const dayFairLowGenus = ((): 'cu' | 'sc' | null => {
-    if (!hasDayWind || !obsPt?.hourly) return null;
-    const h = obsPt.hourly;
-    const ts = h.timeMs;
-    const db = h.lowDeckBaseKm, dt = h.lowDeckTopKm;
-    if (!ts || !db || !dt) return null;
-    let sumLow = 0, cntLow = 0, sumThick = 0, cntThick = 0;
-    for (let i = 0; i < ts.length; i++) {
-      if (ts[i] < dayT0 + 8 * 3600000 || ts[i] > dayT0 + 18 * 3600000) continue;
-      const c = h.low?.[i] ?? 0;
-      if (c >= 5) { sumLow += c; cntLow++; }
-      const b = db[i], t = dt[i];
-      if (Number.isFinite(b) && Number.isFinite(t) && t > b) { sumThick += (t - b); cntThick++; }
-    }
-    if (cntLow === 0 || cntThick === 0) return null;
-    return (sumLow / cntLow) < 55 && (sumThick / cntThick) >= 0.6 ? 'cu' : 'sc';
-  })();
-
-  const dayHighMeanPct = ((): number | null => {
-    if (!hasDayWind || !obsPt?.hourly?.high) return null;
-    const h = obsPt.hourly;
-    const ts = h.timeMs;
-    let s = 0, c = 0;
-    for (let i = 0; i < h.high.length; i++) {
-      if (ts && (ts[i] < dayT0 || ts[i] > dayT1)) continue;
-      const v = h.high[i] ?? 0;
-      if (v > 5) { s += v; c++; }
-    }
-    return c > 0 ? s / c : 50;
-  })();
 
   const shearOf = (band: 'low' | 'mid' | 'high'): [number, number] => {
     const [au, av] = band === 'low' ? Wpat.mid : Wpat.high, [bu, bv] = band === 'low' ? Wpat.low : Wpat.mid;

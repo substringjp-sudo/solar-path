@@ -1097,9 +1097,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [timeline, latitude, longitude, currentDateStr]);
 
+  // 시간 스크롤(isSliding) 중에는 5분 버킷 단위로만 46개 고리 전체 보간을 갱신해 매 터치 이벤트마다 배열 재생성 및 SkyScene3D weatherRef 변동을 막습니다.
+  const weatherEvalMs = isSliding
+    ? Math.floor(currentTime.getTime() / 300_000) * 300_000
+    : currentTime.getTime();
   const interpolatedWeather = useMemo(
-    () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
-    [pathData, currentTime]
+    () => (pathData.length ? getInterpolatedWeather(pathData, new Date(weatherEvalMs)) : []),
+    [pathData, weatherEvalMs]
   );
 
   const lastPredictionRef = useRef<ReturnType<typeof scenePrediction>>(null);

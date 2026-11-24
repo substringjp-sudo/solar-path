@@ -1424,6 +1424,18 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       return monotoneCubicHermite(y0, a, b as number, y3, ratio);
     };
 
+    // 외곽 고리 지점(distance > 0)은 운량 4종(low, mid, high, total)만 보유하므로 관측점 전용 변수(기압면 단면·열역학·바람·대기질·일사) 보간을 즉시 건너뜁니다.
+    if (p.distance > 0) {
+      return {
+        distance: p.distance,
+        azimuthOffset: p.azimuthOffset,
+        low: interpolateReq(p.hourly.low),
+        mid: interpolateReq(p.hourly.mid),
+        high: interpolateReq(p.hourly.high),
+        total: interpolateOpt(p.hourly.total),
+      };
+    }
+
     return {
       distance: p.distance,
       azimuthOffset: p.azimuthOffset,

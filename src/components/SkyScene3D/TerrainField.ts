@@ -419,8 +419,9 @@ export function createTerrainField(opts: {
         shadeBakedKey = '';
         return;
       }
-      // 해 **방위**가 0.0017° 움직이면 다시 굽습니다 — 한 화소라 값이 거의 들지 않습니다. 해 고도와는 무관합니다.
-      const q = (x: number) => Math.round(x / 3e-5);
+      // 해 **방위**가 움직이면 다시 굽습니다 — 슬라이더·추적 등 고속 조작 중(skipShadeBake)에는 0.35°(6e-3 rad) 단위로 양자화해 매 프레임 FBO 렌더를 막고, 정지 시에는 0.0017°(3e-5 rad) 정밀도로 굽습니다.
+      const ridgeStepRad = skipShadeBake ? 6e-3 : 3e-5;
+      const q = (x: number) => Math.round(x / ridgeStepRad);
       // 눈 자리(uDemObs)도 넣습니다 — 연속 이동으로 눈이 옮겨 가면 해 쪽 능선(그 자리에서 본 산 그림자 경계)을 다시 굽습니다. 약 10 m 마다.
       const obs = u.uDemObs?.value as { x: number; y: number } | undefined;
       const qo = (x: number) => Math.round(x / 0.0025);

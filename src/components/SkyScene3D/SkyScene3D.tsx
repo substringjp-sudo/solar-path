@@ -724,6 +724,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const locationRef = useRef(location);
   const nightLightsRef = useRef<NightLights | null>(getCachedNightLights());
   const lastCityPatchRef = useRef<{ field: TerrainFieldHandle; patch: Float32Array | null } | null>(null);
+  const cachedCityFieldRef = useRef<{
+    map: NightLights;
+    key: string;
+    field: ReturnType<typeof cityLightField>;
+    dir: { x: number; z: number };
+  } | null>(null);
+  const getCachedCityField = (lat: number, lon: number) => {
+    const m = nightLightsRef.current;
+    if (!m) return null;
+    const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+    const hit = cachedCityFieldRef.current;
+    if (hit && hit.map === m && hit.key === key) return hit;
+    const field = cityLightField(m, lat, lon);
+    const dir = cityGlowDirection(field.azGain);
+    const next = { map: m, key, field, dir };
+    cachedCityFieldRef.current = next;
+    return next;
+  };
   const cityExpCompRef = useRef<number>(1);
   const overrideStartBucketMsRef = useRef<number | null>(null);
   const cachedLightEstRef = useRef<{ key: string; est: LightPollutionEstimate } | null>(null);
@@ -3028,7 +3046,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (framesToRenderRef.current > 1) framesToRenderRef.current = 1;
             const myBuildSeq = ++volBuildSeqRef.current;
             const tW = Date.now();
-            vol.setSceneAsync(built.input, isFast, isFirstCloudScene ? 24 : 12).then(applied => {
+            const asyncSliceMs = isFirstCloudScene ? 24 : (isSlidingNow ? 4 : 12);
+            vol.setSceneAsync(built.input, isFast, asyncSliceMs).then(applied => {
               if (volBuildSeqRef.current !== myBuildSeq) return;
               volPendingRef.current = false;
               volumetricStats.weatherMs = vol.weatherMs();
@@ -3116,8 +3135,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const terrainOn = !!terrainFieldRef.current?.mesh.visible;
           const buildingsOn = !!buildingFieldRef.current?.mesh.visible;
           const anyTerrainOn = terrainOn || buildingsOn;
-          const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
-          const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
+          const qSunStep = isSlidingNow ? (1 / 1.5) : (isInteractingNow ? 4 : 20);
+          const qSunAlt = Math.round(sunAltRef.current * qSunStep);
+          const qSunAz = Math.round(sunAzRef.current * qSunStep);
           const bldSerial = buildingsOn ? buildingFieldRef.current!.geomSerial() : -1;
           const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}|${bldSerial}|${urbanSerialRef.current}|${demSerialRef.current}`;
           composerNow.setTerrainLit(true);
@@ -3425,12 +3445,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     const cityLightsOn = currentLayers.cityLights !== false;
     const locCoords = locationRef.current?.coords;
-    const cityField = cityLightsOn && nightLightsRef.current && locCoords
-      ? cityLightField(nightLightsRef.current, locCoords.latitude, locCoords.longitude)
+    const cachedCity = cityLightsOn && locCoords
+      ? getCachedCityField(locCoords.latitude, locCoords.longitude)
       : null;
+    const cityField = cachedCity?.field ?? null;
     const localNorm = cityField ? Math.min(1.25, Math.max(0, cityField.local / CITY_REF_LOCAL)) : 0;
     const skyGlow = cityField ? cityField.skyGlow : 0;
-    const cityDir = cityField ? cityGlowDirection(cityField.azGain) : { x: 0, z: -1 };
+    const cityDir = cachedCity ? cachedCity.dir : { x: 0, z: -1 };
     const nightT = Math.max(0, Math.min(1, (2.0 - sunAltRef.current) / 8.0));
     const nightFade = nightT * nightT * (3 - 2 * nightT);
     const cloudBounce = 1.0 + 0.65 * Math.min(1, Math.max(0, overcast));
@@ -3732,10 +3753,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000 ||
       Math.abs(baseMagLimit - cachedMoonBaseMagRef.current) > 1e-3
     ) {
-      const moonPos = getMoonPositionPrecise(targetDate, lat, lng, obsElevForMoonM);
-      const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
-      const illum = SunCalc.getMoonIllumination(targetDate).fraction;
-      cachedMoonMagLimitRef.current = effectiveMagLimit(baseMagLimit, moonAltDeg, illum);
+      cachedMoonMagLimitRef.current = effectiveMagLimit(baseMagLimit, mAltDegG, moonIllum.fraction);
       cachedMoonMagMsRef.current = targetTimeMs;
       cachedMoonBaseMagRef.current = baseMagLimit;
     }
