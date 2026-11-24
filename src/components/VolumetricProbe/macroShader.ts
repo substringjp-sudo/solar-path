@@ -64,8 +64,10 @@ export function patchMacroShader(mat: PatchableMaterial): void {
     '    vec4 gMS = vec4(genusMacroLutAt(gMC.x, 0), genusMacroLutAt(gMC.y, 1), genusMacroLutAt(gMC.z, 2), genusMacroLutAt(gMC.w, 3));',
     '    gMS = pow(gMS, weatherExponents);',
     '    vec4 gLin = clamp((localWeather - gMS) / max(vec4(1.0) - gMS, vec4(1e-3)), 0.0, 1.0);',
-    '    // 높은 거시 문턱(gMS)에서 선형 절단으로 사라진 타일 순위 지수(d = u^2)의 얇은 테두리 꼬리를 복원해 수직 상자 절벽을 막습니다.',
-    '    localWeather = pow(gLin, mix(vec4(1.0), vec4(1.85), clamp(gMS * 1.25, 0.0, 1.0)));',
+    '    // 높은 거시 문턱(gMS)에서 선형 절단으로 사라진 타일 순위 지수(d = u^2)의 얇은 테두리 꼬리를 복원해 수직 상자 절벽을 막되,',
+    '    // 국소 거시 운량(gMC)이 포화(1.0)에 가까울수록 시트 내부 골짜기가 1.85 제곱으로 파여 구멍이 나지 않도록 감마를 1.0 으로 연속 완화합니다.',
+    '    vec4 gMacroEdgePow = mix(vec4(1.0), vec4(1.85), clamp(gMS * 1.25, 0.0, 1.0) * (vec4(1.0) - smoothstep(vec4(0.72), vec4(0.96), gMC)));',
+    '    localWeather = pow(gLin, gMacroEdgePow);',
     '  }',
   ].join('\n'));
   mat.fragmentShader = src;

@@ -1114,6 +1114,7 @@ function layerPatternKey(
     flowCarve: _fc,
     flowGrain: _fg,
     flowWisp: _fw,
+    flowFloor: _ffl,
     ...patternOpts
   } = o;
   if (useFlow) delete patternOpts.spacingKm;
@@ -1627,7 +1628,7 @@ function refreshVariant(mat: PatchableMaterial): void {
  * 앵커는 patchFlowShader 가 만든 문장(흐름 패치 직후의 글자). 끄면(refreshVariant) 삽입 전 원문이라 글자·균일변수가 K0 과 같음(G3).
  */
 const SK_DECL = 'uniform vec4 coverageFilterWidths;';
-const SK_HS = '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));';
+const SK_HS = '  vec4 gHs = mix(mix(gDome, gLens, clamp(genusMode, 0.0, 1.0)), gDomeL, clamp(genusMode - vec4(1.0), 0.0, 1.0));';
 const SK_STEP = '  gDensity *= mix(step(vec4(1.0 / 512.0), localWeather), smoothstep(vec4(0.0), vec4(2.0 / 255.0), localWeather), genusFlow);';
 const SK_DEPTH = '  weather.depth = mix(max(localWeather - (vec4(1.0) - gHs), vec4(0.0)), gDepthTau, genusFlow);';
 export function injectGenusSkeleton(base: string): string {

@@ -28,7 +28,7 @@ const FLOW_VEC_UNIFORMS = [
   'genusTiltU', 'genusTiltV', 'genusErode', 'genusTauRef',
   'genusMacroGradX', 'genusMacroGradY',
   'genusCarve', 'genusGrain', 'genusGrainDir', 'genusWisp',
-  'genusDriftKmU', 'genusDriftKmV',
+  'genusDriftKmU', 'genusDriftKmV', 'genusFloor',
 ] as const;
 
 /** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW, 그것도 없으면 기본값. */
@@ -84,10 +84,8 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     //   평균 0.5 둘레로 분산을 되살림(1/√((1−w)²+w²)). w = 0 이면 A 그대로.
     ...GENUS_SHEET_B_GLSL,
     'vec4 genusLifeMix(const vec4 a, const vec4 b) {',
-    '  float w = genusLifeW;',
-    '  if (w <= 0.0) return a;',
-    '  vec4 m = mix(a, b, w);',
-    '  return clamp(vec4(0.5) + (m - vec4(0.5)) / sqrt((1.0 - w) * (1.0 - w) + w * w), vec4(0.0), vec4(1.0));',
+    '  if (genusLifeW <= 0.0) return a;',
+    '  return genusSheetMix(a, b, vec4(genusLifeW));',
     '}',
     'vec2 flowWispWarp(const vec2 uv, const float dirRad, const float h, const float amt) {',
     '  if (amt <= 0.0) return vec2(0.0);',
@@ -106,12 +104,14 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   // S2 mode 2 — 비대칭 쐐기·조각 단면: 두꺼운 중심부는 응결 밑면(gRamp)에 닿고, 가장자리·작은 조각구름(d < 0.6)은
   // 밑면도 위로 들리고 윗면도 완만하게 낮아져(pow 1.35) 수직 벽 상자 대신 날렵하게 찢어진 조각 단면이 됩니다.
   src = src.replace(oHs, [
+    '  vec4 gCloudMask = smoothstep(vec4(0.0), vec4(1.5 / 255.0), localWeather);',
+    '  localWeather = mix(localWeather, mix(genusFloor, vec4(1.0), localWeather), gCloudMask * genusFlow);',
     '  vec4 gCoreH = clamp(genusBase * 1.15, vec4(0.22), vec4(0.42));',
     '  vec4 gUp = clamp((gHf - gCoreH) / max(vec4(1.0) - gCoreH, vec4(1e-3)), 0.0, 1.0);',
     '  vec4 gDn = clamp((gCoreH - gHf) / max(gCoreH, vec4(1e-3)), 0.0, 1.0);',
     '  vec4 gWedge = vec4(1.0) - max(pow(max(gUp, vec4(1e-6)), vec4(1.35)), pow(max(gDn, vec4(1e-6)), vec4(1.65)) * vec4(0.62));',
     '  vec4 gDomeL = gRamp * clamp(gWedge, 0.0, 1.0);',
-    '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));',
+    '  vec4 gHs = mix(mix(gDome, gLens, clamp(genusMode, 0.0, 1.0)), gDomeL, clamp(genusMode - vec4(1.0), 0.0, 1.0));',
   ].join('\n'));
   // S3 연속 밀도
   src = src.replace(oDens, oDens.replace(';', '')
@@ -191,7 +191,8 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '    vec2 gPk = uv * (genusTileM * 0.001);',
     '    vec4 gLs = vec4(genusLsField(gPk + vec2(genusDriftKmU.x, genusDriftKmV.x)), genusLsField(gPk + vec2(genusDriftKmU.y, genusDriftKmV.y)),',
     '                    genusLsField(gPk + vec2(genusDriftKmU.z, genusDriftKmV.z)), genusLsField(gPk + vec2(genusDriftKmU.w, genusDriftKmV.w)));',
-    '    localWeather = pow(clamp(localWeather, vec4(0.0), vec4(1.0)), exp(-genusLsAmt * 0.75 * (2.0 * gLs - 1.0)));',
+    '    vec4 gLsExp = exp(-genusLsAmt * (vec4(1.0) - 0.65 * genusFloor) * 0.75 * (2.0 * gLs - 1.0));',
+    '    localWeather = pow(clamp(localWeather, vec4(0.0), vec4(1.0)), gLsExp);',
     '  }',
     '  // §132 거시 상태장: 주변 좌표의 2D 운량 기울기로 구름을 변조. §135: 더하지 않고 **곱합니다** — 더하면 빈 하늘(0)에',
     '  // 구름이 생겨 하늘 위쪽을 얇은 막이 덮었습니다. 곱하면 이미 있는 구름만 옅어지거나(기울기 음의 쪽) 조금 짙어집니다(양의 쪽).',
@@ -313,6 +314,7 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
   set('genusCarve', lane(L => flowParam(L, 'flowCarve', 0)));
   set('genusGrain', lane(L => flowParam(L, 'flowGrain', 1)));
   set('genusWisp', lane(L => flowParam(L, 'flowWisp', 0)));
+  set('genusFloor', lane(L => flowParam(L, 'flowFloor', 0)));
   set('genusGrainDir', lane(L => { const u = flowParam(L, 'windU', 0), v = flowParam(L, 'windV', 0); return u === 0 && v === 0 ? 0 : Math.atan2(u, v); }));
   set('genusTauRef', [4, 4, 4, 4]);
   // 거시 상태장 기울기 — §171 on.macroGrad 가 아니면 0(기본 끔; §156 거시 격자가 자리별로 대신함)
@@ -393,7 +395,20 @@ export const GENUS_SHEET_B_GLSL: string[] = [
   '}',
   'vec4 genusSheetMix(const vec4 a, const vec4 b, const vec4 w) {',
   '  vec4 m = mix(a, b, w);',
-  '  return clamp(vec4(0.5) + (m - vec4(0.5)) / sqrt((vec4(1.0) - w) * (vec4(1.0) - w) + w * w), vec4(0.0), vec4(1.0));',
+  '  vec4 s = max(sqrt((vec4(1.0) - w) * (vec4(1.0) - w) + w * w), vec4(1e-4));',
+  '  vec4 dryMix = clamp(vec4(0.5) + (m - vec4(0.5)) / s, vec4(0.0), vec4(1.0));',
+  '  vec4 ua = sqrt(max(a, vec4(0.0))), ub = sqrt(max(b, vec4(0.0)));',
+  '  vec4 mu = mix(ua, ub, w);',
+  '  vec4 al = min(w, vec4(1.0) - w), be = max(vec4(1.0) - al, vec4(1e-4));',
+  '  vec4 denom = max(2.0 * al * be, vec4(1e-5));',
+  '  vec4 fLo = (mu * mu) / denom;',
+  '  vec4 fMid = (mu - 0.5 * al) / be;',
+  '  vec4 fHi = vec4(1.0) - ((vec4(1.0) - mu) * (vec4(1.0) - mu)) / denom;',
+  '  vec4 uCdf = mix(mix(fLo, fMid, step(al, mu)), fHi, step(be, mu));',
+  '  vec4 uSat = mix(mu, clamp(uCdf, vec4(0.0), vec4(1.0)), step(vec4(1e-3), al));',
+  '  vec4 satMix = max(uSat * uSat, min(a, b) * vec4(0.85));',
+  '  vec4 bothSat = smoothstep(vec4(0.0), vec4(1.5 / 255.0), min(a, b));',
+  '  return clamp(mix(dryMix, satMix, bothSat), vec4(0.0), vec4(1.0));',
   '}',
 ];
 

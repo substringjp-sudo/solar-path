@@ -982,9 +982,10 @@ export async function createVolumetricScene(
       '    wUv = planeKm / max(farTileKm, 0.5) + wDrift;',
       '    float fA = dot(texture(farWeatherTex, wUv + farLife.xy), wMask);',
       '    float fB = farLifeW > 0.0 ? dot(texture(farWeatherTex, wUv + farLife.zw), wMask) : fA;',
-      // 100 km 너머 원거리에서는 생애 섞기 2회만으로 충분하며, 둘째 무늬판 추가 2회 샘플링은 생략해 텍스처 대역폭을 절반으로 줄입니다.
-      '    dens = farLifeW > 0.0 ? clamp(0.5 + (mix(fA, fB, farLifeW) - 0.5) / sqrt((1.0 - farLifeW) * (1.0 - farLifeW) + farLifeW * farLifeW), 0.0, 1.0) : fA;',
-      '    if (farLsAmt > 0.0) dens = pow(clamp(dens, 0.0, 1.0), exp(-farLsAmt * 0.75 * (2.0 * farLsField(planeKm + dKm) - 1.0)));',
+      // 100 km 너머 원거리에서도 포화 보존 혼합(genusSheetMix)과 고운량 테두리 감마 완화·과포화 바닥을 동일하게 적용해 지평선 비구름 구멍을 막습니다.
+      '    dens = farLifeW > 0.0 ? genusSheetMix(vec4(fA), vec4(fB), vec4(farLifeW)).x : fA;',
+      '    float farFl = smoothstep(0.78, 0.98, coverFb) * 0.34;',
+      '    if (farLsAmt > 0.0) dens = pow(clamp(dens, 0.0, 1.0), exp(-farLsAmt * (1.0 - 0.65 * farFl) * 0.75 * (2.0 * farLsField(planeKm + dKm) - 1.0)));',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
       '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(mix(texture(farMacroTex, mUv), texture(farMacroTexB, mUv), farMacroMix), mMask);',
@@ -992,11 +993,12 @@ export async function createVolumetricScene(
       '        vec4 sVec = texture(farMacroLut, vec2((mCov * 63.0 + 0.5) / 64.0, 0.5));',
       '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
       '        dens = clamp((dens - gMS) / max(1.0 - gMS, 1e-3), 0.0, 1.0);',
-      '        dens = pow(dens, mix(1.0, 1.85, clamp(gMS * 1.25, 0.0, 1.0)));',
+      '        dens = pow(dens, mix(1.0, 1.85, clamp(gMS * 1.25, 0.0, 1.0) * (1.0 - smoothstep(0.72, 0.96, mCov))));',
       '      } else {',
       '        dens *= mCov;',
       '      }',
       '    }',
+      '    if (dens > 0.005) dens = mix(farFl, 1.0, dens);',
       '  }',
       '  if (dens <= 0.005) return;',
       '  dens = pow(dens, clamp(densPow, 0.35, 2.2));',
@@ -1056,11 +1058,17 @@ export async function createVolumetricScene(
       'float volCloudAirKm(vec3 rayDir, vec2 uv) {',
       '  if (cloudAirShade <= 0.0 && farAirShade <= 0.0) return 0.0;',
       '  float sinT = dot(rayDir, normalize(vCameraPosition));',
-      // 위로 열린 하늘(구름 틈·지평선 빈 하늘)은 건드리지 않음 — 지형 화소만 구름 아래 공기 그늘 적용.
-      '  if (sinT > 0.02 || terrainDistOn < 0.5) return 0.0;',
+      '  float effShade = max(cloudAirShade, farAirShade);',
+      // 광역 구름 덮개가 사방을 닫을수록(effShade·1-cloudSkyT -> 1) 구름 꼭대기 아래 대류권 하부 공기 기둥(cloudAirTopKm)도 직사광 그늘에 들어갑니다.
+      // 조각구름 날(effShade < 0.68)에는 0 이 되어 구름 사이 맑은 파란 하늘을 그대로 유지합니다.
+      '  if (sinT > 0.02) {',
+      '    float canopy = smoothstep(0.68, 0.94, max(effShade, 1.0 - cloudSkyT));',
+      '    return canopy * canopy * effShade * min(max(cloudAirTopKm, 1.5) / max(sinT, 0.06), 80.0);',
+      '  }',
+      '  if (terrainDistOn < 0.5) return 0.0;',
       '  float k = terrainDistDecodeKm(texture(terrainDist, uv));',
       '  if (k >= 1e8) return 0.0;',
-      '  return max(cloudAirShade, farAirShade) * min(k, 350.0);',
+      '  return effShade * min(k, 350.0);',
       '}',
       // §129 해 쪽 능선 그림자 속 공기의 길이(km) — 눈에서 시작하는 그늘 구간(Bruneton shadow_length 의 뜻과 같음).
       // 능선 하나(눈 위 높이 z, 해 방위로 거리 D)가 해 방향과 직각으로 길게 놓였다고 보고(지형 셰이더 hazeLitWeight 와 같은 모형),
@@ -1273,6 +1281,16 @@ export async function createVolumetricScene(
       '    #endif',
       '    float fTer = 0.0;',
       '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) fTer = 1.0; }',
+      // 광역 두꺼운 구름 덮개(비구름·전천 흐림) 아래에서는 구름의 얇은 틈 너머 배경 대기도 직달 레일리 코발트블루 대신 상층 확산 투과광(cloudSkyT)으로 감쇠·중성화됩니다.
+      '    float skyCanopy = smoothstep(0.68, 0.94, max(max(cloudAirShade, farAirShade), 1.0 - cloudSkyT)) * clamp(1.0 - cloudSkyT, 0.0, 1.0);',
+      '    if (skyCanopy > 0.005 && fTer < 0.5 && fOv.a < 0.999) {',
+      '      vec3 bgOnly = max(outputColor.rgb - fOv.rgb, vec3(0.0));',
+      '      float bgL = dot(bgOnly, vec3(0.2126, 0.7152, 0.0722));',
+      '      float bgBlue = clamp((bgOnly.b - bgOnly.r) / max(bgL, 1e-5), 0.0, 1.0);',
+      '      vec3 greyBg = mix(bgOnly, vec3(bgL) * vec3(0.96, 0.98, 1.02), clamp(skyCanopy * (0.65 + 0.35 * bgBlue), 0.0, 0.88));',
+      '      greyBg *= mix(1.0, clamp(cloudSkyT * 1.45, 0.38, 0.88), skyCanopy * 0.65);',
+      '      outputColor.rgb = fOv.rgb + greyBg;',
+      '    }',
       '    if (fTer < 0.5 && fOv.a < 0.995 && farBaseKm.x >= -0.5) {',
       '      vec3 accRgb = vec3(0.0);',
       '      float accA = 0.0;',
@@ -2193,6 +2211,12 @@ export async function createVolumetricScene(
         const carveScale = Math.max(0, Math.min(1, (0.96 - origCover) / 0.16));
         merged.opts = { ...merged.opts, flowCarve: Math.round(rawCarve * carveScale * 100) / 100 };
       }
+      if (origCover > 0.82 && L.genus !== 'ci') {
+        const tFl = Math.min(1, (origCover - 0.82) / 0.16);
+        const autoFl = Math.round(tFl * tFl * (3 - 2 * tFl) * 0.32 * 20) / 20;
+        const curFl = (merged.opts as { flowFloor?: number } | undefined)?.flowFloor ?? 0;
+        if (autoFl > curFl) merged.opts = { ...merged.opts, flowFloor: autoFl };
+      }
       return merged;
     });
     // §139 뼈대: cu·cg·sc 층의 자리·폭·깊이·층 높이를 열역학에서(cloudSkeleton). 1 = 층 높이만(K0h), 2·3 = 뼈대(원 운량, 역표 건너뜀). opts 에 넣어 캐시 키에 포함.
@@ -2249,6 +2273,7 @@ export async function createVolumetricScene(
         flowCarve: _fc,
         flowGrain: _fg,
         flowWisp: _fw,
+        flowFloor: _ffl,
         ...restOpts
       } = g.opts as Record<string, unknown>;
       if (useFlow) delete restOpts.spacingKm;
@@ -2789,6 +2814,12 @@ export async function createVolumetricScene(
           nextOpts = { ...nextOpts, flowCarve: Math.round(rawCarve * carveScale * 100) / 100 };
         } else if (typeof rawCarve === 'number') {
           nextOpts = { ...nextOpts, flowCarve: rawCarve };
+        }
+        if (origCover > 0.82 && cL.genus !== 'ci') {
+          const tFl = Math.min(1, (origCover - 0.82) / 0.16);
+          const autoFl = Math.round(tFl * tFl * (3 - 2 * tFl) * 0.32 * 20) / 20;
+          const curFl = (nextOpts as { flowFloor?: number }).flowFloor ?? 0;
+          if (autoFl > curFl) nextOpts = { ...nextOpts, flowFloor: autoFl };
         }
         genLayers[i] = { ...g, genus: cL.genus, opts: nextOpts };
       }

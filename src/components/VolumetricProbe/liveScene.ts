@@ -119,26 +119,63 @@ export function rainRoughness(obs: CloudData, windLowKmh: [number, number]): { r
 }
 export const FILL_RULE = { maxZ: 7500, peak: 80, wetPct: 50, wetLevels: 2, capeMax: 300 } as const;
 
+const smooth01 = (v: number, e0: number, e1: number) => {
+  const t = Math.min(1, Math.max(0, (v - e0) / Math.max(1e-6, e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * 대기 기둥의 습윤 포화도(강수 플럭스 · 상대습도 · 이슬점차 · 타층 습윤 중첩)로부터
+ * NWP 부분 운량(rawPct)이 전천 과포화 시트(1.0)로 닫히는 연속 운량(0~1)을 계산합니다.
+ * 조건문 분기 없이 관측점 레이어와 768 km 거시 고리(toMacroRing)에 동일하게 적용됩니다.
+ */
+export function closedBandCoverOf(
+  rawPct: number,
+  otherBandPct: number,
+  precipMm = 0,
+  rhPct = 70,
+  dewSpreadC = Infinity,
+  totalPct = 0,
+): number {
+  const c0 = Math.min(1, Math.max(0, rawPct / 100));
+  if (c0 <= 0) return 0;
+  const precipW = Math.min(1, Math.max(0, precipMm / 0.25));
+  const rhW = smooth01(rhPct, 82, 97);
+  const dewW = Number.isFinite(dewSpreadC) ? smooth01(3.2 - dewSpreadC, 0, 2.4) : 0;
+  const multiW = Math.max(smooth01(otherBandPct, 50, 88), smooth01(totalPct, 90, 98));
+  const wetSheetW = Math.min(1, Math.max(0, Math.max(precipW * 0.85, Math.max(rhW, dewW) * (0.45 + 0.55 * multiW) + 0.35 * precipW)));
+  const closeW = Math.max(
+    smooth01(rawPct, 92, 98),
+    wetSheetW * smooth01(rawPct, 72, 86),
+    precipW * smooth01(rawPct, 80, 91),
+    smooth01(totalPct, 93, 99) * smooth01(rawPct, 84, 92) * (0.35 + 0.65 * Math.max(precipW, rhW)),
+  );
+  return c0 * (1 - closeW) + 1.0 * closeW;
+}
+
 /** 기압면 단면에서 높이별 운량(0~1)을 뽑습니다. 조건이 안 맞으면 null. */
 export function fillProfileOf(obs: CloudData): { zM: number; cover: number }[] | null {
   const hs = obs.profileHeightM, cs = obs.profileCoverPct;
   if (!hs || !cs || hs.length !== cs.length) return null;
-  if (obs.capeJkg != null && Number.isFinite(obs.capeJkg) && obs.capeJkg >= FILL_RULE.capeMax) return null;
   const lv = hs.map((z, i) => ({ zM: z, c: cs[i] })).filter(q => Number.isFinite(q.zM) && Number.isFinite(q.c) && q.zM <= FILL_RULE.maxZ).sort((a, b) => a.zM - b.zM);
   if (!lv.length) return null;
-  // 비가 오고(>= 0.1mm) 저층 예보 운량이 90% 이상(또는 총운량 95%+ 동반 저층 88%+)이면 best_match 단면이 1개 기압면(>= 50%)만 높아도 비구름 파동 채우기를 켭니다.
-  const raining = (obs.precipitation ?? 0) >= 0.1;
-  const rainyOvercast =
-    raining &&
-    ((obs.low ?? 0) >= 90 || ((obs.low ?? 0) >= 88 && (obs.total ?? 0) >= 95));
-  const minPeak = rainyOvercast ? FILL_RULE.wetPct : FILL_RULE.peak;
-  const minWet = rainyOvercast ? 1 : FILL_RULE.wetLevels;
+  const precipW = Math.min(1, Math.max(0, (obs.precipitation ?? 0) / 0.1));
+  const effLowPct = Math.max(obs.low ?? 0, ((obs.low ?? 0) >= 85 && (obs.total ?? 0) >= 93) ? 92 : (obs.low ?? 0));
+  const lowCovW = smooth01(effLowPct, 78, 92);
+  const rhW = smooth01(obs.humidity ?? 70, 82, 96);
+  const wetSatW = Math.min(1, Math.max(0, precipW * lowCovW + 0.45 * rhW * lowCovW * precipW));
+  // 습윤 종관 강수장(wetSatW -> 1)에서는 대류 불안정(CAPE)이 있어도 층상 비구름 덱이 공존하므로 대류 상한이 연속 확장됩니다.
+  const effCapeMax = FILL_RULE.capeMax + 750 * wetSatW;
+  if (obs.capeJkg != null && Number.isFinite(obs.capeJkg) && obs.capeJkg >= effCapeMax) return null;
+  const minPeak = FILL_RULE.peak - (FILL_RULE.peak - FILL_RULE.wetPct) * wetSatW;
+  const minWet = Math.max(1, Math.round(FILL_RULE.wetLevels - (FILL_RULE.wetLevels - 1) * wetSatW));
   const peak = Math.max(...lv.map(q => q.c)), wet = lv.filter(q => q.c >= FILL_RULE.wetPct).length;
   if (peak < minPeak || wet < minWet) return null;
-  // 비가 오면(시간당 0.1 mm 이상) 덱의 주요 높이(운량 50 % 이상)는 다 덮인 것으로 — 실제 난층운 아래는 거의 다 덮여 보임(2026-11-12).
+  // 대기 습윤 포화도(wetSatW)와 기압면 운량(c)의 연속 결합으로 주요 습윤 고도가 빈틈없이 포화 시트로 수렴합니다.
   return lv.map(q => {
     const c = Math.round(Math.min(100, Math.max(0, q.c))) / 100;
-    return { zM: Math.round(q.zM), cover: raining && c >= 0.5 ? 1 : c };
+    const liftW = wetSatW * smooth01(c, 0.38, 0.50);
+    return { zM: Math.round(q.zM), cover: Math.round((c + (1 - c) * liftW) * 100) / 100 };
   });
 }
 
@@ -308,15 +345,15 @@ export function cirrusVeilKnobs(i: CirrusVeilInput) {
     densityScale,
   };
 }
-export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[]; precipitation?: number; t2mC?: number; freezingLevelM?: number }): HazeInput | undefined {
+export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[]; precipitation?: number; t2mC?: number; td2mC?: number; freezingLevelM?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
-  const rh = clamp(hazeLayerRh(o) ?? o.humidity ?? 50, 0, 95);
+  const rh = clamp(hazeLayerRh(o) ?? o.humidity ?? 50, 0, 98);
   // 맑고 시정이 30~60km 인 날에도 해안·저층 수증기/해염에 의한 옅은 지평선 글로우(0.015~0.035 AOD)가 남도록 바닥을 부드럽게 둡니다.
   const rhFloor = rh >= 40 ? 0.015 + 0.02 * ((rh - 40) / 55) : 0.01;
-  const precip = o.precipitation ?? 0;
-  // 비는 에어로졸을 세정(wash-out)하지만, 눈·진눈깨비(지상 기온 <= 2.5°C 또는 영하고도 <= 600m)는 낙하하는 눈송이·빙정이 구름 밑면과 시정을 뿌옇게 메웁니다.
-  const coldSnowFrac = precip >= 0.05
+  const precip = Math.max(0, o.precipitation ?? 0);
+  // 1) 눈·진눈깨비(지상 기온 <= 2.5°C 또는 영하고도 <= 650m): 낙하하는 눈송이·빙정의 기하광학 산란
+  const coldSnowFrac = precip > 0
     ? clamp(
         Math.max(
           o.t2mC != null && Number.isFinite(o.t2mC) ? (2.5 - o.t2mC) / 4.5 : 0,
@@ -324,16 +361,23 @@ export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; 
         ),
         0,
         1,
-      )
+      ) * (1 - Math.exp(-precip / 0.15))
     : 0;
   const snowExtra = coldSnowFrac * clamp(precip / 0.8, 0.15, 1.0) * 0.75;
-  const extra = Math.max(op.aod - HAZE_BACKGROUND_AOD, op.aod >= 0.05 ? rhFloor : 0) + snowExtra;
+  // 2) 액체 강수 샤프트(Marshall-Palmer β_rain ∝ R^0.75) 및 구름 밑 증발 포화 수막(Virga / Pannus / Sub-cloud mist):
+  //    비는 미세먼지 에어로졸을 세정하지만, 동시에 낙하 빗방울과 포화된 하층 습윤 수막이 파장 중립(회백색) 소광을 더해 구름 틈의 파란 하늘 노출을 가립니다.
+  const warmRainDrive = (1 - coldSnowFrac) * (1 - Math.exp(-precip / 0.45));
+  const dewSpread = o.t2mC != null && o.td2mC != null && Number.isFinite(o.t2mC - o.td2mC) ? Math.max(0, o.t2mC - o.td2mC) : Infinity;
+  const subCloudSat = Math.max(smooth01(rh, 85, 97), Number.isFinite(dewSpread) ? smooth01(2.2 - dewSpread, 0, 1.8) : 0);
+  const rainMistExtra = warmRainDrive * (0.18 + 0.34 * clamp(Math.pow(precip, 0.72) / 2.4, 0, 1)) + subCloudSat * (0.04 + 0.14 * warmRainDrive);
+  const hydrometeorW = clamp(coldSnowFrac + 0.85 * warmRainDrive + 0.45 * subCloudSat * warmRainDrive, 0, 1);
+  const extra = Math.max(op.aod - HAZE_BACKGROUND_AOD, op.aod >= 0.05 ? rhFloor : 0) + snowExtra + rainMistExtra;
   if (extra < 0.01) return undefined;
-  const cap = precip >= 0.1 ? (0.45 + 0.95 * coldSnowFrac) : 3;
-  // 눈·빙정 산란은 파장 의존성(Ångström alpha)이 작아 하늘과 구름 밑면을 중성 백색·회백색으로 뿌옇게 만듭니다.
-  const alpha = op.alpha * (1 - 0.65 * coldSnowFrac) + 0.25 * coldSnowFrac;
-  const g = op.g * (1 - 0.4 * coldSnowFrac) + 0.78 * coldSnowFrac;
-  const omega = Math.max(op.omega, 0.98 * coldSnowFrac);
+  const cap = precip >= 0.05 ? (0.65 + 0.75 * coldSnowFrac + 0.25 * warmRainDrive) : 3;
+  // 빗방울·눈송이·구름 밑 수막(D >> λ)은 기하광학 Mie 산란이므로 파장 의존성(Ångström alpha)이 작아 하늘을 중성 회백색으로 뿌옇게 메웁니다.
+  const alpha = op.alpha * (1 - 0.70 * hydrometeorW) + 0.20 * (0.70 * hydrometeorW);
+  const g = op.g + (0.80 - op.g) * (0.65 * hydrometeorW);
+  const omega = Math.max(op.omega, 0.98 * hydrometeorW);
   return { aod: Math.min(cap, extra), alpha, g, omega };
 }
 
@@ -375,9 +419,18 @@ const MACRO_KNOT_CACHE_MAX = 24;
 function toMacroRing(list: CloudData[]): Partial<Record<'low' | 'mid' | 'high', { distance: number; azimuthOffset: number; cover: number }[]>> | undefined {
   const ringPts = dropSeamCopies(list.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
   if (ringPts.length < 20) return undefined;
+  const dewOf = (q: CloudData) => (q.t2mC != null && q.td2mC != null && Number.isFinite(q.t2mC - q.td2mC) ? q.t2mC - q.td2mC : Infinity);
   return {
-    low: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.low ?? 0) / 100)) })),
-    mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),
+    low: ringPts.map(q => ({
+      distance: q.distance ?? 0,
+      azimuthOffset: q.azimuthOffset ?? 0,
+      cover: closedBandCoverOf(q.low ?? 0, q.mid ?? 0, q.precipitation ?? 0, q.humidity ?? 70, dewOf(q), q.total ?? 0),
+    })),
+    mid: ringPts.map(q => ({
+      distance: q.distance ?? 0,
+      azimuthOffset: q.azimuthOffset ?? 0,
+      cover: closedBandCoverOf(q.mid ?? 0, Math.max(q.low ?? 0, q.high ?? 0), q.precipitation ?? 0, q.humidity ?? 70, dewOf(q), q.total ?? 0),
+    })),
     high: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.high ?? 0) / 100)) })),
   };
 }
@@ -507,10 +560,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       }
     }
   }
+  const envCoverOf = (m: number) => (m >= 0.82 ? Math.round((0.96 + 0.04 * smooth01(m, 0.82, 0.92)) * 100) / 100 : m >= 0.02 ? 0.96 : 0);
   const tileCoverEnvelope: Partial<Record<'low' | 'mid' | 'high', number>> | undefined = ptsAll.length >= 20 ? {
-    low: dayBandMax.low >= 0.98 ? 1.0 : dayBandMax.low >= 0.02 ? 0.96 : 0,
-    mid: dayBandMax.mid >= 0.98 ? 1.0 : dayBandMax.mid >= 0.02 ? 0.96 : 0,
-    high: dayBandMax.high >= 0.98 ? 1.0 : dayBandMax.high >= 0.02 ? 0.96 : 0,
+    low: envCoverOf(dayBandMax.low),
+    mid: envCoverOf(dayBandMax.mid),
+    high: envCoverOf(dayBandMax.high),
   } : undefined;
 
   const dayFairLowGenus = ((): 'cu' | 'sc' | null => {
@@ -707,15 +761,21 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       forecast.lowBaseKm ?? centerKm - (thicknessM ?? 1200) / 2000,
     );
     const rawLowGenus = forecast.low ?? renderForecast.low ?? 'sc';
+    const convCover = closedBandCoverOf(obs.low, obs.mid ?? 0, obs.precipitation ?? 0, obs.humidity ?? 75, dewSpread, obs.total ?? 0);
+    const convSatW = smoothStep01(convCover, 0.78, 0.98);
+    const convRainW = clamp((obs.precipitation ?? 0) / 0.25, 0, 1);
+    const convSheetW = convSatW * Math.max(0.55 * convSatW, convRainW, pStateLow.largeDropFrac + pStateLow.snowFlakeFrac);
+    const convFloor = q05(clamp(convSheetW * 0.36 + pStateLow.satFloor * convSatW, 0, 0.42));
+    const convMode = q05(2.0 - 0.9 * convSheetW);
     if (rawLowGenus === 'cb') {
       // 적란운: 탑은 밑면~권계면 한 층, 모루는 4번째 채널에 같은 씨앗으로 — 바람 방향은 중층 바람.
       const topKm = Math.max(baseKm + 4, CB_TOP_KM);
       const windDeg = obs.windUMid != null && obs.windVMid != null ? ((Math.atan2(obs.windUMid, obs.windVMid) * 180) / Math.PI + 360) % 360 : 30;
-      const opts = { seed: 7, windDeg, ...flowOpts('low'), powderWeight: pStateLow.powderScale, haloWeight: GENUS_MICRO.cbanvil.halo * pStateHigh.haloScale };
-      layers.push({ genus: 'cb', cover: obs.low / 100, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts, physBaseKm: lclKm ?? undefined });
+      const opts = { seed: 7, windDeg, ...flowOpts('low'), flowMode: convMode, flowFloor: convFloor, powderWeight: pStateLow.powderScale, haloWeight: GENUS_MICRO.cbanvil.halo * pStateHigh.haloScale };
+      layers.push({ genus: 'cb', cover: convCover, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts, physBaseKm: lclKm ?? undefined });
       anvil = { genus: 'cbanvil', cover: 1, baseKm: topKm - CB_ANVIL_THICK_M / 1000 * 0.8, thicknessM: CB_ANVIL_THICK_M, band: 'high', opts };
     } else if (rawLowGenus === 'cg') {
-      layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: { ...flowOpts('low'), powderWeight: pStateLow.powderScale, haloWeight: 0 }, physBaseKm: lclKm ?? undefined });
+      layers.push({ genus: 'cg', cover: convCover, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: { ...flowOpts('low'), flowMode: convMode, flowFloor: convFloor, powderWeight: pStateLow.powderScale, haloWeight: 0 }, physBaseKm: lclKm ?? undefined });
     } else {
       const g = ((rawLowGenus === 'cu' || rawLowGenus === 'sc') && dayFairLowGenus ? dayFairLowGenus : renderGenusFor(rawLowGenus)) ?? 'sc';
       // ── 확장 2: 구름 종류(cu ↔ sc ↔ st/ns) 전환 경계의 연속 형태·단면·광학 보간 ──
@@ -731,10 +791,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
         0,
         1,
       );
+      const rhSatW = Math.max(smoothStep01(rhAtGround, 83, 97), Number.isFinite(dewSpread) ? smoothStep01(2.8 - dewSpread, 0, 2.2) : 0);
       const sheetW = clamp(
         Math.max(
           smoothStep01(obs.low, 68, 94) * (0.45 + 0.55 * (1 - convW)),
-          rainWeight * 0.8 + pStateLow.snowFlakeFrac * 0.75 + pStateLow.largeDropFrac * 0.45,
+          rainWeight * 0.8 + pStateLow.snowFlakeFrac * 0.75 + pStateLow.largeDropFrac * 0.45 + rhSatW * smoothStep01(obs.low, 72, 92) * 0.55,
         ),
         0,
         1,
@@ -750,15 +811,21 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const closeWeight = Math.max(
         smoothStep01(obs.low, 92, 98),
         sheetW * smoothStep01(obs.low, 72, 86),
-        rainWeight * smoothStep01(obs.low, 82, 92),
+        rainWeight * smoothStep01(obs.low, 80, 91),
       );
-      const lowCover = (obs.low / 100) * (1 - closeWeight) + 1.0 * closeWeight;
+      const lowCover = Math.max(
+        (obs.low / 100) * (1 - closeWeight) + 1.0 * closeWeight,
+        closedBandCoverOf(obs.low, obs.mid ?? 0, obs.precipitation ?? 0, rhAtGround, dewSpread, obs.total ?? 0),
+      );
 
-      // cu ↔ sc ↔ st/ns 단면·조명·흐름 결 연속 보간
+      // cu ↔ sc ↔ st/ns 단면·조명·흐름 결·과포화 바닥 연속 보간
       const lerp3 = (vCu: number, vSc: number, vSt: number) => {
         const cuSc = vSc + (vCu - vSc) * convW;
         return cuSc + (vSt - cuSc) * sheetW;
       };
+      const lowSatClose = smoothStep01(lowCover, 0.75, 0.98);
+      const lowFlowMode = q05(lerp3(2.0, 2.0 - 0.55 * lowSatClose, 1.0));
+      const lowFlowFloor = q05(clamp(lowSatClose * (0.16 + 0.26 * sheetW) + pStateLow.satFloor * lowSatClose, 0, 0.45));
       const lowBase = q05(lerp3(GENUS.cu.base, GENUS.sc.base, 0.08));
       const lowTop = q05(lerp3(GENUS.cu.top, GENUS.sc.top, 1.8));
       const lowFlowTop = q05(lerp3(GENUS_FLOW.cu?.flowTop ?? 1.8, GENUS_FLOW.sc?.flowTop ?? 1.6, 2.2));
@@ -783,6 +850,8 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
         opts: {
           ...flowOpts('low'),
           tileGenus: tileGenusLow,
+          flowMode: lowFlowMode,
+          flowFloor: lowFlowFloor,
           base: lowBase,
           top: lowTop,
           flowTop: lowFlowTop,
@@ -837,7 +906,12 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     const midWisp = q05(clamp(lerpMid(GENUS_FLOW.ac?.flowWisp ?? 0.35, 0.25) + pStateMid.wispBoost, 0, 1));
     const midTilt = q05(lerpMid(GENUS_FLOW.ac?.flowTilt ?? 0.2, 0.25) + pStateMid.tiltBoost);
     const midCloseW = midSheetW * smoothStep01(obs.mid, 76, 92);
-    const midCover = (obs.mid / 100) * (1 - midCloseW) + Math.max(obs.mid / 100, 0.99) * midCloseW;
+    const midCover = Math.max(
+      (obs.mid / 100) * (1 - midCloseW) + Math.max(obs.mid / 100, 0.99) * midCloseW,
+      closedBandCoverOf(obs.mid, Math.max(obs.low ?? 0, obs.high ?? 0), obs.precipitation ?? 0, obs.humidity ?? 70, dewSpread, obs.total ?? 0),
+    );
+    const midSatClose = smoothStep01(midCover, 0.78, 0.98);
+    const midFlowFloor = q05(clamp(midSatClose * (0.14 + 0.20 * midSheetW) + pStateMid.satFloor * midSatClose, 0, 0.38));
 
     layers.push({
       genus: midGenus,
@@ -848,6 +922,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       opts: {
         ...flowOpts('mid'),
         tileGenus: 'ac',
+        flowFloor: midFlowFloor,
         top: midTop,
         flowTop: midFlowTop,
         edge: midEdge,

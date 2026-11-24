@@ -209,6 +209,8 @@ export interface FlowLayerParams {
   effectiveG?: number;
   /** 종류 전환(cu↔sc↔st, ac↔as, ci↔cs) 시 2D 베이스 타일 캐시를 고정하는 대표 종류 */
   tileGenus?: string;
+  /** 과포화 시트 최소 응결 바닥값 d_min (0 ~ 0.5, 구름 화소 d > 0 구간을 [d_min, 1] 로 연속 리매핑) */
+  flowFloor?: number;
 }
 
 /**
@@ -260,15 +262,15 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   ci: { flow: 1, flowLaminar: 1, flowVeil: 0.25, flowDPow: 1.4, flowQ: 0.6, flowZ: 0.2, flowT: 0.8, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 128,
     flowMode: 1, flowTop: 1.35, densPow: 0.85, flowEdge: 1.4, flowErode: 0.28, flowTilt: 0.6 },
   cs: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 128,
-    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0 },
+    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0, flowFloor: 0.18 },
   // 시트(st/as/ns): topQuantile 0.5/0.7/0.8 → 0.997 로 0/255 마스크 소멸.
   // 판 구름도 변위를 줄임(2026-11-13): 밤 고층운이 크림처럼 휘감긴 골로 보였음 — 무늬는 바람 쪽으로 조금 길게 남음.
   st: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
-    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.05, flowErode: 0.45, flowTilt: 0.2, topQuantile: 0.997 },
+    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.05, flowErode: 0.45, flowTilt: 0.2, topQuantile: 0.997, flowFloor: 0.35 },
   as: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
-    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.02, flowErode: 0.55, flowWisp: 0.35, flowCarve: 0.35, flowTilt: 0.2, topQuantile: 0.997 },
+    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.02, flowErode: 0.55, flowWisp: 0.35, flowCarve: 0.35, flowTilt: 0.2, topQuantile: 0.997, flowFloor: 0.28 },
   ns: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
-    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.08, flowErode: 0.5, flowTilt: 0.2, topQuantile: 0.997 },
+    flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.08, flowErode: 0.5, flowTilt: 0.2, topQuantile: 0.997, flowFloor: 0.42 },
   // 모루: 흐름 끔(absolute 유지, 탑 위에 고정). 셰이더 쪽 값만.
   cbanvil: { flow: 0, flowDensityScale: 0.03, flowErode: 0.3, flowTilt: 0 },
 };

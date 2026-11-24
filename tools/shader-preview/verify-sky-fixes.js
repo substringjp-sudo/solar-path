@@ -130,7 +130,7 @@ const balancedBraces = (s) => {
     layers: [{ genus: 'sc', cover: 0.5, baseKm: 1.1, thicknessM: 750, band: 'low' }],
   });
   const carveAt50 = vol.debug.clouds.cloudsPass.currentMaterial.uniforms.genusCarve.value.x;
-  ok(Math.abs(carveAt50 - 1.4) < 0.05, `저운량 sc 50%는 기존 flowCarve=${carveAt50.toFixed(2)} 유지`);
+  ok(Math.abs(carveAt50 - (M.GENUS_FLOW.sc?.flowCarve ?? 1.55)) < 0.05, `저운량 sc 50%는 기존 flowCarve=${carveAt50.toFixed(2)} 유지`);
 
   await vol.setScene({
     lat: 34.8155, lon: 137.2331, heightM: 4, az: 219.4, el: 15.2, fov: 67.3, date: qrDate,
@@ -199,6 +199,18 @@ const balancedBraces = (s) => {
 
   ok((M.GENUS_FLOW.as?.flowErode ?? 0) >= 0.5 && (M.GENUS_FLOW.as?.flowCarve ?? 0) > 0,
     `GENUS_FLOW.as 가장자리 침식/카빙 활성 (erode=${M.GENUS_FLOW.as?.flowErode}, carve=${M.GENUS_FLOW.as?.flowCarve})`);
+
+  console.log('\n[7] 비구름·만운 연속 과포화 바닥(genusFloor) · 포화 보존 혼합 · 액체 강수 수막 · 구름 아래 대기 차폐');
+  ok(cloudFrag.includes('uniform vec4 genusFloor;') && cloudFrag.includes('uCdf') && cloudFrag.includes('bothSat'),
+    'cloudFlowShader: 포화 보존 Irwin-Hall 혼합(uCdf/bothSat) 및 과포화 바닥(genusFloor) 패치 적용');
+  ok(mergedFrag.includes('skyCanopy') && /genusSheetMix/i.test(mergedFrag),
+    'aerialPass: 원거리 포화 보존 생애 혼합 및 만운 덮개 아래 하늘 청색 감쇠(skyCanopy) 적용');
+  const warmRainHaze = M.hazeFromObs({ visibility: 18000, humidity: 93, precipitation: 1.8, t2mC: 16, td2mC: 15.2 });
+  ok(warmRainHaze != null && warmRainHaze.aod > 0.25 && warmRainHaze.alpha < 0.65 && warmRainHaze.g > 0.72 && warmRainHaze.g < 0.85,
+    `액체 강수(16°C, 1.8mm/h, RH 93%) 수막 Mie 소광 활성 (AOD=${warmRainHaze?.aod.toFixed(3)}, alpha=${warmRainHaze?.alpha.toFixed(3)}, g=${warmRainHaze?.g.toFixed(3)})`);
+  const rainyFlowLayer = rainyNoProf.input.layers[0];
+  ok((rainyFlowLayer?.opts?.flowFloor ?? 0) >= 0.3 && (rainyFlowLayer?.opts?.flowMode ?? 2) <= 1.2,
+    `비구름 흐름 레이어 연속 과포화 바닥(flowFloor=${rainyFlowLayer?.opts?.flowFloor}) 및 층상 단면 전이(flowMode=${rainyFlowLayer?.opts?.flowMode})`);
 
   M.EffectComposer.prototype.addPass = origAdd;
   vol.dispose();

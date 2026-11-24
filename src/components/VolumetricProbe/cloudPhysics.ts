@@ -400,6 +400,8 @@ export interface ParticleCloudState {
   thruBoost: number;
   /** 하늘빛 가림(genusAO) 완화 배율 (0.55 ~ 1.0) */
   aoScale: number;
+  /** 과포화·강수 입자 성장에 따른 구름 내부 최소 응결 바닥 부스트 (0 ~ 0.38) */
+  satFloor: number;
 }
 
 export function particleCloudState(input: {
@@ -497,6 +499,8 @@ export function particleCloudState(input: {
   const powderScale = Math.round(clamp(1 - pSnow * 0.72 - pIce * 0.55 - pLarge * 0.18, 0.22, 1.0) * 20) / 20;
   const thruBoost = Math.round(clamp(pSnow * 0.75 + pIce * 0.35 + pLarge * 0.25, 0, 0.85) * 20) / 20;
   const aoScale = Math.round(clamp(1 - pSnow * 0.35 - pIce * 0.20, 0.55, 1.0) * 20) / 20;
+  const rhSat = clamp((rh - 72) / 26, 0, 1);
+  const satFloor = Math.round(clamp((0.28 * (pLarge + pSnow) + 0.16 * rhSat * (0.4 + 0.6 * (pLarge + pSnow + pIce))) * (0.5 + 0.5 * rhSat), 0, 0.38) * 20) / 20;
 
   return {
     smallDropFrac: pSmall,
@@ -518,5 +522,6 @@ export function particleCloudState(input: {
     powderScale,
     thruBoost,
     aoScale,
+    satFloor,
   };
 }
