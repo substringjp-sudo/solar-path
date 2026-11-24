@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Modal, ScrollView, Linking, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
-import { X, Shield, Info, Bell, Camera, MapPin, CheckCircle2, AlertCircle, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft } from 'lucide-react-native';
+import { X, Shield, Info, Bell, Camera, MapPin, CheckCircle2, AlertCircle, Image, ExternalLink } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
 import { PressScale, Chip } from './ui';
 import { DEFAULT_NOTIF_PREFS, LEAD_OPTIONS, type NotifPrefs } from '../utils/notificationPlan';
 import { hasNotificationPermission } from '../utils/notificationScheduler';
-import { PRIVACY_URL, DELETE_ACCOUNT_URL } from '../utils/accountDeletion';
+import { PRIVACY_URL } from '../utils/accountDeletion';
 import Constants from 'expo-constants';
 import { springTo, timeTo } from '../theme/motion';
 import { useThemeColors } from '../theme/useTheme';
 import { useStyles } from './SettingsModal.styles';
-import { SettingsAccountSection } from './SettingsAccountSection';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -70,7 +69,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [visible, windowHeight]);
 
   const { 
-    currentUser,
     locationPermission,
     cameraPermission,
     mediaPermission,
@@ -102,7 +100,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const [showLicenses, setShowLicenses] = useState(false);
-  const [showPortal, setShowPortal] = useState(false);
 
   const handleLocationPress = () => {
     if (locationPermission === 'granted') return;
@@ -133,7 +130,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      setShowPortal(false);
       checkPermissions();
     }
   }, [visible, checkPermissions]);
@@ -183,88 +179,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* Header */}
             <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: 4 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {showPortal && (
-                <PressScale onPress={() => setShowPortal(false)} style={[styles.backBtn, { backgroundColor: color.fill }]}>
-                  <ChevronLeft size={20} color={theme.text} />
-                </PressScale>
-              )}
-              <Text style={[styles.headerTitle, { color: theme.text, marginLeft: showPortal ? 8 : 0 }]}>
-                {showPortal ? t('tabPortalLinks', language) : t('settings', language)}
-              </Text>
-            </View>
-            <PressScale onPress={handleClose} style={[styles.closeBtn, { backgroundColor: color.fill }]}>
-              <X size={18} color={theme.subText} />
-            </PressScale>
-          </View>
-
-          {showPortal ? (
-            <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
-              <View style={styles.portalContainer}>
-                {/* PPLANER Portal */}
-                <View style={[styles.portalMainCard, { borderColor: theme.border, backgroundColor: 'rgba(255, 215, 0, 0.03)' }]}>
-                  <View style={styles.portalCardHeader}>
-                    <Globe size={20} color={theme.accent} style={{ marginRight: 8 }} />
-                    <Text style={[styles.portalCardTitle, { color: theme.text }]}>{t('portalTitle', language)}</Text>
-                  </View>
-                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                    {t('portalDesc', language)}
-                  </Text>
-                  <PressScale 
-                    style={[styles.portalLinkBtn, { backgroundColor: theme.accent }]}
-                    onPress={() => Linking.openURL('https://pplaner.com')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
-                    <ExternalLink size={14} color={color.onAccent} style={{ marginLeft: 4 }} />
-                  </PressScale>
-                </View>
-
-                {/* Sister Sites Header */}
-                <Text style={[styles.portalSectionHeader, { color: theme.text }]}>
-                  {t('sisterSitesTitle', language)}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>
+                  {t('settings', language)}
                 </Text>
-
-                {/* JP Rail Planner */}
-                <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
-                  <View style={styles.portalCardHeader}>
-                    <Compass size={18} color="#FF6347" style={{ marginRight: 8 }} />
-                    <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterJpRailTitle', language)}</Text>
-                  </View>
-                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                    {t('sisterJpRailDesc', language)}
-                  </Text>
-                  <PressScale 
-                    style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
-                    onPress={() => Linking.openURL('https://jprail.pplaner.com')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
-                    <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                  </PressScale>
-                </View>
-
-                {/* RG Nevel Planner */}
-                <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
-                  <View style={styles.portalCardHeader}>
-                    <Cloud size={18} color="#20B2AA" style={{ marginRight: 8 }} />
-                    <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterRgNevelTitle', language)}</Text>
-                  </View>
-                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                    {t('sisterRgNevelDesc', language)}
-                  </Text>
-                  <PressScale 
-                    style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
-                    onPress={() => Linking.openURL('https://rgnevel.pplaner.com')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
-                    <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                  </PressScale>
-                </View>
               </View>
-            </ScrollView>
-          ) : (
+              <PressScale onPress={handleClose} style={[styles.closeBtn, { backgroundColor: color.fill }]}>
+                <X size={18} color={theme.subText} />
+              </PressScale>
+            </View>
+
             <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
               {/* 1. 언어 — 가장 자주 바꾸는 것부터(디자인 정리 2026-09-29) */}
               <View style={styles.section}>
@@ -514,15 +438,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </View>
               </View>
 
-              {/* 3. 계정 · 패밀리 서비스 */}
-              <SettingsAccountSection
-                currentUser={currentUser}
-                language={language}
-                theme={theme}
-                onOpenPortal={() => setShowPortal(true)}
-              />
-
-              {/* 4. 앱 정보 */}
+              {/* 3. 앱 정보 */}
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -547,13 +463,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Text style={[styles.infoValue, { color: theme.text }]}>com.pplaner.beforeglow</Text>
                   </View>
 
-                  {/* 개인정보처리방침 · 계정 삭제 안내(웹) — 스토어 등록 정보와 같은 주소 */}
+                  {/* 개인정보처리방침(웹) — 스토어 등록 정보와 같은 주소 */}
                   <PressScale style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]} onPress={() => Linking.openURL(PRIVACY_URL)}>
                     <Text style={[styles.infoLabel, { color: theme.subText }]}>{L3(language, '개인정보처리방침', 'Privacy policy', 'プライバシーポリシー')}</Text>
-                    <ExternalLink size={14} color={theme.subText} />
-                  </PressScale>
-                  <PressScale style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]} onPress={() => Linking.openURL(DELETE_ACCOUNT_URL)}>
-                    <Text style={[styles.infoLabel, { color: theme.subText }]}>{L3(language, '계정·데이터 삭제 안내', 'Account & data deletion', 'アカウント・データ削除')}</Text>
                     <ExternalLink size={14} color={theme.subText} />
                   </PressScale>
 
@@ -626,7 +538,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </View>
               )}
             </ScrollView>
-          )}
           </Animated.View>
         </TouchableWithoutFeedback>
       </PressScale>

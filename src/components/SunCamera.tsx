@@ -29,14 +29,11 @@ import {
   GoldenTimeInfo,
 } from '../utils/sunCamera';
 import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/celestial';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
-import { auth } from '../config/firebase';
+import { useCelestialStore } from '../store/useCelestialStore';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchDayWeatherRing } from '../utils/weather';
 import { t, translateSunsetDesc, L3 } from '../utils/i18n';
-import { PostDetailModal } from './PostDetailModal';
 import { type SkyRenderState } from './SkyScene3D';
 import { getPrimarySky } from './SkyScene3D/primarySky';
 import { PressScale } from './ui';
@@ -194,7 +191,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   /** 방위 눈금 자리(무대 아래에서) */
   const RULER_FROM_BOTTOM = 44;
 
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
+  const { addMyPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   // 3D 예측은 하늘 화면의 장면을 공유해 그립니다(primarySky.ts).
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
@@ -605,7 +602,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [capturedSimSample, setCapturedSimSample] = useState<any>(null);
   /** 해가 찍은 사진의 어디인지(가로 · 세로 비율). 셔터 순간의 자세로 구하고, 모르면 null(해 근처 비교가 빠집니다). */
   const [capturedSunXY, setCapturedSunXY] = useState<{ x: number; y: number } | null>(null);
-  const [uploadedPhotoForModal, setUploadedPhotoForModal] = useState<MyPhoto | null>(null);
 
 
 
@@ -1889,146 +1885,74 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     }
   }, [astroResult, astroSaving, astroSaved, mediaPermission, requestMediaPermission, language]);
 
-  // 업로드 및 공유 처리
+  // 기기 갤러리 및 로컬 기록 저장 처리 (Firebase 업로드 제거)
   const handleUpload = useCallback(async () => {
     if (!previewUri || isUploading) return;
-
-    // 0. 엄격한 로그인 인증 상태 검증
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert(
-        L3(language, '로그인 필요', 'Login required', 'ログインが必要です'),
-        L3(language,
-          '게시물을 등록하려면 로그인이 필요합니다. 로그인 후 다시 시도해 주세요.',
-          'Please log in to upload and share posts.',
-          '投稿するにはログインが必要です。ログイン後にもう一度お試しください。')
-      );
-      return;
-    }
 
     setIsUploading(true);
 
     try {
-      // 1. 휴대폰 갤러리에 저장 시도
+      const granted = mediaPermission?.granted || (await requestMediaPermission()).granted;
+      if (!granted) {
+        Alert.alert(
+          L3(language, '저장 권한 필요', 'Permission required', '保存権限が必要'),
+          L3(
+            language,
+            '촬영한 사진을 기기에 저장하려면 사진 라이브러리 권한을 허용해 주세요.',
+            'Please allow photo library permission to save the photo to your device.',
+            '撮影した写真を端末に保存するには写真ライブラリの権限を許可してください。',
+          ),
+        );
+        setIsUploading(false);
+        return;
+      }
+
       let finalSaveUri = previewUri;
-
       if (previewUri.startsWith('data:')) {
-        try {
-          const base64Data = previewUri.split(';base64,')[1];
-          const tempFileUri = `${FileSystem.cacheDirectory}stamped_photo_${Date.now()}.jpg`;
-          await FileSystem.writeAsStringAsync(tempFileUri, base64Data, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          finalSaveUri = tempFileUri;
-        } catch (fsErr) {
-          console.error('[SunCamera] Failed to write temp file:', fsErr);
-          throw new Error('Failed to create local image file for saving.');
-        }
+        const base64Data = previewUri.split(';base64,')[1];
+        const tempFileUri = `${FileSystem.cacheDirectory}stamped_photo_${Date.now()}.jpg`;
+        await FileSystem.writeAsStringAsync(tempFileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        finalSaveUri = tempFileUri;
       }
 
-      if (mediaPermission?.granted) {
-        try {
-          await MediaLibrary.saveToLibraryAsync(finalSaveUri);
-        } catch (memErr) {
-          console.warn('[SunCamera] MediaLibrary save failed, continuing server upload:', memErr);
-        }
-      } else {
-        const { granted } = await requestMediaPermission();
-        if (granted) {
-          try {
-            await MediaLibrary.saveToLibraryAsync(finalSaveUri);
-          } catch (memErr) {
-            console.warn('[SunCamera] MediaLibrary save failed:', memErr);
-          }
-        }
-      }
+      await MediaLibrary.saveToLibraryAsync(finalSaveUri);
 
-      // 2. 서버 업로드 및 지도 데이터베이스 연동
-      // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
-      const manipulated = await ImageManipulator.manipulateAsync(
+      const locationName = `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+      await addMyPhoto(
         finalSaveUri,
-        [{ resize: { width: 600 } }],
-        { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
+        latitude,
+        longitude,
+        locationName,
+        landscapeScore,
+        weatherScore,
+        capturedWeatherInfo,
+        capturedSimSample,
+        simPreviewUri || undefined,
       );
 
-      // 시뮬레이션 사진 압축
-      let manipulatedSimUri = undefined;
-      if (simPreviewUri) {
-        try {
-          let finalSimSaveUri = simPreviewUri;
-          if (simPreviewUri.startsWith('data:')) {
-            const simBase64Data = simPreviewUri.split(';base64,')[1];
-            const tempSimFileUri = `${FileSystem.cacheDirectory}sim_photo_${Date.now()}.jpg`;
-            await FileSystem.writeAsStringAsync(tempSimFileUri, simBase64Data, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            finalSimSaveUri = tempSimFileUri;
-          }
+      hapticShutter();
+      Alert.alert(
+        L3(language, '저장 완료', 'Saved', '保存完了'),
+        L3(language, '촬영한 사진을 기기 갤러리에 저장했습니다.', 'Saved the photo to your device gallery.', '撮影した写真を端末のギャラリーに保存しました。'),
+      );
 
-          const manipulatedSim = await ImageManipulator.manipulateAsync(
-            finalSimSaveUri,
-            [{ resize: { width: 400 } }],
-            { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
-          );
-          manipulatedSimUri = manipulatedSim.uri;
-        } catch (simCompressErr) {
-          console.warn('Failed to compress simulation image:', simCompressErr);
-          manipulatedSimUri = simPreviewUri;
-        }
-      }
-
-      const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
-      let uploadedLocationName = '';
-      try {
-        uploadedLocationName = await uploadAndPostPhoto(
-          manipulated.uri,
-          latitude,
-          longitude,
-          locationName,
-          landscapeScore,
-          weatherScore,
-          capturedWeatherInfo,
-          capturedSimSample,
-          manipulatedSimUri,
-          deviceAzimuthRef.current,
-          devicePitchRef.current
-        );
-
-        // 3. 업로드 성공 즉시 게시물 상세 미리보기 모달 100% 팝업!
-        setUploadedPhotoForModal({
-          id: `temp_${Date.now()}`,
-          latitude,
-          longitude,
-          imageUrl: manipulated.uri,
-          timestamp: Date.now(),
-          // ⚠ 예전에는 이름을 못 받으면 '서울특별시' 로 채웠습니다 — 어디서 찍었든. 좌표로 적습니다.
-          locationName: uploadedLocationName || locationName,
-          weatherInfo: capturedWeatherInfo,
-          simulationLocalUri: manipulatedSimUri,
-          isPublic: false, // 초기 상태 비공개
-        });
-      } catch (uploadErr: any) {
-        console.error('[SunCamera] Server upload failed:', uploadErr);
-        hapticError();
-        Alert.alert(
-          L3(language, '업로드 오류', 'Upload error', 'アップロードエラー'),
-          `${L3(language, '사진을 올리지 못했습니다', 'Failed to upload photo', '写真をアップロードできませんでした')}: ${uploadErr.message || uploadErr}`
-        );
-      }
-
-      // 성공 후 프리뷰 초기화
       setPreviewUri(null);
       setSimPreviewUri(null);
       setCapturedQrData(null);
+      setCapturedZoneHist(null);
       setIsUploading(false);
-
-    } catch (uploadError: any) {
-      console.error('[SunCamera] Upload failed:', uploadError);
+    } catch (saveError: any) {
+      console.error('[SunCamera] Device save failed:', saveError);
       hapticError();
-      Alert.alert(t('uploadFailed', language), t('uploadFailedMsg', language) + (uploadError.message || 'Unknown error'));
+      Alert.alert(
+        L3(language, '저장 실패', 'Save failed', '保存失敗'),
+        (saveError?.message || 'Unknown error'),
+      );
       setIsUploading(false);
     }
-  }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, uploadAndPostPhoto, onClose, isUploading, language]);
+  }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, addMyPhoto, isUploading, language]);
 
   // 권한 요청
   const scrubDayStartRef = useRef(0);
@@ -2477,13 +2401,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 )}
               </View>
   
-              {/* 신변보호 및 사생활보호 업로드 고지 */}
-              <View style={styles.privacyNoticeContainer}>
-                <Text style={styles.privacyNoticeText}>
-                  {t('privacyUploadNotice', language)}
-                </Text>
-              </View>
-  
               {/* 제어 버튼 영역 */}
               <View style={styles.previewBtnRow}>
                 <PressScale 
@@ -2510,7 +2427,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   ) : (
                     <>
                       <Check size={18} color="#000" style={{ marginRight: 8 }} />
-                      <Text style={styles.previewUploadText}>{t('saveAndUpload', language)}</Text>
+                      <Text style={styles.previewUploadText}>
+                        {L3(language, '기기에 저장', 'Save to device', '端末に保存')}
+                      </Text>
                     </>
                   )}
                 </PressScale>
@@ -2972,16 +2891,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           hasTimeShiftAnchor={!!timeShiftAnchor}
           onClearTimeShiftAnchor={() => setTimeShiftAnchor(null)}
           onClose={() => setGearBagOpen(false)}
-        />
-
-        {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
-        <PostDetailModal
-          visible={!!uploadedPhotoForModal}
-          photo={uploadedPhotoForModal}
-          onClose={() => {
-            setUploadedPhotoForModal(null);
-            onClose();
-          }}
         />
       </View>
       {screenOff && timelapse.run?.running && (

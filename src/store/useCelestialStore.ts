@@ -553,7 +553,6 @@ export const useCelestialStore = create<CelestialState>()(
           return;
         }
 
-        const user = get().currentUser || auth.currentUser;
         const newLocation: SavedLocation = {
           id: generateUniqueId(),
           name,
@@ -562,94 +561,20 @@ export const useCelestialStore = create<CelestialState>()(
           ...(terrainData ? { terrainData } : {})
         };
 
-        if (user) {
-          try {
-            const docRef = doc(db, `users/${user.uid}/locations`, newLocation.id);
-            await setDoc(docRef, newLocation);
-          } catch (err) {
-            console.warn('Failed to save location to Firestore:', err);
-          }
-        } else {
-          set((state) => ({
-            savedLocations: [...state.savedLocations, newLocation]
-          }));
-        }
+        set((state) => ({
+          savedLocations: [...state.savedLocations, newLocation]
+        }));
       },
       removeSavedLocation: async (id) => {
-        const user = get().currentUser || auth.currentUser;
-        if (user) {
-          try {
-            const docRef = doc(db, `users/${user.uid}/locations`, id);
-            await deleteDoc(docRef);
-          } catch (err) {
-            console.warn('Failed to remove location from Firestore:', err);
-          }
-        } else {
-          set((state) => ({
-            savedLocations: state.savedLocations.filter(loc => loc.id !== id)
-          }));
-        }
+        set((state) => ({
+          savedLocations: state.savedLocations.filter(loc => loc.id !== id)
+        }));
       },
       setCurrentUser: async (user) => {
         set({ currentUser: user });
-        if (user) {
-          // 1. Merge locations
-          const localLocations = get().savedLocations;
-          if (localLocations.length > 0) {
-            try {
-              const batch = writeBatch(db);
-              localLocations.forEach((loc) => {
-                const docRef = doc(db, `users/${user.uid}/locations`, loc.id);
-                batch.set(docRef, {
-                  id: loc.id,
-                  name: loc.name,
-                  latitude: loc.latitude,
-                  longitude: loc.longitude,
-                });
-              });
-              await batch.commit();
-              console.log('Successfully merged local saved locations to Firestore');
-            } catch (err) {
-              console.warn('Failed to merge local locations to Firestore:', err);
-            }
-          }
-
-          // 2. Merge photos
-          const localPhotos = get().myPhotos;
-          if (localPhotos.length > 0) {
-            try {
-              const batch = writeBatch(db);
-              localPhotos.forEach((photo) => {
-                const docRef = doc(db, `users/${user.uid}/photos`, photo.id);
-                batch.set(docRef, photo);
-              });
-              await batch.commit();
-              console.log('Successfully merged local photos to Firestore');
-            } catch (err) {
-              console.warn('Failed to merge local photos to Firestore:', err);
-            }
-          }
-        }
       },
       syncSavedLocations: () => {
-        const user = get().currentUser || auth.currentUser;
-        if (!user) return () => {};
-        
-        const locationsRef = collection(db, `users/${user.uid}/locations`);
-        const unsubscribe = onSnapshot(
-          locationsRef,
-          (snapshot) => {
-            const locationsList: SavedLocation[] = [];
-            snapshot.forEach((doc) => {
-              locationsList.push(doc.data() as SavedLocation);
-            });
-            set({ savedLocations: locationsList });
-          },
-          (err) => {
-            console.warn('Failed to sync saved locations:', err);
-          }
-        );
-        return unsubscribe;
+        return () => {};
       },
       addMyPhoto: async (
         imageUrl, 
@@ -663,12 +588,12 @@ export const useCelestialStore = create<CelestialState>()(
         simulationImageUrl,
         photoId
       ) => {
-        const user = get().currentUser || auth.currentUser;
         const newPhoto: MyPhoto = {
           id: photoId || generateUniqueId(),
           latitude,
           longitude,
           imageUrl,
+          localUri: imageUrl,
           timestamp: Date.now(),
           locationName,
           landscapeScore,
@@ -676,24 +601,12 @@ export const useCelestialStore = create<CelestialState>()(
           weatherInfo,
           simulationSample,
           simulationImageUrl,
+          simulationLocalUri: simulationImageUrl,
         };
 
-        if (user) {
-          try {
-            const docRef = doc(db, `users/${user.uid}/photos`, newPhoto.id);
-            await setDoc(docRef, newPhoto);
-            // Firestore 저장 성공 후 로컬 상태도 즉시 반영 (syncMyPhotos 이전에도 UI 반응)
-            set((state) => ({
-              myPhotos: [newPhoto, ...state.myPhotos],
-            }));
-          } catch (err) {
-            console.warn('Failed to save photo to Firestore:', err);
-          }
-        } else {
-          set((state) => ({
-            myPhotos: [newPhoto, ...state.myPhotos]
-          }));
-        }
+        set((state) => ({
+          myPhotos: [newPhoto, ...state.myPhotos],
+        }));
       },
       removeMyPhoto: async (id) => {
         if (uploadTimers[id]) {
@@ -701,55 +614,13 @@ export const useCelestialStore = create<CelestialState>()(
           delete uploadTimers[id];
         }
 
-        const user = get().currentUser || auth.currentUser;
         set((state) => ({
           myPhotos: state.myPhotos.filter((p) => p.id !== id),
           globalPhotos: state.globalPhotos.filter((p) => p.id !== id)
         }));
-
-        if (user) {
-          try {
-            // 1. 내 개인 Firestore 문서 삭제
-            const docRef = doc(db, `users/${user.uid}/photos`, id);
-            await deleteDoc(docRef);
-
-            // 2. Storage 및 전역 Firestore 연쇄 삭제
-            await get().removeGlobalPhoto(id);
-          } catch (err) {
-            console.warn('Failed to remove photo from Firestore/Storage:', err);
-          }
-        }
       },
       syncMyPhotos: () => {
-        const user = get().currentUser || auth.currentUser;
-        if (!user) return () => {};
-        
-        const photosRef = collection(db, `users/${user.uid}/photos`);
-        const unsubscribe = onSnapshot(
-          photosRef,
-          (snapshot) => {
-            const photosList: MyPhoto[] = [];
-            snapshot.forEach((doc) => {
-              photosList.push(doc.data() as MyPhoto);
-            });
-            // Sort by newest timestamp
-            photosList.sort((a, b) => b.timestamp - a.timestamp);
-            
-            // 로컬에만 떠 있는 isPending: true인 항목들이 Firestore 동기화 스냅샷 갱신 시 날아가지 않도록 보존합니다.
-            set((state) => {
-              const syncedIds = new Set(photosList.map(p => p.id));
-              // Firestore 동기화 목록에 이미 들어온 건 대기 큐에서 제외
-              const filteredPending = state.myPhotos.filter(p => p.isPending && !syncedIds.has(p.id));
-              const merged = [...filteredPending, ...photosList];
-              merged.sort((a, b) => b.timestamp - a.timestamp);
-              return { myPhotos: merged };
-            });
-          },
-          (err) => {
-            console.warn('Failed to sync my photos:', err);
-          }
-        );
-        return unsubscribe;
+        return () => {};
       },
       uploadAndPostPhoto: async (
         localUri: string, 
@@ -764,151 +635,30 @@ export const useCelestialStore = create<CelestialState>()(
         deviceAzimuth?: number,
         devicePitch?: number
       ): Promise<string> => {
-        const user = get().currentUser || auth.currentUser;
-        if (!user) throw new Error('User must be logged in to upload photos');
-
-        let simpleAddress = '';
-        const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-        if (apiKey) {
-          try {
-            const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}&language=ko`;
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.status === 'OK' && data.results && data.results.length > 0) {
-              const components = data.results[0].address_components;
-              let sublocality2 = '';
-              let sublocality1 = '';
-              let locality = '';
-              let adminArea1 = '';
-              for (const comp of components) {
-                const types = comp.types;
-                if (types.includes('sublocality_level_2')) {
-                  sublocality2 = comp.long_name;
-                } else if (types.includes('sublocality_level_1')) {
-                  sublocality1 = comp.long_name;
-                } else if (types.includes('locality')) {
-                  locality = comp.long_name;
-                } else if (types.includes('administrative_area_level_1')) {
-                  adminArea1 = comp.long_name;
-                }
-              }
-              if (sublocality2) {
-                simpleAddress = sublocality1 ? `${sublocality1} ${sublocality2}` : sublocality2;
-              } else if (sublocality1) {
-                simpleAddress = locality ? `${locality} ${sublocality1}` : sublocality1;
-              } else if (locality) {
-                simpleAddress = locality;
-              } else if (adminArea1) {
-                simpleAddress = adminArea1;
-              }
-            }
-          } catch (geoErr) {
-            console.warn('Geocoding failed, falling back to coordinates:', geoErr);
-          }
-        }
- 
-        const finalLocationName = simpleAddress || locationName || `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+        const finalLocationName = locationName || `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
         const photoId = generateUniqueId();
         const now = Date.now();
-        const scheduledTime = now + 60 * 60 * 1000; // 서버 기준 1시간 뒤 전역 공개
-
-        // 1. Firebase Storage에 즉시 파일 업로드
-        const ext = localUri?.split('.').pop() || 'jpg';
-        const storagePath = `photos/${user.uid}/${photoId}.${ext}`;
-        const storageRef = ref(storage, storagePath);
-
-        let imageUrl = localUri;
-        try {
-          const base64Data = await FileSystem.readAsStringAsync(localUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          const contentType = `image/${ext === 'png' ? 'png' : 'jpeg'}`;
-          await uploadString(storageRef, base64Data, 'base64', { contentType });
-          imageUrl = await getDownloadURL(storageRef);
-        } catch (uploadErr) {
-          console.warn('[Photo Upload] Main image upload failed, using local URI:', uploadErr);
-        }
-
-        let simulationImageUrl = simulationImageUri || '';
-        let simulationStoragePath = '';
-        if (simulationImageUri) {
-          try {
-            simulationStoragePath = `photos/${user.uid}/${photoId}_sim.jpg`;
-            const simStorageRef = ref(storage, simulationStoragePath);
-            let simBase64 = '';
-            if (simulationImageUri.startsWith('data:')) {
-              simBase64 = simulationImageUri.split(';base64,')[1];
-            } else {
-              simBase64 = await FileSystem.readAsStringAsync(simulationImageUri, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-            }
-            await uploadString(simStorageRef, simBase64, 'base64', { contentType: 'image/jpeg' });
-            simulationImageUrl = await getDownloadURL(simStorageRef);
-          } catch (simUploadErr) {
-            console.warn('[Photo Upload] Simulation image upload failed:', simUploadErr);
-          }
-        }
-
-        // 이메일 앞부분을 공개 이름으로 쓰지 않습니다 — 전역 갤러리는 누구나 읽습니다(출시 점검 2026-09-30).
-        const userName = user.displayName || 'Anonymous';
-
-        // 2. 개인 Firestore 문서 생성
         const myPhotoRecord: MyPhoto = {
           id: photoId,
           latitude,
           longitude,
-          imageUrl,
+          imageUrl: localUri,
+          localUri,
           timestamp: now,
           locationName: finalLocationName,
           landscapeScore,
           weatherScore,
           weatherInfo,
           simulationSample,
-          simulationImageUrl,
-          scheduledUploadTime: scheduledTime,
+          simulationImageUrl: simulationImageUri || '',
+          simulationLocalUri: simulationImageUri,
           deviceAzimuth,
-          devicePitch
+          devicePitch,
         };
 
-        const cleanedMyRecord = sanitizeFirestoreData(myPhotoRecord);
-        const personalDocRef = doc(db, `users/${user.uid}/photos`, photoId);
-        await setDoc(personalDocRef, cleanedMyRecord);
-
-        // 3. 전역 global_photos 문서 즉시 기록 (scheduledUploadTime 보존)
-        const globalPhotoRecord: GlobalPhoto = {
-          id: photoId,
-          latitude: Number(latitude.toFixed(2)),
-          longitude: Number(longitude.toFixed(2)),
-          imageUrl,
-          storagePath,
-          timestamp: now,
-          locationName: finalLocationName,
-          userId: user.uid,
-          userName,
-          landscapeScore,
-          weatherScore,
-          weatherInfo,
-          simulationSample,
-          simulationImageUrl,
-          simulationStoragePath,
-          scheduledUploadTime: scheduledTime,
-          deviceAzimuth,
-          devicePitch
-        };
-
-        const cleanedGlobalRecord = sanitizeFirestoreData(globalPhotoRecord);
-        const globalDocRef = doc(db, 'global_photos', photoId);
-        await setDoc(globalDocRef, cleanedGlobalRecord);
-
-        // 4. 로컬 상태 즉시 추가
         set((state) => ({
           myPhotos: [myPhotoRecord, ...state.myPhotos.filter(p => p.id !== photoId)]
         }));
-
-        if (__DEV__) {
-          console.log(`[Photo Upload] Successfully uploaded photo ${photoId} to Storage & Firestore. Scheduled reveal at ${new Date(scheduledTime).toISOString()}`);
-        }
 
         return finalLocationName;
       },
@@ -1032,33 +782,7 @@ export const useCelestialStore = create<CelestialState>()(
         // Instant upload with server-side scheduledUploadTime requires no client timers
       },
       syncGlobalPhotos: () => {
-        const photosRef = collection(db, 'global_photos');
-        const unsubscribe = onSnapshot(
-          photosRef,
-          (snapshot) => {
-            const now = Date.now();
-            const { hiddenPhotoIds, blockedUserIds } = get();
-            const hiddenSet = new Set(hiddenPhotoIds);
-            const blockedSet = new Set(blockedUserIds);
-            const photosList: GlobalPhoto[] = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data() as GlobalPhoto;
-              // scheduledUploadTime이 없거나, 이미 서버 시각 기준 1시간이 경과한 것만 전역 사진으로 채택
-              // 신고로 가린 사진·차단한 사용자의 사진은 빼고(출시 점검 2026-09-30)
-              if (hiddenSet.has(data.id) || (data.userId && blockedSet.has(data.userId))) return;
-              if (!data.scheduledUploadTime || data.scheduledUploadTime <= now) {
-                photosList.push(data);
-              }
-            });
-            // Sort by newest timestamp
-            photosList.sort((a, b) => b.timestamp - a.timestamp);
-            set({ globalPhotos: photosList });
-          },
-          (err) => {
-            console.warn('Failed to sync global photos:', err);
-          }
-        );
-        return unsubscribe;
+        return () => {};
       },
       removeGlobalPhoto: async (id: string) => {
         const user = get().currentUser || auth.currentUser;

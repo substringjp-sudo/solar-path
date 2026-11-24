@@ -8,8 +8,6 @@ import { localDayKey, clampMs } from '../utils/timeBar';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { TAB_ORDER, type AppTab } from '../components/AppHeader';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
-import { auth } from '../config/firebase';
-import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
 import { cachedSunForecast, eventVerdict, hasDataAt, isGoodOrBetter, observerElevationFrom, type EventSide, type Quality } from '../utils/sunForecast';
 import { fetchDayWeatherRing, getInterpolatedWeather, fetchTerrainProfile, type CloudPathData } from '../utils/weather';
@@ -701,54 +699,6 @@ export function useCelestialApp() {
     return followClock(syncClock, onActive);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- syncClock 은 ref 와 고정된 updateTime 만 읽습니다
   }, []);
-
-  // Firebase Auth & Firestore 실시간 동기화 라이프사이클
-  useEffect(() => {
-    let unsubscribeFirestoreLocations: (() => void) | null = null;
-    let unsubscribeFirestorePhotos: (() => void) | null = null;
-    
-    const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
-      await setCurrentUser(user);
-      
-      if (unsubscribeFirestoreLocations) {
-        unsubscribeFirestoreLocations();
-        unsubscribeFirestoreLocations = null;
-      }
-      if (unsubscribeFirestorePhotos) {
-        unsubscribeFirestorePhotos();
-        unsubscribeFirestorePhotos = null;
-      }
-      
-      if (user) {
-        unsubscribeFirestoreLocations = syncSavedLocations();
-        unsubscribeFirestorePhotos = syncMyPhotos();
-      } else {
-        // 비로그인 상태일 경우 자동으로 익명 로그인을 시도하여 사진 공유(업로드)가 항상 작동하도록 보증
-        try {
-          await signInAnonymously(auth);
-        } catch (anonErr) {
-          console.warn('[Auth] Auto anonymous sign-in failed:', anonErr);
-        }
-      }
-    });
-
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeFirestoreLocations) {
-        unsubscribeFirestoreLocations();
-      }
-      if (unsubscribeFirestorePhotos) {
-        unsubscribeFirestorePhotos();
-      }
-    };
-  }, [setCurrentUser, syncSavedLocations, syncMyPhotos]);
-
-  useEffect(() => {
-    const unsubscribeGlobalPhotos = syncGlobalPhotos();
-    return () => {
-      unsubscribeGlobalPhotos();
-    };
-  }, [syncGlobalPhotos]);
 
   // 오늘의 스마트 노을 및 내일의 일출 알림 스케줄링 (+ 동적 앱아이콘 업데이트 연동)
   useEffect(() => {
