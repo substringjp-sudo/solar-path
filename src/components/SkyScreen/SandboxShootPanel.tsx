@@ -17,12 +17,13 @@ import { L3, type Language } from '../../utils/i18n';
 import type { AstroCameraCapabilities } from '../../../modules/astro-camera';
 import type { AstroWindowAnalysis } from '../../utils/astroForecast';
 import type { AstroSettingsState, AstroShotSummary } from '../../utils/astroCameraUi';
-import type { ExposureAdvice } from '../../utils/exposureAdvice';
+import type { ExposureAdvice, PhotoWbPreset } from '../../utils/exposureAdvice';
 import type { TimelapsePlan } from '../../utils/timelapsePlan';
 
 export type SandboxShootMode = 'photo' | 'astro' | 'timelapse';
 
 const EV_STEPS = [-1.0, -0.5, 0, 0.5, 1.0] as const;
+const LENS_ZOOM_PRESETS = [0.6, 1, 2, 3, 5, 10] as const;
 
 interface Props {
   language: Language;
@@ -30,6 +31,14 @@ interface Props {
   onModeChange: (m: SandboxShootMode) => void;
   exposure: number;
   onExposureChange: (ev: number) => void;
+  teleX?: number;
+  onChangeTeleX?: (x: number) => void;
+  manualIso?: number | null;
+  manualShutterS?: number | null;
+  manualWb?: PhotoWbPreset | null;
+  onChangeIso?: (iso: number | null) => void;
+  onChangeShutter?: (shutterS: number | null) => void;
+  onChangeWb?: (wb: PhotoWbPreset | null) => void;
   expoAdvice: ExposureAdvice | null;
   lensMm: string;
   lensText: string;
@@ -52,6 +61,14 @@ export const SandboxShootPanel: React.FC<Props> = ({
   onModeChange,
   exposure,
   onExposureChange,
+  teleX = 1,
+  onChangeTeleX,
+  manualIso = null,
+  manualShutterS = null,
+  manualWb = null,
+  onChangeIso,
+  onChangeShutter,
+  onChangeWb,
   expoAdvice,
   lensMm,
   lensText,
@@ -106,6 +123,22 @@ export const SandboxShootPanel: React.FC<Props> = ({
       >
         {mode === 'photo' && (
           <View style={styles.section}>
+            {onChangeTeleX && (
+              <>
+                <Text style={styles.label}>{L3(language, '렌즈 · 배율', 'LENS · ZOOM', 'レンズ · 倍率')}</Text>
+                <View style={styles.chipRow}>
+                  {LENS_ZOOM_PRESETS.map(z => (
+                    <GlassChip
+                      key={z}
+                      label={`${z}x`}
+                      mono
+                      active={Math.abs(teleX - z) < 0.08}
+                      onPress={() => onChangeTeleX(z)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
             <Text style={styles.label}>{L3(language, '노출 보정 (EV)', 'EXPOSURE (EV)', '露出補正 (EV)')}</Text>
             <View style={styles.chipRow}>
               {EV_STEPS.map(ev => (
@@ -119,7 +152,18 @@ export const SandboxShootPanel: React.FC<Props> = ({
               ))}
             </View>
             {expoAdvice ? (
-              <ExposureCells language={language} advice={expoAdvice} lensMm={lensMm} lensText={lensText} />
+              <ExposureCells
+                language={language}
+                advice={expoAdvice}
+                lensMm={lensMm}
+                lensText={lensText}
+                manualIso={manualIso}
+                manualShutterS={manualShutterS}
+                manualWb={manualWb}
+                onChangeIso={onChangeIso}
+                onChangeShutter={onChangeShutter}
+                onChangeWb={onChangeWb}
+              />
             ) : null}
           </View>
         )}

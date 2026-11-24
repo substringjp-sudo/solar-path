@@ -74,6 +74,7 @@ import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface } from '../glass/GlassSurface';
 import { SandboxShootPanel, type SandboxShootMode } from './SandboxShootPanel';
+import { CornerExposureBadge } from '../AstroCamera/CornerExposureBadge';
 import { SceneSheet, type SaveResult } from './SceneSheet';
 import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
@@ -90,7 +91,12 @@ import {
   type AstroSettingsState,
 } from '../../utils/astroCameraUi';
 import type { AstroCameraCapabilities } from '../../../modules/astro-camera';
-import { adviseExposure } from '../../utils/exposureAdvice';
+import {
+  adviseExposure,
+  computeManualEvOffset,
+  wbTintColor,
+  type PhotoWbPreset,
+} from '../../utils/exposureAdvice';
 import { lensLine } from '../../utils/lensInfo';
 import { planTimelapse, previewTimeAt, videoClock, type TimelapsePlan } from '../../utils/timelapsePlan';
 import { analyzeAstroWindow, type AstroWindowAnalysis } from '../../utils/astroForecast';
@@ -782,6 +788,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   };
   // ── 샌드박스 촬영 미리보기 스튜디오 (사진 노출 · 천체 장노출 · 타임랩스 미리보기 → 카메라 전달) ──
   const [sandboxExposure, setSandboxExposure] = useState<number>(0);
+  const [sandboxIso, setSandboxIso] = useState<number | null>(null);
+  const [sandboxShutterS, setSandboxShutterS] = useState<number | null>(null);
+  const [sandboxWb, setSandboxWb] = useState<PhotoWbPreset | null>(null);
   const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
@@ -1406,6 +1415,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         }}
         exposure={sandboxExposure}
         onExposureChange={setSandboxExposure}
+        teleX={teleX}
+        onChangeTeleX={setTeleX}
+        manualIso={sandboxIso}
+        manualShutterS={sandboxShutterS}
+        manualWb={sandboxWb}
+        onChangeIso={setSandboxIso}
+        onChangeShutter={setSandboxShutterS}
+        onChangeWb={setSandboxWb}
         expoAdvice={sandboxExpoAdvice}
         lensMm={sandboxLensInfo.mmText}
         lensText={sandboxLensInfo.lensText}
@@ -1466,18 +1483,47 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           registerPrimary
         />
 
-        {/* 샌드박스 사진 노출(EV) 미리보기 틴트 */}
-        {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && sandboxExposure !== 0 && (
-          <View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                backgroundColor: sandboxExposure < 0
-                  ? `rgba(0, 0, 0, ${Math.abs(sandboxExposure) * 0.45})`
-                  : `rgba(255, 255, 255, ${sandboxExposure * 0.28})`,
-              },
-            ]}
+        {/* 샌드박스 사진 노출(EV) · 수동 ISO/셔터/WB 미리보기 틴트 */}
+        {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && (() => {
+          const evDelta = computeManualEvOffset(sandboxExpoAdvice, sandboxIso, sandboxShutterS);
+          const effExp = Math.max(-1, Math.min(1, sandboxExposure + evDelta * 0.18));
+          const wbTint = wbTintColor(sandboxWb);
+          return (
+            <>
+              {effExp !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      backgroundColor: effExp < 0
+                        ? `rgba(0, 0, 0, ${Math.abs(effExp) * 0.45})`
+                        : `rgba(255, 255, 255, ${effExp * 0.28})`,
+                    },
+                  ]}
+                />
+              )}
+              {wbTint && (
+                <View
+                  pointerEvents="none"
+                  style={[StyleSheet.absoluteFill, { backgroundColor: wbTint }]}
+                />
+              )}
+            </>
+          );
+        })()}
+
+        {/* 샌드박스 우측 상단 수동 설정 배지 (기본값이면 숨김, 위아래 슬라이드로 EV 조절) */}
+        {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && (
+          <CornerExposureBadge
+            language={language}
+            exposure={sandboxExposure}
+            onExposureChange={setSandboxExposure}
+            manualIso={sandboxIso}
+            manualShutterS={sandboxShutterS}
+            manualWb={sandboxWb}
+            top={HEADER_HEIGHT + 8}
+            right={12}
           />
         )}
 

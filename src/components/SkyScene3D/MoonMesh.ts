@@ -33,12 +33,22 @@ uniform vec3  uLightDir;    // 달 원반 로컬 좌표 기준 달→태양 단�
 uniform vec3  uColorBright; // 대기 투과·고도 반영 햇빛 면 색 (Additive)
 uniform vec3  uEarthshine;  // 밤 하늘 어두운 면 은은한 지구반사광 (낮에는 0)
 uniform float uEdgeSoft;    // 가장자리 안티앨리어싱 폭
+uniform float uParallactic; // 시차각(rad) — 천정 기준 달 북극 회전
 varying vec2  vUv;
 
 float hash3(vec3 p) {
   p = fract(p * vec3(443.897, 441.423, 437.195));
   p += dot(p, p.yzx + 19.19);
   return fract((p.x + p.y) * p.z);
+}
+
+vec3 hash33(vec3 p) {
+  vec3 q = vec3(
+    dot(p, vec3(127.1, 311.7, 74.7)),
+    dot(p, vec3(269.5, 183.3, 246.1)),
+    dot(p, vec3(113.5, 271.9, 124.6))
+  );
+  return fract(sin(q) * 43758.5453123);
 }
 
 float noise3(vec3 p) {
@@ -71,21 +81,128 @@ float fbm3(vec3 p) {
   return s;
 }
 
-// 3D 구면 법선 기반 달 표면 반사율(albedo)과 기복 높이(relief)
+// 3D 구면 심리스 2x2x2 격자 기반 원형 크레이터 (림 + 오목한 사발 + 중앙봉)
+float craterLayer(vec3 p, float scale, float depth, float hasPeak) {
+  vec3 sp = p * scale;
+  vec3 base = floor(sp - 0.5);
+  float acc = 0.0;
+  for (int ix = 0; ix <= 1; ix++) {
+    for (int iy = 0; iy <= 1; iy++) {
+      for (int iz = 0; iz <= 1; iz++) {
+        vec3 cell = base + vec3(float(ix), float(iy), float(iz));
+        vec3 h = hash33(cell);
+        vec3 center = cell + vec3(0.26) + h * 0.48;
+        float r = 0.24 + 0.28 * hash3(cell + 17.3);
+        float d = length(sp - center) / r;
+        if (d < 1.45) {
+          // 오목한 사발 (d < 1) + 바깥 림 융기 (d ~ 0.92..1.35)
+          float bowl = -depth * (1.0 - smoothstep(0.0, 0.96, d * d));
+          float rim = depth * 0.42 * exp(-pow((d - 0.96) / 0.16, 2.0));
+          float peak = hasPeak * depth * 0.36 * exp(-pow(d / 0.17, 2.0));
+          acc += bowl + rim + peak;
+        }
+      }
+    }
+  }
+  return acc;
+}
+
+// 개별 원형 크레이터 (지정 위치·반경·깊이)
+float singleCrater(vec3 n, vec3 center, float rad, float depth, float hasPeak) {
+  float d = length(n - center) / rad;
+  if (d > 1.5) return 0.0;
+  float bowl = -depth * (1.0 - smoothstep(0.0, 0.96, d * d));
+  float rim = depth * 0.45 * exp(-pow((d - 0.96) / 0.15, 2.0));
+  float peak = hasPeak * depth * 0.38 * exp(-pow(d / 0.16, 2.0));
+  return bowl + rim + peak;
+}
+
+// 방사형 분출 광조 (Tycho, Copernicus 등)
+float ejectaRays(vec3 n, vec3 c, float rad, float strength) {
+  vec3 d = n - c * dot(n, c);
+  float dist = length(n - c);
+  if (dist > rad || dot(n, c) < 0.0) return 0.0;
+  vec3 u = normalize(cross(abs(c.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), c));
+  vec3 v = cross(c, u);
+  float ang = atan(dot(d, v), dot(d, u));
+  float rayNoise = 0.5 + 0.5 * sin(ang * 11.0 + noise3(n * 18.0) * 3.2) * cos(ang * 7.0 - 1.1);
+  float streaks = smoothstep(0.45, 0.92, rayNoise);
+  float falloff = (1.0 - smoothstep(0.03, rad, dist)) * smoothstep(0.015, 0.07, dist);
+  float halo = 1.0 - smoothstep(0.0, 0.085, dist);
+  return strength * (halo * 0.85 + streaks * falloff * 0.65);
+}
+
+// 실제 달 앞면(Nearside) 바다(Mare) 분포와 다중 크기 크레이터 지형
+// x: 반사율(albedo), y: 지형 높이(height)
 vec2 lunarSurface(vec3 n) {
-  vec3 q = n * 2.4 + vec3(0.6, -0.3, 1.2);
-  float warp = fbm3(q * 0.9);
-  float basin = fbm3(q + warp * 0.85);
-  float fine = fbm3(n * 8.5 + vec3(3.1, 1.7, 2.4));
-  // 어두운 현무암 바다(Mare)와 밝은 고지대 대비 (외곽에서도 구체 곡면 원근이 유지됨)
-  float mare = smoothstep(0.41, 0.64, basin * 0.72 + fine * 0.28);
-  // 다중 크기 분화구 림·함몰 패턴
-  float cA = abs(noise3(n * 11.0 + 4.2) - 0.5) * 2.0;
-  float cB = abs(noise3(n * 21.0 + 9.1) - 0.5) * 2.0;
-  float craterBowl = smoothstep(0.18, 0.65, cA) * 0.55 + smoothstep(0.15, 0.6, cB) * 0.45;
-  float albedo = mix(0.56, 1.02, mare) * (0.86 + 0.18 * fine) * (0.90 + 0.12 * craterBowl);
-  float relief = mare * 0.35 + fine * 0.45 - (1.0 - craterBowl) * 0.35;
-  return vec2(albedo, relief);
+  vec3 w = vec3(
+    fbm3(n * 4.2 + vec3(1.1, 2.3, 0.7)) - 0.5,
+    fbm3(n * 4.2 + vec3(5.2, 1.4, 3.8)) - 0.5,
+    fbm3(n * 4.2 + vec3(2.9, 6.1, 4.3)) - 0.5
+  );
+  vec3 nw = normalize(n + w * 0.11);
+
+  // 주요 달의 바다 위치 (월면 경도·위도 근사 단위벡터)
+  float m = 0.0;
+  // 비의 바다 (Mare Imbrium)
+  m = max(m, 1.0 - smoothstep(0.18, 0.34, length(nw - normalize(vec3(-0.23,  0.54,  0.81)))));
+  // 평온의 바다 (Mare Serenitatis)
+  m = max(m, 1.0 - smoothstep(0.12, 0.24, length(nw - normalize(vec3( 0.27,  0.47,  0.84)))));
+  // 고요의 바다 (Mare Tranquillitatis)
+  m = max(m, 1.0 - smoothstep(0.13, 0.26, length(nw - normalize(vec3( 0.51,  0.15,  0.85)))));
+  // 위난의 바다 (Mare Crisium — 동쪽 독립 타원)
+  vec3 dCris = nw - normalize(vec3(0.82, 0.29, 0.49));
+  m = max(m, 1.0 - smoothstep(0.08, 0.15, length(dCris * vec3(1.15, 0.92, 1.0))));
+  // 풍요의 바다 (Mare Fecunditatis)
+  m = max(m, 1.0 - smoothstep(0.11, 0.23, length(nw - normalize(vec3( 0.77, -0.14,  0.62)))));
+  // 감로의 바다 (Mare Nectaris)
+  m = max(m, 1.0 - smoothstep(0.08, 0.16, length(nw - normalize(vec3( 0.55, -0.26,  0.79)))));
+  // 폭풍의 대양 (Oceanus Procellarum — 서쪽 광역)
+  m = max(m, (1.0 - smoothstep(0.22, 0.44, length(nw - normalize(vec3(-0.63,  0.31,  0.71))))) * 0.92);
+  m = max(m, (1.0 - smoothstep(0.16, 0.34, length(nw - normalize(vec3(-0.61, -0.09,  0.79))))) * 0.85);
+  // 구름의 바다 & 습기의 바다 (Mare Nubium / Humorum)
+  m = max(m, (1.0 - smoothstep(0.12, 0.24, length(nw - normalize(vec3(-0.27, -0.36,  0.89))))) * 0.86);
+  m = max(m, (1.0 - smoothstep(0.08, 0.17, length(nw - normalize(vec3(-0.56, -0.41,  0.72))))) * 0.90);
+  // 추위의 바다 (Mare Frigoris — 북쪽 띠)
+  vec3 dFrig = nw - normalize(vec3(-0.04, 0.83, 0.56));
+  m = max(m, (1.0 - smoothstep(0.07, 0.16, length(dFrig * vec3(0.42, 1.45, 1.0)))) * 0.78);
+
+  float mareTex = fbm3(n * 10.5 + vec3(2.1, 4.3, 1.7));
+  float fine = fbm3(n * 24.0 + vec3(3.1, 1.7, 2.4));
+  float mare = clamp(m * (0.78 + 0.32 * mareTex), 0.0, 1.0);
+
+  // 대표 실제 크레이터 (Tycho, Copernicus, Kepler, Aristarchus, Plato)
+  vec3 cTycho = normalize(vec3(-0.14, -0.68, 0.72));
+  vec3 cCop   = normalize(vec3(-0.34,  0.17, 0.92));
+  vec3 cKep   = normalize(vec3(-0.61,  0.14, 0.78));
+  vec3 cArist = normalize(vec3(-0.67,  0.41, 0.62));
+  vec3 cPlato = normalize(vec3(-0.10,  0.78, 0.62));
+
+  float hCrater = 0.0;
+  hCrater += singleCrater(n, cTycho, 0.055, 0.55, 1.0);
+  hCrater += singleCrater(n, cCop,   0.060, 0.52, 1.0);
+  hCrater += singleCrater(n, cKep,   0.032, 0.40, 0.5);
+  hCrater += singleCrater(n, cPlato, 0.058, 0.48, 0.0);
+  // 다중 스케일 절차적 크레이터 (대형 분지 + 중형 + 미세 크레이터, 고지대에 더 조밀)
+  float highlandMask = 1.0 - 0.55 * mare;
+  hCrater += craterLayer(n + vec3(0.3, -0.2, 0.5), 7.5,  0.34, 0.8) * highlandMask;
+  hCrater += craterLayer(n + vec3(1.7,  2.1, 0.9), 16.0, 0.24, 0.3) * (0.65 + 0.35 * highlandMask);
+  hCrater += craterLayer(n + vec3(4.1, -3.3, 2.2), 38.0, 0.14, 0.0);
+
+  float rays = 0.0;
+  rays += ejectaRays(n, cTycho, 0.78, 0.38);
+  rays += ejectaRays(n, cCop,   0.46, 0.32);
+  rays += ejectaRays(n, cKep,   0.26, 0.22);
+  rays += (1.0 - smoothstep(0.0, 0.045, length(n - cArist))) * 0.35;
+
+  float platoDark = 1.0 - 0.28 * (1.0 - smoothstep(0.02, 0.048, length(n - cPlato)));
+  float highlandAlb = 0.94 + 0.16 * fine;
+  float mareAlb = 0.46 + 0.14 * mareTex;
+  float albedo = mix(highlandAlb, mareAlb, mare) * platoDark * (0.94 + 0.14 * hCrater) + rays;
+  albedo = clamp(albedo, 0.34, 1.25);
+
+  float height = (1.0 - mare) * 0.38 + (fine - 0.5) * 0.14 + hCrater * 0.65;
+  return vec2(albedo, height);
 }
 
 void main() {
@@ -95,30 +212,54 @@ void main() {
 
   float d = sqrt(r2);
   float z = sqrt(max(0.0, 1.0 - r2));
-  vec3 normal = vec3(st.x, st.y, z);
+  vec3 viewN = vec3(st.x, st.y, z);
   vec3 L = normalize(uLightDir);
 
-  // 표면 기복 기울기로 터미네이터(명암 경계) 법선 미세 요철 계산 (구면 위 접평면 미분)
-  vec2 surf = lunarSurface(normal);
-  float eps = 0.025;
-  vec3 nDx = normalize(normal + vec3(eps, 0.0, 0.0));
-  vec3 nDy = normalize(normal + vec3(0.0, eps, 0.0));
-  float hX = lunarSurface(nDx).y - surf.y;
-  float hY = lunarSurface(nDy).y - surf.y;
-  vec3 bumpedN = normalize(normal + vec3(-hX, -hY, 0.0) * 1.6);
+  // 시차각 회전 적용 (달 본체 좌표 normal)
+  float cp = cos(uParallactic);
+  float sp = sin(uParallactic);
+  vec3 normal = vec3(viewN.x * cp - viewN.y * sp, viewN.x * sp + viewN.y * cp, viewN.z);
+  vec3 mL = vec3(L.x * cp - L.y * sp, L.x * sp + L.y * cp, L.z);
 
-  // 달 레골리스 Lommel-Seeliger 구면 산란 + 충효과(Opposition Surge)
-  float cosI0 = dot(normal, L);
-  float cosI = max(0.0, dot(bumpedN, L));
-  float cosE = max(0.04, normal.z);
-  float termMask = smoothstep(-0.045, 0.065, cosI0);
+  // 고해상도 구면 접평면 법선 요철 (줌인 시 미세 크레이터 경사 음영)
+  vec2 surf = lunarSurface(normal);
+  float eps = 0.0045;
+  vec3 tx = normalize(cross(abs(normal.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), normal));
+  vec3 ty = cross(normal, tx);
+  float hX = lunarSurface(normalize(normal + tx * eps)).y - surf.y;
+  float hY = lunarSurface(normalize(normal + ty * eps)).y - surf.y;
+  vec3 bumpedN = normalize(normal - (tx * (hX / eps) + ty * (hY / eps)) * 0.032);
+
+  // 태양 방향 크레이터 자체 그림자 (4-step 높이장 레이마칭, 터미네이터 부근 극대화)
+  vec3 lTan = mL - normal * dot(mL, normal);
+  float lTanLen = length(lTan);
+  float selfShadow = 1.0;
+  float sinElev = max(0.0, dot(normal, mL));
+  if (lTanLen > 1e-4 && sinElev > 0.0 && sinElev < 0.72) {
+    vec3 lDirT = lTan / lTanLen;
+    float raySlope = sinElev / lTanLen;
+    float maxOcc = 0.0;
+    for (int s = 1; s <= 4; s++) {
+      float stepDist = float(s) * 0.011;
+      float hAhead = lunarSurface(normalize(normal + lDirT * stepDist)).y;
+      float occ = (hAhead - surf.y) * 0.055 - raySlope * stepDist;
+      maxOcc = max(maxOcc, occ);
+    }
+    selfShadow = 1.0 - smoothstep(0.0, 0.006, maxOcc) * 0.90;
+  }
+
+  // 달 레골리스 Lommel-Seeliger + Hapke 충효과(Opposition Surge)
+  float cosI0 = dot(normal, mL);
+  float cosI = max(0.0, dot(bumpedN, mL));
+  float cosE = max(0.04, viewN.z);
+  float termMask = smoothstep(-0.04, 0.055, cosI0);
   float lommel = (2.0 * cosI) / (cosI + cosE + 0.07);
   float opp = 0.80 + 0.24 * smoothstep(0.55, 1.0, max(0.0, L.z));
-  float lit = clamp(lommel * opp * termMask, 0.0, 1.15);
+  float lit = clamp(lommel * opp * termMask * selfShadow, 0.0, 1.22);
 
   // 외곽 가장자리 미세 감쇠 + 부드러운 안티앨리어싱
   float limb = 0.90 + 0.10 * cosE;
-  float alpha = smoothstep(1.0, max(0.82, 1.0 - uEdgeSoft), d);
+  float alpha = smoothstep(1.0, max(0.84, 1.0 - uEdgeSoft), d);
 
   vec3 bright = uColorBright * surf.x * lit * limb;
   vec3 dark = uEarthshine * (0.72 + 0.28 * surf.x) * (1.0 - clamp(lit * 1.2, 0.0, 1.0));
@@ -204,6 +345,7 @@ export function createMoonGroup(): MoonHandle {
       uColorBright: { value: new THREE.Color(0xf4f3ef) },
       uEarthshine: { value: new THREE.Color(0x090f1d) },
       uEdgeSoft: { value: 0.08 },
+      uParallactic: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -275,10 +417,11 @@ export function updateMoonPosition(
     distanceKm: rawPos.distance,
   });
   (material.uniforms.uLightDir.value as THREE.Vector3).copy(localLight);
+  material.uniforms.uParallactic.value = Number.isFinite(rawPos.parallacticAngle) ? rawPos.parallacticAngle : 0;
 
-  // FOV 에 맞춘 미세 가장자리 안티앨리어싱 폭
+  // FOV 에 맞춘 미세 가장자리 안티앨리어싱 폭 (고배율 줌에서는 선명한 원반 경계 유지)
   if (fovDeg != null && Number.isFinite(fovDeg)) {
-    material.uniforms.uEdgeSoft.value = Math.min(0.16, Math.max(0.04, (fovDeg / 67) * 0.08));
+    material.uniforms.uEdgeSoft.value = Math.min(0.14, Math.max(0.008, (fovDeg / 67) * 0.06));
   }
 
   // 대기 투과 색(월출/월몰 주황~고고도 은백) 및 낮/밤 지구조(Earthshine) 조절

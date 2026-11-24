@@ -97,6 +97,7 @@ import { exposureStops } from '../utils/exposureCurve';
 import { tabForMode, type CaptureModeKey } from '../utils/captureMode';
 import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
+import { CornerExposureBadge } from './AstroCamera/CornerExposureBadge';
 import { CameraFrame } from './AstroCamera/CameraFrame';
 import { CameraLensZoomSection, type LensOption } from './AstroCamera/CameraLensZoomSection';
 import { VirtualCameraBagModal } from './AstroCamera/VirtualCameraBagModal';
@@ -2774,33 +2775,41 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 )}
 
-                {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 */}
+                {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 + 변경값 배지 */}
                 {viewMode !== 'sim' && (
-                  <View style={[styles.exposure, { top: TOP_INSET + 38 + space.sm }]}>
-                    <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
-                    <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
-                      <View style={styles.exposureLine} />
-                      <View
-                        style={[
-                          styles.exposureFill,
-                          cameraTab === 'astro' && { backgroundColor: color.moon },
-                          { height: `${((exposure + 1) / 2) * 100}%` },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.exposureThumb,
-                          cameraTab === 'astro' && { borderColor: color.moon },
-                          { bottom: `${((exposure + 1) / 2) * 100}%` },
-                        ]}
-                      />
+                  <>
+                    <CornerExposureBadge
+                      language={language}
+                      exposure={exposure}
+                      onExposureChange={setExposure}
+                      manualIso={cameraTab !== 'astro' ? manualPhotoIso : null}
+                      manualShutterS={cameraTab !== 'astro' ? manualPhotoShutterS : null}
+                      manualWb={cameraTab !== 'astro' ? manualPhotoWb : null}
+                      percentMode={cameraTab === 'astro'}
+                      top={TOP_INSET + 38 + space.sm}
+                      right={50}
+                    />
+                    <View style={[styles.exposure, { top: TOP_INSET + 38 + space.sm }]}>
+                      <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
+                      <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
+                        <View style={styles.exposureLine} />
+                        <View
+                          style={[
+                            styles.exposureFill,
+                            cameraTab === 'astro' && { backgroundColor: color.moon },
+                            { height: `${((exposure + 1) / 2) * 100}%` },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.exposureThumb,
+                            cameraTab === 'astro' && { borderColor: color.moon },
+                            { bottom: `${((exposure + 1) / 2) * 100}%` },
+                          ]}
+                        />
+                      </View>
                     </View>
-                    <Text style={styles.microText}>
-                      {cameraTab === 'astro'
-                        ? `${exposure >= 0 ? '+' : ''}${Math.round(exposure * 100)}%`
-                        : `${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}
-                    </Text>
-                  </View>
+                  </>
                 )}
 
               </View>
