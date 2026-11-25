@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1483,6 +1483,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgRimMode = { value: 0 };
   mat.uniforms.dbgDiffBroken = { value: 0 };
   mat.uniforms.dbgWarmMode = { value: 0 };
+  mat.uniforms.dbgSkyDiff = { value: 0 };
   mat.uniforms.genusBroken = { value: new Vector4() };
   mat.needsUpdate = true;
 }
@@ -1804,6 +1805,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        float gF = clamp(gTn / max(gDsun, 1e-3), 0.0, 1.0);',
       '        float gDir = max(0.0, 1.0 + gF * dot(rayDirection, surfaceNormal));',
       '        radiance += gJ * gDir * dot(genusOn * GENUS_DIFFW, media.weight);',
+      `        radiance += skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky * ${INV_2PI.toFixed(6)} * gDir * dot(genusOn * genusBroken, media.weight) * dbgSkyDiff;`,
     ].join('\n')));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
