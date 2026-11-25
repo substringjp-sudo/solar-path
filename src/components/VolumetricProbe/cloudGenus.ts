@@ -1419,7 +1419,7 @@ const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdg
  *  - genusDeckOn · genusDeckW: 운량이 높은(옆으로 넓은) 층은 1차원 판 확산(두-흐름), 좁은 조각구름은 직선 추적 음영 — 운량 0.6→0.95 에서 섞음.
  *  - genusSkyPhys: 조각구름 그늘의 하늘빛 = 위쪽 기둥 두께의 두-흐름 확산 투과(경험식 "높이 × 가림 바닥 0.35" 대신).
  */
-export const GENUS_LIGHT_DECL = 'uniform float genusSunTopN;\nuniform float genusSkyPhys;\nuniform float genusDeckOn;\nuniform vec4 genusDeckW;\n#define GENUS_DIFFW max(genusThru, genusDeckW * genusDeckOn)';
+export const GENUS_LIGHT_DECL = 'uniform float genusDbgSky;\nuniform float genusDbgScale;\nuniform float genusSunTopN;\nuniform float genusSkyPhys;\nuniform float genusDeckOn;\nuniform vec4 genusDeckW;\n#define GENUS_DIFFW max(genusThru, genusDeckW * genusDeckOn)';
 /** 해 쪽 추적을 멈추는 두께(직사광 e^−24). */
 export const SUN_MARCH_EARLY_TAU = 24;
 /** 판 확산 비중: 운량 0.6 이하 0, 0.95 이상 1(smoothstep). */
@@ -1437,6 +1437,8 @@ export function sunMarchFirstStep(dTop: number, n: number, s = 1.6): number {
 }
 function initGenusLightUniforms(mat: PatchableMaterial): void {
   mat.uniforms.genusSunTopN = { value: 0 };
+  mat.uniforms.genusDbgSky = { value: 0 };
+  mat.uniforms.genusDbgScale = { value: 1 };
   mat.uniforms.genusSkyPhys = { value: 0 };
   mat.uniforms.genusDeckOn = { value: 0 };
   mat.uniforms.genusDeckW = { value: new Vector4() };
@@ -1919,6 +1921,8 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       `      float gSkyOld = mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient;`,
       '      float gBrokenW = genusSkyPhys * dot(genusOn * (vec4(1.0) - GENUS_DIFFW), media.weight);',
       '      radiance += gSkyIrr * mix(gSkyOld, gSkyPhys, gBrokenW) * skyLightScale;   // §L4',
+      // 진단(임시): R = 위쪽 두께 τ_up/40, G = 새 하늘빛/(새+옛 직사광 몫 기준), B = 옛 하늘빛 — 값으로 색 덮어쓰기
+      '      if (genusDbgSky > 0.5) { float gSunL0 = dot(gSunPart, vec3(0.2126,0.7152,0.0722)); float gSkyL0 = dot(gSkyIrr, vec3(0.2126,0.7152,0.0722)); radiance = vec3(gTaS / 40.0, gSkyL0 * gSkyPhys / max(gSunL0 + gSkyL0 * gSkyPhys, 1e-6), gSkyL0 * gSkyOld / max(gSunL0 + gSkyL0 * gSkyOld, 1e-6)) * genusDbgScale; }',
     ].join('\n'));
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
