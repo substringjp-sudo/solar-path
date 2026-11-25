@@ -329,10 +329,17 @@ void bf_facadeMaterial(
     return;
   }
 
-  // 지면 접지 음영(1~3층 가로 협곡 그늘)
-  outGroundAo = 0.54 + 0.46 * smoothstep(0.0, 10.5, max(0.0, vWallCoord.y));
+  // 지면 접지 음영(1~3층 가로 협곡 그늘) + 원거리에서도 유지되는 상단 파라펫·처마 매스 음영
+  outGroundAo = 0.50 + 0.50 * smoothstep(0.0, 13.5, max(0.0, vWallCoord.y));
+  float wallHAll = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
+  float topDistAll = max(0.0, wallHAll - max(0.0, vWallCoord.y));
+  float massFade = 1.0 - smoothstep(900.0, 2200.0, vDistM);
+  float parapetRim = (1.0 - smoothstep(0.0, 0.52, topDistAll)) * massFade;
+  float corniceShadow = smoothstep(0.42, 0.72, topDistAll) * (1.0 - smoothstep(0.85, 1.65, topDistAll)) * massFade;
+  float baseAlbedoAo = 0.76 + 0.24 * smoothstep(0.0, 12.0, max(0.0, vWallCoord.y));
 
-  // 원거리(>680m) 또는 상공 조감도(uEyeHeightM > 320m)에서는 서브픽셀 창틀·벽돌 줄눈 연산을 즉시 생략
+  // 원거리(>680m) 또는 상공 조감도(uEyeHeightM > 320m)에서는 서브픽셀 창틀·벽돌 줄눈 연산을 즉시 생략하되,
+  // 지면 접촉 AO와 옥상 파라펫/처마 음영 단차는 유지해 건축 매스 입체감을 보존합니다.
   if (detailFade <= 0.005) {
     if (vStyle < 0.5) {
       outMatAlb = mix(vec3(0.245, 0.24, 0.225), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
@@ -345,6 +352,7 @@ void bf_facadeMaterial(
     } else {
       outMatAlb = vec3(0.125, 0.13, 0.14) * (0.90 + 0.20 * bTone);
     }
+    outMatAlb *= baseAlbedoAo * (1.0 + 0.16 * parapetRim - 0.15 * corniceShadow);
     return;
   }
 
@@ -356,12 +364,6 @@ void bf_facadeMaterial(
   float vF = fract(cellV);
   float inGrid = step(0.0, vWallCoord.x) * step(0.0, vWallCoord.y)
     * step(cellU, vWallCoord.z) * step(cellV, vWallCoord.w);
-
-  // 상단 옥상 파라펫/처마 띠(앞뒤 건물 실루엣 분리)
-  float wallH = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
-  float topDist = max(0.0, wallH - max(0.0, vWallCoord.y));
-  float parapetRim = 1.0 - smoothstep(0.0, 0.42, topDist);
-  float corniceShadow = smoothstep(0.35, 0.55, topDist) * (1.0 - smoothstep(0.65, 1.15, topDist));
 
   if (vStyle < 0.5) {
     // 0: 아파트·주거 — 콘크리트 패널 이음새 + 미세 표면 입자 + 펀치드 윈도우 창틀 음영
@@ -426,7 +428,7 @@ void bf_facadeMaterial(
     outMatAlb = mix(metalWall * (1.0 + rib - seam), vec3(0.055, 0.066, 0.082), clerestory);
   }
 
-  outMatAlb *= (1.0 + 0.14 * parapetRim * detailFade - 0.14 * corniceShadow * detailFade);
+  outMatAlb *= baseAlbedoAo * (1.0 + 0.16 * parapetRim - 0.15 * corniceShadow);
 }
 
 #ifdef TERRAIN_DIST_OUT
@@ -469,10 +471,22 @@ void main() {
   float vF = fract(cellV);
   float farPad = smoothstep(500.0, 2600.0, vDistM) * 0.16;
   float aa = clamp(vDistM * 0.00055, 0.02, 0.24);
-  float wx = smoothstep(0.25 - farPad - aa, 0.25 - farPad + aa, uF) * (1.0 - smoothstep(0.75 + farPad - aa, 0.75 + farPad + aa, uF));
-  float wy = smoothstep(0.30 - farPad - aa, 0.30 - farPad + aa, vF) * (1.0 - smoothstep(0.74 + farPad - aa, 0.74 + farPad + aa, vF));
-  float winShape = mix(wx * wy, 0.78, smoothstep(1400.0, 3600.0, vDistM));
-  if (winShape < 0.01) discard;
+  float xLo = 0.25 - farPad, xHi = 0.75 + farPad;
+  float yLo = 0.30 - farPad, yHi = 0.74 + farPad;
+  float wx = smoothstep(xLo - aa, xLo + aa, uF) * (1.0 - smoothstep(xHi - aa, xHi + aa, uF));
+  float wy = smoothstep(yLo - aa, yLo + aa, vF) * (1.0 - smoothstep(yHi - aa, yHi + aa, vF));
+  float paneCore = mix(wx * wy, 0.78, smoothstep(1400.0, 3600.0, vDistM));
+
+  // Tiny Glade 스타일: 켜진 유리창 바깥 창틀·하단 창턱(Sill)·주변 외벽 콘크리트에 번지는 따뜻한 간접광(Window Wall Bleed)
+  float dxOut = max(0.0, max(xLo - uF, uF - xHi));
+  float dyOut = max(0.0, max(yLo - vF, vF - yHi));
+  float dPane = length(vec2(dxOut, dyOut * 1.15));
+  float bleedFade = 1.0 - smoothstep(900.0, 2400.0, vDistM);
+  float wallBleed = exp(-dPane * 8.5) * (1.0 - smoothstep(0.0, 0.34, dPane)) * 0.26 * bleedFade;
+  float sillBounce = smoothstep(xLo - 0.06, xLo + 0.02, uF) * (1.0 - smoothstep(xHi - 0.02, xHi + 0.06, uF))
+    * smoothstep(yLo - 0.14, yLo - 0.01, vF) * (1.0 - smoothstep(yLo - 0.01, yLo + 0.03, vF)) * 0.34 * bleedFade;
+  float totalEmit = max(paneCore, wallBleed + sillBounce);
+  if (totalEmit < 0.006) discard;
 
   float rTone = bf_hash13(vec3(colIdx + 19.0, rowIdx + 7.0, seedZ * 1.37 + 5.0));
   vec3 colWarm = vec3(1.00, 0.68, 0.30);
@@ -480,11 +494,15 @@ void main() {
   vec3 colCool = vec3(0.84, 0.91, 1.00);
   vec3 winTint = rTone < 0.58 ? mix(colWarm, colSoft, rTone / 0.58)
                               : mix(colSoft, colCool, ((rTone - 0.58) / 0.42) * 0.65);
+  // 실내 천장→바닥 음영 그라데이션 + 외벽 번짐은 유리창보다 한 톤 더 따뜻한 호박색 반사광으로 분리
+  float interiorGrad = 0.78 + 0.30 * clamp((vF - yLo) / max(0.05, yHi - yLo), 0.0, 1.0);
+  vec3 bleedTint = winTint * vec3(1.08, 0.82, 0.58);
+  vec3 finalWinCol = winTint * (paneCore * interiorGrad) + bleedTint * ((wallBleed + sillBounce) * (1.0 - 0.65 * paneCore));
 
-  float lum = (0.48 + 0.34 * rTone) * uWinGlow * (0.82 + 0.24 * vF);
+  float lum = (0.48 + 0.34 * rTone) * uWinGlow;
   vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
   float distFade = 1.0 - smoothstep(4500.0, 8500.0, vDistM);
-  gl_FragColor = vec4(winTint * winShape * lum * T * distFade, 1.0);
+  gl_FragColor = vec4(finalWinCol * lum * T * distFade, 1.0);
 }
 #elif defined(TERRAIN_LIT_OUT)
 ${TERRAIN_DIST_GLSL}
@@ -530,10 +548,13 @@ void main() {
   vec2 cPerp = vec2(-cDir.y, cDir.x);
   vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
   float wallAz = 0.82 + 0.40 * dot(nXZ, cDir) + 0.16 * dot(nXZ, cPerp);
-  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.82 + 0.26 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float wallTotalH = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
+  float topEdgeDist = max(0.0, wallTotalH - max(0.0, vWallCoord.y));
+  float parapetBoost = (1.0 - smoothstep(0.0, 0.65, topEdgeDist)) * 0.12;
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.78 + 0.30 * smoothstep(0.0, 28.0, max(0.0, vWallCoord.y)));
   float skyHemi = abs(n.y) > 0.5
     ? (0.96 + 0.14 * n.y)
-    : clamp(0.54 * wallAz * groundAo * heightGrad, 0.16, 1.15);
+    : clamp(0.54 * wallAz * groundAo * heightGrad + parapetBoost, 0.16, 1.15);
 
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
@@ -619,11 +640,22 @@ void main() {
   vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
   vec2 cPerp = vec2(-cDir.y, cDir.x);
   vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
-  float wallAz = abs(n.y) > 0.5 ? 1.0 : (0.92 + 0.30 * dot(nXZ, cDir) + 0.14 * dot(nXZ, cPerp));
-  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.86 + 0.22 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
+  float isWall = 1.0 - step(0.5, abs(n.y));
+  float wallHFrac = clamp(max(0.0, vWallCoord.y) / 28.0, 0.0, 1.0);
+  float wallAz = isWall < 0.5 ? 1.0 : (0.92 + 0.30 * dot(nXZ, cDir) + 0.14 * dot(nXZ, cPerp));
+  float heightGrad = isWall < 0.5 ? 1.0 : (0.82 + 0.26 * smoothstep(0.0, 26.0, max(0.0, vWallCoord.y)));
   float hemi = (0.72 + 0.28 * n.y) * wallAz * heightGrad;
 
-  vec3 col = alb * hemi * groundAo * (skyIrr + directLit);
+  // Townscaper 스타일: 상부 차가운 하늘 반구광 + 하부 따뜻한 지면 반사광 분리
+  vec3 coolSkyIrr = skyIrr * mix(vec3(1.0), vec3(0.92, 0.97, 1.08), isWall * wallHFrac);
+  vec3 warmBounceIrr = (skyIrr * 0.22 + directFlat * 0.14) * vec3(1.16, 0.98, 0.78) * (1.0 - 0.65 * wallHFrac) * isWall;
+  vec3 col = alb * groundAo * ((coolSkyIrr + directLit) * hemi + warmBounceIrr);
+
+  // Sky·Firewatch 스타일: 역광·박명 스치는 프레넬 림라이트
+  vec3 viewRay = normalize(vViewDir);
+  float cosVS = clamp(dot(viewRay, sun), 0.0, 1.0);
+  float rimEdge = clamp(1.0 - max(0.0, dot(n, -viewRay)), 0.0, 1.0);
+  col += alb * (uSunRadiance * 0.03 + skyIrr * 0.25) * pow(cosVS, 2.4) * pow(rimEdge, 2.2) * (0.4 + 0.6 * wallHFrac);
 
   // 낮 창문 유리 프레넬 하늘·태양 반사 (유리창만 유광 반사)
   if (glassMask > 0.01) {
@@ -638,11 +670,12 @@ void main() {
     col += (skyBounce + sunGlint) * glassMask * glassGain;
   }
 
-  // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 (2900~3100K 도시광, 암부 대비 유지)
+  // 지역 빛지도 기반 야간 건물 외벽 방향성 반사 + 하단 가로등·거리광 쿠션(streetCushion)
   if (uCityWallGain > 1e-5) {
     float cDirDot = 0.16 + 0.70 * max(0.0, dot(nXZ, cDir)) + 0.18 * max(0.0, dot(nXZ, cPerp));
     float wallSlope = 0.35 + 0.65 * (1.0 - abs(n.y));
-    col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDirDot * wallSlope * groundAo * heightGrad);
+    float streetCushion = exp(-wallHFrac * 2.8) * 0.65 * isWall;
+    col += alb * vec3(1.00, 0.787, 0.573) * (uCityWallGain * cDirDot * wallSlope * (groundAo * heightGrad + streetCushion));
   }
 
   if (uAerial > 0.5) {

@@ -20,7 +20,7 @@
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
 import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, ICE_DIFFUSE_SCALE, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
-import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
+import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, rankNormalizeSteps, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
 import { mulberry32 as rng } from '../../utils/math';
@@ -1259,7 +1259,7 @@ function* genusWeatherSteps(
     if (needGrow) {
       if (!baseEntry.grown) {
         const g = baseEntry.raw.slice();
-        growBeyondCapacity(g, S, L.cover);
+        yield* growBeyondCapacitySteps(g, S, L.cover);
         baseEntry.grown = g;
         yield;
       }
@@ -1271,7 +1271,7 @@ function* genusWeatherSteps(
     if (useFlow) {
       // §130 흐름 층: d = 구름 화소 순위^flowDPow(cloudFlow.rankNormalize) — 운량·속과 무관하게 같은 히스토그램. 면적 = 운량 그대로.
       const dd = new Float32Array(S * S);
-      rankNormalize(f, th, fp(L, 'flowDPow') ?? FLOW_D_POW, dd);
+      yield* rankNormalizeSteps(f, th, fp(L, 'flowDPow') ?? FLOW_D_POW, dd);
       yield;
       // domePow(권운 1.5)는 선형 d 의 히스토그램 손질이었으므로 순위 d 에는 겹쳐 쓰지 않습니다(겹치면 권운 엔트로피 2.6 bit).
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = dd[i] > 0 ? Math.max(1, Math.round(dd[i] * 255)) : 0;
@@ -1289,6 +1289,7 @@ function* genusWeatherSteps(
     for (let i = 0; i < S * S; i++) {
       const d = f[i] > minF ? Math.min(1, Math.max(1 / 255, (f[i] - minF) / Math.max(1e-6, top - minF))) : 0;
       data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
+      if ((i & 16383) === 16383) yield;
     }
   }
 }
@@ -1299,7 +1300,7 @@ function* genusWeatherSteps(
  * 운량이 그 넓이를 넘으면 0 인 곳을 **가장 가까운 구름까지 거리**의 음수로 줄 세워(주기 경계 체임퍼 거리), 문턱이 0 아래로 내려가
  * 세포 둘레부터 얇게 번지게 합니다. 넓이 안의 운량은 장을 바꾸지 않아 이전과 같은 바이트입니다.
  */
-function growBeyondCapacity(f: Float32Array, S: number, cover: number): void {
+function* growBeyondCapacitySteps(f: Float32Array, S: number, cover: number): Generator<void, void, void> {
   let nz = 0;
   for (let i = 0; i < f.length; i++) if (f[i] > 0) nz++;
   if (nz === 0 || cover <= (nz / f.length) * 0.98) return;
@@ -1313,19 +1314,24 @@ function growBeyondCapacity(f: Float32Array, S: number, cover: number): void {
       v = Math.min(v, d[at(x - 1, y)] + 3, d[at(x, y - 1)] + 3, d[at(x - 1, y - 1)] + 4, d[at(x + 1, y - 1)] + 4);
       d[i] = v;
     }
+    yield;
     for (let y = S - 1; y >= 0; y--) for (let x = S - 1; x >= 0; x--) {
       const i = y * S + x; let v = d[i];
       v = Math.min(v, d[at(x + 1, y)] + 3, d[at(x, y + 1)] + 3, d[at(x + 1, y + 1)] + 4, d[at(x - 1, y + 1)] + 4);
       d[i] = v;
     }
+    yield;
   }
   // 거리 단위: 타일의 1/5(24km 타일이면 4.8km)를 1 로 — 번진 테두리의 기둥 높이 d 가 0.1~0.3 쯤이 되게(장의 최댓값 ≈ 1).
   // 체임퍼 거리는 정수 계단이라 같은 값이 많아(고적운은 0 인 곳 대부분이 구름 바로 옆) 분위수 문턱이 그 값에 걸리면 한 칸도
   // 안 늘었습니다 — 부드러운 잡음(한 칸 미만)을 더해 줄을 풀고 테두리를 고르지 않게 합니다.
   const unit = 3 * S * 0.2, jit = fbm(16, 2, 911);
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const i = y * S + x;
-    if (!(f[i] > 0)) f[i] = -(d[i] + 2.9 * jit((x + 0.5) / S, (y + 0.5) / S)) / unit;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x;
+      if (!(f[i] > 0)) f[i] = -(d[i] + 2.9 * jit((x + 0.5) / S, (y + 0.5) / S)) / unit;
+    }
+    if ((y & 31) === 31) yield;
   }
 }
 
@@ -1737,11 +1743,20 @@ export function setGenusSkeleton(mat: PatchableMaterial, layers: (GenusLayer | n
  * 아니면 삽입 전 원문으로 되돌립니다. 물 구름만 있는 장면은 켜 두어도 셰이더·균일변수가 끈 장면과 같습니다. 그림자 패스처럼 앵커가 없는 재질은 아무것도 하지 않습니다.
  * 물리 값이 없는 층은 무리 0 · 가루 1.
  */
-export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; powder: number } | null)[], on: boolean): void {
+export function setGenusPhysics(
+  mat: PatchableMaterial,
+  lanes: ({ halo: number; powder: number } | null)[],
+  on: boolean,
+  keepShader = false,
+): void {
   const active = on && lanes.some(l => !!l && (l.halo > 0 || l.powder < 1));
-  variantOf(mat).ice = active;
+  variantOf(mat).ice = keepShader || active;
   refreshVariant(mat);
-  if (!active || !mat.uniforms.genusPhysOn) return;
+  if (!mat.uniforms.genusPhysOn) return;
+  if (!active) {
+    mat.uniforms.genusPhysOn.value = 0;
+    return;
+  }
   const v = (fn: (l: { halo: number; powder: number }) => number, dflt: number) => [0, 1, 2, 3].map(i => (lanes[i] ? fn(lanes[i] as { halo: number; powder: number }) : dflt));
   const h = v(l => l.halo, 0), w = v(l => l.powder, 1);
   (mat.uniforms.genusHalo.value as Vector4).set(h[0], h[1], h[2], h[3]);

@@ -500,16 +500,20 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
         yield* blurXPass(blur, tmp, n, nz, r, false);
         yield* blurYPass(tmp, blur, n, nz, r, false, colSum!);
       }
-      for (let iz = 0; iz < nz; iz++) for (let i = 0; i < n * n; i++) {
-        const o = iz * n * n + i, zm = Math.max(0, iz - 1) * n * n + i, zp = Math.min(nz - 1, iz + 1) * n * n + i;
-        vox[o] = Math.max(vox[o], (blur[zm] + 2 * blur[o] + blur[zp]) / 4);
+      for (let iz = 0; iz < nz; iz++) {
+        for (let i = 0; i < n * n; i++) {
+          const o = iz * n * n + i, zm = Math.max(0, iz - 1) * n * n + i, zp = Math.min(nz - 1, iz + 1) * n * n + i;
+          vox[o] = Math.max(vox[o], (blur[zm] + 2 * blur[o] + blur[zp]) / 4);
+        }
+        if ((iz & 3) === 3) yield;
       }
       for (let iz = 0; iz < nz; iz++) { cutSlice(iz, vox); if (iz % 8 === 7) yield; }
     }
     let vMin = Infinity, vMax = -Infinity, covered = 0;
     for (let i = 0; i < vox.length; i++) { const v = vox[i]; if (v < vMin) vMin = v; if (v > vMax) vMax = v; }
+    yield;
     for (let i = 0; i < n * n; i++) { for (let iz = 0; iz < nz; iz++) if (vox[iz * n * n + i] > 0) { covered++; break; } }
-    return finish(vox, 0, covered / (n * n), vMin, vMax);
+    return yield* finishSteps(vox, 0, covered / (n * n), vMin, vMax);
   }
   if (p.dome) {
     // 지붕 꼴(2차 시제품 판정: 3차원 경계면만으로는 평평한 밑면·솟는 지붕이 안 나오고 기울어진 타원 덩어리가 됨).
@@ -541,7 +545,7 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
         }
       }
     }
-    return finish(vox, 0, covered / (n * n), vMin, vMax);
+    return yield* finishSteps(vox, 0, covered / (n * n), vMin, vMax);
   }
   const sigB = p.sigmaB * (1 - p.chi);
   let vMin = Infinity, vMax = -Infinity;
@@ -571,36 +575,44 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
   const sorted = Float32Array.from(colMax).sort();
   const tau = sorted[Math.min(sorted.length - 1, Math.floor((1 - c) * sorted.length))];
   let covered = 0; for (let i = 0; i < colMax.length; i++) if (colMax[i] > tau) covered++;
-  return finish(vox, tau, covered / colMax.length, vMin, vMax);
+  return yield* finishSteps(vox, tau, covered / colMax.length, vMin, vMax);
 
-  function finish(vox: Float32Array, tau: number, coverMeasured: number, vMin: number, vMax: number): WaveField {
-  const half16 = new Uint16Array(vox.length);
-  for (let i = 0; i < vox.length; i++) half16[i] = DataUtils.toHalfFloat(Math.max(-60000, Math.min(60000, vox[i])));
-  const tex = new Data3DTexture(half16, n, n, nz);
-  tex.format = RedFormat; tex.type = HalfFloatType;
-  tex.minFilter = LinearFilter; tex.magFilter = LinearFilter;
-  tex.wrapS = RepeatWrapping; tex.wrapT = RepeatWrapping; tex.wrapR = ClampToEdgeWrapping;
-  tex.unpackAlignment = 1; tex.needsUpdate = true;
-  // 셰이더 waveColumn 과 같은 식: q = (0.25 + 0.75 fb^⅔)·clamp(e·(v − τ))·(1 + 0.3(1 − χ)·tanh v), fb = (z − 밑면)/두께.
-  let qSum = 0;
-  for (let iz = 0; iz < nz; iz++) {
-    const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
-    const fb = Math.min(1, Math.max(0, (z - p.baseM) / Math.max(p.thickM, 1)));
-    const prof = 0.25 + 0.75 * Math.pow(fb, 2 / 3);
-    for (let i = iz * n * n; i < (iz + 1) * n * n; i++) {
-      const v = vox[i];
-      qSum += prof * Math.min(1, Math.max(0, p.edge * (v - tau))) * (1 + 0.3 * (1 - p.chi) * Math.tanh(v));
+  function* finishSteps(vox: Float32Array, tau: number, coverMeasured: number, vMin: number, vMax: number): Generator<void, WaveField, void> {
+    const half16 = new Uint16Array(vox.length);
+    for (let i = 0; i < vox.length; i++) {
+      half16[i] = DataUtils.toHalfFloat(Math.max(-60000, Math.min(60000, vox[i])));
+      if ((i & 32767) === 32767) yield;
     }
-  }
-  const colMean = qSum / vox.length;
-  const smallK: Vector4[] = [];
-  for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
-  return {
-    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, baseBump: p.baseBump, smallK,
-    // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
-    smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
-    stats: { coverMeasured, vMin, vMax }, colMean,
-  };
+    const tex = new Data3DTexture(half16, n, n, nz);
+    tex.format = RedFormat; tex.type = HalfFloatType;
+    tex.minFilter = LinearFilter; tex.magFilter = LinearFilter;
+    tex.wrapS = RepeatWrapping; tex.wrapT = RepeatWrapping; tex.wrapR = ClampToEdgeWrapping;
+    tex.unpackAlignment = 1; tex.needsUpdate = true;
+    // 셰이더 waveColumn 과 같은 식: q = (0.25 + 0.75 fb^⅔)·clamp(e·(v − τ))·(1 + 0.3(1 − χ)·tanh v), fb = (z − 밑면)/두께.
+    let qSum = 0;
+    const chiScale = 0.3 * (1 - p.chi);
+    for (let iz = 0; iz < nz; iz++) {
+      const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+      const fb = Math.min(1, Math.max(0, (z - p.baseM) / Math.max(p.thickM, 1)));
+      const prof = 0.25 + 0.75 * Math.pow(fb, 2 / 3);
+      for (let i = iz * n * n; i < (iz + 1) * n * n; i++) {
+        const v = vox[i];
+        const cVal = p.edge * (v - tau);
+        if (cVal > 0) {
+          qSum += prof * (cVal >= 1 ? 1 : cVal) * (1 + chiScale * Math.tanh(v));
+        }
+      }
+      if ((iz & 3) === 3) yield;
+    }
+    const colMean = qSum / vox.length;
+    const smallK: Vector4[] = [];
+    for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
+    return {
+      tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, baseBump: p.baseBump, smallK,
+      // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
+      smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
+      stats: { coverMeasured, vMin, vMax }, colMean,
+    };
   }
 }
 

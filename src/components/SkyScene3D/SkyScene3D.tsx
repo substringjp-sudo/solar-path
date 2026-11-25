@@ -704,6 +704,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastTrackingHudSyncMsRef = useRef(0);
   const trackingActiveUntilRef = useRef(0);
   const lastVolContWallMsRef = useRef(0);
+  const scrubSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const targetTimeMsRef = useRef(currentTime.getTime());
   const lastSyncedPropTimeMsRef = useRef<number | null>(null);
   const lastTargetSyncPerfRef = useRef(performance.now());
@@ -966,6 +967,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const wasSliding = isSlidingRef.current;
     isSlidingRef.current = isSliding;
     if (!isSliding && wasSliding) {
+      if (scrubSettleTimerRef.current) {
+        clearTimeout(scrubSettleTimerRef.current);
+        scrubSettleTimerRef.current = null;
+      }
       // 슬라이더에서 손을 떼는 순간: 드래그 중 예약된 레거시 구름 타이머(180ms)가 뒤늦게 터지지 않게 즉시 플러시합니다.
       if (cloudRebuildTimerRef.current) {
         clearTimeout(cloudRebuildTimerRef.current);
@@ -1759,6 +1764,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     lastTargetSyncPerfRef.current = performance.now();
     sceneDirtyRef.current = true;
     requestRender(2);
+    if (scrubSettleTimerRef.current) clearTimeout(scrubSettleTimerRef.current);
+    scrubSettleTimerRef.current = setTimeout(() => {
+      scrubSettleTimerRef.current = null;
+      if (isSlidingRef.current) requestRender(2);
+    }, 180);
   }), [requestRender]);
 
   const cameraAzimuthPropRef = useRef(cameraAzimuthProp);
@@ -2860,7 +2870,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const tAtmos = Date.now();
       const harnessVolOpts = (globalThis as unknown as { __volCreateOpts?: (r: THREE.WebGLRenderer) => Promise<Record<string, unknown>> }).__volCreateOpts;
       (harnessVolOpts ? harnessVolOpts(renderer as unknown as THREE.WebGLRenderer) : Promise.resolve({}))
-        .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, flow: skySettingsRef.current.volumetricFlow ?? true, flowUv: skySettingsRef.current.volumetricFlowUv ?? true, ...extra }))
+        .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, flow: skySettingsRef.current.volumetricFlow ?? true, flowUv: skySettingsRef.current.volumetricFlowUv ?? true, keepIceShaderLoaded: true, ...extra }))
         .then(v => {
           volumetricStats.atmosMs = Date.now() - tAtmos;
           volumetricStats.spectral = v.spectral;
@@ -2976,7 +2986,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
         if (qKey !== volQualityRef.current) {
           vol.setQuality(q);
-          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 15 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
+          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 91 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true, keepIceShaderLoaded: true }, false);
           volKeyRef.current = '';
           const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
           if (changed != null) vol.setResolutionScale(changed);
@@ -3054,7 +3064,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolDateSyncRef.current.targetMs = null;
             volSettleRef.current = 18;
             volFreshRef.current = false;
-          } else if (!isSlidingNow || nowPerf - lastSlidingVolBuildTimeRef.current > 250) {
+          } else if (
+            !volHasSceneRef.current ||
+            !isSlidingNow ||
+            (nowPerf - lastTargetSyncPerfRef.current >= 165 && nowPerf - lastSlidingVolBuildTimeRef.current > 280)
+          ) {
             const isFirstCloudScene = !volHasSceneRef.current;
             if (isFirstCloudScene) {
               vol.setScene({ ...built.input, layers: [], macro: undefined });
@@ -3854,6 +3868,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         clearTimeout(cloudRebuildTimerRef.current);
         cloudRebuildTimerRef.current = null;
       }
+      if (scrubSettleTimerRef.current) {
+        clearTimeout(scrubSettleTimerRef.current);
+        scrubSettleTimerRef.current = null;
+      }
 
       const executeRebuild = () => {
         rebuildCloudsForDate(targetDate, sampled);
@@ -4351,6 +4369,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (cloudRebuildTimerRef.current) {
         clearTimeout(cloudRebuildTimerRef.current);
         cloudRebuildTimerRef.current = null;
+      }
+      if (scrubSettleTimerRef.current) {
+        clearTimeout(scrubSettleTimerRef.current);
+        scrubSettleTimerRef.current = null;
       }
 
       volRef.current?.dispose();

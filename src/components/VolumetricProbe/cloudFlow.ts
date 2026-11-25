@@ -784,7 +784,7 @@ function selectRank(f: Float32Array, rank: number, bins: number): number {
  * 통계(중앙 0.25~0.34)와 같음). 4096 칸 누적 히스토그램 + 칸 안 선형 보간(정렬 없이 O(N), Hermes 에서도 수십 ms). 면적(d>0) = 운량은 그대로.
  * out[i] = d(0..1), f ≤ th 인 곳은 0.
  */
-export function rankNormalize(f: Float32Array, th: number, gamma: number, out: Float32Array, bins = 4096): void {
+export function* rankNormalizeSteps(f: Float32Array, th: number, gamma: number, out: Float32Array, bins = 4096): Generator<void, void, void> {
   let lo = Infinity, hi = -Infinity, n = 0;
   for (let i = 0; i < f.length; i++) { const v = f[i]; if (v > th) { n++; if (v < lo) lo = v; if (v > hi) hi = v; } }
   if (n === 0) { out.fill(0); return; }
@@ -792,13 +792,22 @@ export function rankNormalize(f: Float32Array, th: number, gamma: number, out: F
   for (let i = 0; i < f.length; i++) { const v = f[i]; if (v > th) cnt[Math.min(bins - 1, Math.floor(((v - lo) / span) * bins))]++; }
   const cum = new Float64Array(bins + 1);
   for (let b = 0; b < bins; b++) cum[b + 1] = cum[b] + cnt[b];
+  yield;
   for (let i = 0; i < f.length; i++) {
     const v = f[i];
-    if (!(v > th)) { out[i] = 0; continue; }
-    const x = ((v - lo) / span) * bins, b = Math.min(bins - 1, Math.floor(x)), fr = x - b;
-    const u = (cum[b] + fr * cnt[b] + 0.5) / n;   // 0..1 순위(칸 안 선형)
-    out[i] = Math.pow(Math.min(1, Math.max(1e-6, u)), gamma);
+    if (!(v > th)) { out[i] = 0; }
+    else {
+      const x = ((v - lo) / span) * bins, b = Math.min(bins - 1, Math.floor(x)), fr = x - b;
+      const u = (cum[b] + fr * cnt[b] + 0.5) / n;   // 0..1 순위(칸 안 선형)
+      out[i] = Math.pow(Math.min(1, Math.max(1e-6, u)), gamma);
+    }
+    if ((i & 16383) === 16383) yield;
   }
+}
+
+export function rankNormalize(f: Float32Array, th: number, gamma: number, out: Float32Array, bins = 4096): void {
+  const it = rankNormalizeSteps(f, th, gamma, out, bins);
+  while (!it.next().done) { /* 동기 완료 */ }
 }
 
 export function waveVectorFor(shearU: number, shearV: number, lambdaKm: number, tileKm: number): [number, number] {
