@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1461,6 +1461,35 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '      }',
     ].join('\n'));
   }
+  // 진단: 해 쪽 직선 추적을 구름층 꼭대기까지(기하로 정한 거리, N 걸음, 기하급수 1.6배) — 고도 문턱 없는 자기 그늘.
+  if (src.includes('vec4 marchClouds(')) src = src.replace('vec4 marchClouds(', [
+    'float genusMarchSun(const vec3 ro, const vec3 rd, const int n, const float mipLevel, const float jitter, out float dist) {',
+    '  float h0 = length(ro) - bottomRadius;',
+    '  float mu = max(dot(normalize(ro), rd), 0.03);',
+    '  float dTop = clamp((maxHeight - h0) / mu, 50.0, 40000.0);',
+    '  float s = 1.6;',
+    '  float step0 = dTop * (s - 1.0) / (pow(s, float(n)) - 1.0);',
+    '  float stepSize = step0;',
+    '  float d = step0 * jitter;',
+    '  float od = 0.0;',
+    '  for (int i = 0; i < 64; ++i) {',
+    '    if (i >= n) break;',
+    '    dist = d;',
+    '    vec3 p = d * rd + ro;',
+    '    vec2 uv = getGlobeUv(p);',
+    '    float h = length(p) - bottomRadius;',
+    '    WeatherSample w = sampleWeather(uv, h, mipLevel);',
+    '    MediaSample m = sampleMedia(w, p, uv, mipLevel, jitter);',
+    '    od += m.extinction * stepSize;',
+    '    d += stepSize;',
+    '    stepSize *= s;',
+    '  }',
+    '  return od;',
+    '}',
+    'vec4 marchClouds(',
+  ].join('\n'));
+  const BSM_A = '      if (height < shadowTopHeight) {\n        // Obtain the optical depth from BSM at the ray position.';
+  if (src.includes(BSM_A)) src = src.replace(BSM_A, '      if (dbgAdaptN > 0.5) opticalDepth = genusMarchSun(position, sunDirection, int(dbgAdaptN), mipLevel, jitter, sunRayDistance);\n      if (height < shadowTopHeight && dbgSelfBSM > 0.5) {\n        // Obtain the optical depth from BSM at the ray position.');
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
     'uniform float genusPlanar;',
@@ -1484,6 +1513,8 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgDiffBroken = { value: 0 };
   mat.uniforms.dbgWarmMode = { value: 0 };
   mat.uniforms.dbgSkyDiff = { value: 0 };
+  mat.uniforms.dbgAdaptN = { value: 0 };
+  mat.uniforms.dbgSelfBSM = { value: 1 };
   mat.uniforms.genusBroken = { value: new Vector4() };
   mat.needsUpdate = true;
 }
