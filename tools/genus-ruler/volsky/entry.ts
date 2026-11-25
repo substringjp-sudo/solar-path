@@ -161,8 +161,13 @@ const show = (tex: Texture, mode: number) => {
       // §140 품질 단계가 재질 균일변수(minStepSize·maxIterationCount…)를 덮어쓰므로 잡별 덮어쓰기는 setQuality **뒤**에 겁니다.
       {
         const ce = vol.debug.clouds as unknown as Record<string, unknown>;
-        for (const [k, v] of Object.entries(cloudsDefaults)) ce[k] = v;
-        for (const [k, v] of Object.entries(job.clouds ?? {})) { if (!(k in cloudsDefaults)) cloudsDefaults[k] = ce[k]; ce[k] = v; }
+        for (const [k, v] of Object.entries(cloudsDefaults)) { if (k.startsWith('clouds.')) (ce.clouds as Record<string, unknown>)[k.slice(7)] = v; else ce[k] = v; }
+        for (const [k, v] of Object.entries(job.clouds ?? {})) {
+          // 'clouds.이름' = CloudsEffect.clouds 의 재질 매개변수(multiScatteringOctaves 등, 셰이더 정의) — 잡마다 되돌림.
+          const sub = k.startsWith('clouds.') ? (ce.clouds as Record<string, unknown>) : ce, kk = k.startsWith('clouds.') ? k.slice(7) : k;
+          if (!(k in cloudsDefaults)) cloudsDefaults[k] = sub[kk];
+          sub[kk] = v;
+        }
         const ru = (vol.debug.clouds as unknown as { cloudsPass: { resolveMaterial: { uniforms: Record<string, { value: number }> } } }).cloudsPass.resolveMaterial.uniforms;
         for (const [k, v] of Object.entries(resolveDefaults)) if (ru[k]) ru[k].value = v;
         for (const [k, v] of Object.entries(job.resolve ?? {})) { if (!ru[k]) throw new Error('resolve uniform missing: ' + k); if (!(k in resolveDefaults)) resolveDefaults[k] = ru[k].value; ru[k].value = v; }
