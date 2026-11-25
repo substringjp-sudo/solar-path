@@ -22,9 +22,10 @@ export interface RulerTick { x: number; ms: number; kind: TickKind; label?: stri
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 const localDate = (ms: number, tz: number): Date => new Date(ms + tz * HOUR_MS);
 
-export function timeText(ms: number, tz: number): string {
+export function timeText(ms: number, tz: number, withSeconds: boolean = false): string {
   const d = localDate(ms, tz);
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  const hhmm = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return withSeconds ? `${hhmm}:${pad2(d.getUTCSeconds())}` : hhmm;
 }
 
 /** 가운데 시각을 기준으로 화면에 보일 눈금들(x 오름차순). */

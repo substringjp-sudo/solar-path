@@ -700,6 +700,24 @@ export function useCelestialApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- syncClock 은 ref 와 고정된 updateTime 만 읽습니다
   }, []);
 
+  // followClock 의 1분 간격과 별개로, LIVE 모드에서는 실제 분 정각(:00초)에 맞춰 스토어 시각을 정렬합니다.
+  useEffect(() => {
+    if (isTimeMachineEnabled) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNextMinute = () => {
+      const delay = 60_000 - (Date.now() % 60_000) + 20;
+      timer = setTimeout(() => {
+        syncClock();
+        scheduleNextMinute();
+      }, delay);
+    };
+    scheduleNextMinute();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTimeMachineEnabled]);
+
   // 오늘의 스마트 노을 및 내일의 일출 알림 스케줄링 (+ 동적 앱아이콘 업데이트 연동)
   useEffect(() => {
     if (!isCacheHydrated || !location || !events) return;

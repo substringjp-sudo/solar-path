@@ -1818,6 +1818,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             || Math.abs(currentTime.getTime() - Date.now()) > 60_000
             || (homeCoords != null && distanceM(homeCoords, { latitude, longitude }) > 20)
           }
+          live={!isTimeMachineEnabled}
           onNow={() => {
             setTimeMachineEnabled?.(false);
             if (homeCoords && distanceM(homeCoords, { latitude, longitude }) > 20) {

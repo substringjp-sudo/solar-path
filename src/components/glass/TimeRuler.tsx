@@ -47,6 +47,8 @@ interface Props {
   /** 현재 시각/위치와 다를 때만 "지금" 단추를 보임. */
   showNow?: boolean;
   onNow?: () => void;
+  /** '지금' 실시간 추종 여부(true면 매초 시각·눈금을 자동 진행) */
+  live?: boolean;
   /** 슬라이더 우측 상단의 작은 태양 따라가기 아이콘 버튼 */
   sunTracked?: boolean;
   onToggleTrackSun?: () => void;
@@ -60,23 +62,43 @@ const STEP_MS = 15 * 60_000;
 const TICK_H = { hour: 16, half: 10, quarter: 6 } as const;
 const TICK_A = { hour: 0.95, half: 0.7, quarter: 0.4 } as const;
 
-export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, onDayDragStart, onDayPreview, onDayCommit, showNow = true, onNow, sunTracked = false, onToggleTrackSun }) => {
+export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, language, onChange, onCommit, onDragStart, sunsetMs = null, sunsetLabel, scoreSamples = null, dateText, onDatePress, onDayShift, onDayDragStart, onDayPreview, onDayCommit, showNow = true, onNow, live = false, sunTracked = false, onToggleTrackSun }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const [rulerActive, setRulerActive] = useState(false);
   const [dayDragY, setDayDragY] = useState(0);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
+  const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
   const lastEmitTsRef = useRef(0);
   const dayStartMsRef = useRef<number | null>(null);
   const lastDayStepRef = useRef(0);
-  const propsRef = useRef({ timeMs, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit });
-  propsRef.current = { timeMs, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit };
+  const propsRef = useRef({ timeMs, live, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit });
+  propsRef.current = { timeMs, live, onChange, onCommit, onDragStart, onDayDragStart, onDayPreview, onDayCommit };
 
   useEffect(() => () => {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
   }, []);
+
+  // '지금' 실시간 추종 중일 때는 전체 화면을 리렌더하지 않고 TimeRuler 내부에서만 매초 시각과 눈금을 진행합니다.
+  useEffect(() => {
+    if (!live || scrubMs !== null || dayDragY !== 0) return;
+    setLiveNowMs(Date.now());
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      const now = Date.now();
+      const delay = 1000 - (now % 1000) + 16;
+      timer = setTimeout(() => {
+        setLiveNowMs(Date.now());
+        schedule();
+      }, delay);
+    };
+    schedule();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [live, scrubMs, dayDragY]);
 
   const setRulerOpen = useCallback((open: boolean) => {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
@@ -94,7 +116,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: () => {
-      startRef.current = propsRef.current.timeMs;
+      startRef.current = propsRef.current.live ? Date.now() : propsRef.current.timeMs;
       lastRef.current = startRef.current;
       setRulerOpen(true);
       propsRef.current.onDragStart?.();
@@ -135,7 +157,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     onMoveShouldSetPanResponder: (_, g) => (!!dayRef.current || !!propsRef.current.onDayPreview) && Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.2,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: () => {
-      dayStartMsRef.current = propsRef.current.timeMs;
+      dayStartMsRef.current = propsRef.current.live ? Date.now() : propsRef.current.timeMs;
       lastDayStepRef.current = 0;
       propsRef.current.onDayDragStart?.();
     },
@@ -176,22 +198,24 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     },
   }), []);
 
-  const displayMs = scrubMs ?? timeMs;
-  // 눈금은 1분(60,000ms) 단위로만 위치가 유의미하게 바뀌므로 1분 버킷으로 메모이제이션
-  const minuteBucketMs = Math.round(displayMs / 60_000) * 60_000;
-  const ticks = useMemo(() => rulerTicks(minuteBucketMs, tz, width, PX_PER_HOUR), [minuteBucketMs, tz, width]);
-  const mx = useMemo(() => (sunsetMs == null ? null : markerX(minuteBucketMs, sunsetMs, width, PX_PER_HOUR)), [minuteBucketMs, sunsetMs, width]);
-  const band = useMemo(() => (scoreSamples ? rulerBand(scoreSamples, minuteBucketMs, width, PX_PER_HOUR) : []), [scoreSamples, minuteBucketMs, width]);
+  const isLiveTicking = live && scrubMs === null;
+  const displayMs = scrubMs ?? (live ? liveNowMs : timeMs);
+  // 드래그·고정 시각에서는 1분 버킷으로 메모이제이션하고, 실시간 모드에서는 매초 눈금·마커가 부드럽게 흐르게 합니다.
+  const trackCenterMs = isLiveTicking ? displayMs : Math.round(displayMs / 60_000) * 60_000;
+  const ticks = useMemo(() => rulerTicks(trackCenterMs, tz, width, PX_PER_HOUR), [trackCenterMs, tz, width]);
+  const mx = useMemo(() => (sunsetMs == null ? null : markerX(trackCenterMs, sunsetMs, width, PX_PER_HOUR)), [trackCenterMs, sunsetMs, width]);
+  const band = useMemo(() => (scoreSamples ? rulerBand(scoreSamples, trackCenterMs, width, PX_PER_HOUR) : []), [scoreSamples, trackCenterMs, width]);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
-  const text = timeText(displayMs, tz);
+  const text = timeText(displayMs, tz, isLiveTicking);
 
   // 세로 날짜 휠: 드래그 거리에 맞춰 위아래 날짜가 부드럽게 오르내림
+  const effectiveNowMs = isLiveTicking ? displayMs : nowMs;
   const liveDays = daySwipeSteps(dayDragY);
   const previewCenterMs = (dayStartMsRef.current ?? displayMs) + liveDays * DAY_MS;
   const wheelOffsetY = dayDragY + liveDays * DAY_STEP_PX;
-  const prevDayText = dateLabel(previewCenterMs - DAY_MS, nowMs, tz, language);
-  const currDayText = liveDays === 0 && dateText ? dateText : dateLabel(previewCenterMs, nowMs, tz, language);
-  const nextDayText = dateLabel(previewCenterMs + DAY_MS, nowMs, tz, language);
+  const prevDayText = dateLabel(previewCenterMs - DAY_MS, effectiveNowMs, tz, language);
+  const currDayText = liveDays === 0 && dateText ? dateText : dateLabel(previewCenterMs, effectiveNowMs, tz, language);
+  const nextDayText = dateLabel(previewCenterMs + DAY_MS, effectiveNowMs, tz, language);
 
   const tickScaleY = rulerActive ? 1 : 0.6;
   const tickBottom = rulerActive ? 14 : 6;

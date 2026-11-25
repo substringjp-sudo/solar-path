@@ -40,6 +40,7 @@ interface Props {
   onNow: () => void;
   /** 날짜·시간·위치가 현재와 다를 때만 "지금" 단추를 보임. 생략하면 시각 차이(>1분)로 판단. */
   showNow?: boolean;
+  live?: boolean;
   sunsetMs?: number | null;
   sunsetLabel?: string;
   /** 시간대별 점수 표본(자 위 색 띠) */
@@ -72,7 +73,7 @@ interface Props {
 }
 
 export const SkyFrame: React.FC<Props> = ({
-  language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
+  language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, live = false, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
   readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
@@ -166,6 +167,7 @@ export const SkyFrame: React.FC<Props> = ({
           sunsetLabel,
           scoreSamples,
           showNow: effectiveShowNow,
+          live,
           onNow,
         }}
         leftAction={{

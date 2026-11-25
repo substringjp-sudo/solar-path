@@ -50,6 +50,7 @@ export interface BottomDockRulerProps {
   scoreSamples?: readonly ScoreSample[] | null;
   showNow?: boolean;
   onNow?: () => void;
+  live?: boolean;
 }
 
 export interface BottomDockSideAction {
@@ -290,6 +291,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
         tz={ruler.tz}
         nowMs={ruler.nowMs}
         language={language}
+        live={ruler.live}
         onDragStart={ruler.onDragStart}
         onChange={ruler.onChange}
         onCommit={ruler.onCommit}

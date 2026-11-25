@@ -990,7 +990,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영: 정지 상태에서 바람 드리프트(§155)만 2초 간격으로 가볍게 갱신합니다.
+  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 정지 상태에서 1초 간격으로 가볍게 갱신합니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
@@ -1003,7 +1003,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       ) {
         requestRender(1);
       }
-    }, 2000);
+    }, 1000);
     return () => clearInterval(timer);
   }, [isActive, requestRender]);
 
@@ -3332,7 +3332,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       let isTrackingMoving = false;
       try {
-        const wallElapsedMs = isSlidingRef.current ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
+        const isLive = !useCelestialStore.getState().isTimeMachineEnabled;
+        const wallElapsedMs = (isSlidingRef.current || !isLive) ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
         const effectiveTimeMs = overrideSceneTimeMsRef.current ?? (targetTimeMsRef.current + wallElapsedMs);
         renderedTimeMsRef.current = effectiveTimeMs;
         const frameDate = new Date(renderedTimeMsRef.current);
