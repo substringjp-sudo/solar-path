@@ -59,7 +59,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { patchSunMarchLite } from './cloudGenus';
+import { patchSunMarchLite, setGenusLight } from './cloudGenus';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
@@ -522,8 +522,12 @@ export interface VolumetricOptions extends TsunOptions {
   billow: boolean;
   /** 고적운·층적운 세포 무늬(cloudCells, 계획 §24.11) — 흐름 모형 위에서만. 기본 켬. */
   cells: boolean;
-  /** 진단: takram 그림자 지도 패스 건너뛰기(구름 자기 그늘을 해 쪽 추적이 맡고 빛줄기가 꺼졌을 때만 의미). 기본 끔. */
-  skipShadowPass: boolean;
+  /**
+   * 구름 빛(계획 문서 §25). 'physical' = 해 쪽 직선 추적을 구름층 꼭대기까지(고도 문턱 없음) · 운량으로 판 확산 섞기 · 그늘 하늘빛을 위쪽 기둥 두께로.
+   * 구름 자기 그늘에 그림자 지도를 쓰지 않으므로, 빛줄기가 꺼진 품질(low)에서는 그림자 지도 패스를 건너뜁니다. 'legacy' = 예전(takram 짧은 행진 + 그림자 지도).
+   * 종류 모형(genus)이 켜져 있을 때만 의미가 있습니다.
+   */
+  cloudLight: 'physical' | 'legacy';
   /** 노을 3단계: 먼 거리 햇빛 가림 지도(farSun.ts). 해 10° 아래 · 장면에 고리(macro) 있을 때만. */
   farSun: boolean;
   /** 구름 아래 공기 그늘 싼 근사(low·medium, 빛줄기 없을 때). 기본 켬. */
@@ -560,7 +564,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, skipShadowPass: false, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -777,7 +781,10 @@ export async function createVolumetricScene(
     const accumScale = isAccumulating ? 0.48 : 1.0;
     clouds.clouds.maxIterationCount = Math.max(40, Math.round(baseMaxIter * elScale * altScale * interactScale * accumScale));
   };
+  /** §25 물리 빛이 켜졌는가(종류 모형 필요). 켜지면 takram 의 짧은 해 쪽 행진은 0 걸음(셰이더의 genusMarchSun 이 대신). */
+  const physLight = () => opt.cloudLight === 'physical' && opt.genus;
   const applySunMarch = () => {
+    if (physLight()) { clouds.clouds.maxIterationCountToSun = 0; return; }
     if (!opt.sunMarch) {
       if (baseMarch.n > 0) {   // 품질 단계 기본값으로 되돌림
         clouds.clouds.maxIterationCountToSun = baseMarch.n;
@@ -796,12 +803,13 @@ export async function createVolumetricScene(
       const stepScale = isInteracting && highAlt ? 1.85 : highAlt ? 1.5 : 1.35;
       clouds.clouds.minStepSize = Math.round(baseMinStepSize * stepScale);
       const targetSunSteps = opt.sunMarch ? opt.sunMarch[0] : (baseMarch.n || 6);
-      clouds.clouds.maxIterationCountToSun = Math.max(4, Math.round(targetSunSteps * (isInteracting ? 0.6 : 0.75)));
+      clouds.clouds.maxIterationCountToSun = physLight() ? 0 : Math.max(4, Math.round(targetSunSteps * (isInteracting ? 0.6 : 0.75)));
     } else {
       clouds.clouds.minStepSize = baseMinStepSize;
       applySunMarch();
     }
     applyPrimaryMarch();
+    applyCloudLight();
   };
   applySunMarch();
   applyMaxRay();
@@ -1541,7 +1549,8 @@ export async function createVolumetricScene(
   {
     const sp = clouds.shadowPass as unknown as { update: (r: unknown, f: number, d: number) => void };
     const orig = sp.update.bind(sp);
-    sp.update = (r, f, d) => { if (!opt.skipShadowPass) orig(r, f, d); };
+    // §25 물리 빛에서 그림자 지도를 읽는 곳은 빛줄기(SHADOW_LENGTH)뿐 — 빛줄기가 꺼진 품질이면 패스를 건너뜀.
+    sp.update = (r, f, d) => { if (!(physLight() && !clouds.lightShafts)) orig(r, f, d); };
   }
   patchSunMarchLite(clouds.shadowPass.currentMaterial as never);
   // 먼 거리 햇빛 가림(노을 3단계, 구름 패스만, 기본 꺼짐).
@@ -1700,6 +1709,12 @@ export async function createVolumetricScene(
     }
   };
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
+  /** §25 물리 빛 균일변수. 끌기 중에는 해 쪽 걸음을 6 으로. */
+  function applyCloudLight(): void {
+    const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: true, deck: true } : null;
+    for (const m of genusMats) setGenusLight(m, light);
+  }
+  applyCloudLight();
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
   // 다시 만듭니다. 끄면 세 글자 모두 고치기 전과 바이트가 같습니다(verify-lighting-fixes.js).
   const cloudVert = clouds.cloudsPass.currentMaterial as unknown as { vertexShader: string; needsUpdate: boolean };
@@ -3098,6 +3113,7 @@ export async function createVolumetricScene(
       }
       Object.assign(opt, o);
       applySunMarch();
+      applyCloudLight();
       if (isInteracting) applyInteractionLod();
       updateLod();
       clouds.temporalUpscale = opt.temporalUpscale;

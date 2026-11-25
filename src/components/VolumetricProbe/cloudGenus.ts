@@ -1408,6 +1408,41 @@ const THRU_BLOCK = [
 const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru', 'genusBeamTransmittance'] as const;
 
 /**
+ * §25 물리 빛(계획 문서 §25) — 고도 문턱 · 하드코딩 없는 구름 빛.
+ *  - genusSunTopN: 해 쪽 직선 추적을 구름층 꼭대기까지 N 걸음(0 = takram 짧은 행진 + 그림자 지도). 해가 낮으면 저절로 길게 걷습니다.
+ *  - genusDeckOn · genusDeckW: 운량이 높은(옆으로 넓은) 층은 1차원 판 확산(두-흐름), 좁은 조각구름은 직선 추적 음영 — 운량 0.6→0.95 에서 섞음.
+ *  - genusSkyPhys: 조각구름 그늘의 하늘빛 = 위쪽 기둥 두께의 두-흐름 확산 투과(경험식 "높이 × 가림 바닥 0.35" 대신).
+ */
+export const GENUS_LIGHT_DECL = 'uniform float genusSunTopN;\nuniform float genusSkyPhys;\nuniform float genusDeckOn;\nuniform vec4 genusDeckW;\n#define GENUS_DIFFW max(genusThru, genusDeckW * genusDeckOn)';
+/** 해 쪽 추적을 멈추는 두께(직사광 e^−24). */
+export const SUN_MARCH_EARLY_TAU = 24;
+/** 판 확산 비중: 운량 0.6 이하 0, 0.95 이상 1(smoothstep). */
+export function deckWeight(cover: number): number {
+  const t = Math.max(0, Math.min(1, (cover - 0.6) / 0.35));
+  return t * t * (3 - 2 * t);
+}
+/** 두-흐름 확산 투과 T(τ) = 1/(1 + 0.75(1−g)τ), g = 0.85 — 셰이더 genusDiffuseField 와 같은 식(판정용). */
+export function diffuseTransmission(tau: number, g = 0.85): number {
+  return 1 / (1 + 0.75 * (1 - g) * Math.max(0, tau));
+}
+/** 해 쪽 걸음(기하급수 1.6배)의 첫 걸음 — N 걸음 합이 꼭대기까지 거리 dTop 이 되게. 셰이더와 같은 식(판정용). */
+export function sunMarchFirstStep(dTop: number, n: number, s = 1.6): number {
+  return dTop * (s - 1) / (Math.pow(s, n) - 1);
+}
+function initGenusLightUniforms(mat: PatchableMaterial): void {
+  mat.uniforms.genusSunTopN = { value: 0 };
+  mat.uniforms.genusSkyPhys = { value: 0 };
+  mat.uniforms.genusDeckOn = { value: 0 };
+  mat.uniforms.genusDeckW = { value: new Vector4() };
+}
+export function setGenusLight(mat: PatchableMaterial, light: { sunTopN: number; skyPhys: boolean; deck: boolean } | null): void {
+  if (!mat.uniforms.genusSunTopN) return;
+  mat.uniforms.genusSunTopN.value = light ? light.sunTopN : 0;
+  mat.uniforms.genusSkyPhys.value = light?.skyPhys ? 1 : 0;
+  mat.uniforms.genusDeckOn.value = light?.deck ? 1 : 0;
+}
+
+/**
  * 셰이더 패치 — 구름 패스와 그림자 패스 둘 다(같은 clouds.glsl). genusOn = 0 인 층은 takram 그대로입니다.
  * 기준 문자열이 없으면(takram 판이 바뀜) throw — 조용히 틀리지 않게.
  */
@@ -1421,7 +1456,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\nuniform vec4 genusDeckW;\nuniform float dbgDeck;\nuniform float dbgSkyPhys;\n#define GENUS_DIFFW max(genusThru, max(genusBroken * dbgDiffBroken, genusDeckW * dbgDeck))\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\n' + GENUS_LIGHT_DECL + '\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1446,22 +1481,21 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   if (src.includes(amb)) {
     const sunLine = '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
     if (!src.includes(sunLine)) throw new Error('cloudGenus: sun term anchor missing');
-    src = src.replace(sunLine, '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth * dbgSunTau, cosTheta);' + '\n      vec3 gSunPart = radiance;');
+    src = src.replace(sunLine, sunLine + '\n      vec3 gSunPart = radiance;');
     src = src.replace(amb, amb + THRU_BLOCK + [
       '',
       '      {',
-      '        // 레일리 산란으로 붉어진 직사광일수록(적/청 휘도비 차이) 얇은 가장자리 산란과 ACES 탈색 보정을 연속적으로 적용',
+      '        // 레일리 산란으로 붉어진 직사광일수록(적/청 휘도비 차이) ACES 탈색 보정 — **직사광 몫에만**(2026-11-25: 하늘빛까지 곱하면 그늘이 해 색으로 물듦).',
+      '        // (예전의 "붉은 가장자리 빛" 0.14·rim 항은 뺌 — 해 쪽 두께로 거의 줄지 않아 그늘까지 고른 주황으로 칠함. 계획 문서 §25)',
       '        float gSunL = dot(sunIrradiance, vec3(0.2126, 0.7152, 0.0722));',
       '        vec3 gSunChroma = sunIrradiance / max(gSunL, 1e-6);',
       '        float gRedness = clamp((gSunChroma.r - gSunChroma.b - 0.25) * 0.75, 0.0, 1.0) * dot(genusOn, media.weight);',
-      '        float gRim = (dbgRimMode < 0.5 ? exp(-dbgRimK * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) : exp(-dbgRimK * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
-      '        radiance += sunIrradiance * (0.14 * gRim * gRedness * dbgRim);',
       '        vec3 gWarmChroma = mix(vec3(1.0), clamp(vec3(gSunChroma.r * 0.85, gSunChroma.g * 0.90, max(gSunChroma.b, 0.80)), 0.70, 1.38), gRedness * (0.45 + 0.35 * max(0.0, cosTheta)));',
-      '        if (dbgWarmMode > 0.5) radiance += gSunPart * (gWarmChroma - vec3(1.0)) * dbgWarm; else radiance *= mix(vec3(1.0), gWarmChroma, dbgWarm);',
+      '        radiance += gSunPart * (gWarmChroma - vec3(1.0));',
       '      }',
     ].join('\n'));
   }
-  // 진단: 해 쪽 직선 추적을 구름층 꼭대기까지(기하로 정한 거리, N 걸음, 기하급수 1.6배) — 고도 문턱 없는 자기 그늘.
+  // §25 해 쪽 직선 추적을 구름층 꼭대기까지(기하로 정한 거리, N 걸음, 기하급수 1.6배) — 고도 문턱 없는 자기 그늘. genusSunTopN 0 이면 takram 그대로.
   if (src.includes('vec4 marchClouds(')) src = src.replace('vec4 marchClouds(', [
     'float genusMarchSun(const vec3 ro, const vec3 rd, const int n, const float mipLevel, const float jitter, out float dist) {',
     '  float h0 = length(ro) - bottomRadius;',
@@ -1489,7 +1523,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
     'vec4 marchClouds(',
   ].join('\n'));
   const BSM_A = '      if (height < shadowTopHeight) {\n        // Obtain the optical depth from BSM at the ray position.';
-  if (src.includes(BSM_A)) src = src.replace(BSM_A, '      if (dbgAdaptN > 0.5) opticalDepth = genusMarchSun(position, sunDirection, int(dbgAdaptN), mipLevel, jitter, sunRayDistance);\n      if (height < shadowTopHeight && dbgSelfBSM > 0.5) {\n        // Obtain the optical depth from BSM at the ray position.');
+  if (src.includes(BSM_A)) src = src.replace(BSM_A, '      if (genusSunTopN > 0.5) opticalDepth = genusMarchSun(position, sunDirection, int(genusSunTopN), mipLevel, jitter, sunRayDistance);\n      if (height < shadowTopHeight && genusSunTopN < 0.5) {\n        // Obtain the optical depth from BSM at the ray position.');
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
     'uniform float genusPlanar;',
@@ -1505,20 +1539,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.genusNorth = { value: new Vector3(0, 1, 0) };
   mat.uniforms.genusTileM = { value: 24000 };
   mat.uniforms.genusPlanar = { value: 0 };
-  mat.uniforms.dbgSunTau = { value: 1 };
-  mat.uniforms.dbgWarm = { value: 1 };
-  mat.uniforms.dbgRim = { value: 1 };
-  mat.uniforms.dbgRimK = { value: 0.045 };
-  mat.uniforms.dbgRimMode = { value: 0 };
-  mat.uniforms.dbgDiffBroken = { value: 0 };
-  mat.uniforms.dbgWarmMode = { value: 0 };
-  mat.uniforms.dbgSkyDiff = { value: 0 };
-  mat.uniforms.dbgAdaptN = { value: 0 };
-  mat.uniforms.dbgSelfBSM = { value: 1 };
-  mat.uniforms.genusBroken = { value: new Vector4() };
-  mat.uniforms.genusDeckW = { value: new Vector4() };
-  mat.uniforms.dbgDeck = { value: 0 };
-  mat.uniforms.dbgSkyPhys = { value: 0 };
+  initGenusLightUniforms(mat);
   mat.needsUpdate = true;
 }
 
@@ -1545,8 +1566,7 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusThru', lane(L => param(L, 'thru') ?? 1));
   set('genusBeamTransmittance', lane(L => (L?.opts as any)?.beamTransmittance ?? 1));
   // 넓게 이어진 구름층(운량 높음)은 1차원 판 확산(두-흐름)이 맞고, 좁은 조각구름은 빛이 옆으로 새어 직선 추적 음영이 맞음 — 운량으로 섞음.
-  if (mat.uniforms.genusDeckW) (mat.uniforms.genusDeckW.value as Vector4).set(...[0, 1, 2, 3].map(i => { const c = layers[i]?.cover ?? 0; const t = Math.max(0, Math.min(1, (c - 0.6) / 0.35)); return layers[i] ? t * t * (3 - 2 * t) : 0; }) as [number, number, number, number]);
-  if (mat.uniforms.genusBroken) (mat.uniforms.genusBroken.value as Vector4).set(...[0, 1, 2, 3].map(i => (layers[i] && (layers[i]!.genus === 'ac' || layers[i]!.genus === 'sc') ? 1 : 0)) as [number, number, number, number]);
+  if (mat.uniforms.genusDeckW) (mat.uniforms.genusDeckW.value as Vector4).set(...[0, 1, 2, 3].map(i => (layers[i] ? deckWeight(layers[i]!.cover) : 0)) as [number, number, number, number]);
 }
 
 /**
@@ -1841,7 +1861,6 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        float gF = clamp(gTn / max(gDsun, 1e-3), 0.0, 1.0);',
       '        float gDir = max(0.0, 1.0 + gF * dot(rayDirection, surfaceNormal));',
       '        radiance += gJ * gDir * dot(genusOn * GENUS_DIFFW, media.weight);',
-      `        radiance += skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky * ${INV_2PI.toFixed(6)} * gDir * dot(genusOn * genusBroken, media.weight) * dbgSkyDiff;`,
     ].join('\n')));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
@@ -1875,12 +1894,12 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '      }',
     ].join('\n'));
     return src.replace(IS_CLOUDS, [
-      // 진단 dbgSkyPhys: 조각구름(두-흐름 비중 밖) 하늘빛을 위쪽 기둥 두께 τ_up 의 두-흐름 확산 투과로(추가 텍스처 읽기 없음 — 기둥 적분은 이미 위에서 계산).
+      // §25 조각구름(두-흐름 비중 밖) 하늘빛을 위쪽 기둥 두께 τ_up 의 두-흐름 확산 투과로(추가 텍스처 읽기 없음 — 기둥 적분은 이미 위에서 계산).
       //   J_sky = E_sky · [D(τ_up, τ_tot; 2) + e^(−2(1−g)τ_up)] / 2π  — 경험식(높이 × 가림 바닥 0.35) 대신.
       '      float gTaS = dot(gTauAo, media.weight), gTtS = dot(gTauTo, media.weight);',
       `      float gSkyPhys = (genusDiffuseField(gTaS, gTtS, ${SKY_SECANT.toFixed(1)}) + exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTaS)) * ${INV_2PI.toFixed(6)};`,
       `      float gSkyOld = mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient;`,
-      '      float gBrokenW = dbgSkyPhys * dot(genusOn * (vec4(1.0) - GENUS_DIFFW), media.weight);',
+      '      float gBrokenW = genusSkyPhys * dot(genusOn * (vec4(1.0) - GENUS_DIFFW), media.weight);',
       '      radiance += gSkyIrr * mix(gSkyOld, gSkyPhys, gBrokenW) * skyLightScale;   // §L4',
     ].join('\n'));
   }
@@ -2171,7 +2190,8 @@ export function setGrainKnobs(mat: PatchableMaterial, knobs: GrainKnobs, erodePi
 }
 
 /**
- * 해 쪽 추적 전용 가벼운 날씨 읽기(진단 → 정식 전 단계). 모든 셰이더 패치 **뒤**에 겁니다.
+ * §25 해 쪽 추적(genusMarchSun) 전용 가벼운 날씨 읽기와 일찍 멈추기. 모든 셰이더 패치 **뒤**에 겁니다.
+ * 해 쪽 두께가 SUN_MARCH_EARLY_TAU 를 넘으면 남은 걸음을 건너뜀(직사광 e^−24 ≈ 0, 다중 산란 고차 항도 0.5^4·e^−1.5 아래).
  * genusMarchSun 이 걸음마다 부르는 sampleWeather 에서 보이는 모양용 장치(찢긴 결 비틀기 · 생애 두 장 섞기 · 둘째 무늬판 · 세포)를
  * (생애 섞기·둘째 무늬판은 모양 자체를 정하므로 그대로 — 빼면 보이는 구름과 그림자 구름이 달라져 하얀 얼룩이 생김) 전역 플래그 gLite 로 건너뜁니다 — 해까지의 대략적 두께만 필요하기 때문. 1차 행진(보이는 모양)은 그대로.
  */
@@ -2181,16 +2201,13 @@ export function patchSunMarchLite(mat: PatchableMaterial): void {
     if (!src.includes(a)) throw new Error('sunMarchLite: anchor missing — ' + a.slice(0, 60));
     src = all ? src.split(a).join(b) : src.replace(a, b);
   };
-  rep('uniform vec4 coverageFilterWidths;', 'uniform vec4 coverageFilterWidths;\nfloat gLite = 0.0;\nuniform float dbgLite;');
+  rep('uniform vec4 coverageFilterWidths;', 'uniform vec4 coverageFilterWidths;\nfloat gLite = 0.0;');
   rep('  float gWispFade0 = 1.0 - smoothstep(3500.0, 15000.0, gFoot0);', '  float gWispFade0 = (1.0 - smoothstep(3500.0, 15000.0, gFoot0)) * (1.0 - gLite);');
   if (src.includes('  if (dot(cellAmp, vec4(1.0)) > 0.0) {')) rep('  if (dot(cellAmp, vec4(1.0)) > 0.0) {', '  if (dot(cellAmp, vec4(1.0)) > 0.0 && gLite < 0.5) {');
   if (src.includes('float genusMarchSun(')) {
-    rep('  for (int i = 0; i < 64; ++i) {\n    if (i >= n) break;', '  gLite = dbgLite;\n  for (int i = 0; i < 64; ++i) {\n    if (i >= n || od > dbgEarly) break;');
+    rep('  for (int i = 0; i < 64; ++i) {\n    if (i >= n) break;', `  gLite = 1.0;\n  for (int i = 0; i < 64; ++i) {\n    if (i >= n || od > ${SUN_MARCH_EARLY_TAU.toFixed(1)}) break;`);
     rep('  return od;\n}\nvec4 marchClouds(', '  gLite = 0.0;\n  return od;\n}\nvec4 marchClouds(');
-    rep('uniform float dbgLite;', 'uniform float dbgLite;\nuniform float dbgEarly;');
   }
   mat.fragmentShader = src;
-  mat.uniforms.dbgLite = { value: 0 };
-  mat.uniforms.dbgEarly = { value: 1e9 };
   mat.needsUpdate = true;
 }
