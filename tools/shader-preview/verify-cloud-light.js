@@ -15,6 +15,7 @@
  *  6. 셰이더 — genusMarchSun(꼭대기까지) 이 있고, 켜지면 그림자 지도 자기 그늘을 끄며, 가벼운 날씨 읽기(gLite)가 결 비틀기 · 세포만 건너뛰고
  *     일찍 멈추기 두께가 24 다.
  *  7. 장면 연결 — cloudLight 기본 'physical', 켜지면 takram 해 쪽 행진 0 걸음, 빛줄기가 꺼진 품질에서 그림자 지도 패스 건너뜀, 끌기 중 6 걸음.
+ *     그늘 하늘빛(skyPhys)은 잠시 끔(§25.5 — 역광 구름이 하늘처럼 밝아짐, 원인 조사 중).
  */
 const path = require('path');
 const fs = require('fs');
@@ -96,6 +97,7 @@ function build() {
   ok(/if \(physLight\(\)\) \{ clouds\.clouds\.maxIterationCountToSun = 0; return; \}/.test(scene), '켜지면 takram 해 쪽 행진 0 걸음');
   ok(/if \(!\(physLight\(\) && !clouds\.lightShafts\)\) orig\(r, f, d\)/.test(scene), '빛줄기가 꺼지면 그림자 지도 패스 건너뜀');
   ok(/sunTopN: isInteracting \? 6 : 8/.test(scene), '끌기 중 6 걸음, 평소 8 걸음');
+  ok(/skyPhys: false, deck: true/.test(scene), '그늘 하늘빛은 잠시 끔(§25.5)');
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
   process.exit(fail ? 1 : 0);
