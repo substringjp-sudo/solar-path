@@ -458,7 +458,7 @@ export const useCelestialStore = create<CelestialState>()(
         volumetricAutoRes: true,
         volumetricFlow: true,
         volumetricFlowUv: true,
-        volumetricPhysics: false,
+        volumetricPhysics: true,
         volumetricPhysicsIce: false,
         volumetricMacro: 1,
         volumetricMorph: false,

@@ -235,7 +235,7 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   // 대기 흐름 구름 모형과 층별 바람 드리프트/전단 기울임(flowUv)을 기본으로 켭니다. 개발 패널 FLOW/UV 칩으로 끌 수 있습니다.
   volumetricFlow: true,
   volumetricFlowUv: true,
-  volumetricPhysics: false,
+  volumetricPhysics: true,   // §25.7 미세물리 단면·소광 기본(층적운 한낮 그늘)
   volumetricPhysicsIce: false,
   volumetricMacro: 1,
   volumetricMorph: false,
