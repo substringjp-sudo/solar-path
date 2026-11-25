@@ -7,16 +7,17 @@
  * 방법: 구름이 생기는 문턱(날씨 값)을 여러 크기의 주기 fBm 으로 흔듭니다 — lw ← clamp(lw + a·(n − 0.5)), 날씨 값이 0 인 곳(맑은 하늘)은 그대로.
  * 구름 속(lw ≫ 문턱)은 바뀌지 않고 경계만 움직이므로 외곽선이 거칠어집니다. 종류별 손값 없이 한 규칙.
  *
- * 타일: 256² 한 채널, 주기 EDGE_PERIOD_M(4 km). 옥타브 주기 1 km · 500 m · 250 m · 125 m · 62 m(텍셀 16 m), 세기 ∝ 파장^0.7
- * (경계 프랙탈 차원 ≈ 1.3). 셰이더는 화소 발자국에 맞춘 mip 으로 읽어 멀리서는 고운 옥타브가 저절로 평균(0.5)이 됩니다.
+ * 타일: 256² 한 채널, 주기 EDGE_PERIOD_M(2 km). 옥타브 주기 500 · 250 · 125 · 62 · 31 m(텍셀 8 m), 세기 ∝ 파장^0.3 —
+ * km 크기 구조는 날씨 무늬가 이미 정하므로 여기서는 고운 쪽을 키움(첫 시도 4 km · 파장^0.7 은 경계를 km 단위로 옮겨 세포 틈이 메워짐).
+ * 셰이더는 화소 발자국에 맞춘 mip 으로 읽어 멀리서는 고운 옥타브가 저절로 평균(0.5)이 됩니다.
  * 층마다 바람 표류(genusDriftKm)를 따라 무늬가 구름과 함께 움직입니다.
  */
 import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RedFormat, RepeatWrapping, UnsignedByteType } from 'three';
 import { mulberry32 as rng } from '../../utils/math';
 
 export const EDGE_TILE_PX = 256;
-export const EDGE_PERIOD_M = 4000;
-/** 옥타브 격자 수(타일당) — 주기 4 km / n. */
+export const EDGE_PERIOD_M = 2000;
+/** 옥타브 격자 수(타일당) — 주기 2 km / n. */
 export const EDGE_OCTAVES = [4, 8, 16, 32, 64];
 /** 기본 세기(날씨 값 단위). 문턱 경사(edge ≈ 1.2~1.8)에서 경계가 수백 m 흔들림. */
 export const EDGE_ROUGH_DEFAULT = 0.5;
@@ -40,7 +41,7 @@ function valueOctave(r: () => number, n: number) {
 /** 가장자리 fBm 타일 바이트(R, 주기). 평균 ≈ 0.5, 순수 함수 — 판정이 같은 값을 씁니다. */
 export function makeEdgeNoiseData(seed = 11, px = EDGE_TILE_PX): Uint8Array {
   const r = rng(seed * 104729 + 17);
-  const oct = EDGE_OCTAVES.map(n => ({ f: valueOctave(r, n), a: Math.pow(EDGE_OCTAVES[0] / n, 0.7) }));
+  const oct = EDGE_OCTAVES.map(n => ({ f: valueOctave(r, n), a: Math.pow(EDGE_OCTAVES[0] / n, 0.3) }));
   const aSum = oct.reduce((s, o) => s + o.a, 0);
   const raw = new Float32Array(px * px);
   let mean = 0, sq = 0;
