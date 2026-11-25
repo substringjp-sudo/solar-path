@@ -20,7 +20,7 @@
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
 import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, ICE_DIFFUSE_SCALE, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
-import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, bilinearPeriodic, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
+import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
 import { mulberry32 as rng } from '../../utils/math';
@@ -1052,68 +1052,6 @@ function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer,
   };
 }
 
-
-// ───── §24 세포 대류 출렁임(두께 함수 모형의 윗면) ─────
-const CELL_FIELD_CACHE_MAX = 8;
-const cellFieldCache = new Map<string, Float32Array>();
-const hash2 = (i: number, j: number, s: number): number => {
-  let h = Math.imul(i + 0x3779, 0x9E3779B1) ^ Math.imul(j + 0x7F4A, 0x85EBCA77) ^ Math.imul(s + 0x1B3, 0xC2B2AE3D);
-  h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 12; h = Math.imul(h, 0x297A2D39); h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-};
-/**
- * [−1, 1] 로 **막힌** 셀 장 — 파장 λ₀ · 2λ₀ 의 흔들린 격자 점마다 둥근 봉우리(반지름 CELL_RADIUS, 점마다 0.7~1.3 배로 흔듦), 가중 1 · 0.35.
- * 가장 가까운 점까지 거리를 그 점의 반지름으로 나눈 값으로 고르므로(거듭제곱 칸) 크고 작은 셀이 섞입니다. 타일 주기 경계.
- * 막혀 있어야 운량이 높을 때 평균 두께가 출렁임 폭을 넘어 빈칸이 0 이 됩니다(가우스 꼬리는 바늘구멍을 냄).
- */
-function* cellFieldSteps(S: number, tileKm: number, lambdaKm: number, seed: number, out: Float32Array): Generator<void> {
-  const scales: Array<[number, number]> = CELL_SCALES;
-  const wsum = scales.reduce((a, [, w]) => a + w, 0);
-  out.fill(0);
-  for (let si = 0; si < scales.length; si++) {
-    const [mul, w] = scales[si];
-    const N = Math.max(2, Math.round(tileKm / (lambdaKm * mul)));
-    const px = new Float32Array(N * N), py = new Float32Array(N * N), pr = new Float32Array(N * N);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const k = j * N + i;
-      px[k] = i + 0.15 + 0.7 * hash2(i, j, seed * 7 + si * 101);
-      py[k] = j + 0.15 + 0.7 * hash2(i, j, seed * 7 + si * 101 + 53);
-      pr[k] = 0.7 + 0.6 * hash2(i, j, seed * 7 + si * 101 + 97);
-    }
-    for (let y = 0; y < S; y++) {
-      const gy = ((y + 0.5) / S) * N;
-      for (let x = 0; x < S; x++) {
-        const gx = ((x + 0.5) / S) * N, ci = Math.floor(gx), cj = Math.floor(gy);
-        let best = Infinity;
-        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-          const ii = ci + di, jj = cj + dj, k = (((jj % N) + N) % N) * N + (((ii % N) + N) % N);
-          const dx = gx - (px[k] + (ii - (((ii % N) + N) % N))), dy = gy - (py[k] + (jj - (((jj % N) + N) % N)));
-          const d = Math.sqrt(dx * dx + dy * dy) / pr[k];
-          if (d < best) best = d;
-        }
-        const v = Math.max(0, 1 - (best / CELL_RADIUS) * (best / CELL_RADIUS));   // 봉우리 0..1
-        out[y * S + x] += (w * (2 * v - 1)) / wsum;
-      }
-      if (y % 16 === 15) yield;
-    }
-  }
-}
-
-/**
- * §24 셀 출렁임 폭(표준화한 흐름 원시장 1 σ 대비) · 맑은 날 배수 · 봉우리 반지름 · 크기 배수. 값은 측정으로 골랐습니다(§24.10):
- * 폭 2 · 반지름 0.7 · 1·2·4배는 이웃 셀이 붙어 운량 0.5 에서 가장 큰 조각 0.65~0.79. 반지름 0.5 · 1·2배 · 폭 4 에서 0.17~0.34, 봉우리 = 셀 파장.
- * 맑은 날 폭을 낮추면(0.35 · 0.2) 다시 큰 덩어리(0.26~0.44)라 1 로 둡니다. 셀이 준규칙적인 것은 사진(Clark–Evans 1.2)과 같습니다.
- * 셀을 끌고 가지 않으면(CELL_WARP 0) 동그란 땡땡이(길쭉함 1.14)이고 흐름 줄무늬가 사라집니다. 1 에서 1.7~3.4(사진 2.2), 4 · 8 은 대리석 소용돌이.
- */
-const CELL_GAIN = 4;
-/** 셀을 흐름 변위의 몇 배로 끌고 갈지(층의 flowDisp 에 곱함). */
-const CELL_WARP = 1;
-/** 맑은 날(운량 0.1) 셀 폭 배수 — 0.5 까지 운량에 따라 1 로 오릅니다(지금 1 = 낮추지 않음). */
-const CELL_LOW = 1;
-/** 셀 봉우리 반지름(격자 간격 단위) — 0.5 아래면 이웃 셀과 붙지 않음. */
-const CELL_RADIUS = 0.5;
-/** 크기 배수와 가중(1·2·4 배). */
-const CELL_SCALES: Array<[number, number]> = [[1, 1], [2, 0.35]];
 const FLOW_CORE_CACHE_MAX = 8;
 const flowCoreCache = new Map<string, FlowCore>();
 
@@ -1326,55 +1264,6 @@ function* genusWeatherSteps(
         yield;
       }
       f = baseEntry.grown;
-    }
-    // §24 세포 대류: 두께 h = A·s(x) + (흐름 원시장, 표준화). s 는 [−1, 1] 로 막힌 셀 장. A 는 운량 0.70 → 0.95 에서 0 으로 —
-    // 흐린 날은 셀 없이 예전 그대로(바이트 같음), 판 구름 · 적운 계열은 flowCell 0 이라 해당 없음.
-    const cellW = useFlow ? (fp(L, 'flowCell') ?? 0) : 0;
-    // 맑은 날(운량 0.1)은 셀 폭을 CELL_LOW 배로 낮춰 큰 흐름(습한 곳)이 구름 자리를 정하게 함 — 셀이 바둑판처럼 고르게 퍼지지 않게(무리 짓기).
-    const lowRamp = CELL_LOW + (1 - CELL_LOW) * Math.min(1, Math.max(0, (L.cover - 0.1) / 0.4));
-    const cellA = cellW * Math.min(1, Math.max(0, (0.95 - L.cover) / 0.25)) * lowRamp * CELL_GAIN;
-    if (cellA > 0 && L.cover > 0) {
-      const depthKm = Math.max(0.15, (param(L, 'height') ?? 500) / 1000);
-      const lambdaKm = Math.max(0.3, fp(L, 'flowCellKm') ?? 2.75 * depthKm);
-      const cSeed = ((L.opts?.flowSeed ?? seed) | 0) & 0xffff;
-      const cKey = `${S}|${tileKm}|${lambdaKm.toFixed(3)}|${cSeed}`;
-      let cell = cellFieldCache.get(cKey);
-      if (!cell) {
-        cell = new Float32Array(S * S);
-        yield* cellFieldSteps(S, tileKm, lambdaKm, cSeed, cell);
-        cellFieldCache.set(cKey, cell);
-        if (cellFieldCache.size > CELL_FIELD_CACHE_MAX) { const o = cellFieldCache.keys().next().value; if (o !== undefined) cellFieldCache.delete(o); }
-      }
-      let mean = 0, sq = 0;
-      for (let i = 0; i < f.length; i++) { mean += f[i]; sq += f[i] * f[i]; }
-      mean /= f.length; const sd = Math.sqrt(Math.max(1e-12, sq / f.length - mean * mean));
-      const h = new Float32Array(S * S);
-      // 셀도 흐름 변위로 끌고 갑니다(x − k·D(x)) — 둥근 봉우리가 흐름을 따라 늘어나고 휘어, 흐름 줄무늬 안에서 길쭉한 조각이 됩니다.
-      // 원시장이 캐시에서 나오면 흐름 핵을 안 불렀으므로 여기서 같은 캐시(같은 키)에서 꺼냅니다 — 없으면 셀이 조용히 둥글게 남습니다.
-      if (!core && flow) {
-        const cKey = JSON.stringify([flow, tileKm]);
-        core = flowCoreCache.get(cKey) ?? null;
-        if (!core) {
-          core = newFlowCore(flow.n);
-          yield* flowCoreSteps(flow, tileKm, core);
-          flowCoreCache.set(cKey, core);
-          if (flowCoreCache.size > FLOW_CORE_CACHE_MAX) { const o = flowCoreCache.keys().next().value; if (o !== undefined) flowCoreCache.delete(o); }
-        }
-      }
-      const wk = CELL_WARP * (fp(L, 'flowDisp') ?? 1);
-      for (let y = 0; y < S; y++) {
-        const v = (y + 0.5) / S;
-        for (let x = 0; x < S; x++) {
-          const u = (x + 0.5) / S, i = y * S + x;
-          const cu = core && wk > 0 ? u - wk * bilinearPeriodic(core.dx, core.n, u, v) : u;
-          const cv = core && wk > 0 ? v - wk * bilinearPeriodic(core.dy, core.n, u, v) : v;
-          const sv = wk > 0 ? bilinearPeriodic(cell, S, cu, cv) : cell[i];
-          h[i] = cellA * sv + (f[i] - mean) / sd;
-        }
-        if (y % 32 === 31) yield;
-      }
-      f = h;
-      yield;
     }
     // 흐름 원시장(FlowCore)은 평균 0인 음수(-3~+3)를 포함하므로 -1이 아닌 -Infinity여야 100% 덮임에서 음수 꼬리(~16%)가 빠지지 않습니다.
     const th = L.cover >= 0.999 ? -Infinity : qf(f, 1 - L.cover);
