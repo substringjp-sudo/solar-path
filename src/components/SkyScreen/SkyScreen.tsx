@@ -100,6 +100,19 @@ import {
 import { lensLine } from '../../utils/lensInfo';
 import { planTimelapse, previewTimeAt, videoClock, type TimelapsePlan } from '../../utils/timelapsePlan';
 import { analyzeAstroWindow, type AstroWindowAnalysis } from '../../utils/astroForecast';
+import { VirtualCameraBagModal } from '../AstroCamera/VirtualCameraBagModal';
+import { ViewfinderOpticsOverlay, ZoneSystemBar } from '../AstroCamera/ViewfinderOpticsOverlay';
+import {
+  createDefaultGearBag,
+  hasActiveOpticalGear,
+  summarizeGearForCell,
+  type CameraGearBagState,
+  type WindLayerInput,
+  type ZoneHistogramResult,
+} from '../../utils/photoAlgorithms';
+import { applyOpticalGearToPhoto } from '../../utils/photoPipeline';
+import { intrinsicsFromHfov, type HorizonProfile as ArHorizonProfile } from '../../utils/arVision';
+import { resolveLayerWinds } from '../../utils/skyColumn';
 
 const SANDBOX_ASTRO_CAPS: AstroCameraCapabilities = {
   available: false, cameraId: '', hardwareLevel: -1, rawSupported: false, manualSensorSupported: false,
@@ -791,6 +804,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [sandboxIso, setSandboxIso] = useState<number | null>(null);
   const [sandboxShutterS, setSandboxShutterS] = useState<number | null>(null);
   const [sandboxWb, setSandboxWb] = useState<PhotoWbPreset | null>(null);
+  const [sandboxGearBag, setSandboxGearBag] = useState<CameraGearBagState>(() => createDefaultGearBag());
+  const [sandboxGearBagOpen, setSandboxGearBagOpen] = useState<boolean>(false);
+  const [sandboxZoneHist, setSandboxZoneHist] = useState<ZoneHistogramResult | null>(null);
+  const [sandboxLiveView, setSandboxLiveView] = useState<{ az: number; el: number; fov: number; roll: number }>({
+    az: 180,
+    el: 12,
+    fov: 65,
+    roll: 0,
+  });
+  const sandboxGearActive = useMemo(() => hasActiveOpticalGear(sandboxGearBag), [sandboxGearBag]);
+  const sandboxGearBadge = useMemo(() => summarizeGearForCell(sandboxGearBag, language), [sandboxGearBag, language]);
   const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
@@ -870,10 +894,81 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const longExpReqRef = useRef<number>(0);
   const longExpBusyRef = useRef<boolean>(false);
   const longExpAbortRef = useRef<AbortController | null>(null);
+
+  // 시간 스크롤(isSliding) 중에는 5분 버킷 단위로만 46개 고리 전체 보간을 갱신해 매 터치 이벤트마다 배열 재생성 및 SkyScene3D weatherRef 변동을 막습니다.
+  const weatherEvalMs = isSliding
+    ? Math.floor(currentTime.getTime() / 300_000) * 300_000
+    : currentTime.getTime();
+  const interpolatedWeather = useMemo(
+    () => (pathData.length ? getInterpolatedWeather(pathData, new Date(weatherEvalMs)) : []),
+    [pathData, weatherEvalMs]
+  );
+
+  const buildArHorizon = useCallback((): ArHorizonProfile | null => {
+    const skyFn = sceneRef.current?.getSkyline?.();
+    if (skyFn) {
+      const stepDeg = 2;
+      const bins = 360 / stepDeg;
+      const elevDeg = new Float32Array(bins);
+      for (let i = 0; i < bins; i++) {
+        elevDeg[i] = skyFn(i * stepDeg) ?? 0;
+      }
+      return { stepDeg, elevDeg };
+    }
+    if (terrainData?.panoramicAngles?.length) {
+      const src = terrainData.panoramicAngles;
+      return { stepDeg: 360 / src.length, elevDeg: Float32Array.from(src) };
+    }
+    return null;
+  }, [terrainData?.panoramicAngles]);
+
+  const sandboxWindLayers = useMemo<WindLayerInput[]>(() => {
+    const obs0 = interpolatedWeather[0];
+    const w = resolveLayerWinds(obs0).winds;
+    return [
+      {
+        altitudeM: (obs0?.layerAltLowKm ?? 1.5) * 1000,
+        windFromDeg: w.low.bearingDeg,
+        speedMs: w.low.speedKmh / 3.6,
+        weight: Math.max(0.15, (obs0?.low ?? 30) / 100),
+      },
+      {
+        altitudeM: (obs0?.layerAltMidKm ?? 5.5) * 1000,
+        windFromDeg: w.mid.bearingDeg,
+        speedMs: w.mid.speedKmh / 3.6,
+        weight: Math.max(0.15, (obs0?.mid ?? 30) / 100),
+      },
+      {
+        altitudeM: (obs0?.layerAltHighKm ?? 9.5) * 1000,
+        windFromDeg: w.high.bearingDeg,
+        speedMs: w.high.speedKmh / 3.6,
+        weight: Math.max(0.15, (obs0?.high ?? 30) / 100),
+      },
+    ];
+  }, [interpolatedWeather]);
+
+  const sandboxOptics = useMemo(() => {
+    const win = Dimensions.get('window');
+    const sw = Math.max(1, win.width);
+    const sh = Math.max(1, win.height);
+    const vFovDeg = Math.max(1.5, Math.min(120, sandboxLiveView.fov || 65));
+    const tanV = Math.tan((vFovDeg * Math.PI) / 360);
+    const hFovDeg = (2 * Math.atan(tanV * (sw / sh)) * 180) / Math.PI;
+    return {
+      k: intrinsicsFromHfov(sw, sh, hFovDeg),
+      hFovDeg,
+      vFovDeg,
+    };
+  }, [sandboxLiveView.fov]);
+
   const runSandboxLongExp = useCallback(async () => {
     const sky = sceneRef.current;
     const st = sky?.getRenderState?.();
     if (!sky || !st) return;
+    const wantAstro = sandboxShootMode === 'astro';
+    const wantPhotoGear = sandboxShootMode === 'photo' && sandboxGearActive;
+    if (!wantAstro && !wantPhotoGear) return;
+
     longExpAbortRef.current?.abort();
     const ctl = new AbortController();
     longExpAbortRef.current = ctl;
@@ -882,30 +977,72 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     longExpBusyRef.current = true;
     setSandboxLongExpBusy(true);
     try {
-      const simMode = sandboxAstroSettings.mode === 'tracked'
-        ? (sandboxAstroSettings.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
-        : 'trails';
-      const sp = computeAstroSimExposureParams(sandboxAstroSettings.durationSec, sandboxAstroSummary.clampedIso);
-      const res = await sky.renderLongExposure(
-        { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
-        {
-          mode: simMode,
-          startTimeMs: currentTimeRef.current.getTime(),
-          durationSec: sandboxAstroSettings.durationSec,
-          steps: sp.stepsForPreview,
-          exposureGain: sp.exposureGain,
-          starBoost: sp.starBoost,
-          shadowLift: sp.shadowLift,
-          settleFrames: 4,
-          requireReady: false,
-          waitMs: 5000,
-          format: 'jpeg',
-          compress: 0.85,
-          signal: ctl.signal,
-        },
-      );
-      if (reqId === longExpReqRef.current && !ctl.signal.aborted && res.uri) {
-        setSandboxLongExpUri(res.uri);
+      let baseUri: string | null = null;
+      if (wantAstro) {
+        const simMode = sandboxAstroSettings.mode === 'tracked'
+          ? (sandboxAstroSettings.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
+          : 'trails';
+        const sp = computeAstroSimExposureParams(sandboxAstroSettings.durationSec, sandboxAstroSummary.clampedIso);
+        const res = await sky.renderLongExposure(
+          { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
+          {
+            mode: simMode,
+            startTimeMs: currentTimeRef.current.getTime(),
+            durationSec: sandboxAstroSettings.durationSec,
+            steps: sp.stepsForPreview,
+            exposureGain: sp.exposureGain,
+            starBoost: sp.starBoost,
+            shadowLift: sp.shadowLift,
+            settleFrames: 4,
+            requireReady: false,
+            waitMs: 5000,
+            format: 'jpeg',
+            compress: 0.85,
+            signal: ctl.signal,
+          },
+        );
+        baseUri = res.uri;
+      } else if (wantPhotoGear) {
+        baseUri = await sky.takeSnapshot({ format: 'jpeg', compress: 0.9 });
+      }
+
+      if (reqId !== longExpReqRef.current || ctl.signal.aborted || !baseUri) return;
+
+      let finalUri = baseUri;
+      let nextZoneHist: ZoneHistogramResult | null = null;
+
+      if (sandboxGearActive) {
+        const win = Dimensions.get('window');
+        const sw = Math.max(1, win.width);
+        const sh = Math.max(1, win.height);
+        const vFov = Math.max(1.5, Math.min(120, st.view.fov || 65));
+        const hFov = (2 * Math.atan(Math.tan((vFov * Math.PI) / 360) * (sw / sh)) * 180) / Math.PI;
+        const obs0 = interpolatedWeather[0];
+        const optRes = await applyOpticalGearToPhoto(baseUri, {
+          gear: wantAstro && sandboxGearBag.filmBack === 'astroDual'
+            ? { ...sandboxGearBag, filmBack: 'natural' }
+            : sandboxGearBag,
+          attitude: { yawDeg: st.view.az, pitchDeg: st.view.el, rollDeg: st.view.roll ?? 0 },
+          intrinsics: intrinsicsFromHfov(sw, sh, hFov),
+          horizon: buildArHorizon(),
+          elev: null,
+          eyeElevM: (Number(terrainData?.observerElevation) || 35) + eyeH,
+          sunAzDeg: sunAzimuth,
+          sunAltDeg: sunAltitude,
+          aod: typeof obs0?.aod550 === 'number' ? obs0.aod550 : 0.25,
+          humidityPct: typeof obs0?.humidity === 'number' ? obs0.humidity : 55,
+          cloudCover01: typeof obs0?.total === 'number' ? obs0.total / 100 : 0.3,
+          windLayers: sandboxWindLayers,
+        }).catch(() => null);
+        if (optRes?.uri) {
+          finalUri = optRes.uri;
+          nextZoneHist = optRes.zoneHistogram;
+        }
+      }
+
+      if (reqId === longExpReqRef.current && !ctl.signal.aborted) {
+        setSandboxZoneHist(nextZoneHist);
+        setSandboxLongExpUri(finalUri);
       }
     } finally {
       if (reqId === longExpReqRef.current) {
@@ -913,26 +1050,47 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         setSandboxLongExpBusy(false);
       }
     }
-  }, [sandboxAstroSettings, sandboxAstroSummary.clampedIso]);
+  }, [
+    sandboxShootMode,
+    sandboxGearActive,
+    sandboxGearBag,
+    sandboxAstroSettings,
+    sandboxAstroSummary.clampedIso,
+    interpolatedWeather,
+    terrainData?.observerElevation,
+    eyeH,
+    sunAzimuth,
+    sunAltitude,
+    sandboxWindLayers,
+    buildArHorizon,
+  ]);
 
   const isGestureBlocked = useCelestialStore(s => s.isGestureBlocked);
   const [sandboxViewSig, setSandboxViewSig] = useState<string>('');
   useEffect(() => {
-    if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro' || isSliding || isGestureBlocked) return undefined;
+    if (!expertMode || isCameraOverlayActive || ascended) return undefined;
     const poll = () => {
-      // 합성 중에는 remoteViewRef(적도의 추적)로 시선이 임시 회전하므로 시선 시그니처를 갱신하지 않습니다.
       if (longExpBusyRef.current) return;
       const v = sceneRef.current?.getRenderState?.()?.view;
       if (!v) return;
-      const sig = `${Math.round(v.az)}_${Math.round(v.el)}_${Math.round(v.fov)}`;
-      setSandboxViewSig(prev => (prev === sig ? prev : sig));
+      setSandboxLiveView(prev => (
+        Math.abs(prev.az - v.az) < 0.3 &&
+        Math.abs(prev.el - v.el) < 0.3 &&
+        Math.abs(prev.fov - v.fov) < 0.2
+          ? prev
+          : { az: v.az, el: v.el, fov: v.fov, roll: v.roll ?? 0 }
+      ));
+      if (!isSliding && !isGestureBlocked && (sandboxShootMode === 'astro' || (sandboxShootMode === 'photo' && sandboxGearActive))) {
+        const sig = `${Math.round(v.az)}_${Math.round(v.el)}_${Math.round(v.fov * 2)}`;
+        setSandboxViewSig(prev => (prev === sig ? prev : sig));
+      }
     };
     poll();
-    const id = setInterval(poll, 350);
+    const id = setInterval(poll, 220);
     return () => clearInterval(id);
-  }, [expertMode, isCameraOverlayActive, sandboxShootMode, isSliding, isGestureBlocked]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, isSliding, isGestureBlocked]);
 
-  // 천체 탭 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 장노출 합성
+  // 천체 탭 또는 광학 렌즈·필터 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 합성
   useEffect(() => {
     longExpReqRef.current += 1;
     longExpBusyRef.current = false;
@@ -940,13 +1098,21 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     longExpAbortRef.current = null;
     sceneRef.current?.cancelLongExposure?.();
 
-    if (!expertMode || isCameraOverlayActive || sandboxShootMode !== 'astro') {
+    const shouldSynthesize =
+      expertMode &&
+      !isCameraOverlayActive &&
+      !ascended &&
+      (sandboxShootMode === 'astro' || (sandboxShootMode === 'photo' && sandboxGearActive));
+
+    if (!shouldSynthesize) {
       setSandboxLongExpUri(null);
+      setSandboxZoneHist(null);
       setSandboxLongExpBusy(false);
       return undefined;
     }
-    if (isSliding || isGestureBlocked) {
+    if (isSliding || isGestureBlocked || sandboxGearBagOpen) {
       setSandboxLongExpUri(null);
+      setSandboxZoneHist(null);
       setSandboxLongExpBusy(false);
       return undefined;
     }
@@ -959,7 +1125,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       longExpAbortRef.current?.abort();
       sceneRef.current?.cancelLongExposure?.();
     };
-  }, [expertMode, isCameraOverlayActive, sandboxShootMode, isSliding, isGestureBlocked, sandboxViewSig, runSandboxLongExp]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
@@ -986,6 +1152,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       exposure: sandboxExposure,
       astroSettings: sandboxAstroSettings,
       timelapsePlan: overridePlan ?? sandboxTlPlan,
+      gearBag: sandboxGearBag,
     } : null);
     onCameraPress?.();
   };
@@ -1096,15 +1263,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setTimeline(null);
     }
   }, [timeline, latitude, longitude, currentDateStr]);
-
-  // 시간 스크롤(isSliding) 중에는 5분 버킷 단위로만 46개 고리 전체 보간을 갱신해 매 터치 이벤트마다 배열 재생성 및 SkyScene3D weatherRef 변동을 막습니다.
-  const weatherEvalMs = isSliding
-    ? Math.floor(currentTime.getTime() / 300_000) * 300_000
-    : currentTime.getTime();
-  const interpolatedWeather = useMemo(
-    () => (pathData.length ? getInterpolatedWeather(pathData, new Date(weatherEvalMs)) : []),
-    [pathData, weatherEvalMs]
-  );
 
   const lastPredictionRef = useRef<ReturnType<typeof scenePrediction>>(null);
   const prediction = useMemo(() => {
@@ -1428,6 +1586,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         onExposureChange={setSandboxExposure}
         teleX={teleX}
         onChangeTeleX={setTeleX}
+        onOpenCameraBag={() => setSandboxGearBagOpen(true)}
+        gearActive={sandboxGearActive}
+        gearBadge={sandboxGearBadge || undefined}
         manualIso={sandboxIso}
         manualShutterS={sandboxShutterS}
         manualWb={sandboxWb}
@@ -1538,7 +1699,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           />
         )}
 
-        {/* 샌드박스 천체 장노출 3D 미리보기 */}
+        {/* 샌드박스 천체 장노출 / 광학 렌즈·필터 3D 미리보기 */}
         {expertMode && !isCameraOverlayActive && sandboxLongExpUri && (
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <Image
@@ -1550,25 +1711,62 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {/* 샌드박스 천체 자동 합성 상태 & 타임랩스 메인화면 재생 컨트롤 */}
+        {/* 샌드박스 라이브 뷰파인더 광학 가이드 오버레이 (능선 GND · 아나모픽 2.39:1 & 선스타 · 틸트-시프트 · 고스트 · 봉우리 거리) */}
+        {expertMode && !isCameraOverlayActive && !ascended && (
+          <ViewfinderOpticsOverlay
+            width={Dimensions.get('window').width}
+            height={Dimensions.get('window').height}
+            gear={sandboxGearBag}
+            optics={sandboxOptics}
+            attitude={{ yawDeg: sandboxLiveView.az, pitchDeg: sandboxLiveView.el, rollDeg: sandboxLiveView.roll }}
+            horizon={buildArHorizon()}
+            elev={null}
+            eyeElevM={(Number(terrainData?.observerElevation) || 35) + eyeH}
+            sunAzDeg={sunAzimuth}
+            sunAltDeg={sunAltitude}
+            windLayers={sandboxWindLayers}
+            language={language}
+          />
+        )}
+
+        {/* Zone System 흑백 모드 활성 시 11단계 Zone 0~X 분포 막대 */}
+        {expertMode && !isCameraOverlayActive && !ascended && sandboxGearBag.filmBack === 'monoZone' && sandboxZoneHist && sandboxLongExpUri && (
+          <View
+            pointerEvents="none"
+            style={{ position: 'absolute', left: 16, right: 16, bottom: dockInset + 104, zIndex: 24 }}
+          >
+            <ZoneSystemBar histogram={sandboxZoneHist} language={language} />
+          </View>
+        )}
+
+        {/* 샌드박스 천체/광학 자동 합성 상태 & 타임랩스 메인화면 재생 컨트롤 */}
         {expertMode && !isCameraOverlayActive && (sandboxLongExpBusy || sandboxLongExpUri || sandboxShootMode === 'timelapse') && (
           <View style={overlayStyles.previewBannerWrap} pointerEvents="box-none">
             <GlassSurface style={overlayStyles.previewBanner}>
               {sandboxLongExpBusy ? (
                 <>
-                  <ActivityIndicator size="small" color={DARK.moon} />
+                  <ActivityIndicator size="small" color={sandboxShootMode === 'astro' ? DARK.moon : DARK.accent} />
                   <Text style={overlayStyles.previewBannerText}>
-                    {L3(language, '장노출 합성 중…', 'Synthesizing long-exposure…', '長露光合成中…')}
+                    {sandboxShootMode === 'astro'
+                      ? L3(language, '장노출 합성 중…', 'Synthesizing long-exposure…', '長露光合成中…')
+                      : L3(language, `광학 렌즈·필터 시뮬레이션 중… (${sandboxGearBadge})`, `Simulating optics… (${sandboxGearBadge})`, `光学シミュレーション中… (${sandboxGearBadge})`)}
                   </Text>
                 </>
               ) : sandboxLongExpUri ? (
                 <>
                   <Text style={overlayStyles.previewBannerText}>
-                    {L3(language, '장노출 합성 결과', 'Long-exposure preview', '長露光プレビュー')}
+                    {sandboxShootMode === 'astro'
+                      ? (sandboxGearActive
+                        ? `${L3(language, '장노출 + 광학', 'Long-exp + Optics', '長露光 + 光学')} · ${sandboxGearBadge}`
+                        : L3(language, '장노출 합성 결과', 'Long-exposure preview', '長露光プレビュー'))
+                      : `${L3(language, '광학 시뮬레이션', 'Optical preview', '光学プレビュー')} · ${sandboxGearBadge}`}
                   </Text>
                   <GlassChip
                     label={L3(language, '해제', 'Clear', '解除')}
-                    onPress={() => setSandboxLongExpUri(null)}
+                    onPress={() => {
+                      setSandboxLongExpUri(null);
+                      setSandboxZoneHist(null);
+                    }}
                   />
                 </>
               ) : sandboxTlPreviewing ? (
@@ -1864,6 +2062,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </View>
 
       <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
+
+      <VirtualCameraBagModal
+        visible={sandboxGearBagOpen}
+        language={language}
+        gear={sandboxGearBag}
+        onChange={setSandboxGearBag}
+        onClose={() => setSandboxGearBagOpen(false)}
+      />
 
       <LayerControlModal
         visible={isLayerModalVisible}

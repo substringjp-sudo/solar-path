@@ -34,6 +34,7 @@ import type { SkyTimeline } from '../utils/skyTimeline';
 import { createClockSlice, type ClockState } from '../utils/liveClock';
 import type { AstroSettingsState } from '../utils/astroCameraUi';
 import type { TimelapsePlan } from '../utils/timelapsePlan';
+import type { CameraGearBagState } from '../utils/photoAlgorithms';
 
 export interface CameraHandoff {
   mode: 'photo' | 'astro' | 'timelapse';
@@ -41,6 +42,7 @@ export interface CameraHandoff {
   exposure: number;
   astroSettings?: AstroSettingsState;
   timelapsePlan?: TimelapsePlan | null;
+  gearBag?: CameraGearBagState;
 }
 
 export interface CameraHudState {

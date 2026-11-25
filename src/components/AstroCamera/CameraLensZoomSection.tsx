@@ -22,7 +22,7 @@ export interface LensOption {
 const ZOOM_PRESETS = [1, 1.5, 2, 3, 5] as const;
 
 /** 물리 카메라 렌즈(초광각·광각·망원·초망원)별 경통·후드·마운트 실루엣 아이콘 */
-const MiniLensBarrelIcon: React.FC<{ active?: boolean; kind?: LensKind }> = ({
+export const MiniLensBarrelIcon: React.FC<{ active?: boolean; kind?: LensKind }> = ({
   active = false,
   kind = 'wide',
 }) => {
@@ -86,7 +86,7 @@ const MiniLensBarrelIcon: React.FC<{ active?: boolean; kind?: LensKind }> = ({
 };
 
 /** 확장 광학 가방(3/4 입체 원형 필터 링) 미니 아이콘 */
-const MiniFilterRingIcon: React.FC<{ active?: boolean }> = ({ active = false }) => (
+export const MiniFilterRingIcon: React.FC<{ active?: boolean }> = ({ active = false }) => (
   <Svg width={16} height={16} viewBox="0 0 20 20">
     <Defs>
       <LinearGradient id="mini_flt_g" x1="0" y1="0" x2="1" y2="1">

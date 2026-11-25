@@ -11,6 +11,7 @@ import { AstroSettingsPanel } from '../AstroCamera/AstroSettingsPanel';
 import { AstroForecastBanner } from '../AstroCamera/AstroForecastBanner';
 import { TimelapsePanel } from '../AstroCamera/TimelapsePanel';
 import { ExposureCells } from '../AstroCamera/ExposureCells';
+import { MiniFilterRingIcon, MiniLensBarrelIcon, type LensKind } from '../AstroCamera/CameraLensZoomSection';
 import { GLASS, TEXT } from '../../theme/glassTokens';
 import { color as DARK } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
@@ -23,7 +24,14 @@ import type { TimelapsePlan } from '../../utils/timelapsePlan';
 export type SandboxShootMode = 'photo' | 'astro' | 'timelapse';
 
 const EV_STEPS = [-1.0, -0.5, 0, 0.5, 1.0] as const;
-const LENS_ZOOM_PRESETS = [0.6, 1, 2, 3, 5, 10] as const;
+const LENS_ZOOM_PRESETS: ReadonlyArray<{ zoom: number; mm: string; kind: LensKind }> = [
+  { zoom: 0.6, mm: '14mm', kind: 'ultrawide' },
+  { zoom: 1, mm: '24mm', kind: 'wide' },
+  { zoom: 2, mm: '48mm', kind: 'wide' },
+  { zoom: 3, mm: '70mm', kind: 'tele' },
+  { zoom: 5, mm: '120mm', kind: 'tele' },
+  { zoom: 10, mm: '240mm', kind: 'supertele' },
+];
 
 interface Props {
   language: Language;
@@ -33,6 +41,9 @@ interface Props {
   onExposureChange: (ev: number) => void;
   teleX?: number;
   onChangeTeleX?: (x: number) => void;
+  onOpenCameraBag?: () => void;
+  gearActive?: boolean;
+  gearBadge?: string;
   manualIso?: number | null;
   manualShutterS?: number | null;
   manualWb?: PhotoWbPreset | null;
@@ -63,6 +74,9 @@ export const SandboxShootPanel: React.FC<Props> = ({
   onExposureChange,
   teleX = 1,
   onChangeTeleX,
+  onOpenCameraBag,
+  gearActive = false,
+  gearBadge,
   manualIso = null,
   manualShutterS = null,
   manualWb = null,
@@ -123,20 +137,39 @@ export const SandboxShootPanel: React.FC<Props> = ({
       >
         {mode === 'photo' && (
           <View style={styles.section}>
-            {onChangeTeleX && (
+            {(onChangeTeleX || onOpenCameraBag) && (
               <>
-                <Text style={styles.label}>{L3(language, '렌즈 · 배율', 'LENS · ZOOM', 'レンズ · 倍率')}</Text>
-                <View style={styles.chipRow}>
-                  {LENS_ZOOM_PRESETS.map(z => (
+                <View style={styles.headerRow}>
+                  <Text style={styles.label}>{L3(language, '렌즈 · 배율', 'LENS · ZOOM', 'レンズ · 倍率')}</Text>
+                  {onOpenCameraBag && (
                     <GlassChip
-                      key={z}
-                      label={`${z}x`}
-                      mono
-                      active={Math.abs(teleX - z) < 0.08}
-                      onPress={() => onChangeTeleX(z)}
+                      testID="sb-open-gear-bag"
+                      icon={<MiniFilterRingIcon active={gearActive} />}
+                      label={gearBadge
+                        ? `${L3(language, '광학 가방', 'Gear Bag', '光学バッグ')} · ${gearBadge}`
+                        : L3(language, '광학 렌즈·필터 ▾', 'Optical Gear ▾', '光学レンズ・フィルター ▾')}
+                      active={gearActive}
+                      onPress={onOpenCameraBag}
                     />
-                  ))}
+                  )}
                 </View>
+                {onChangeTeleX && (
+                  <View style={styles.chipRow}>
+                    {LENS_ZOOM_PRESETS.map(p => {
+                      const isSel = Math.abs(teleX - p.zoom) < 0.08;
+                      return (
+                        <GlassChip
+                          key={p.zoom}
+                          icon={<MiniLensBarrelIcon active={isSel} kind={p.kind} />}
+                          label={`${p.zoom}x · ${p.mm}`}
+                          mono
+                          active={isSel}
+                          onPress={() => onChangeTeleX(p.zoom)}
+                        />
+                      );
+                    })}
+                  </View>
+                )}
               </>
             )}
             <Text style={styles.label}>{L3(language, '노출 보정 (EV)', 'EXPOSURE (EV)', '露出補正 (EV)')}</Text>
@@ -170,6 +203,20 @@ export const SandboxShootPanel: React.FC<Props> = ({
 
         {mode === 'astro' && (
           <View style={styles.section}>
+            {onOpenCameraBag && (
+              <View style={styles.headerRow}>
+                <Text style={styles.label}>{L3(language, '확장 광학 · 필터', 'OPTICAL GEAR', '拡張光学・フィルター')}</Text>
+                <GlassChip
+                  testID="sb-astro-open-gear-bag"
+                  icon={<MiniFilterRingIcon active={gearActive} />}
+                  label={gearBadge
+                    ? `${L3(language, '광학 가방', 'Gear Bag', '光学バッグ')} · ${gearBadge}`
+                    : L3(language, '광학 렌즈·필터 ▾', 'Optical Gear ▾', '光学レンズ・フィルター ▾')}
+                  active={gearActive}
+                  onPress={onOpenCameraBag}
+                />
+              </View>
+            )}
             <AstroForecastBanner
               analysis={astroAnalysis}
               durationSec={astroSettings.durationSec}
@@ -258,6 +305,7 @@ const styles = StyleSheet.create({
   bodyScroll: { flexGrow: 0 },
   bodyContent: { padding: 12, gap: 10 },
   section: { gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   label: { color: TEXT, opacity: 0.72, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 });

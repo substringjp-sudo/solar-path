@@ -468,6 +468,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setMagnification(cameraHandoff.zoomX);
     setExposure(cameraHandoff.exposure);
     if (cameraHandoff.astroSettings) setAstroSettings(cameraHandoff.astroSettings);
+    if (cameraHandoff.gearBag) setGearBag(cameraHandoff.gearBag);
     if (cameraHandoff.timelapsePlan) {
       setHandoffTlPlan(cameraHandoff.timelapsePlan);
       activeTlPlanRef.current = cameraHandoff.timelapsePlan;
