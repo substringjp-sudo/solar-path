@@ -562,6 +562,7 @@ void main() {
   //
   // ⚠ 화면 화소보다 잔 옥타브는 결이 아니라 **에일리어싱**입니다. 거리에
   //   따라 잔 옥타브를 끕니다 — 밉맵과 같은 이치.
+#ifndef TERRAIN_LIT_OUT
   if (uDetail > 0.0 && uDemValid > 0.5) {
     float texelM = max(1.0, uDemSpanM / 256.0);
     float L0 = 2.0 * texelM;                 // 자료가 아는 가장 짧은 파장
@@ -585,6 +586,7 @@ void main() {
     vec2 gd = texGrad + add * uDetail;
     n = normalize(vec3(-gd.x, 1.0, -gd.y));
   }
+#endif
   // 알베도·젖음을 가르는 경사는 **자료의 기울기**여야 합니다 — 아래 미세 기복이 섞인 법선으로 재면 평평한 벌판에
   // 암반 색이 얼룩지고 젖은 갯벌의 되비침이 꺼집니다. (미세 기복을 안 쓰는 경로에서는 n 과 같은 값입니다.)
   vec3 nMacro = n;
@@ -611,7 +613,7 @@ void main() {
   //
   // 95m 밖 원거리 산에서는 nearW = 0 이 되어 기존과 동일한 법선·색감을 유지하고, 발밑 구간에서만 회전/워핑된
   // C2 Gradient Noise + 3x3 Cellular 자갈/풀 뭉치 노이즈를 pixG 발자국에 맞춰 안티에일리어싱 페이드 인 합니다.
-  float nearW = 1.0 - smoothstep(25.0, 95.0, vDistM);
+  float nearW = (uLookMicro > 0.001 || uLookMottle > 0.001) ? (1.0 - smoothstep(25.0, 95.0, vDistM)) : 0.0;
   float wetM = (uDemValid > 0.5 && isSeaZone) ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
   float detailH = 0.5;
   float detailRockH = 0.5;
@@ -619,7 +621,7 @@ void main() {
   float detailCellId = 0.5;
   float rockCrack = 0.0;
   vec2 nearWarp = vec2(0.0);
-  {
+  if (uLookMicro > 0.001) {
     float pmm = max(0.05, vDistM * 0.0015);
     vec2 wp = wGround;
     if (nearW > 0.001) {
@@ -834,7 +836,7 @@ void main() {
   // 원거리 3겹은 기존과 같이 유지해 산 풍경을 보존하고, 중간·근거리 옥타브는 회전/Gradient Noise + 0.13m/0.04m
   // 2겹을 추가해 발밑(0.6~95m)의 흐린 얼룩을 자갈·풀·토양 알갱이로 쪼갭니다.
   float mot = 0.0;
-  {
+  if (uLookMottle > 0.001) {
     float Lc = 120.0, ampC = 0.35;
     vec2 mg = wGround;
     for (int o = 0; o < 8; o++) {
@@ -859,69 +861,44 @@ void main() {
     aoV = mix(0.93, ambSample.r, fadeAmb);
     convex = mix(0.5, ambSample.g, fadeAmb);
   }
-  vec3 albL = alb;
-  albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.03), paveAny) * mot;   // 도시 지반은 무채색 콘크리트 농담
-  // 군락: 근거리에서는 Height-Based Blending 으로 큰 패치(46m·9.5m·23m) 경계를 자잘한 풀·자갈·틈새로 쪼갭니다.
-  vec2 patchG = wGround + nearWarp * (1.2 * nearW);
-  float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
-                    + smoothstep(0.62, 0.68, tn_noise(patchG / 9.5 + 23.7)) * smoothstep(1.0, 3.0, 9.5 / pixG) * 0.7, 0.0, 1.0);
-  float bare = smoothstep(0.62, 0.68, tn_noise(patchG / 23.0 + 51.3)) * smoothstep(1.0, 3.0, 23.0 / pixG);
-  if (nearW > 0.001) {
-    shrub = mix(shrub, tn_hblend(shrub, detailH * 0.85, detailGrain), nearW);
-    bare = mix(bare, tn_hblend(bare, detailH, detailRockH), nearW);
+  // 지형 고도·볼록도(능선/계곡)에 따른 깨끗한 그라데이션만 부여하고 노이즈 얼룩은 배제
+  float elevTint = clamp(vElevM / 650.0, 0.0, 1.0);
+  vec3 albL = mix(alb, alb * vec3(0.92, 0.98, 1.06), elevTint * (1.0 - urbanMask) * (1.0 - paveAny));
+  albL *= 1.0 + 0.18 * (convex - 0.5) * (1.0 - 0.85 * paveAny);
+  if (uLookMottle > 0.001) {
+    albL *= 1.0 + uLookMottle * mix(mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask), vec3(0.03), paveAny) * mot;
+    vec2 patchG = wGround + nearWarp * (1.2 * nearW);
+    float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
+                      + smoothstep(0.62, 0.68, tn_noise(patchG / 9.5 + 23.7)) * smoothstep(1.0, 3.0, 9.5 / pixG) * 0.7, 0.0, 1.0);
+    float bare = smoothstep(0.62, 0.68, tn_noise(patchG / 23.0 + 51.3)) * smoothstep(1.0, 3.0, 23.0 / pixG);
+    if (nearW > 0.001) {
+      shrub = mix(shrub, tn_hblend(shrub, detailH * 0.85, detailGrain), nearW);
+      bare = mix(bare, tn_hblend(bare, detailH, detailRockH), nearW);
+    }
+    float natVeg = slopeFlat0 * (1.0 - urbanMask * 0.85) * (1.0 - paveAny);
+    albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * natVeg);
+    albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * natVeg);
+    if (nearW > 0.001) {
+      float dryNear = nearW * (1.0 - wet);
+      float soilMicro = (detailCellId - 0.5) * 0.06 + (detailGrain - 0.5) * 0.28;
+      float tuftTip = mix(0.86, 1.14, detailH);
+      float rockFissure = 1.0 - 0.10 * clamp(rockCrack, 0.0, 1.0);
+      float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
+      float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
+      grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.05, paveAny);
+      float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi * (1.0 - paveAny));
+      albL *= mix(1.0, grainFactor, dryNear * clamp(uLookMottle, 0.0, 1.2));
+    }
   }
-  float natVeg = slopeFlat0 * (1.0 - urbanMask * 0.85) * (1.0 - paveAny);
-  albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * natVeg);
-  albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * natVeg);
-  if (nearW > 0.001) {
-    float dryNear = nearW * (1.0 - wet);
-    float soilMicro = (detailCellId - 0.5) * 0.06 + (detailGrain - 0.5) * 0.28;
-    float tuftTip = mix(0.86, 1.14, detailH);
-    float rockFissure = 1.0 - 0.10 * clamp(rockCrack, 0.0, 1.0);
-    float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
-    float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
-    grassMod = mix(grassMod, 1.0 + (detailGrain - 0.5) * 0.05, paveAny);   // 포장: 매우 고운 아스팔트 입자만
-    float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi * (1.0 - paveAny));
-    albL *= mix(1.0, grainFactor, dryNear * clamp(uLookMottle, 0.0, 1.2));
-  }
-  albL *= 1.0 + uLookMottle * 0.25 * (convex - 0.5) * (1.0 - 0.85 * paveAny);          // 둔덕은 조금 밝게(마르고 트임), 움푹은 어둡게
-  // 갯벌 윗자락·방조제 밑은 마르고 밝습니다 — 젖은 아랫자락(×0.52, 위)과 이어져 물가에서 땅으로 가는 **그라데이션**이 생깁니다.
+  // 갯벌 윗자락·방조제 밑은 마르고 밝습니다 — 젖은 아랫자락(×0.52, 위)과 이어져 물가에서 땅으로 가는 깨끗한 그라데이션이 생깁니다.
   float dryBand = smoothstep(0.9, 1.8, elevF) * (1.0 - smoothstep(2.5, 5.0, elevF)) * slopeFlat * (1.0 - paveAny);
-  albL = mix(albL, albL * vec3(1.45, 1.38, 1.22), dryBand * 0.55 * uLookMottle);
+  albL = mix(albL, albL * vec3(1.32, 1.26, 1.14), dryBand * 0.45);
 
-  // ── 방안 C: 근거리 Micro Cavity AO + Oren-Nayar 거칠기 음영 ──────────────
-  // 풀·자갈·바위 틈새에 하늘빛/직달 미세 차폐를 걸고, 건조 지표에 거친 표면 음영과 약한 광물 반짝임을 더합니다.
-  // 평균 밝기는 보존(0.5 전후 대칭 보정)해 기존 노출·색감 교정(VOLUMETRIC_TERRAIN_ALBEDO)이 틀어지지 않게 합니다.
-  float microStrength = nearW * (1.0 - wet) * (0.40 + 0.60 * uLookMicro) * (1.0 - paveAny);
+  float microStrength = nearW * (1.0 - wet) * uLookMicro * (1.0 - paveAny);
   float crackOcc = clamp(rockCrack * 0.55 * mix(0.4, 1.0, rockMaskHi), 0.0, 0.45);
   float microAo = mix(1.0, clamp(mix(0.76, 1.16, detailH) - crackOcc * 0.20, 0.60, 1.14), microStrength);
   float microDirect = mix(1.0, clamp(mix(0.80, 1.16, detailH) - crackOcc * 0.16, 0.64, 1.14), microStrength);
   float litOut = litFactor * microDirect;
-  if (nearW > 0.001 && (1.0 - wet) > 0.01 && litFactor > 0.001) {
-    vec3 V = -normalize(vViewDir);
-    float ndv = clamp(dot(n, V), 0.02, 1.0);
-    float ndlRaw = max(dot(n, sun), 0.0);
-    if (ndlRaw > 0.001) {
-      float sigma = mix(0.52, 0.78, rockMaskHi);
-      float s2 = sigma * sigma;
-      float onA = 1.0 - 0.5 * s2 / (s2 + 0.33);
-      float onB = 0.45 * s2 / (s2 + 0.09);
-      vec3 vp = V - n * ndv;
-      vec3 lp = sun - n * ndlRaw;
-      float vv = dot(vp, vp);
-      float ll = dot(lp, lp);
-      float cosAz = (vv > 1e-6 && ll > 1e-6) ? dot(vp, lp) * inversesqrt(vv * ll) : 0.0;
-      float sinMax = sqrt(max(0.0, 1.0 - min(ndv, ndlRaw) * min(ndv, ndlRaw)));
-      float tanMin = sqrt(max(0.0, 1.0 - max(ndv, ndlRaw) * max(ndv, ndlRaw))) / max(max(ndv, ndlRaw), 0.05);
-      float orenRaw = onA + onB * max(0.0, cosAz) * sinMax * tanMin;
-      float oren = clamp(orenRaw / max(onA + 0.18 * onB, 0.72), 0.78, 1.22);
-      vec3 H = normalize(V + sun);
-      float dryGrit = mix(0.25, 1.0, rockMaskHi) * (1.0 - 0.75 * shrub) * (0.4 + 0.6 * detailCellId);
-      float microSpec = pow(max(0.0, dot(n, H)), mix(20.0, 44.0, rockMaskHi)) * 0.14 * dryGrit * (1.0 - shade) * cloudT;
-      float dryWeight = nearW * (1.0 - wet) * (1.0 - 0.92 * paveAny);
-      litOut = clamp(litOut * mix(1.0, oren, dryWeight) + microSpec * dryWeight, 0.0, 1.0);
-    }
-  }
 
   // ── 하늘빛 몫: 지평선 가림(AO) × 사면 방향(반구) × Micro Cavity AO ────────
   // 수평면이 받는 하늘 조도(takram) 에 곱합니다. 직달이 구름에 가려진 날 땅의 형태를 보여 주는 것은 이것뿐입니다.
@@ -940,7 +917,7 @@ void main() {
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
   float fill = (1.0 - cloudT) * uLookFill * clamp(fillGeo / fillFlat, 0.0, 2.0);
   // 젖은 면의 하늘 되비침: 갯벌(wet) 중 평평한 곳, 덩어리로 얼룩(고인 물 자리).
-  float sheen = wet * slopeFlat * mix(0.5, 1.0, tn_noise(wGround / 23.0 + 7.1)) * uLookSheen;
+  float sheen = wet * slopeFlat * uLookSheen;
 
   vec3 natLitAlb = albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4)));
   float urbLumaScale = clamp(dot(albL, vec3(0.30, 0.59, 0.11)) / max(dot(uAlbedo, vec3(0.30, 0.59, 0.11)), 1e-4), 0.70, 1.30);

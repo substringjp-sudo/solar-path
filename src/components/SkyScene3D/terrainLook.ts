@@ -37,12 +37,12 @@ export interface TerrainLook {
 
 export const TERRAIN_LOOK: TerrainLook = {
   ao: 0.85,
-  hemi: 0.6,
+  hemi: 0.65,
   ambGain: 1.15,
   cloudFill: 0.5,
   sheen: 0.65,
-  mottle: 1.0,
-  micro: 1.0,
+  mottle: 0.0,
+  micro: 0.0,
 };
 
 type Uniforms = Record<string, { value: unknown }>;

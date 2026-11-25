@@ -292,8 +292,10 @@ float bf_hash13(vec3 p3) {
 }
 
 /**
- * 2026-11-23 볼륨(TERRAIN_LIT_OUT) · 직접(#else) 패스 공용 외장/지붕 질감 계산.
- * 밤에도 맨박스처럼 보이지 않도록 스타일별 창틀·멀리언·벽돌 줄눈·골강판·파라펫 테두리를 생성합니다.
+ * 2026-11-25 텍스처 없는 미니멀 건축 매스(Townscaper · Sky · Dystopika 스타일) 재질 계산.
+ * 저해상도 볼륨 패스(TERRAIN_LIT_OUT)에서 지저분하게 뭉개지던 주간 검은 창문 격자, 벽돌 체크무늬,
+ * floor() 해시 노이즈 블록, 골강판 줄무늬를 모두 제거하고, 건물별 깨끗한 솔리드 색조와
+ * 수직 AO 그라데이션 · 옥상 파라펫/처마 단차만으로 매끈한 입체 매스를 표현합니다.
  */
 void bf_facadeMaterial(
   vec3 n,
@@ -310,125 +312,47 @@ void bf_facadeMaterial(
   outGroundAo = 1.0;
 
   if (abs(n.y) > 0.5) {
-    // 옥상/지붕면: 경사 지붕(n.y < 0.99)은 기와·슬레이트·금속, 평지붕은 방수 아스팔트 + 미세 입자 질감
+    // 옥상/지붕면: 노이즈 블록 없이 매끈한 슬레이트/테라코타 지붕 톤
     float isSloped = step(n.y, 0.99);
-    float roofGrain = detailFade > 0.01
-      ? (0.92 + 0.16 * bf_hash13(vec3(floor(vBuildPos * 0.8), bTone * 13.0)))
-      : 1.0;
     vec3 flatRoofTone = vStyle < 0.5
-      ? mix(vec3(0.11, 0.12, 0.125), vec3(0.10, 0.13, 0.115), bWarm)
+      ? mix(vec3(0.115, 0.122, 0.130), vec3(0.108, 0.128, 0.120), bWarm)
       : (vStyle < 1.5
-        ? vec3(0.115, 0.12, 0.13)
-        : (vStyle < 2.5 ? vec3(0.12, 0.11, 0.10) : vec3(0.095, 0.10, 0.11)));
+        ? vec3(0.110, 0.118, 0.132)
+        : (vStyle < 2.5 ? vec3(0.125, 0.115, 0.105) : vec3(0.100, 0.106, 0.116)));
     vec3 slopedRoofTone = vStyle < 0.5
-      ? mix(vec3(0.19, 0.11, 0.085), vec3(0.12, 0.125, 0.135), bWarm)
+      ? mix(vec3(0.185, 0.112, 0.088), vec3(0.122, 0.128, 0.138), bWarm)
       : (vStyle < 2.5
-        ? mix(vec3(0.17, 0.10, 0.08), vec3(0.13, 0.145, 0.13), bWarm)
-        : vec3(0.135, 0.145, 0.16));
-    outMatAlb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.92 + 0.16 * bTone) * roofGrain;
+        ? mix(vec3(0.172, 0.105, 0.085), vec3(0.132, 0.145, 0.132), bWarm)
+        : vec3(0.135, 0.145, 0.160));
+    outMatAlb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.93 + 0.14 * bTone);
     return;
   }
 
-  // 지면 접지 음영(1~3층 가로 협곡 그늘) + 원거리에서도 유지되는 상단 파라펫·처마 매스 음영
-  outGroundAo = 0.50 + 0.50 * smoothstep(0.0, 13.5, max(0.0, vWallCoord.y));
+  // 지면 접지 음영(1~4층 가로 협곡 그늘) + 상단 파라펫·처마 매스 음영
+  float wallY = max(0.0, vWallCoord.y);
+  outGroundAo = 0.46 + 0.54 * smoothstep(0.0, 15.0, wallY);
   float wallHAll = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
-  float topDistAll = max(0.0, wallHAll - max(0.0, vWallCoord.y));
+  float topDistAll = max(0.0, wallHAll - wallY);
   float massFade = 1.0 - smoothstep(900.0, 2200.0, vDistM);
-  float parapetRim = (1.0 - smoothstep(0.0, 0.52, topDistAll)) * massFade;
-  float corniceShadow = smoothstep(0.42, 0.72, topDistAll) * (1.0 - smoothstep(0.85, 1.65, topDistAll)) * massFade;
-  float baseAlbedoAo = 0.76 + 0.24 * smoothstep(0.0, 12.0, max(0.0, vWallCoord.y));
-
-  // 원거리(>680m) 또는 상공 조감도(uEyeHeightM > 320m)에서는 서브픽셀 창틀·벽돌 줄눈 연산을 즉시 생략하되,
-  // 지면 접촉 AO와 옥상 파라펫/처마 음영 단차는 유지해 건축 매스 입체감을 보존합니다.
-  if (detailFade <= 0.005) {
-    if (vStyle < 0.5) {
-      outMatAlb = mix(vec3(0.245, 0.24, 0.225), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
-    } else if (vStyle < 1.5) {
-      vec3 mullion = vec3(0.165, 0.175, 0.19) * (0.9 + 0.2 * bTone);
-      vec3 curtainGlass = mix(vec3(0.048, 0.072, 0.105), vec3(0.052, 0.084, 0.095), bWarm);
-      outMatAlb = mix(mullion, curtainGlass, 0.60);
-    } else if (vStyle < 2.5) {
-      outMatAlb = mix(vec3(0.225, 0.145, 0.112), vec3(0.24, 0.20, 0.158), bWarm) * (0.88 + 0.24 * bTone);
-    } else {
-      outMatAlb = vec3(0.125, 0.13, 0.14) * (0.90 + 0.20 * bTone);
-    }
-    outMatAlb *= baseAlbedoAo * (1.0 + 0.16 * parapetRim - 0.15 * corniceShadow);
-    return;
-  }
-
-  float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
-  float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
-  float colIdx = floor(cellU);
-  float rowIdx = floor(cellV);
-  float uF = fract(cellU);
-  float vF = fract(cellV);
-  float inGrid = step(0.0, vWallCoord.x) * step(0.0, vWallCoord.y)
-    * step(cellU, vWallCoord.z) * step(cellV, vWallCoord.w);
+  float parapetRim = (1.0 - smoothstep(0.0, 0.55, topDistAll)) * massFade;
+  float corniceShadow = smoothstep(0.45, 0.78, topDistAll) * (1.0 - smoothstep(0.88, 1.75, topDistAll)) * massFade;
+  float verticalLift = 0.74 + 0.30 * smoothstep(0.0, min(32.0, wallHAll), wallY);
 
   if (vStyle < 0.5) {
-    // 0: 아파트·주거 — 콘크리트 패널 이음새 + 미세 표면 입자 + 펀치드 윈도우 창틀 음영
-    float micro = 0.93 + 0.14 * bf_hash13(vec3(floor(vWallCoord.x * 2.2), floor(vWallCoord.y * 2.2), bSeed.x));
-    float jointX = 1.0 - smoothstep(0.0, 0.04, abs(fract(cellU * 0.5) - 0.5));
-    float slabLine = 1.0 - smoothstep(0.0, 0.13, vF);
-    vec3 aptWall = mix(vec3(0.245, 0.24, 0.225), vec3(0.195, 0.20, 0.21), bWarm) * (0.90 + 0.20 * bTone);
-    aptWall *= mix(1.0, micro * (1.0 - 0.14 * slabLine - 0.08 * jointX), detailFade);
-    float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
-    float wx = smoothstep(0.22 - aa, 0.22 + aa, uF) * (1.0 - smoothstep(0.78 - aa, 0.78 + aa, uF));
-    float wy = smoothstep(0.28 - aa, 0.28 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
-    float frameX = smoothstep(0.16 - aa, 0.16 + aa, uF) * (1.0 - smoothstep(0.84 - aa, 0.84 + aa, uF));
-    float frameY = smoothstep(0.22 - aa, 0.22 + aa, vF) * (1.0 - smoothstep(0.80 - aa, 0.80 + aa, vF));
-    float frameRing = max(0.0, frameX * frameY - wx * wy) * inGrid * detailFade;
-    outGlassMask = wx * wy * inGrid * detailFade;
-    vec3 glassCol = vec3(0.045, 0.062, 0.085);
-    outMatAlb = mix(aptWall * (1.0 - 0.24 * frameRing), glassCol, outGlassMask);
+    // 0: 아파트·주거 — 따뜻한 아이보리/스톤 솔리드 매스
+    outMatAlb = mix(vec3(0.248, 0.238, 0.222), vec3(0.202, 0.208, 0.218), bWarm) * (0.92 + 0.16 * bTone);
   } else if (vStyle < 1.5) {
-    // 1: 오피스·타워 — 유리 커튼월 + 층간 스팬드럴 띠 + 칸별 유리 톤 편차 + 알루미늄 멀리언
-    vec3 mullion = vec3(0.165, 0.175, 0.19) * (0.9 + 0.2 * bTone);
-    float paneVar = 0.84 + 0.32 * bf_hash13(vec3(colIdx + 3.0, rowIdx + 11.0, bSeed.y));
-    vec3 curtainGlass = mix(vec3(0.048, 0.072, 0.105), vec3(0.052, 0.084, 0.095), bWarm) * paneVar;
-    float spandrel = 1.0 - smoothstep(0.15, 0.23, vF);
-    float aa = clamp(vDistM * 0.00055, 0.02, 0.18);
-    float wx = smoothstep(0.09 - aa, 0.09 + aa, uF) * (1.0 - smoothstep(0.91 - aa, 0.91 + aa, uF));
-    float wy = smoothstep(0.22 - aa, 0.22 + aa, vF) * (1.0 - smoothstep(0.89 - aa, 0.89 + aa, vF));
-    outGlassMask = wx * wy * inGrid * detailFade;
-    vec3 spandrelCol = mullion * 0.68;
-    vec3 frameCol = mix(mullion, spandrelCol, spandrel * detailFade);
-    outMatAlb = mix(frameCol, curtainGlass, mix(0.60, outGlassMask, detailFade));
+    // 1: 오피스·타워 — 차분한 슬레이트 블루/실버 글래스 매스
+    outMatAlb = mix(vec3(0.125, 0.148, 0.178), vec3(0.138, 0.158, 0.172), bWarm) * (0.92 + 0.16 * bTone);
   } else if (vStyle < 2.5) {
-    // 2: 저층 상가·벽돌/석재 — 영식/이식 벽돌·석재 줄눈 질감 + 1층 쇼윈도
-    float brickRow = floor(vWallCoord.y * 4.5);
-    float brickCol = floor(vWallCoord.x * 2.0 + mod(brickRow, 2.0) * 0.5);
-    float bVar = 0.86 + 0.28 * bf_hash13(vec3(brickCol, brickRow, bSeed.x));
-    float mortarH = 1.0 - smoothstep(0.0, 0.14, abs(fract(vWallCoord.y * 4.5) - 0.5));
-    float mortarV = 1.0 - smoothstep(0.0, 0.10, abs(fract(vWallCoord.x * 2.0 + mod(brickRow, 2.0) * 0.5) - 0.5));
-    float mortar = max(mortarH, mortarV) * detailFade;
-    vec3 brickBase = mix(vec3(0.225, 0.145, 0.112), vec3(0.24, 0.20, 0.158), bWarm) * (0.88 + 0.24 * bTone);
-    vec3 brickWall = brickBase * mix(1.0, bVar * (1.0 - 0.22 * mortar), detailFade);
-    float isGround = 1.0 - smoothstep(3.0, 3.6, vWallCoord.y);
-    float aa = clamp(vDistM * 0.00055, 0.02, 0.20);
-    float wx = mix(
-      smoothstep(0.24 - aa, 0.24 + aa, uF) * (1.0 - smoothstep(0.76 - aa, 0.76 + aa, uF)),
-      smoothstep(0.08 - aa, 0.08 + aa, uF) * (1.0 - smoothstep(0.92 - aa, 0.92 + aa, uF)),
-      isGround
-    );
-    float wy = mix(
-      smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF)),
-      smoothstep(0.10 - aa, 0.10 + aa, vF) * (1.0 - smoothstep(0.90 - aa, 0.90 + aa, vF)),
-      isGround
-    );
-    outGlassMask = wx * wy * inGrid * detailFade;
-    outMatAlb = mix(brickWall, vec3(0.042, 0.056, 0.076), outGlassMask);
+    // 2: 저층 상가·석재 — 따뜻한 샌드스톤/테라코타 솔리드 매스
+    outMatAlb = mix(vec3(0.232, 0.162, 0.128), vec3(0.242, 0.205, 0.168), bWarm) * (0.90 + 0.20 * bTone);
   } else {
-    // 3: 산업·창고 — 골강판 리브 + 수평 패널 이음새 + 상부 채광창
-    vec3 metalWall = vec3(0.125, 0.13, 0.14) * (0.90 + 0.20 * bTone);
-    float rib = sin(vWallCoord.x * 6.28318 * 2.0) * 0.11 * detailFade;
-    float seam = (1.0 - smoothstep(0.0, 0.06, fract(vWallCoord.y * 0.4))) * 0.15 * detailFade;
-    float clerestory = smoothstep(0.72, 0.78, vF) * (1.0 - smoothstep(0.88, 0.92, vF)) * inGrid * detailFade * 0.65;
-    outGlassMask = clerestory;
-    outMatAlb = mix(metalWall * (1.0 + rib - seam), vec3(0.055, 0.066, 0.082), clerestory);
+    // 3: 산업·창고 — 깔끔한 그래파이트 매스
+    outMatAlb = vec3(0.135, 0.140, 0.150) * (0.92 + 0.16 * bTone);
   }
 
-  outMatAlb *= baseAlbedoAo * (1.0 + 0.16 * parapetRim - 0.15 * corniceShadow);
+  outMatAlb *= verticalLift * (1.0 + 0.18 * parapetRim - 0.16 * corniceShadow);
 }
 
 #ifdef TERRAIN_DIST_OUT
@@ -547,14 +471,19 @@ void main() {
   vec2 cDir = normalize(uCityDirXZ + vec2(1e-5));
   vec2 cPerp = vec2(-cDir.y, cDir.x);
   vec2 nXZ = normalize(vec2(n.x, n.z) + vec2(1e-5));
-  float wallAz = 0.82 + 0.40 * dot(nXZ, cDir) + 0.16 * dot(nXZ, cPerp);
+  float wallAz = 0.80 + 0.44 * dot(nXZ, cDir) + 0.18 * dot(nXZ, cPerp);
   float wallTotalH = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
-  float topEdgeDist = max(0.0, wallTotalH - max(0.0, vWallCoord.y));
+  float wallYCur = max(0.0, vWallCoord.y);
+  float topEdgeDist = max(0.0, wallTotalH - wallYCur);
   float parapetBoost = (1.0 - smoothstep(0.0, 0.65, topEdgeDist)) * 0.12;
-  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.78 + 0.30 * smoothstep(0.0, 28.0, max(0.0, vWallCoord.y)));
+  float heightGrad = abs(n.y) > 0.5 ? 1.0 : (0.78 + 0.30 * smoothstep(0.0, 28.0, wallYCur));
   float skyHemi = abs(n.y) > 0.5
     ? (0.96 + 0.14 * n.y)
-    : clamp(0.54 * wallAz * groundAo * heightGrad + parapetBoost, 0.16, 1.15);
+    : clamp(0.56 * wallAz * groundAo * heightGrad + parapetBoost, 0.16, 1.18);
+  // 건물 전용: lit2.g(vtWet) 채널에 실제 정규화 벽면 높이(벽면: 0.02..0.90, 옥상: 0.98)를 인코딩해 볼륨 패스에 전달
+  float bldHeightCode = abs(n.y) > 0.5
+    ? 0.98
+    : clamp(0.02 + 0.88 * clamp(wallYCur / max(9.6, min(wallTotalH, 45.0)), 0.0, 1.0), 0.02, 0.90);
 
   float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
   float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
@@ -571,7 +500,7 @@ void main() {
   float moonShare = moonLum / max(max(sunLum, surfLum) + moonLum, 1e-6);
   float litDirect = clamp(mix(ndl, ndlMoon, moonShare) * cloudT, 0.0, 1.0);
   gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), litDirect);
-  pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
+  pc_fragColor1 = lit2Encode(skyHemi, bldHeightCode, fill, 1.0 - cloudT);
   vec4 bldDist = terrainDistEncode(vSlantM / 1000.0);
   bldDist.b = 0.4;
   pc_fragColor2 = bldDist;
