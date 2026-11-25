@@ -229,7 +229,7 @@ const show = (tex: Texture, mode: number) => {
         return { scene: vol.lastScene(), rgb: canvas.toDataURL('image/png') };
       }
       for (let i = 0; i < frames; i++) tex = vol.renderToTexture(1 / 60);
-      renderer.getContext().finish();   // GPU 작업이 끝날 때까지 기다린 뒤 재야 셰이더 비용이 잡힘(전에는 제출 시간만)
+      { const g = renderer.getContext(); const px = new Uint8Array(4); g.readPixels(0, 0, 1, 1, g.RGBA, g.UNSIGNED_BYTE, px); }   // 화소 하나를 읽어 GPU 작업이 끝날 때까지 기다림 — finish() 는 SwiftShader 에서 기다리지 않음
       const ms = (performance.now() - ts) / frames;
       const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), airShade: vol.airShade(), city: vol.cityInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
         bad: ((window as unknown as Record<string, unknown>).__badUniforms as () => string[])() };
