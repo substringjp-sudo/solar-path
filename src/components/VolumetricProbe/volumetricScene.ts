@@ -64,6 +64,7 @@ import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLay
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
+import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveDrift, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
@@ -528,6 +529,8 @@ export interface VolumetricOptions extends TsunOptions {
   billow: boolean;
   /** 고적운·층적운 세포 무늬(cloudCells, 계획 §24.11) — 흐름 모형 위에서만. 기본 켬. */
   cells: boolean;
+  /** 구름 가장자리 기본 거칠기(cloudEdge, 계획 §26) — 구름 문턱을 fBm 으로 흔드는 세기(날씨 값 단위, 0 = 끔). 모든 종류 공통. */
+  edgeRough: number;
   /**
    * 구름 빛(계획 문서 §25). 'physical' = 해 쪽 직선 추적을 구름층 꼭대기까지(고도 문턱 없음) · 운량으로 판 확산 섞기 · 그늘 하늘빛을 위쪽 기둥 두께로.
    * 구름 자기 그늘에 그림자 지도를 쓰지 않으므로, 빛줄기가 꺼진 품질(low)에서는 그림자 지도 패스를 건너뜁니다. 'legacy' = 예전(takram 짧은 행진 + 그림자 지도).
@@ -572,7 +575,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1570,6 +1573,9 @@ export async function createVolumetricScene(
   // 고적운·층적운 세포 무늬 — 흐름 패치 직후(그 문장 앞에 끼움). 레인 세기 0 이면 날씨 값 그대로.
   patchCellShader(clouds.cloudsPass.currentMaterial as never);
   patchCellShader(clouds.shadowPass.currentMaterial as never);
+  // §26 가장자리 거칠기 — 세포 다음(세포 경계까지 거칠게), 같은 문장 앞.
+  patchEdgeShader(clouds.cloudsPass.currentMaterial as never);
+  patchEdgeShader(clouds.shadowPass.currentMaterial as never);
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
   // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
@@ -1748,6 +1754,8 @@ export async function createVolumetricScene(
     // 그늘 하늘빛(skyPhys): 2026-11-25 단위 오류(takram 하늘 조도 = 평면 × 2π)를 고쳐 다시 켬(계획 문서 §25.5 · §25.6).
     const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: true, deck: true } : null;
     for (const m of genusMats) setGenusLight(m, light);
+    // §26 가장자리 거칠기(종류 모형이 켜진 경우만 — 끄면 takram 그대로).
+    for (const m of genusMats) setEdgeRough(m as never, opt.genus ? opt.edgeRough : 0);
   }
   applyCloudLight();
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
