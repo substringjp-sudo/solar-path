@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1457,7 +1457,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '        float gRim = (dbgRimMode < 0.5 ? exp(-dbgRimK * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) : exp(-dbgRimK * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
       '        radiance += sunIrradiance * (0.14 * gRim * gRedness * dbgRim);',
       '        vec3 gWarmChroma = mix(vec3(1.0), clamp(vec3(gSunChroma.r * 0.85, gSunChroma.g * 0.90, max(gSunChroma.b, 0.80)), 0.70, 1.38), gRedness * (0.45 + 0.35 * max(0.0, cosTheta)));',
-      '        radiance *= mix(vec3(1.0), gWarmChroma, dbgWarm);',
+      '        if (dbgWarmMode > 0.5) radiance += gSunPart * (gWarmChroma - vec3(1.0)) * dbgWarm; else radiance *= mix(vec3(1.0), gWarmChroma, dbgWarm);',
       '      }',
     ].join('\n'));
   }
@@ -1482,6 +1482,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgRimK = { value: 0.045 };
   mat.uniforms.dbgRimMode = { value: 0 };
   mat.uniforms.dbgDiffBroken = { value: 0 };
+  mat.uniforms.dbgWarmMode = { value: 0 };
   mat.uniforms.genusBroken = { value: new Vector4() };
   mat.needsUpdate = true;
 }
