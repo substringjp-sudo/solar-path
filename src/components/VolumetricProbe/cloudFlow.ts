@@ -131,6 +131,13 @@ export interface FlowLayerWeights {
 export interface FlowLayerParams {
   /** 1 = 이 층은 흐름 경로, 0 = 기존 경로(cbanvil) */
   flow?: number;
+  /**
+   * §24 세포 대류 출렁임 세기(0 = 끔). 구름 두께 h = A·s(x) + 흐름 원시장(표준화)에서 s 는 [−1, 1] 로 막힌 여러 크기 셀(λ₀ · 2λ₀).
+   * A 는 운량 0.70 → 0.95 에서 0 으로 줄어 흐린 날은 예전과 바이트까지 같습니다. sc · ac 만 켭니다(판 구름 · 적운 계열은 0).
+   */
+  flowCell?: number;
+  /** 셀 파장 λ₀(km). 없으면 2.75 × 층 두께(GENUS.height) — 레일리-베나르 세포의 가로세로비. */
+  flowCellKm?: number;
   flowQ?: number;
   flowZ?: number;
   flowT?: number;
@@ -236,7 +243,7 @@ export const FLOW_DEFAULTS: FlowSceneParams = {
  * flowDensityScale 을 두지 않아 genusLayerShape 가 GENUS.densityScale 로 내려갑니다(cu 가드).
  */
 export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
-  sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.35, flowLag: 0.85, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 128,
+  sc: { flow: 1, flowCell: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.35, flowLag: 0.85, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 128,
     flowMode: 2, flowTop: 2, densPow: 0.55, flowEdge: 1.35, flowDensityScale: 0.032, flowErode: 0.75, flowTilt: 0.4, sheet: 0.55,
     flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2,
     // 2026-11-13 가까운 가장자리 깎기 + 바람결(4배) — 흐름 모형 층적운이 결 없이 뭉개지던 것.
@@ -244,7 +251,7 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
     // 2026-11-13 찢긴 결 — 흐름 구름 끝이 포도송이·상자 대신 이어지면서 거칠게 찢긴 결로 풀리게 함.
     flowWisp: 0.8 },
   // 2026-11-13 상·중층(ac·ci·cs)은 변위를 줄임(flowDisp) — 흐름 + high 에서 우유 거품처럼 소용돌이로 늘어지던 것. 덩어리 배치는 그대로.
-  ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.45, flowLag: 0.8, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 128,
+  ac: { flow: 1, flowCell: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.45, flowLag: 0.8, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 1.8, flowDensityScale: 0.04, flowErode: 0.7, flowTilt: 0.35,
     flowShapeAmount: 0.25, flowShapeDetailAmount: 0.3,
     flowCarve: 1.05, flowGrain: 3.2, flowWisp: 0.55 },
