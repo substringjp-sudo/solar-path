@@ -153,10 +153,10 @@ export function cellLanes(layers: (GenusLayer | null)[], covers: number[], thick
   const amp: number[] = [], lam: number[] = [], dir: number[] = [];
   for (let i = 0; i < 4; i++) {
     const L = layers[i];
-    const o = (L?.opts ?? {}) as { windU?: number; windV?: number; cells?: number };
+    const o = (L?.opts ?? {}) as { windU?: number; windV?: number; cells?: number; cellLamKm?: number };
     const on = L ? (o.cells ?? CELL_GENERA[L.genus] ?? 0) : 0;
     amp.push(on * cellAmpForCover(covers[i] ?? 1));
-    lam.push(Math.max(0.3, CELL_ASPECT * (thicknessM[i] ?? 500) / 1000));
+    lam.push(Math.max(0.3, o.cellLamKm ?? CELL_ASPECT * (thicknessM[i] ?? 500) / 1000));
     dir.push(Math.atan2(o.windU ?? 0, o.windV ?? 1));
   }
   return { amp, lam, dir };
