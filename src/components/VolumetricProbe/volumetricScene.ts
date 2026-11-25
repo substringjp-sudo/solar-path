@@ -59,6 +59,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
+import { patchSunMarchLite } from './cloudGenus';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
@@ -1533,6 +1534,9 @@ export async function createVolumetricScene(
   // 뭉게구름 표면 혹(하네스 시제품, 층 opts.billow 가 있을 때만) — 종류 패치 뒤.
   patchBillowShader(clouds.cloudsPass.currentMaterial as never);
   patchBillowShader(clouds.shadowPass.currentMaterial as never);
+  // 해 쪽 추적 전용 가벼운 날씨 읽기(진단) — 모든 패치 뒤.
+  patchSunMarchLite(clouds.cloudsPass.currentMaterial as never);
+  patchSunMarchLite(clouds.shadowPass.currentMaterial as never);
   // 먼 거리 햇빛 가림(노을 3단계, 구름 패스만, 기본 꺼짐).
   patchFarSunShader(clouds.cloudsPass.currentMaterial as never);
   // 구름 패스 연무(takram HAZE)도 빛줄기가 없으면 구름 아래 공기를 햇빛 받는 것으로 셉니다 — 같은 그늘 비율을 곱함(흐린 날 해 둘레 밝은 원, 2026-11-12).

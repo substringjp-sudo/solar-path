@@ -2158,3 +2158,31 @@ export function setGrainKnobs(mat: PatchableMaterial, knobs: GrainKnobs, erodePi
   refreshVariant(mat);
   if (mat.uniforms.erodePixelAngle) mat.uniforms.erodePixelAngle.value = erodePixelAngleDeg ?? GRAIN_KNOB.devicePixelAngleDeg;
 }
+
+/**
+ * 해 쪽 추적 전용 가벼운 날씨 읽기(진단 → 정식 전 단계). 모든 셰이더 패치 **뒤**에 겁니다.
+ * genusMarchSun 이 걸음마다 부르는 sampleWeather 에서 보이는 모양용 장치(찢긴 결 비틀기 · 생애 두 장 섞기 · 둘째 무늬판 · 세포)를
+ * 전역 플래그 gLite 로 건너뜁니다 — 해까지의 대략적 두께만 필요하기 때문. 1차 행진(보이는 모양)은 그대로.
+ */
+export function patchSunMarchLite(mat: PatchableMaterial): void {
+  let src = mat.fragmentShader;
+  const rep = (a: string, b: string, all = false) => {
+    if (!src.includes(a)) throw new Error('sunMarchLite: anchor missing — ' + a.slice(0, 60));
+    src = all ? src.split(a).join(b) : src.replace(a, b);
+  };
+  rep('uniform vec4 coverageFilterWidths;', 'uniform vec4 coverageFilterWidths;\nfloat gLite = 0.0;\nuniform float dbgLite;');
+  rep('  if (genusLifeW <= 0.0) return a;', '  if (genusLifeW <= 0.0 || gLite > 0.5) return a;');
+  rep('  float gWispFade0 = 1.0 - smoothstep(3500.0, 15000.0, gFoot0);', '  float gWispFade0 = (1.0 - smoothstep(3500.0, 15000.0, gFoot0)) * (1.0 - gLite);');
+  rep('genusLifeW > 0.0 ? textureLod(', '(genusLifeW > 0.0 && gLite < 0.5) ? textureLod(', true);
+  rep('if (genusSheetOn > 0.5) {', 'if (genusSheetOn > 0.5 && gLite < 0.5) {', true);
+  if (src.includes('  if (dot(cellAmp, vec4(1.0)) > 0.0) {')) rep('  if (dot(cellAmp, vec4(1.0)) > 0.0) {', '  if (dot(cellAmp, vec4(1.0)) > 0.0 && gLite < 0.5) {');
+  if (src.includes('float genusMarchSun(')) {
+    rep('  for (int i = 0; i < 64; ++i) {\n    if (i >= n) break;', '  gLite = dbgLite;\n  for (int i = 0; i < 64; ++i) {\n    if (i >= n || od > dbgEarly) break;');
+    rep('  return od;\n}\nvec4 marchClouds(', '  gLite = 0.0;\n  return od;\n}\nvec4 marchClouds(');
+    rep('uniform float dbgLite;', 'uniform float dbgLite;\nuniform float dbgEarly;');
+  }
+  mat.fragmentShader = src;
+  mat.uniforms.dbgLite = { value: 0 };
+  mat.uniforms.dbgEarly = { value: 1e9 };
+  mat.needsUpdate = true;
+}
