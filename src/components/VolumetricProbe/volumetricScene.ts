@@ -1744,7 +1744,8 @@ export async function createVolumetricScene(
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   /** §25 물리 빛 균일변수. 끌기 중에는 해 쪽 걸음을 6 으로. */
   function applyCloudLight(): void {
-    const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: true, deck: true } : null;
+    // 2026-11-25 그늘 하늘빛(skyPhys)은 잠시 끔 — 해 쪽을 볼 때 역광 구름이 하늘처럼 밝아짐(기기 서울 08:23). 원인 조사 중(계획 문서 §25.5).
+    const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: false, deck: true } : null;
     for (const m of genusMats) setGenusLight(m, light);
   }
   applyCloudLight();
