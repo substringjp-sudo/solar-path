@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1454,7 +1454,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '        float gSunL = dot(sunIrradiance, vec3(0.2126, 0.7152, 0.0722));',
       '        vec3 gSunChroma = sunIrradiance / max(gSunL, 1e-6);',
       '        float gRedness = clamp((gSunChroma.r - gSunChroma.b - 0.25) * 0.75, 0.0, 1.0) * dot(genusOn, media.weight);',
-      '        float gRim = exp(-0.045 * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
+      '        float gRim = (dbgRimMode < 0.5 ? exp(-dbgRimK * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) : exp(-dbgRimK * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
       '        radiance += sunIrradiance * (0.14 * gRim * gRedness * dbgRim);',
       '        vec3 gWarmChroma = mix(vec3(1.0), clamp(vec3(gSunChroma.r * 0.85, gSunChroma.g * 0.90, max(gSunChroma.b, 0.80)), 0.70, 1.38), gRedness * (0.45 + 0.35 * max(0.0, cosTheta)));',
       '        radiance *= mix(vec3(1.0), gWarmChroma, dbgWarm);',
@@ -1479,6 +1479,8 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgSunTau = { value: 1 };
   mat.uniforms.dbgWarm = { value: 1 };
   mat.uniforms.dbgRim = { value: 1 };
+  mat.uniforms.dbgRimK = { value: 0.045 };
+  mat.uniforms.dbgRimMode = { value: 0 };
   mat.needsUpdate = true;
 }
 
