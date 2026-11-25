@@ -20,6 +20,7 @@ import {
   predictBacklightGhosts,
   type AnchorMatchResult,
   type CameraGearBagState,
+  type GuidedSkylineResult,
   type SkylineAnchor,
   type WindLayerInput,
   type ZoneHistogramResult,
@@ -41,6 +42,7 @@ interface OverlayProps {
   windLayers?: readonly WindLayerInput[];
   timeShiftAnchor?: SkylineAnchor | null;
   anchorMatch?: AnchorMatchResult | null;
+  refinedSkyline?: GuidedSkylineResult | null;
   language: Language;
 }
 
@@ -87,19 +89,21 @@ export const ViewfinderOpticsOverlay: React.FC<OverlayProps> = ({
   windLayers,
   timeShiftAnchor,
   anchorMatch,
+  refinedSkyline,
   language,
 }) => {
   const showGnd = gear.frontFilters.includes('gnd');
+  const showSkylineCompare = gear.showSkylineCompare || showGnd;
   const showGhost = gear.frontFilters.includes('ghostClean');
   const showAnamorphic = gear.lensMount === 'anamorphic';
   const showScheimpflug = gear.lensMount === 'scheimpflug';
   const showShift = gear.verticalShift || showScheimpflug;
   const showNdHint = gear.frontFilters.includes('nd1000') && gear.showCloudDurationHint;
 
-  // 1. DEM 능선 곡선 (GND / 시간차 앵커 가이드용)
+  // 1. DEM 능선 가이드 곡선 (점선) 및 이미지 기반 추론 경계선 (실선)
   const skylinePts = useMemo(() => {
-    if (!horizon || (!showGnd && !timeShiftAnchor)) return '';
-    const cols = 32;
+    if (!horizon || (!showSkylineCompare && !timeShiftAnchor)) return '';
+    const cols = 48;
     const xs = Array.from({ length: cols }, (_, i) => ((i + 0.5) / cols) * width);
     const ys = predictSkyline(horizon, attitude, optics.k, xs);
     const pts: string[] = [];
@@ -109,7 +113,23 @@ export const ViewfinderOpticsOverlay: React.FC<OverlayProps> = ({
       }
     }
     return pts.join(' ');
-  }, [horizon, showGnd, timeShiftAnchor, width, height, attitude, optics.k]);
+  }, [horizon, showSkylineCompare, timeShiftAnchor, width, height, attitude, optics.k]);
+
+  const refinedSkylinePts = useMemo(() => {
+    if (!refinedSkyline || !showSkylineCompare) return '';
+    const arr = refinedSkyline.refinedYNorm;
+    const pts: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const yn = arr[i];
+      if (!Number.isFinite(yn)) continue;
+      const px = ((i + 0.5) / arr.length) * width;
+      const py = yn * height;
+      if (py >= -20 && py <= height + 20) {
+        pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
+      }
+    }
+    return pts.join(' ');
+  }, [refinedSkyline, showSkylineCompare, width, height]);
 
   const anchorPolyline = useMemo(() => {
     if (!timeShiftAnchor) return '';
@@ -186,7 +206,7 @@ export const ViewfinderOpticsOverlay: React.FC<OverlayProps> = ({
   }, [showNdHint, windLayers, attitude, optics.k, gear.ndDurationSec]);
 
   if (
-    !showGnd &&
+    !showSkylineCompare &&
     !showAnamorphic &&
     !showScheimpflug &&
     !showShift &&
@@ -238,14 +258,22 @@ export const ViewfinderOpticsOverlay: React.FC<OverlayProps> = ({
           </>
         )}
 
-        {/* DEM 능선 밀착 Reverse GND 라인 */}
-        {showGnd && skylinePts ? (
+        {/* 3D DEM 지형 가이드 라인 (점선) 및 이미지 픽셀 추론 실제 경계선 (초록 실선) */}
+        {showSkylineCompare && skylinePts ? (
           <Polyline
             points={skylinePts}
             fill="none"
-            stroke="rgba(251,191,36,0.85)"
-            strokeWidth={1.8}
+            stroke="rgba(251,191,36,0.75)"
+            strokeWidth={1.5}
             strokeDasharray="4 4"
+          />
+        ) : null}
+        {showSkylineCompare && refinedSkylinePts ? (
+          <Polyline
+            points={refinedSkylinePts}
+            fill="none"
+            stroke="rgba(52,211,153,0.92)"
+            strokeWidth={2.2}
           />
         ) : null}
 
@@ -306,8 +334,20 @@ export const ViewfinderOpticsOverlay: React.FC<OverlayProps> = ({
         ))}
       </Svg>
 
-      {/* 우측 상단/중앙 상태 배지 (구름 추천 노출, 앵커 매칭률, 틸트/아나모픽 정보) */}
+      {/* 우측 상단/중앙 상태 배지 (구름 추천 노출, 경계 추론 보정량, 앵커 매칭률, 틸트/아나모픽 정보) */}
       <View style={styles.hudColumn}>
+        {showSkylineCompare && refinedSkyline && (
+          <View style={styles.hudPill}>
+            <Text style={[styles.hudText, { color: '#34D399' }]}>
+              {L3(
+                language,
+                `경계 추론 ${Math.round(refinedSkyline.meanConfidence * 100)}% · 스냅 ${Math.round(refinedSkyline.snappedRatio * 100)}% (${refinedSkyline.meanLiftPct >= 0 ? '+' : ''}${refinedSkyline.meanLiftPct.toFixed(1)}%)`,
+                `Skyline Fit ${Math.round(refinedSkyline.meanConfidence * 100)}% · Snap ${Math.round(refinedSkyline.snappedRatio * 100)}% (${refinedSkyline.meanLiftPct >= 0 ? '+' : ''}${refinedSkyline.meanLiftPct.toFixed(1)}%)`,
+                `境界推論 ${Math.round(refinedSkyline.meanConfidence * 100)}% · 補正 ${Math.round(refinedSkyline.snappedRatio * 100)}%`,
+              )}
+            </Text>
+          </View>
+        )}
         {cloudHintSec != null && (
           <View style={styles.hudPill}>
             <Text style={styles.hudText}>

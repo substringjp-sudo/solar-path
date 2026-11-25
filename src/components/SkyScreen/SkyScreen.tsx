@@ -107,6 +107,7 @@ import {
   hasActiveOpticalGear,
   summarizeGearForCell,
   type CameraGearBagState,
+  type GuidedSkylineResult,
   type WindLayerInput,
   type ZoneHistogramResult,
 } from '../../utils/photoAlgorithms';
@@ -807,6 +808,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [sandboxGearBag, setSandboxGearBag] = useState<CameraGearBagState>(() => createDefaultGearBag());
   const [sandboxGearBagOpen, setSandboxGearBagOpen] = useState<boolean>(false);
   const [sandboxZoneHist, setSandboxZoneHist] = useState<ZoneHistogramResult | null>(null);
+  const [sandboxSkyline, setSandboxSkyline] = useState<GuidedSkylineResult | null>(null);
   const [sandboxLiveView, setSandboxLiveView] = useState<{ az: number; el: number; fov: number; roll: number }>({
     az: 180,
     el: 12,
@@ -1010,6 +1012,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
       let finalUri = baseUri;
       let nextZoneHist: ZoneHistogramResult | null = null;
+      let nextSkyline: GuidedSkylineResult | null = null;
 
       if (sandboxGearActive) {
         const win = Dimensions.get('window');
@@ -1037,11 +1040,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         if (optRes?.uri) {
           finalUri = optRes.uri;
           nextZoneHist = optRes.zoneHistogram;
+          nextSkyline = optRes.skyline ?? null;
         }
       }
 
       if (reqId === longExpReqRef.current && !ctl.signal.aborted) {
         setSandboxZoneHist(nextZoneHist);
+        setSandboxSkyline(nextSkyline);
         setSandboxLongExpUri(finalUri);
       }
     } finally {
@@ -1107,25 +1112,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     if (!shouldSynthesize) {
       setSandboxLongExpUri(null);
       setSandboxZoneHist(null);
+      setSandboxSkyline(null);
       setSandboxLongExpBusy(false);
       return undefined;
     }
     if (isSliding || isGestureBlocked || sandboxGearBagOpen) {
       setSandboxLongExpUri(null);
       setSandboxZoneHist(null);
+      setSandboxSkyline(null);
       setSandboxLongExpBusy(false);
       return undefined;
     }
     setSandboxLongExpUri(null);
+    setSandboxSkyline(null);
+    const delayMs = sandboxShootMode === 'photo' ? 180 : 450;
     const t = setTimeout(() => {
       runSandboxLongExp();
-    }, 450);
+    }, delayMs);
     return () => {
       clearTimeout(t);
       longExpAbortRef.current?.abort();
       sceneRef.current?.cancelLongExposure?.();
     };
-  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, sandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
@@ -1589,6 +1598,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         onOpenCameraBag={() => setSandboxGearBagOpen(true)}
         gearActive={sandboxGearActive}
         gearBadge={sandboxGearBadge || undefined}
+        gearBag={sandboxGearBag}
+        onChangeGearBag={setSandboxGearBag}
         manualIso={sandboxIso}
         manualShutterS={sandboxShutterS}
         manualWb={sandboxWb}
@@ -1725,6 +1736,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             sunAzDeg={sunAzimuth}
             sunAltDeg={sunAltitude}
             windLayers={sandboxWindLayers}
+            refinedSkyline={sandboxSkyline}
             language={language}
           />
         )}

@@ -102,16 +102,46 @@ export function computeVerticalShiftHomography(
   const dstToSrcUv = mat3Mul(mat3Mul(kUv, rDstToSrc), kUvInv);
   const srcToDstUv = mat3Mul(mat3Mul(kUv, rSrcToDst), kUvInv);
 
-  // 원본 4개 모서리를 출력 공간으로 투영해 내접 크롭 사각형 산출
+  // 원본 4개 모서리를 출력 공간으로 투영해 초기 내접 크롭 사각형 산출
   const c00 = applyMat3Uv(srcToDstUv, 0, 0);
   const c10 = applyMat3Uv(srcToDstUv, 1, 0);
   const c01 = applyMat3Uv(srcToDstUv, 0, 1);
   const c11 = applyMat3Uv(srcToDstUv, 1, 1);
 
-  const u0 = clamp(Math.max(c00[0], c01[0]), 0, 0.45);
-  const u1 = clamp(Math.min(c10[0], c11[0]), 0.55, 1);
-  const v0 = clamp(Math.max(c00[1], c10[1]), 0, 0.45);
-  const v1 = clamp(Math.min(c01[1], c11[1]), 0.55, 1);
+  let u0 = clamp(Math.max(c00[0], c01[0]), 0.01, 0.42);
+  let u1 = clamp(Math.min(c10[0], c11[0]), 0.58, 0.99);
+  let v0 = clamp(Math.max(c00[1], c10[1]), 0.01, 0.42);
+  let v1 = clamp(Math.min(c01[1], c11[1]), 0.58, 0.99);
+
+  // 출력 크롭 박스의 네 모서리가 역투영(dstToSrcUv) 시 모두 원본 [0.008, 0.992] 안에 들어오도록 수축해
+  // 상단/하단 클램핑 늘어짐 아티팩트를 원천 차단합니다.
+  const cornersInside = (scale: number): boolean => {
+    const cu0 = 0.5 + (u0 - 0.5) * scale;
+    const cu1 = 0.5 + (u1 - 0.5) * scale;
+    const cv0 = 0.5 + (v0 - 0.5) * scale;
+    const cv1 = 0.5 + (v1 - 0.5) * scale;
+    const pts: Array<[number, number]> = [
+      applyMat3Uv(dstToSrcUv, cu0, cv0),
+      applyMat3Uv(dstToSrcUv, cu1, cv0),
+      applyMat3Uv(dstToSrcUv, cu0, cv1),
+      applyMat3Uv(dstToSrcUv, cu1, cv1),
+    ];
+    return pts.every(([su, sv]) => su >= 0.008 && su <= 0.992 && sv >= 0.008 && sv <= 0.992);
+  };
+
+  if (!cornersInside(1)) {
+    let lo = 0.35;
+    let hi = 1.0;
+    for (let iter = 0; iter < 10; iter++) {
+      const mid = (lo + hi) * 0.5;
+      if (cornersInside(mid)) lo = mid;
+      else hi = mid;
+    }
+    u0 = 0.5 + (u0 - 0.5) * lo;
+    u1 = 0.5 + (u1 - 0.5) * lo;
+    v0 = 0.5 + (v0 - 0.5) * lo;
+    v1 = 0.5 + (v1 - 0.5) * lo;
+  }
 
   return { dstToSrcUv, srcToDstUv, cropBox: { u0, v0, u1, v1 } };
 }
@@ -381,8 +411,20 @@ export function computeCloudFlowKernel(
     ? clamp(targetStreak / speedUvPerSec, 1, 240)
     : duration;
 
-  const flowU = clamp(duPerSec * duration, -0.35, 0.35);
-  const flowV = clamp(dvPerSec * duration, -0.35, 0.35);
+  let flowU = clamp(duPerSec * duration, -0.35, 0.35);
+  let flowV = clamp(dvPerSec * duration, -0.35, 0.35);
+  const flowMag = Math.hypot(flowU, flowV);
+  const minVisualMag = clamp(0.022 * (duration / 10), 0.012, 0.16);
+  if (flowMag < minVisualMag) {
+    if (flowMag > 1e-5) {
+      const scale = minVisualMag / flowMag;
+      flowU *= scale;
+      flowV *= scale;
+    } else {
+      flowU = minVisualMag;
+      flowV = -minVisualMag * 0.18;
+    }
+  }
 
   // 가우시안-테이퍼 방향성 커널 탭 생성(양 끝단 계단 아티팩트 방지)
   const taps: CloudFlowTap[] = [];

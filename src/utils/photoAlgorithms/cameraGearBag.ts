@@ -67,6 +67,14 @@ export interface CameraGearBagState {
   showPeakLabels: boolean;
   showDipHorizon: boolean;
   showCloudDurationHint: boolean;
+
+  // ── 3D 지형·건물 가이드 기반 이미지 경계 추론 보정 ──
+  /** 0 = 이미지 픽셀 경계(건물·나무) 우선, 1 = 3D DEM 가이드 고정. 기본 0.45. */
+  skylinePriorWeight: number;
+  /** 3D 가이드선 상하 탐색 반경(화면 높이 비율, 0.06..0.24). 기본 0.14. */
+  skylineSearchNorm: number;
+  /** 3D 가이드선(점선)과 이미지 추론 실제 경계선(실선) 비교 표시 여부. */
+  showSkylineCompare: boolean;
 }
 
 export const MAX_FRONT_FILTERS = 2;
@@ -98,6 +106,9 @@ export function createDefaultGearBag(): CameraGearBagState {
     showPeakLabels: false,
     showDipHorizon: false,
     showCloudDurationHint: true,
+    skylinePriorWeight: 0.45,
+    skylineSearchNorm: 0.14,
+    showSkylineCompare: false,
   };
 }
 
@@ -122,7 +133,8 @@ export function hasActiveOpticalGear(s: CameraGearBagState): boolean {
     s.lensMount !== 'standard' ||
     s.frontFilters.length > 0 ||
     s.filmBack !== 'natural' ||
-    s.verticalShift
+    s.verticalShift ||
+    s.showSkylineCompare
   );
 }
 
@@ -182,5 +194,6 @@ export function summarizeGearForCell(s: CameraGearBagState, lang: Language): str
   else if (s.verticalShift) parts.push(L3(lang, '수직 시프트', 'Shift', '垂直補正'));
   for (const f of s.frontFilters) parts.push(frontFilterShortLabel(f, lang));
   if (s.filmBack !== 'natural') parts.push(filmBackShortLabel(s.filmBack, lang));
+  if (s.showSkylineCompare && parts.length === 0) parts.push(L3(lang, '경계 보정', 'Skyline Fit', '境界補正'));
   return parts.join(' · ');
 }

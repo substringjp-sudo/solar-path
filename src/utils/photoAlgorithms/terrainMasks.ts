@@ -44,6 +44,8 @@ export interface ContourGndOptions {
   featherNorm?: number;
   /** Reverse GND에서 지평선 위 감광 띠의 세로 폭(화면 높이 비율). 기본 0.28. */
   bandHeightNorm?: number;
+  /** 이미지 픽셀 기반으로 보정된 스카이라인이 있으면 3D DEM 예측선 대신 사용합니다. */
+  overrideHorizonYNorm?: Float32Array | null;
 }
 
 export interface ContourGndResult {
@@ -74,15 +76,19 @@ export function computeContourGndCurve(
   const featherNorm = clamp(opts.featherNorm ?? 0.035, 0.005, 0.2);
   const bandHeightNorm = clamp(opts.bandHeightNorm ?? 0.28, 0.06, 0.8);
 
-  const colPx: number[] = new Array(cols);
-  for (let i = 0; i < cols; i++) {
-    colPx[i] = ((i + 0.5) / cols) * intrinsics.width;
-  }
-  const skyPx = predictSkyline(horizon, attitude, intrinsics, colPx);
   const horizonYNorm = new Float32Array(cols);
-  const invH = 1 / Math.max(1, intrinsics.height);
-  for (let i = 0; i < cols; i++) {
-    horizonYNorm[i] = Number.isFinite(skyPx[i]) ? skyPx[i] * invH : Number.NaN;
+  if (opts.overrideHorizonYNorm && opts.overrideHorizonYNorm.length === cols) {
+    horizonYNorm.set(opts.overrideHorizonYNorm);
+  } else {
+    const colPx: number[] = new Array(cols);
+    for (let i = 0; i < cols; i++) {
+      colPx[i] = ((i + 0.5) / cols) * intrinsics.width;
+    }
+    const skyPx = predictSkyline(horizon, attitude, intrinsics, colPx);
+    const invH = 1 / Math.max(1, intrinsics.height);
+    for (let i = 0; i < cols; i++) {
+      horizonYNorm[i] = Number.isFinite(skyPx[i]) ? skyPx[i] * invH : Number.NaN;
+    }
   }
 
   const sampleGain = (u: number, v: number): number => {
@@ -140,6 +146,218 @@ export function bakeContourGndGrid(
     }
   }
   return out;
+}
+
+export interface GuidedSkylineOptions {
+  /** 0 = 이미지 픽셀 경계(건물·나무 실루엣) 우선, 1 = 3D 지형 가이드 고정. 기본 0.45. */
+  priorWeight?: number;
+  /** 3D 가이드선 기준 상하 탐색 반경(화면 높이 비율, 0.04..0.30). 기본 0.14. */
+  searchRadiusNorm?: number;
+  /** 인접 열 간 수평 연속성(DP 이동 비용). 기본 0.55. */
+  smoothness?: number;
+}
+
+export interface GuidedSkylineResult {
+  /** 3D 지형 가이드 기준 초기 스카이라인(0..1 정규화 Y). */
+  priorYNorm: Float32Array;
+  /** 이미지 픽셀 + 3D 가이드 결합으로 추론된 최종 스카이라인(0..1 정규화 Y). */
+  refinedYNorm: Float32Array;
+  /** 각 열의 이미지 경계 신뢰도(0..1). */
+  confidence: Float32Array;
+  /** 전체 평균 신뢰도(0..1). */
+  meanConfidence: number;
+  /** 3D 지형 가이드 대비 이미지 추론 경계의 평균 상하 보정량(%p, 양수=건물·능선이 가이드보다 위로 솟음). */
+  meanLiftPct: number;
+  /** 가이드에서 1.0% 이상 유의미하게 보정된(건물·실제 능선 스냅) 열 비율(0..1). */
+  snappedRatio: number;
+}
+
+/**
+ * 3D DEM 스카이라인(`priorYNorm`)을 시작 가이드(Prior)로 삼아 탐색 대역을 제한한 뒤,
+ * 실제 이미지(RGBA 버퍼)의 수직 명암·청색도·그라디언트 경계를 1D 동적 계획법(DP)으로 추적해
+ * 지형 위로 솟은 건물 옥상·나무·실제 산 능선 실루엣에 밀착된 경계선(`refinedYNorm`)을 추론합니다.
+ */
+export function refineSkylineWithImagePrior(
+  rgba: Uint8Array | Uint8ClampedArray,
+  imgW: number,
+  imgH: number,
+  priorYNorm: Float32Array,
+  opts: GuidedSkylineOptions = {},
+): GuidedSkylineResult {
+  const cols = priorYNorm.length;
+  const priorW = clamp(opts.priorWeight ?? 0.45, 0.05, 0.98);
+  const radiusNorm = clamp(opts.searchRadiusNorm ?? 0.14, 0.03, 0.32);
+  const smooth = clamp(opts.smoothness ?? 0.55, 0.1, 2.0);
+
+  const refinedYNorm = new Float32Array(cols);
+  const confidence = new Float32Array(cols);
+  if (imgW < 8 || imgH < 8 || cols === 0 || rgba.length < imgW * imgH * 4) {
+    refinedYNorm.set(priorYNorm);
+    return {
+      priorYNorm,
+      refinedYNorm,
+      confidence,
+      meanConfidence: 0,
+      meanLiftPct: 0,
+      snappedRatio: 0,
+    };
+  }
+
+  // 열별 휘도(L)와 하늘 색도(Bl - Warmth 대비) 추출
+  const L = new Float32Array(cols * imgH);
+  const C = new Float32Array(cols * imgH);
+  for (let c = 0; c < cols; c++) {
+    const ix = clamp(Math.floor(((c + 0.5) / cols) * imgW), 0, imgW - 1);
+    for (let y = 0; y < imgH; y++) {
+      const p = (y * imgW + ix) * 4;
+      const r = rgba[p] / 255;
+      const g = rgba[p + 1] / 255;
+      const b = rgba[p + 2] / 255;
+      L[y * cols + c] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      // 하늘(푸른빛 또는 밝은 노을 주황빛) vs 어두운 건물·능선 실루엣 구분
+      C[y * cols + c] = Math.max(b - 0.45 * (r + g), (r * 0.6 + g * 0.4) - 0.35 * b);
+    }
+  }
+
+  const K = Math.max(2, Math.round(imgH / 32));
+  const radRows = Math.max(3, Math.round(radiusNorm * imgH));
+  const INF = 1e9;
+  const costMat = new Float32Array(cols * imgH).fill(INF);
+  const edgeScoreMat = new Float32Array(cols * imgH);
+  const back = new Int16Array(cols * imgH);
+
+  // 각 열에서 3D 가이드 y_prior 주변 ±radRows 구간의 이미지 경계 점수 및 Prior 비용 계산
+  for (let c = 0; c < cols; c++) {
+    const pyNorm = Number.isFinite(priorYNorm[c]) ? clamp(priorYNorm[c], 0.04, 0.96) : 0.52;
+    const pyRow = pyNorm * imgH;
+    // 건물들은 지형 가이드보다 위쪽(y < pyRow)으로 솟아오르므로 위쪽 탐색 폭을 1.35배 더 넓게 허용
+    const yMin = Math.max(K, Math.floor(pyRow - radRows * 1.35));
+    const yMax = Math.min(imgH - K - 1, Math.ceil(pyRow + radRows * 0.85));
+
+    let maxEdge = 1e-4;
+    for (let y = yMin; y <= yMax; y++) {
+      let lAbove = 0;
+      let lBelow = 0;
+      let cAbove = 0;
+      let cBelow = 0;
+      for (let t = 1; t <= K; t++) {
+        lAbove += L[(y - t) * cols + c];
+        lBelow += L[(y + t - 1) * cols + c];
+        cAbove += C[(y - t) * cols + c];
+        cBelow += C[(y + t - 1) * cols + c];
+      }
+      const dL = (lAbove - lBelow) / K;
+      const dC = (cAbove - cBelow) / K;
+      // 한 픽셀 단차(건물 옥상·능선 날카로운 실루엣)
+      const localStep = (L[(y - 1) * cols + c] - L[y * cols + c]);
+      // 하늘(위)이 지상·건물(아래)보다 밝거나 색도 차가 뚜렷한 곳을 높은 점수로 평가
+      const rawScore = Math.max(0, dL * 1.15 + dC * 0.45 + Math.max(0, localStep) * 0.65) + Math.abs(dL) * 0.22;
+      edgeScoreMat[y * cols + c] = rawScore;
+      if (rawScore > maxEdge) maxEdge = rawScore;
+    }
+
+    for (let y = yMin; y <= yMax; y++) {
+      const raw = edgeScoreMat[y * cols + c];
+      // 열 내부 상대 정규화 + 절대 대비 결합
+      const normEdge = clamp(raw / Math.max(0.08, maxEdge), 0, 1) * clamp(raw / 0.14, 0.2, 1.2);
+      const dyNorm = (y - pyRow) / Math.max(1, radRows);
+      // 위쪽으로 솟은 건물 실루엣(dyNorm < 0)은 가이드 페널티를 완만하게 두어 옥상 경계를 잘 타도록 함
+      const asymDy = dyNorm < 0 ? dyNorm * 0.78 : dyNorm * 1.12;
+      const priorPenalty = priorW * (asymDy * asymDy);
+      const imageReward = (1 - priorW * 0.65) * normEdge;
+      costMat[y * cols + c] = priorPenalty - imageReward;
+    }
+  }
+
+  // 1D 동적 계획법(L1 거리 변환)으로 열 간 끊김 없는 최적 경계 추적
+  const stepCost = (smooth * 0.85) / Math.max(16, imgH);
+  let prev = new Float32Array(imgH);
+  for (let y = 0; y < imgH; y++) prev[y] = costMat[y * cols];
+
+  const best = new Float32Array(imgH);
+  const arg = new Int16Array(imgH);
+  for (let c = 1; c < cols; c++) {
+    for (let y = 0; y < imgH; y++) {
+      best[y] = prev[y];
+      arg[y] = y;
+    }
+    for (let y = 1; y < imgH; y++) {
+      if (best[y - 1] + stepCost < best[y]) {
+        best[y] = best[y - 1] + stepCost;
+        arg[y] = arg[y - 1];
+      }
+    }
+    for (let y = imgH - 2; y >= 0; y--) {
+      if (best[y + 1] + stepCost < best[y]) {
+        best[y] = best[y + 1] + stepCost;
+        arg[y] = arg[y + 1];
+      }
+    }
+    for (let y = 0; y < imgH; y++) {
+      prev[y] = best[y] + costMat[y * cols + c];
+      back[c * imgH + y] = arg[y];
+    }
+  }
+
+  let bestEndY = Math.round((Number.isFinite(priorYNorm[cols - 1]) ? priorYNorm[cols - 1] : 0.52) * imgH);
+  let minEndCost = INF;
+  for (let y = 0; y < imgH; y++) {
+    if (prev[y] < minEndCost) {
+      minEndCost = prev[y];
+      bestEndY = y;
+    }
+  }
+
+  let curY = clamp(bestEndY, K, imgH - K - 1);
+  let confSum = 0;
+  let liftSum = 0;
+  let snappedCount = 0;
+  let validCols = 0;
+
+  for (let c = cols - 1; c >= 0; c--) {
+    const pyNorm = Number.isFinite(priorYNorm[c]) ? priorYNorm[c] : Number.NaN;
+    const rawEdge = edgeScoreMat[curY * cols + c];
+    const conf = clamp(rawEdge / 0.18, 0, 1);
+    confidence[c] = conf;
+
+    // 서브픽셀 포물선 보간
+    let subY = curY;
+    if (curY > K && curY < imgH - K - 1) {
+      const em = edgeScoreMat[(curY - 1) * cols + c];
+      const e0 = rawEdge;
+      const ep = edgeScoreMat[(curY + 1) * cols + c];
+      const den = em - 2 * e0 + ep;
+      if (den < -1e-4) {
+        subY += clamp(0.5 * (em - ep) / den, -0.5, 0.5);
+      }
+    }
+
+    const detectedNorm = clamp((subY + 0.5) / imgH, 0.02, 0.98);
+    // 이미지 에지가 너무 약한 구간(강한 태양 역광 포화 등)은 3D 가이드선으로 부드럽게 폴백
+    const blendToDetected = clamp((conf - 0.06) / 0.25, 0, 1) * (1 - priorW * 0.35);
+    const finalNorm = Number.isFinite(pyNorm)
+      ? pyNorm * (1 - blendToDetected) + detectedNorm * blendToDetected
+      : detectedNorm;
+
+    refinedYNorm[c] = finalNorm;
+    if (Number.isFinite(pyNorm)) {
+      const lift = pyNorm - finalNorm; // 화면 위쪽이 y가 작으므로 양수 = 가이드보다 위로 솟음(건물/능선)
+      liftSum += lift * 100;
+      if (Math.abs(lift) >= 0.01) snappedCount++;
+      confSum += conf;
+      validCols++;
+    }
+    if (c > 0) curY = clamp(back[c * imgH + curY], K, imgH - K - 1);
+  }
+
+  return {
+    priorYNorm,
+    refinedYNorm,
+    confidence,
+    meanConfidence: validCols > 0 ? confSum / validCols : 0,
+    meanLiftPct: validCols > 0 ? liftSum / validCols : 0,
+    snappedRatio: validCols > 0 ? snappedCount / validCols : 0,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,10 +649,14 @@ export function computeVirtualDollyWarpGrid(
       const u = (x + 0.5) / gridW;
       const i = y * gridW + x;
       const d = depthGridM[i];
-      // 하늘(Infinity/0)은 최원경으로 취급해 해·달·구름도 산 능선과 함께 압축
-      const t = !Number.isFinite(d) || d <= 0
+      // 지평선·원경 능선 대역을 중심으로 망원 압축하고, 천정(v→0)과 최하단 근경(v→1)에서는
+      // 자연스럽게 1.0배로 수렴시켜 상단만 늘어지는 현상을 방지합니다.
+      const distT = !Number.isFinite(d) || d <= 0
         ? 1
         : smoothstep(logNear, logFar, Math.log(Math.max(1, d)));
+      const verticalWindow = smoothstep(0.02, 0.24, v) * (1 - 0.55 * smoothstep(0.72, 0.98, v));
+      const edgeFade = smoothstep(0.0, 0.12, u) * smoothstep(1.0, 0.88, u) * smoothstep(0.0, 0.10, v) * smoothstep(1.0, 0.90, v);
+      const t = distT * verticalWindow * edgeFade;
       const zoom = nearZoom + (farZoom - nearZoom) * t;
       zoomGrid[i] = zoom;
 
@@ -546,12 +768,16 @@ export function computeTerrainDepthGrid(
         }
       }
 
-      // 지평선 아래인데 정밀 DEM 미로드/바다/범위 밖인 경우 평면 + 능선 각거리 기반 추정 거리
+      // 지평선 아래인데 정밀 DEM 미로드/바다/범위 밖인 경우: 능선(원경 16km) ~ 전경(500m) 다단 거리 추정,
+      // 능선 바로 위 저고도 하늘(0°~7°)에도 대기 연무 층 거리를 부여해 연무 제거/산수화 효과가 자연스럽게 이어지게 함.
       const hEl = horizon ? horizonAt(horizon, az) : 0;
       if (el <= hEl + 0.08) {
-        const depRad = Math.max(0.0025, (hEl + 0.5 - el) * D2R);
-        const fallbackEye = Math.max(25, Math.min(350, eyeM > 15 ? eyeM : 60));
-        out[i] = clamp(fallbackEye / Math.tan(depRad), 80, 42000);
+        const depDeg = Math.max(0.05, hEl + 0.1 - el);
+        const normDep = clamp(depDeg / 18, 0, 1);
+        out[i] = clamp(450 + 16500 * Math.pow(1 - normDep, 2.1), 350, 28000);
+      } else if (el <= hEl + 7.5) {
+        const aboveDeg = el - hEl;
+        out[i] = clamp(9000 * Math.exp(-aboveDeg / 2.8), 0, 12000);
       } else {
         out[i] = Number.POSITIVE_INFINITY;
       }

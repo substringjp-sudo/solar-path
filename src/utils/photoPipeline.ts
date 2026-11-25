@@ -47,9 +47,11 @@ import {
   estimateSubpixelShift,
   hasActiveOpticalGear,
   predictBacklightGhosts,
+  refineSkylineWithImagePrior,
   scoreFrameSharpness,
   selectLuckyFrames,
   type CameraGearBagState,
+  type GuidedSkylineResult,
   type WindLayerInput,
   type ZoneHistogramResult,
 } from './photoAlgorithms';
@@ -80,6 +82,7 @@ export interface PhotoProcessResult {
   zoneHistogram: ZoneHistogramResult | null;
   recommendedCloudSec: number | null;
   appliedTags: string[];
+  skyline?: GuidedSkylineResult | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,21 +248,31 @@ half4 main(float2 coord) {
     }
   }
 
-  // Black Pro-Mist 할레이션/하이라이트 글로우
+  // Black Pro-Mist 할레이션/하이라이트 글로우 (2링 16탭 + 저주파 블룸 + 필름 암부 리프트)
   if (uProMistStr > 0.01) {
     float3 glow = float3(0.0);
     float gW = 0.0;
-    float r = uProMistRad;
-    for (int k = 0; k < 8; k++) {
-      float ang = float(k) * 0.78539816;
-      float2 off = float2(cos(ang), sin(ang) * (uRes.x / max(1.0, uRes.y))) * r;
-      float3 s = float3(uImage.eval(clamp(uv + off, float2(0.0), float2(1.0)) * uRes).rgb);
-      float lum = dot(s, float3(0.2126, 0.7152, 0.0722));
-      float hi = smoothstep(0.62, 0.98, lum);
-      glow += s * hi;
-      gW += 1.0;
+    float aspect = uRes.x / max(1.0, uRes.y);
+    for (int ring = 1; ring <= 2; ring++) {
+      float r = uProMistRad * (float(ring) * 0.65);
+      float rw = ring == 1 ? 1.0 : 0.7;
+      for (int k = 0; k < 8; k++) {
+        float ang = float(k) * 0.78539816 + float(ring) * 0.392699;
+        float2 off = float2(cos(ang), sin(ang) * aspect) * r;
+        float2 suv = clamp(uv + off, float2(0.0), float2(1.0));
+        float3 s = float3(uImage.eval(suv * uRes).rgb);
+        float lum = dot(s, float3(0.2126, 0.7152, 0.0722));
+        float hi = smoothstep(0.32, 0.88, lum);
+        glow += s * hi * rw;
+        gW += rw;
+      }
     }
-    rgb += (glow / max(1.0, gW)) * (uProMistStr * 0.55);
+    float3 softLo = float3(uBokehLow.eval(coord).rgb);
+    float loLum = dot(softLo, float3(0.2126, 0.7152, 0.0722));
+    float3 halo = mix(glow / max(1.0, gW), softLo * smoothstep(0.25, 0.85, loLum), 0.45);
+    rgb = mix(rgb, rgb + halo * (uProMistStr * 0.95), 0.85);
+    // Pro-Mist 특유의 부드러운 콘트라스트 완화(암부 밀키 리프트)
+    rgb = mix(rgb, softLo * 0.85 + float3(0.03, 0.028, 0.035), uProMistStr * 0.18);
   }
 
   // 역광 렌즈 고스트 억제 (광축 점대칭 반사 색상 편향·베일링 헤이즈 완화)
@@ -288,19 +301,27 @@ half4 main(float2 coord) {
     float2 dIso = float2(dSun.x, dSun.y * aspect);
     float dist = max(1e-4, length(dIso));
 
-    // 아나모픽 수평 청백색 플레어 스트릭
+    // 아나모픽 수평 청백색 플레어 스트릭 (광원 중심 + 화면 내 밝은 하이라이트 가로 번짐)
     if (uAnaInt > 0.01) {
-      float streakX = exp(-abs(dSun.x) / max(0.04, uAnaHalfW * 0.45));
-      float streakY = exp(-pow(dIso.y / 0.012, 2.0));
-      rgb += float3(0.58, 0.80, 1.0) * (streakX * streakY * uAnaInt * 0.65);
+      float streakX = exp(-abs(dSun.x) / max(0.06, uAnaHalfW * 0.65));
+      float streakY = exp(-pow(dIso.y / 0.018, 2.0));
+      float3 hStreak = float3(0.0);
+      for (int k = -4; k <= 4; k++) {
+        float2 huv = clamp(uv + float2(float(k) * 0.028, 0.0), float2(0.0), float2(1.0));
+        float3 hs = float3(uImage.eval(huv * uRes).rgb);
+        float hl = dot(hs, float3(0.2126, 0.7152, 0.0722));
+        hStreak += smoothstep(0.55, 0.95, hl) * float3(0.38, 0.78, 1.0);
+      }
+      rgb += float3(0.42, 0.80, 1.0) * (streakX * streakY * uAnaInt * 0.85) + (hStreak / 9.0) * (uAnaInt * 0.42);
     }
 
     // 조리개 날 회절 선스타
     if (uSunstarInt > 0.01) {
       float theta = atan(dIso.y, dIso.x);
-      float rays = pow(max(1e-4, cos(theta * uSunstarRays * 0.5)), 24.0);
-      float radial = exp(-dist / max(0.03, uSunstarLen * 0.45)) * smoothstep(0.004, 0.02, dist);
-      rgb += float3(1.0, 0.94, 0.82) * (rays * radial * uSunstarInt * 0.85);
+      float rays = pow(max(1e-4, cos(theta * uSunstarRays * 0.5)), 20.0);
+      float radial = exp(-dist / max(0.04, uSunstarLen * 0.55)) * smoothstep(0.002, 0.018, dist);
+      float core = exp(-dist / 0.022) * 0.45;
+      rgb += float3(1.0, 0.93, 0.80) * ((rays * radial + core) * uSunstarInt * 0.95);
     }
   }
 
@@ -359,39 +380,47 @@ half4 main(float2 coord) {
     lin *= mA.r;
   }
 
-  // 3. 90도 물리 레일리 편광(CPL) 하늘 감광 + 채도 강화
+  // 3. 90도 물리 레일리 편광(CPL) 하늘 감광 + 채도·구름 대비 강화
   if (uCplOn > 0.5) {
-    float cplGain = mA.g;
-    float polBoost = clamp((1.0 - cplGain) * (1.2 + uCplStr), 0.0, 0.45);
+    float cplGain = mix(1.0, mA.g, clamp(uCplStr * 1.25, 0.0, 1.4));
+    float polBoost = clamp((1.0 - cplGain) * (1.8 + uCplStr * 1.4), 0.0, 0.85);
     float y = dot(lin, float3(0.2126, 0.7152, 0.0722));
-    lin = max(float3(0.0), mix(float3(y), lin, 1.0 + polBoost)) * cplGain;
+    float3 satLin = max(float3(0.0), mix(float3(y), lin, 1.0 + polBoost));
+    // 푸른 하늘 산란광은 더 깊게 누르고 밝은 구름/노을 하이라이트는 보존
+    float cloudKeep = smoothstep(0.25, 0.78, y) * 0.35;
+    lin = satLin * mix(cplGain, 1.0, cloudKeep);
   }
 
-  // 4. 도심 광해 노치 필터 (저고도 황색 나트륨등 성분만 선택 감산)
+  // 4. 도심 광해 노치 필터 (저고도 황색 나트륨등 성분만 선택 감산 + 밤하늘 코발트 복원)
   if (uLpOn > 0.5) {
     float lpW = mB.r;
     if (lpW > 0.01) {
-      float sodiumAmt = min(lin.r, lin.g * 1.15);
-      lin = max(float3(0.0), lin - uSodiumRgb * (sodiumAmt * lpW * 0.52));
-      lin.b += sodiumAmt * lpW * 0.04;
+      float sodiumAmt = min(lin.r, lin.g * 1.2) * 0.85 + max(0.0, lin.r - lin.b) * 0.35;
+      lin = max(float3(0.0), lin - uSodiumRgb * (sodiumAmt * lpW * 0.75));
+      lin.b += sodiumAmt * lpW * 0.14;
     }
   }
 
   // 5. Koschmieder 거리별 대기 연무 제어(Dehaze / 산수화) + 능선 층 분리
   if (abs(uDehazeStr) > 0.02 || uRidgeStr > 0.02) {
-    float tPhys = max(0.18, mA.b);
-    float3 airlight = float3(0.45, 0.50, 0.58);
+    float tPhys = max(0.16, mA.b);
+    float3 airlight = float3(0.46, 0.52, 0.62);
     if (uDehazeStr > 0.02 && tPhys < 0.995) {
-      lin = max(float3(0.0), (lin - airlight * (1.0 - tPhys)) / tPhys);
+      float3 clearLin = max(float3(0.0), (lin - airlight * (1.0 - tPhys) * 0.85) / max(0.22, tPhys));
+      float cy = dot(clearLin, float3(0.2126, 0.7152, 0.0722));
+      clearLin = max(float3(0.0), mix(float3(cy), clearLin, 1.0 + uDehazeStr * 0.35));
+      lin = mix(lin, clearLin, clamp(uDehazeStr * 1.15, 0.0, 1.0));
     } else if (uDehazeStr < -0.02 && tPhys < 0.995) {
-      lin = mix(airlight * 0.92, lin, tPhys);
+      float mistAmt = clamp((1.0 - tPhys) * (-uDehazeStr) * 1.65, 0.0, 0.88);
+      float3 inkMist = mix(float3(0.42, 0.47, 0.56), float3(0.62, 0.58, 0.54), clamp(lin.r * 1.4, 0.0, 1.0));
+      lin = mix(lin, inkMist, mistAmt);
     }
     // 겹친 산 능선 층 대비 및 능선 엣지 강조
     if (uRidgeStr > 0.02 && mB.b > 0.01) {
       float bandT = mB.b;
       float edge = mB.g;
-      float bandGain = 1.0 + (0.5 - bandT) * uRidgeStr * 0.24 + edge * uRidgeStr * 0.22;
-      lin *= bandGain;
+      float bandGain = 1.0 + (0.5 - bandT) * uRidgeStr * 0.42 + edge * uRidgeStr * 0.38;
+      lin *= max(0.2, bandGain);
     }
   }
 
@@ -609,11 +638,51 @@ export async function applyOpticalGearToPhoto(
     elevDeg: new Float32Array(72).fill(0),
   };
 
-  const gndCurve = computeContourGndCurve(fallbackHorizon, ctx.attitude, ctx.intrinsics, {
+  // 1) 3D DEM 지형 가이드 기반 초기 스카이라인 계산
+  const SKYLINE_COLS = 72;
+  const priorGndCurve = computeContourGndCurve(fallbackHorizon, ctx.attitude, ctx.intrinsics, {
     mode: gear.gndMode,
     maxStops: gear.gndStops,
-    columns: 64,
+    columns: SKYLINE_COLS,
   });
+
+  // 2) 3D 지형 가이드를 시작점으로 삼아 실제 이미지 픽셀(건물·나무·능선 명암 경계)에서 스카이라인 정밀 추론
+  let skylineRes: GuidedSkylineResult | null = null;
+  {
+    const sw = SKYLINE_COLS;
+    const sh = 54;
+    const skySurf = Skia.Surface.Make(sw, sh);
+    if (skySurf) {
+      skySurf.getCanvas().drawImageRect(
+        curImg,
+        rect(0, 0, curImg.width(), curImg.height()),
+        rect(0, 0, sw, sh),
+        Skia.Paint(),
+      );
+      skySurf.flush();
+      const skyPx = skySurf.makeImageSnapshot().readPixels(0, 0, {
+        width: sw,
+        height: sh,
+        colorType: ColorType.RGBA_8888,
+        alphaType: AlphaType.Unpremul,
+      });
+      if (skyPx && skyPx instanceof Uint8Array) {
+        skylineRes = refineSkylineWithImagePrior(skyPx, sw, sh, priorGndCurve.horizonYNorm, {
+          priorWeight: gear.skylinePriorWeight ?? 0.45,
+          searchRadiusNorm: gear.skylineSearchNorm ?? 0.14,
+        });
+      }
+    }
+  }
+
+  const gndCurve = skylineRes
+    ? computeContourGndCurve(fallbackHorizon, ctx.attitude, ctx.intrinsics, {
+        mode: gear.gndMode,
+        maxStops: gear.gndStops,
+        columns: SKYLINE_COLS,
+        overrideHorizonYNorm: skylineRes.refinedYNorm,
+      })
+    : priorGndCurve;
   const gndGrid = bakeContourGndGrid(gndCurve, GRID_W, GRID_H);
 
   const useCpl = gear.frontFilters.includes('cpl');
@@ -653,9 +722,23 @@ export async function applyOpticalGearToPhoto(
     : null;
 
   const useDolly = gear.lensMount === 'dolly';
+  let horizonMeanV = 0.52;
+  {
+    let sumV = 0;
+    let cntV = 0;
+    for (let i = 0; i < gndCurve.horizonYNorm.length; i++) {
+      const hy = gndCurve.horizonYNorm[i];
+      if (Number.isFinite(hy) && hy > 0.05 && hy < 0.95) {
+        sumV += hy;
+        cntV++;
+      }
+    }
+    if (cntV > 0) horizonMeanV = clamp(sumV / cntV, 0.22, 0.82);
+  }
   const dollyRes = useDolly && depthGrid
     ? computeVirtualDollyWarpGrid(depthGrid, GRID_W, GRID_H, {
         farZoom: gear.dollyFarZoom,
+        anchorUv: [0.5, horizonMeanV],
       })
     : null;
 
@@ -682,9 +765,11 @@ export async function applyOpticalGearToPhoto(
       const i = y * GRID_W + x;
       const o = i * 4;
 
-      const isGround = depthGrid
-        ? Number.isFinite(depthGrid[i]) && depthGrid[i] > 0
-        : v > hyAtU(u);
+      // 이미지에서 추론된 스카이라인(건물·실제 능선 포함)을 최우선 하늘/지상 경계로 사용
+      const hy = hyAtU(u);
+      const isGround = v > hy
+        ? true
+        : (depthGrid ? Number.isFinite(depthGrid[i]) && depthGrid[i] > 0 && v > hy - 0.02 : false);
 
       maskABytes[o] = Math.round(clamp(gndGrid[i], 0, 1) * 255);
       maskABytes[o + 1] = Math.round(clamp(cplGrid ? cplGrid[i] : 1, 0, 1) * 255);
@@ -713,8 +798,8 @@ export async function applyOpticalGearToPhoto(
   const maskBImg = makeOpaqueRgbaImage(maskBBytes, GRID_W, GRID_H);
   const geomImg = makeOpaqueRgbaImage(geomBytes, GRID_W, GRID_H);
 
-  // Pass A: 수직 시프트 교정 & 가상 돌리 줌 워핑
-  const useShift = gear.verticalShift || gear.lensMount === 'scheimpflug';
+  // Pass A: 수직 시프트 교정(명시적으로 켰을 때만) & 가상 돌리 줌 워핑
+  const useShift = gear.verticalShift;
   if ((useShift || useDolly) && gFx && geomImg) {
     const shiftRes = computeVerticalShiftHomography(ctx.attitude, ctx.intrinsics, {
       strength: gear.shiftStrength,
@@ -752,10 +837,10 @@ export async function applyOpticalGearToPhoto(
   const useGhostClean = gear.frontFilters.includes('ghostClean');
   const useAnamorphic = gear.lensMount === 'anamorphic';
 
-  const sunPt = project(dirFromAzEl(ctx.sunAzDeg, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics);
+  const sunPt = project(dirFromAzEl(ctx.sunAzDeg, Math.max(-2, ctx.sunAltDeg)), ctx.attitude, ctx.intrinsics);
   const sunIn = !!sunPt;
   const flareRes = (useAnamorphic || useProMist || useGhostClean) && sunIn
-    ? computeSunstarAndFlareParams(ctx.sunAzDeg, ctx.sunAltDeg, ctx.attitude, ctx.intrinsics, {
+    ? computeSunstarAndFlareParams(ctx.sunAzDeg, Math.max(0.15, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics, {
         horizon: ctx.horizon,
         aod,
         apertureBlades: gear.sunstarBlades,
@@ -763,14 +848,14 @@ export async function applyOpticalGearToPhoto(
       })
     : null;
   const ghostRes = useGhostClean
-    ? predictBacklightGhosts(ctx.sunAzDeg, ctx.sunAltDeg, ctx.attitude, ctx.intrinsics)
+    ? predictBacklightGhosts(ctx.sunAzDeg, Math.max(0, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics)
     : null;
 
   const needSpatial = useBokeh || useCloud || useProMist || useGhostClean || useAnamorphic;
   if (needSpatial && sFx && maskAImg && geomImg) {
-    // 틸트시프트 큰 CoC 구간에서 고주파 고스팅을 없애기 위한 3단 피라미드 다운샘플링(1/2 → 1/4 → 1/8)
+    // 틸트시프트 큰 CoC 구간 및 Pro-Mist 소프트 할레이션을 위한 3단 피라미드 다운샘플링(1/2 → 1/4 → 1/8)
     let bokehLowImg: SkImage = curImg;
-    if (useBokeh) {
+    if (useBokeh || useProMist) {
       let downImg = curImg;
       for (const div of [2, 4, 8]) {
         const dw = Math.max(16, Math.round(workW / div));
@@ -813,16 +898,16 @@ export async function applyOpticalGearToPhoto(
           useCloud ? 1 : 0,
           cloudFlow ? cloudFlow.flowUv[0] : 0,
           cloudFlow ? cloudFlow.flowUv[1] : 0,
-          flareRes && flareRes.visible && (useAnamorphic || gear.filmBack === 'sunsetWb') ? 1 : 0,
+          useAnamorphic || (flareRes && flareRes.visible && gear.filmBack === 'sunsetWb') ? 1 : 0,
           flareRes?.sunUv?.[0] ?? 0.5,
-          flareRes?.sunUv?.[1] ?? 0.3,
-          flareRes?.sunstarIntensity ?? 0,
-          flareRes?.rayCount ?? 8,
-          flareRes?.sunstarLengthNorm ?? 0.12,
-          useAnamorphic ? (flareRes?.anamorphicIntensity ?? 0.45) : 0,
-          flareRes?.anamorphicHalfWidthNorm ?? 0.35,
-          useProMist ? (flareRes?.proMistStrength ?? gear.proMistGrade) : 0,
-          flareRes?.proMistRadiusNorm ?? 0.06,
+          flareRes?.sunUv?.[1] ?? horizonMeanV,
+          useAnamorphic ? Math.max(0.55, flareRes?.sunstarIntensity ?? 0.65) : (flareRes?.sunstarIntensity ?? 0),
+          flareRes?.rayCount ?? (gear.sunstarBlades % 2 === 0 ? gear.sunstarBlades : gear.sunstarBlades * 2),
+          flareRes?.sunstarLengthNorm ?? 0.18,
+          useAnamorphic ? Math.max(0.55, flareRes?.anamorphicIntensity ?? 0.65) : 0,
+          flareRes?.anamorphicHalfWidthNorm ?? 0.42,
+          useProMist ? (0.35 + 0.75 * gear.proMistGrade) : 0,
+          0.025 + 0.055 * gear.proMistGrade,
           useGhostClean ? 1 : 0,
           g0 ? g0.u : 0, g0 ? g0.v : 0, g0 ? g0.radiusNorm : 0.03, g0 ? g0.intensity : 0,
           g1 ? g1.u : 0, g1 ? g1.v : 0, g1 ? g1.radiusNorm : 0.04, g1 ? g1.intensity : 0,
@@ -876,7 +961,14 @@ export async function applyOpticalGearToPhoto(
     const lutImg = makeOpaqueRgbaImage(lutBytes, 256, 1);
 
     const monoRes = computeMonochromeFilterWeights(gear.monoFilter, ctx.sunAltDeg, aod);
-    const m = wbRes.colorMatrix;
+    const rawM = wbRes.colorMatrix;
+    // 이미 따뜻한 3D 시뮬레이션 화면에서도 '노을 색감 락' 강도(wbStrength)에 비례해 황금·진홍 노을 톤이 확실히 살아나도록 보강
+    const warmBoost = useWb ? gear.wbStrength * 0.34 : 0;
+    const m: [number, number, number, number, number, number, number, number, number] = [
+      rawM[0] * (1 + warmBoost), rawM[1], rawM[2],
+      rawM[3], rawM[4] * (1 + warmBoost * 0.18), rawM[5],
+      rawM[6], rawM[7], rawM[8] * Math.max(0.55, 1 - warmBoost * 0.75),
+    ];
 
     if (lutImg) {
       const surf = Skia.Surface.Make(workW, workH);
@@ -923,19 +1015,19 @@ export async function applyOpticalGearToPhoto(
     }
   }
 
-  // Pass D: 2.39:1 아나모픽 시네마 비율 크롭
+  // Pass D: 2.39:1 아나모픽 시네마 레터박스 (원본 해상도·화각을 유지한 채 상하 시네마 바 렌더링)
   if (useAnamorphic) {
     const targetH = Math.max(16, Math.round(workW / 2.39));
-    if (targetH < workH - 4) {
-      const sy = Math.round((workH - targetH) / 2);
-      const surf = Skia.Surface.Make(workW, targetH);
+    if (targetH < workH - 8) {
+      const barH = Math.round((workH - targetH) / 2);
+      const surf = Skia.Surface.Make(workW, workH);
       if (surf) {
-        surf.getCanvas().drawImageRect(
-          curImg,
-          rect(0, sy, workW, targetH),
-          rect(0, 0, workW, targetH),
-          Skia.Paint(),
-        );
+        const canvas = surf.getCanvas();
+        canvas.drawImage(curImg, 0, 0);
+        const barPaint = Skia.Paint();
+        barPaint.setColor(Skia.Color('rgba(0, 0, 0, 0.78)'));
+        canvas.drawRect(rect(0, 0, workW, barH), barPaint);
+        canvas.drawRect(rect(0, workH - barH, workW, barH), barPaint);
         surf.flush();
         curImg = surf.makeImageSnapshot();
         appliedTags.push('2.39:1');
@@ -951,6 +1043,7 @@ export async function applyOpticalGearToPhoto(
     zoneHistogram,
     recommendedCloudSec: cloudFlow?.recommendedDurationSec ?? null,
     appliedTags,
+    skyline: skylineRes,
   };
 }
 
