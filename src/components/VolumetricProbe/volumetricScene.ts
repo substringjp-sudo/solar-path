@@ -522,6 +522,8 @@ export interface VolumetricOptions extends TsunOptions {
   billow: boolean;
   /** 고적운·층적운 세포 무늬(cloudCells, 계획 §24.11) — 흐름 모형 위에서만. 기본 켬. */
   cells: boolean;
+  /** 진단: takram 그림자 지도 패스 건너뛰기(구름 자기 그늘을 해 쪽 추적이 맡고 빛줄기가 꺼졌을 때만 의미). 기본 끔. */
+  skipShadowPass: boolean;
   /** 노을 3단계: 먼 거리 햇빛 가림 지도(farSun.ts). 해 10° 아래 · 장면에 고리(macro) 있을 때만. */
   farSun: boolean;
   /** 구름 아래 공기 그늘 싼 근사(low·medium, 빛줄기 없을 때). 기본 켬. */
@@ -558,7 +560,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, skipShadowPass: false, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1536,6 +1538,11 @@ export async function createVolumetricScene(
   patchBillowShader(clouds.shadowPass.currentMaterial as never);
   // 해 쪽 추적 전용 가벼운 날씨 읽기(진단) — 모든 패치 뒤.
   patchSunMarchLite(clouds.cloudsPass.currentMaterial as never);
+  {
+    const sp = clouds.shadowPass as unknown as { update: (r: unknown, f: number, d: number) => void };
+    const orig = sp.update.bind(sp);
+    sp.update = (r, f, d) => { if (!opt.skipShadowPass) orig(r, f, d); };
+  }
   patchSunMarchLite(clouds.shadowPass.currentMaterial as never);
   // 먼 거리 햇빛 가림(노을 3단계, 구름 패스만, 기본 꺼짐).
   patchFarSunShader(clouds.cloudsPass.currentMaterial as never);

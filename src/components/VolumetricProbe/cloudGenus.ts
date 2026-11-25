@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\nuniform vec4 genusDeckW;\nuniform float dbgDeck;\n#define GENUS_DIFFW max(genusThru, max(genusBroken * dbgDiffBroken, genusDeckW * dbgDeck))\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\nuniform vec4 genusDeckW;\nuniform float dbgDeck;\nuniform float dbgSkyPhys;\n#define GENUS_DIFFW max(genusThru, max(genusBroken * dbgDiffBroken, genusDeckW * dbgDeck))\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1518,6 +1518,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.genusBroken = { value: new Vector4() };
   mat.uniforms.genusDeckW = { value: new Vector4() };
   mat.uniforms.dbgDeck = { value: 0 };
+  mat.uniforms.dbgSkyPhys = { value: 0 };
   mat.needsUpdate = true;
 }
 
@@ -1847,8 +1848,10 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '      float gDeckA = 0.0, gDeckT = 0.0;',
       DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - GENUS_DIFFW)), media.weight);'),
       '      float gSkyUncol = 1.0;',
+      '      vec4 gTauAo = vec4(0.0), gTauTo = vec4(0.0);',
       '      {',
       COLW,
+      '        gTauAo = gTauA; gTauTo = gTauT;',
       `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
       '#ifdef WAVE_FIELD',
       '        if (waveOn > 0.5) { gDeckA = gTauA.x; gDeckT = gTauT.x; }',
@@ -1871,7 +1874,15 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        gUnderJ = 0.55 * gJd * gUw;',
       '      }',
     ].join('\n'));
-    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+    return src.replace(IS_CLOUDS, [
+      // 진단 dbgSkyPhys: 조각구름(두-흐름 비중 밖) 하늘빛을 위쪽 기둥 두께 τ_up 의 두-흐름 확산 투과로(추가 텍스처 읽기 없음 — 기둥 적분은 이미 위에서 계산).
+      //   J_sky = E_sky · [D(τ_up, τ_tot; 2) + e^(−2(1−g)τ_up)] / 2π  — 경험식(높이 × 가림 바닥 0.35) 대신.
+      '      float gTaS = dot(gTauAo, media.weight), gTtS = dot(gTauTo, media.weight);',
+      `      float gSkyPhys = (genusDiffuseField(gTaS, gTtS, ${SKY_SECANT.toFixed(1)}) + exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTaS)) * ${INV_2PI.toFixed(6)};`,
+      `      float gSkyOld = mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient;`,
+      '      float gBrokenW = dbgSkyPhys * dot(genusOn * (vec4(1.0) - GENUS_DIFFW), media.weight);',
+      '      radiance += gSkyIrr * mix(gSkyOld, gSkyPhys, gBrokenW) * skyLightScale;   // §L4',
+    ].join('\n'));
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
