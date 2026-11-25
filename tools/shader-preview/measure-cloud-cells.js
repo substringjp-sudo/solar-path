@@ -114,6 +114,16 @@ function measure(data, ch = 0) {
   const P = radialSpectrum(mask, n);
   let pk = 1; for (let k = 2; k < n / 2; k++) if (P[k] > P[pk]) pk = k;
   let tot = 0, fine = 0; for (let k = 1; k < n / 2; k++) { tot += P[k]; if (TILE_KM / k < 2) fine += P[k]; }
+  // 길쭉함: 조각(≥ 9칸)마다 2차 모멘트 고윳값비의 제곱근(1 = 원), 중앙값
+  const elong = comps.filter(c => c.length >= 9).map(c => {
+    const xs = c.map(p => p % n), ys = c.map(p => (p / n) | 0);
+    const cx = circMean(xs, n), cy = circMean(ys, n);
+    let sxx = 0, syy = 0, sxy = 0;
+    for (let i = 0; i < c.length; i++) { let dx = xs[i] - cx, dy = ys[i] - cy; dx -= n * Math.round(dx / n); dy -= n * Math.round(dy / n); sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+    const tr = (sxx + syy) / c.length, det = (sxx * syy - sxy * sxy) / (c.length * c.length), disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+    const l1 = tr / 2 + disc, l2 = Math.max(1e-9, tr / 2 - disc);
+    return Math.sqrt(l1 / l2);
+  }).sort((a, b) => a - b);
   const thick = big.map(c => c.reduce((m, p) => Math.max(m, v[p]), 0)).sort((a, b) => a - b);
   return {
     cover: +cov.toFixed(4), holes: +(1 - cov).toFixed(4), n: comps.length, nBig: big.length,
@@ -123,6 +133,7 @@ function measure(data, ch = 0) {
     beta: beta == null ? null : +beta.toFixed(2), clarkEvans: R == null ? null : +R.toFixed(2),
     peakKm: +(TILE_KM / pk).toFixed(2), fineFrac: +(fine / (tot || 1)).toFixed(3),
     blobMaxMed: thick.length ? +thick[thick.length >> 1].toFixed(2) : null,
+    elongMed: elong.length ? +elong[elong.length >> 1].toFixed(2) : null,
   };
 }
 

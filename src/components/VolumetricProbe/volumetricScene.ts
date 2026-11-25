@@ -62,6 +62,7 @@ import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
+import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveDrift, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
@@ -518,6 +519,8 @@ export interface VolumetricOptions extends TsunOptions {
   morph: boolean;
   /** 뭉게구름(cu·cg·cb)·층적운(sc) 표면 혹 깎기(cloudBillow, docs/WAVE_FIELD_DESIGN.md §8). 해 쪽 추적은 부르는 쪽이 촘촘히 겁니다(BILLOW_SUN_MARCH). */
   billow: boolean;
+  /** 고적운·층적운 세포 무늬(cloudCells, 계획 §24.11) — 흐름 모형 위에서만. 기본 켬. */
+  cells: boolean;
   /** 노을 3단계: 먼 거리 햇빛 가림 지도(farSun.ts). 해 10° 아래 · 장면에 고리(macro) 있을 때만. */
   farSun: boolean;
   /** 구름 아래 공기 그늘 싼 근사(low·medium, 빛줄기 없을 때). 기본 켬. */
@@ -554,7 +557,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1519,6 +1522,9 @@ export async function createVolumetricScene(
   // §130 흐름 모형 셰이더(연속 밀도·층별 fetch) — 종류 패치 직후, 두 패스 모두. 레인이 0 이면 화소 단위로 이전과 같습니다.
   patchFlowShader(clouds.cloudsPass.currentMaterial as never);
   patchFlowShader(clouds.shadowPass.currentMaterial as never);
+  // 고적운·층적운 세포 무늬 — 흐름 패치 직후(그 문장 앞에 끼움). 레인 세기 0 이면 날씨 값 그대로.
+  patchCellShader(clouds.cloudsPass.currentMaterial as never);
+  patchCellShader(clouds.shadowPass.currentMaterial as never);
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
   // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
@@ -2199,6 +2205,10 @@ export async function createVolumetricScene(
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
   const weatherCache = new Map<string, DataTexture>();
+  // 세포 무늬 레인: 흐름 모형일 때만. 운량은 예보 운량(흐린 날 보호), 두께는 입력 두께 또는 종류 기본값.
+  const cellLanesOf = (gl: (GenusLayer | null)[], p: VolumetricSceneInput) => (opt.cells && opt.flow
+    ? cellLanes(gl, [0, 1, 2, 3].map(i => p.layers[i]?.cover ?? 1), [0, 1, 2, 3].map(i => p.layers[i]?.thicknessM ?? (gl[i] ? GENUS[gl[i]!.genus].height : 500)))
+    : null);
   const WEATHER_CACHE_SIZE = 32;
   const bandOfInput = (L: VolumetricLayerInput): MacroBand => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
   const weatherPlan = (p: VolumetricSceneInput, isFast = false) => {
@@ -2525,6 +2535,7 @@ export async function createVolumetricScene(
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
+        setCellUniforms(m, cellLanesOf(gl, p));
         setGenusDrift(m, gl, driftSec - p.date.getTime() / 1000, GENUS_TILE_KM, p.layers.slice(0, 4).map(L => L?.driftKm));
         setGenusLife(m, driftSec, gl);
         setWaveDrift(m, gl[0] ? flowParam(gl[0], 'windU', 0) : 0, gl[0] ? flowParam(gl[0], 'windV', 0) : 0, driftSec - p.date.getTime() / 1000, p.layers[0]?.driftKm);
@@ -2608,7 +2619,7 @@ export async function createVolumetricScene(
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
       for (const m of genusMats) setWaveUniforms(m, null);
       for (const m of genusMats) setBillowUniforms(m, null, []);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setCellUniforms(m, null); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;
@@ -2870,6 +2881,7 @@ export async function createVolumetricScene(
         setGenusPhysics(m, contIceLanes, contIceOn);
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, genLayers, { density: flowDens, uv: genUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
+        setCellUniforms(m, cellLanesOf(genLayers, cont));
       }
     }
     if (macro && opt.macro === 1 && cont.macro) {
