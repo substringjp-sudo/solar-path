@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform float dbgWarmMode;\nuniform float dbgSkyDiff;\nuniform float dbgAdaptN;\nuniform float dbgSelfBSM;\nuniform vec4 genusBroken;\nuniform vec4 genusDeckW;\nuniform float dbgDeck;\n#define GENUS_DIFFW max(genusThru, max(genusBroken * dbgDiffBroken, genusDeckW * dbgDeck))\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1516,6 +1516,8 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgAdaptN = { value: 0 };
   mat.uniforms.dbgSelfBSM = { value: 1 };
   mat.uniforms.genusBroken = { value: new Vector4() };
+  mat.uniforms.genusDeckW = { value: new Vector4() };
+  mat.uniforms.dbgDeck = { value: 0 };
   mat.needsUpdate = true;
 }
 
@@ -1541,6 +1543,8 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusAO', lane(L => param(L, 'ao')));
   set('genusThru', lane(L => param(L, 'thru') ?? 1));
   set('genusBeamTransmittance', lane(L => (L?.opts as any)?.beamTransmittance ?? 1));
+  // 넓게 이어진 구름층(운량 높음)은 1차원 판 확산(두-흐름)이 맞고, 좁은 조각구름은 빛이 옆으로 새어 직선 추적 음영이 맞음 — 운량으로 섞음.
+  if (mat.uniforms.genusDeckW) (mat.uniforms.genusDeckW.value as Vector4).set(...[0, 1, 2, 3].map(i => { const c = layers[i]?.cover ?? 0; const t = Math.max(0, Math.min(1, (c - 0.6) / 0.35)); return layers[i] ? t * t * (3 - 2 * t) : 0; }) as [number, number, number, number]);
   if (mat.uniforms.genusBroken) (mat.uniforms.genusBroken.value as Vector4).set(...[0, 1, 2, 3].map(i => (layers[i] && (layers[i]!.genus === 'ac' || layers[i]!.genus === 'sc') ? 1 : 0)) as [number, number, number, number]);
 }
 
