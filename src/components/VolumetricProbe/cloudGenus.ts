@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1446,7 +1446,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   if (src.includes(amb)) {
     const sunLine = '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
     if (!src.includes(sunLine)) throw new Error('cloudGenus: sun term anchor missing');
-    src = src.replace(sunLine, sunLine + '\n      vec3 gSunPart = radiance;');
+    src = src.replace(sunLine, '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth * dbgSunTau, cosTheta);' + '\n      vec3 gSunPart = radiance;');
     src = src.replace(amb, amb + THRU_BLOCK + [
       '',
       '      {',
@@ -1457,7 +1457,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '        float gRim = exp(-0.045 * opticalDepth) * (1.0 - exp(-0.32 * opticalDepth)) * pow(max(0.0, cosTheta), 1.4);',
       '        radiance += sunIrradiance * (0.14 * gRim * gRedness);',
       '        vec3 gWarmChroma = mix(vec3(1.0), clamp(vec3(gSunChroma.r * 0.85, gSunChroma.g * 0.90, max(gSunChroma.b, 0.80)), 0.70, 1.38), gRedness * (0.45 + 0.35 * max(0.0, cosTheta)));',
-      '        radiance *= gWarmChroma;',
+      '        radiance *= mix(vec3(1.0), gWarmChroma, dbgWarm);',
       '      }',
     ].join('\n'));
   }
@@ -1476,6 +1476,8 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.genusNorth = { value: new Vector3(0, 1, 0) };
   mat.uniforms.genusTileM = { value: 24000 };
   mat.uniforms.genusPlanar = { value: 0 };
+  mat.uniforms.dbgSunTau = { value: 1 };
+  mat.uniforms.dbgWarm = { value: 1 };
   mat.needsUpdate = true;
 }
 
