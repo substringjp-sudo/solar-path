@@ -10,12 +10,13 @@
  *  2. 다른 패치의 앵커 보존 — takram 해 직사광 줄(얼음 무리 ICE_RAD · T_sun I-2 앵커)이 원문 그대로 남는다.
  *  3. 해 쪽 추적 — 기하급수(1.6 배) N 걸음의 합이 꼭대기까지 거리와 같다(N = 6 · 8, 거리 0.5 · 6 · 30 km, 상대 오차 1e-9).
  *  4. 판 확산 비중 — 운량 ≤ 0.6 → 0, ≥ 0.95 → 1, 그 사이 단조 증가.
- *  5. 그늘 하늘빛 — 두-흐름 확산 투과를 쓴 근사가 몬테카를로(판, g 0.85, 구름 밑에서 천정 휘도)의 0.3~1.5 배 안이고,
- *     예전 경험식(1/4π · 0.5 · 0.35)보다 몬테카를로에 가깝다(τ 3 · 10 · 20 · 40). 몬테카를로 값은 scratchpad mc2.py(광자 20만) 결과를 적어 둠.
+ *  5. 그늘 하늘빛 — 두-흐름 확산 투과 + 충돌 전 항 근사가 몬테카를로(판, g 0.85, 구름 밑에서 천정 휘도, 평면 조도 1)의 0.3~1.5 배 안
+ *     (τ 3 · 10 · 20 · 40; 몬테카를로 값은 scratchpad mc2.py 광자 20만 결과를 적어 둠). 그리고 단위: takram skyIrradiance 는 평면 조도 × 2π
+ *     (GetSunAndSkyScalarIrradiance) 이므로 셰이더 계수는 1/(2π)² 이어야 한다(§25.6 — 1/2π 하나만 두어 2π 배 밝았음).
  *  6. 셰이더 — genusMarchSun(꼭대기까지) 이 있고, 켜지면 그림자 지도 자기 그늘을 끄며, 가벼운 날씨 읽기(gLite)가 결 비틀기 · 세포만 건너뛰고
  *     일찍 멈추기 두께가 24 다.
  *  7. 장면 연결 — cloudLight 기본 'physical', 켜지면 takram 해 쪽 행진 0 걸음, 빛줄기가 꺼진 품질에서 그림자 지도 패스 건너뜀, 끌기 중 6 걸음.
- *     그늘 하늘빛(skyPhys)은 잠시 끔(§25.5 — 역광 구름이 하늘처럼 밝아짐, 원인 조사 중).
+ *     그늘 하늘빛(skyPhys) 켬(§25.6 단위 고친 뒤).
  */
 const path = require('path');
 const fs = require('fs');
@@ -72,17 +73,18 @@ function build() {
   {
     // 몬테카를로(판, g 0.85, ω 1, 광자 20만 × 입사각 5개): scratchpad phys/mc2.py.
     const MC = { 3: 0.2278, 10: 0.1822, 20: 0.1228, 40: 0.0711 };
-    const OLD = 1 / (4 * Math.PI) * 0.5 * 0.35;
-    let inBand = 0, better = 0; const rows = [];
+    let inBand = 0; const rows = [];
     for (const [t, ref] of Object.entries(MC)) {
-      const approx = G.diffuseTransmission(+t) / (2 * Math.PI);   // 밑면(x = 1): J = E · T / 2π
-      const r = approx / ref, ro = OLD / ref;
+      // 밑면(x = 1): J = E_h · [T(τ) + e^(−2(1−g)τ)] / 2π, E_h = 평면 조도 1
+      const approx = (G.diffuseTransmission(+t) + Math.exp(-2 * 0.15 * +t)) / (2 * Math.PI);
+      const r = approx / ref;
       if (r >= 0.3 && r <= 1.5) inBand++;
-      if (Math.abs(Math.log(r)) < Math.abs(Math.log(ro))) better++;
-      rows.push(`τ${t} ${r.toFixed(2)}(전 ${ro.toFixed(2)})`);
+      rows.push(`τ${t} ${r.toFixed(2)}`);
     }
     ok(inBand === 4, `근사/몬테카를로 ∈ [0.3, 1.5]: ${rows.join(' · ')}`);
-    ok(better === 4, '네 두께 모두 예전 경험식보다 가깝다');
+    const k = (1 / (2 * Math.PI)) ** 2;
+    const m = genus.match(/float gSkyPhys = \(.*\) \* \$\{\(INV_2PI \* INV_2PI\)\.toFixed\(6\)\}/);
+    ok(!!m, `단위: 셰이더 계수 1/(2π)² = ${k.toFixed(6)} (takram 하늘 조도 = 평면 × 2π)`);
   }
 
   console.log('\n[6] 셰이더');
@@ -97,7 +99,7 @@ function build() {
   ok(/if \(physLight\(\)\) \{ clouds\.clouds\.maxIterationCountToSun = 0; return; \}/.test(scene), '켜지면 takram 해 쪽 행진 0 걸음');
   ok(/if \(!\(physLight\(\) && !clouds\.lightShafts\)\) orig\(r, f, d\)/.test(scene), '빛줄기가 꺼지면 그림자 지도 패스 건너뜀');
   ok(/sunTopN: isInteracting \? 6 : 8/.test(scene), '끌기 중 6 걸음, 평소 8 걸음');
-  ok(/skyPhys: false, deck: true/.test(scene), '그늘 하늘빛은 잠시 끔(§25.5)');
+  ok(/skyPhys: true, deck: true/.test(scene), '그늘 하늘빛 켬(§25.6 단위 고친 뒤)');
 
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
   process.exit(fail ? 1 : 0);
