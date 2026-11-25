@@ -1421,7 +1421,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
+  src = src.replace(decl, decl + '\nuniform float dbgSunTau;\nuniform float dbgWarm;\nuniform float dbgRim;\nuniform float dbgRimK;\nuniform float dbgRimMode;\nuniform float dbgDiffBroken;\nuniform vec4 genusBroken;\n#define GENUS_DIFFW max(genusThru, genusBroken * dbgDiffBroken)\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -1481,6 +1481,8 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   mat.uniforms.dbgRim = { value: 1 };
   mat.uniforms.dbgRimK = { value: 0.045 };
   mat.uniforms.dbgRimMode = { value: 0 };
+  mat.uniforms.dbgDiffBroken = { value: 0 };
+  mat.uniforms.genusBroken = { value: new Vector4() };
   mat.needsUpdate = true;
 }
 
@@ -1506,6 +1508,7 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusAO', lane(L => param(L, 'ao')));
   set('genusThru', lane(L => param(L, 'thru') ?? 1));
   set('genusBeamTransmittance', lane(L => (L?.opts as any)?.beamTransmittance ?? 1));
+  if (mat.uniforms.genusBroken) (mat.uniforms.genusBroken.value as Vector4).set(...[0, 1, 2, 3].map(i => (layers[i] && (layers[i]!.genus === 'ac' || layers[i]!.genus === 'sc') ? 1 : 0)) as [number, number, number, number]);
 }
 
 /**
@@ -1799,12 +1802,12 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       `        float gTn = 1.0 / (1.0 + ${DIFFUSE_K.toFixed(4)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTt);`,
       '        float gF = clamp(gTn / max(gDsun, 1e-3), 0.0, 1.0);',
       '        float gDir = max(0.0, 1.0 + gF * dot(rayDirection, surfaceNormal));',
-      '        radiance += gJ * gDir * dot(genusOn * genusThru, media.weight);',
+      '        radiance += gJ * gDir * dot(genusOn * GENUS_DIFFW, media.weight);',
     ].join('\n')));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
       '      float gDeckA = 0.0, gDeckT = 0.0;',
-      DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - genusThru)), media.weight);'),
+      DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - GENUS_DIFFW)), media.weight);'),
       '      float gSkyUncol = 1.0;',
       '      {',
       COLW,
@@ -1823,14 +1826,14 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        float gDs = genusDiffuseField(gDeckA, gDeckT, 1.0 / gMu0d);',
       `        float gDk = genusDiffuseField(gDeckA, gDeckT, ${SKY_SECANT.toFixed(1)});`,
       `        vec3 gJd = (sunIrradiance * max(genusBeamTransmittance.x, 0.0) * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
-      '        float gUw = dot(vec4(1.0) - genusOn * genusThru, media.weight);',
+      '        float gUw = dot(vec4(1.0) - genusOn * GENUS_DIFFW, media.weight);',
       `        gSkyIrr = mix(skyIrradiance, skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA), gUw);`,
       // 고른 확산 빛 속의 두꺼운 구름은 다중 산란으로 그 빛의 평균 휘도에 가까워짐(takram 하늘빛 항은 단일 산란 E/4π·기울기·ao 라 너무 어두움).
       // 아래 반구는 지면 반사(알베도 ~0.1) → L ≈ J·(1 + a)/2.
       '        gUnderJ = 0.55 * gJd * gUw;',
       '      }',
     ].join('\n'));
-    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient * skyLightScale;   // §L4`);
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
