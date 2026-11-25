@@ -1910,12 +1910,14 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     ].join('\n'));
     return src.replace(IS_CLOUDS, [
       // §25 조각구름(두-흐름 비중 밖) 하늘빛을 위쪽 기둥 두께 τ_up 의 두-흐름 확산 투과로(추가 텍스처 읽기 없음 — 기둥 적분은 이미 위에서 계산).
-      //   J_sky = E_sky · [D(τ_up, τ_tot; 2) + e^(−2(1−g)τ_up)] / 2π  — 경험식(높이 × 가림 바닥 0.35) 대신.
+      //   J_sky = E_h · [D(τ_up, τ_tot; 2) + e^(−2(1−g)τ_up)] / 2π  — 경험식(높이 × 가림 바닥 0.35) 대신.
+      //   E_h(평면 조도) = skyIrradiance / 2π — takram 의 skyIrradiance 는 평면 조도 × 2π("구 적분", GetSunAndSkyScalarIrradiance).
+      //   위 §138 확산장(gJ)과 같은 단위. 2026-11-25 까지 이 1/2π 를 빠뜨려 하늘빛이 2π 배 → 역광 구름이 하늘처럼 밝았음(§25.6).
       // 흐름 모형(genusFlow 1)에서는 weather.depth 가 날씨 세기가 아니라 '위쪽 광학두께 ÷ genusTauRef'(cloudFlowShader S6) — 그 값을 그대로 씀.
       //   (위 기둥 적분은 depth 를 날씨 세기로 보고 되찾아 흐름 층에서 위쪽 두께를 크게 과소평가 → 역광 구름이 하늘처럼 밝았음, 2026-11-25 기기 서울 08:23)
       '      vec4 gTauUpS = mix(gTauAo, weather.depth * genusTauRef, genusFlow);',
       '      float gTaS = dot(gTauUpS, media.weight), gTtS = max(gTaS, dot(gTauTo, media.weight));',
-      `      float gSkyPhys = (genusDiffuseField(gTaS, gTtS, ${SKY_SECANT.toFixed(1)}) + exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTaS)) * ${INV_2PI.toFixed(6)};`,
+      `      float gSkyPhys = (genusDiffuseField(gTaS, gTtS, ${SKY_SECANT.toFixed(1)}) + exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTaS)) * ${(INV_2PI * INV_2PI).toFixed(6)};`,
       `      float gSkyOld = mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * GENUS_DIFFW, media.weight)) * skyGradient;`,
       '      float gBrokenW = genusSkyPhys * dot(genusOn * (vec4(1.0) - GENUS_DIFFW), media.weight);',
       '      radiance += gSkyIrr * mix(gSkyOld, gSkyPhys, gBrokenW) * skyLightScale;   // §L4',
