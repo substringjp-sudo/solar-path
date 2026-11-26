@@ -11,6 +11,7 @@ import { GlassChip } from '../glass/GlassChip';
 import { OverlayButton } from '../ui';
 import { color as DARK, mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
+import { useCelestialStore } from '../../store/useCelestialStore';
 import {
   createDefaultGearBag,
   hasActiveOpticalGear,
@@ -86,8 +87,11 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
   onClearTimeShiftAnchor,
   onClose,
 }) => {
-  const activeSummary = summarizeGearForCell(gear, language);
-  const anyActive = hasActiveOpticalGear(gear);
+  const graphicsQuality = useCelestialStore(s => s.graphicsQuality);
+  const isLowSpec = graphicsQuality === 'low';
+  const effectiveGear = isLowSpec ? { ...gear, lensMount: 'standard' as const, verticalShift: false } : gear;
+  const activeSummary = summarizeGearForCell(effectiveGear, language);
+  const anyActive = hasActiveOpticalGear(effectiveGear);
 
   const lensItems: Array<{ id: OpticalLensMount; title: string; spec: string }> = [
     {
@@ -228,7 +232,9 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
           </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* 1. 확장 렌즈 마운트 (가로 제품 쇼케이스) */}
+            {/* 1. 확장 렌즈 마운트 (고화질 모드 전용 — 저화질 모드에서는 표준 광학으로 고정) */}
+            {!isLowSpec && (
+            <>
             <View style={styles.secHead}>
               <Camera size={13} color={DARK.textDim} />
               <Text style={styles.secLabel}>
@@ -321,6 +327,8 @@ export const VirtualCameraBagModal: React.FC<Props> = ({
                   ))}
                 </View>
               </View>
+            )}
+            </>
             )}
 
             {/* 2. 전면 원형 필터 슬롯 (최대 2개 — 원 안에 실제 유리 그라데이션·색상 표현) */}

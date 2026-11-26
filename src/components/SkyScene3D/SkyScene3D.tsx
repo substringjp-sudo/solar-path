@@ -3014,15 +3014,44 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const live = loadLiveScene();
         const szKey = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
         if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
+        const isLowSpec = (volSet.pixelArtRows ?? 0) > 0;
         const q = volSet.volumetricQuality ?? 'low';
-        const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}|${volSet.volumetricRefine ?? true ? 1 : 0}`;
+        const effRes = isLowSpec ? Math.min(0.28, volSet.volumetricRes ?? 0.5) : (volSet.volumetricRes ?? 0.5);
+        const effBillow = isLowSpec ? false : (volSet.volumetricBillow ?? true);
+        const effCells = !isLowSpec;
+        const effEdgeRough = isLowSpec ? 0 : 0.5;
+        const qKey = `${q}|${effRes}|${isLowSpec ? 1 : 0}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${effBillow ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}|${(volSet.volumetricRefine ?? true) && !isLowSpec ? 1 : 0}`;
         if (qKey !== volQualityRef.current) {
+          const prevKey = volQualityRef.current;
           vol.setQuality(q);
-          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 91 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true, cloudAccum: (volSet.volumetricRefine ?? true) ? 0.25 : 1, keepIceShaderLoaded: true }, false);
-          volKeyRef.current = '';
-          const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
+          vol.setOptions({
+            flow: volSet.volumetricFlow ?? true,
+            flowUv: volSet.volumetricFlowUv ?? true,
+            physics: !!volSet.volumetricPhysics,
+            physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce,
+            macro: volSet.volumetricMacro ?? 1,
+            morph: !!volSet.volumetricMorph,
+            billow: effBillow,
+            cells: effCells,
+            edgeRough: effEdgeRough,
+            accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 91 : null,
+            shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12,
+            farSun: volSet.volumetricFarSun ?? true,
+            diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0,
+            sunLowpass: 1,
+            sunMarch: effBillow ? [6, 90, 1.75] : [4, 280, 2.0],
+            clampInscatter: volSet.volumetricClampInscatter ?? true,
+            irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true,
+            cloudAccum: ((volSet.volumetricRefine ?? true) && !isLowSpec) ? 0.25 : 1,
+            keepIceShaderLoaded: true,
+          }, false);
+          // 고화질 → 저화질 전환 시에는 기존 구름 타일을 그대로 재사용하고, 저화질 → 고화질로 올릴 때만 S=128 타일이었다면 고해상도(S=256) 재합성을 트리거합니다.
+          if (!prevKey || (!isLowSpec && lastVolIsFastRef.current)) {
+            volKeyRef.current = '';
+          }
+          const changed = volGovRef.current?.setMax(effRes);
           if (changed != null) vol.setResolutionScale(changed);
-          volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 18);
+          volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, isLowSpec ? 8 : 18);
         }
 
         const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
@@ -3052,7 +3081,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           ? Math.round(altitudeM / Math.max(10, altitudeM * (isInteractingNow ? 0.06 : 0.02)))
           : Math.round(altitudeM);
         const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${altQuant}|${volRollDeg.toFixed(2)}|${volOffY.toFixed(3)}|${eyeKey}`;
-        const isFast = false;
+        const isFast = isLowSpec;
         const volKeyChanged = Boolean(live && key !== volKeyRef.current);
 
         if (volInteractingRef.current !== isInteractingNow) {
@@ -3083,7 +3112,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
             volumetricStats.weatherMs = vol.weatherMs();
             volHasSceneRef.current = true;
-            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+            if (!isSlidingNow) setVolumetricStatus({ buildingScene: false, summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+            else setVolumetricStatus({ buildingScene: false });
             const g = built.genus;
             lastVolSceneRef.current = built.obs ? {
               t: vDate.toISOString(),
@@ -3114,6 +3144,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volKeyRef.current = key;
             volPendingRef.current = true;
             volSettleRef.current = 0;
+            setVolumetricStatus({ buildingScene: true });
             if (framesToRenderRef.current > 1) framesToRenderRef.current = 1;
             const myBuildSeq = ++volBuildSeqRef.current;
             const tW = Date.now();
@@ -3126,7 +3157,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volHasSceneRef.current = true;
                 volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = null;
-                setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+                setVolumetricStatus({ buildingScene: false, summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
                 const g = built.genus;
                 lastVolSceneRef.current = built.obs ? {
                   t: vDate.toISOString(),
@@ -3139,7 +3170,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lastVolDateSyncRef.current.targetMs = null;
                 volSettleRef.current = 18;
                 volFreshRef.current = false;
-              } else if (volKeyRef.current === key) volKeyRef.current = '';
+              } else if (volKeyRef.current === key) {
+                volKeyRef.current = '';
+                setVolumetricStatus({ buildingScene: false });
+              } else {
+                setVolumetricStatus({ buildingScene: false });
+              }
               if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
               requestRender(3);
             }).catch(e => {
@@ -3147,13 +3183,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volPendingRef.current = false;
               if (volKeyRef.current === key) volKeyRef.current = '';
               volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
-              setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
+              setVolumetricStatus({ phase: 'failed', buildingScene: false, error: volFailedRef.current });
               console.warn('[SkyScene] 볼륨 층 생성 실패:', (e as Error)?.stack ?? e); requestRender(2);
             });
           }
         }
-        // 시간 막대를 끄는 중에도 시작(다른 날로 넘어가면 그날을 곧바로 굽기 시작) — 다른 상호작용(회전 · 이동) 중에는 예전처럼 기다림.
-        if (live && volHasSceneRef.current && (!isInteractingNow || isSlidingNow) && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
+        // 시간 막대를 끄는 중에도 시작(다른 날로 넘어가면 그날을 곧바로 굽기 시작) — 저화질(도트) 모드에서는 24시간 백그라운드 사전 합성을 생략합니다.
+        if (!isLowSpec && live && volHasSceneRef.current && (!isInteractingNow || isSlidingNow) && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
           startDayPrewarmIfNeeded(live, vol, vLat, vLon, vElev, vDate, vBucketMs, vPath, effectiveAz, effectiveElev, altitudeM);
         }
         if (volHasSceneRef.current) {
@@ -3234,7 +3270,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           volTex = vol.renderToTexture(dtSec);
           if (volSettleRef.current > 0) {
             volSettleRef.current--;
-            if (volSettleRef.current === 0 && (skySettingsRef.current.volumetricRefine ?? true)) { volRefineRef.current = VOL_REFINE_FRAMES; volRefineStartRef.current = performance.now(); }
+            if (volSettleRef.current === 0 && (skySettingsRef.current.volumetricRefine ?? true) && (skySettingsRef.current.pixelArtRows ?? 0) <= 0) { volRefineRef.current = VOL_REFINE_FRAMES; volRefineStartRef.current = performance.now(); }
             if (framesToRenderRef.current < 2) framesToRenderRef.current = 2;
           } else if (volRefineRef.current > 0 && (isInteractingNow || isSlidingNow || performance.now() - volRefineStartRef.current > VOL_REFINE_MAX_MS)) {
             volRefineRef.current = 0;   // 손을 대거나 시간 상한을 넘기면 다듬기를 끝냄(느린 기기에서 오래 붙잡지 않게)
@@ -4147,14 +4183,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * 높이장 블록을 받아 지형 · 바다 · 건물에 꽂습니다. `location` 이 바뀔 때(아래 효과)와, 눈이 받아 둔 블록의 가운데 타일을 벗어났을 때(`setEyeLocation`)
    * 둘이 같은 길을 씁니다. 같은 자리를 이미 받았거나 받는 중이면 아무것도 안 합니다.
    */
+  const isLowSpecMode = (skySettings.pixelArtRows ?? 0) > 0;
   const loadDemForRef = useRef<(lat: number, lng: number, key: string, isCancelled: () => boolean) => Promise<void>>(async () => {});
   loadDemForRef.current = async (lat, lng, key, isCancelled) => {
     demWantKeyRef.current = key;
-    if (demLoadedKeyRef.current === key || demLoadingKeyRef.current === key) return;
+    const wantMask = (skySettingsRef.current.pixelArtRows ?? 0) === 0;
+    const needUpgradeMask = wantMask && demLoadedKeyRef.current === key && demPatchRef.current && !demMaskPatchRef.current;
+    if ((demLoadedKeyRef.current === key && !needUpgradeMask) || demLoadingKeyRef.current === key) return;
     // 받아 둔 블록이 이 자리 둘레를 이미 덮으면(가운데 타일 안) 다시 받지 않고 눈 좌표만 맞춥니다 —
-    // 위치가 100 m 칸을 넘어갈 때마다 같은 블록을 다시 꽂던 것(= 지형이 한꺼번에 건너뛰던 순간)이 없어집니다.
+    // 단, 저화질에서 고화질로 전환해 60km 물 마스크(demMaskPatchRef)가 비어 있다면 마스크만 추가로 받습니다.
     const cur = demPatchRef.current;
-    if (cur && blockCovers(cur, lat, lng, denseRadiusM(cur), 0)) {
+    if (cur && blockCovers(cur, lat, lng, denseRadiusM(cur), 0) && (!wantMask || demMaskPatchRef.current)) {
       demLoadedKeyRef.current = key;
       demLoadingKeyRef.current = null;
       applyEye();
@@ -4168,13 +4207,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         renderer,
         loadTexture: (url: string) => loadTextureAsync({ asset: url }),
       });
-      const patch = await load(FIELD_FAR_M);
-      // 물 마스크는 따로 받습니다 — 같은 3×3 블록을 훨씬 낮은 줌으로
-      // 받아 60km 를 덮습니다. 이게 없으면 3km 밖이 "모르는 곳"이 되고,
-      // 예전에는 그걸 물로 두어 **내륙에서도 사방에 물이 고였습니다**.
-      // 실패해도 치명적이지 않습니다 — 촘촘한 패치의 가장자리 값으로
-      // 물러납니다(SeaPlane.ts 의 vWater 참고).
-      const maskPatch = await load(SEA_MASK_RADIUS_M).catch(() => null);
+      const patch = (needUpgradeMask && cur) ? cur : await load(FIELD_FAR_M);
+      // 물 마스크는 고화질 모드에서만 따로 받습니다(60km 광역 3×3 타일).
+      // 저화질 도트 모드에서는 생략해 네트워크·텍스처 연산을 아끼고, 고화질로 전환할 때 추가로 받습니다.
+      const maskPatch = wantMask ? await load(SEA_MASK_RADIUS_M).catch(() => null) : demMaskPatchRef.current;
       // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
       // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
       // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
@@ -4260,7 +4296,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     void loadDemForRef.current(lat, lng, key, () => cancelled);
 
     return () => { cancelled = true; };
-  }, [location, requestRender, demRetryTick]);
+  }, [location, requestRender, demRetryTick, isLowSpecMode]);
 
   const bldLat = location?.coords?.latitude ?? 37.5665;
   const bldLng = location?.coords?.longitude ?? 126.9780;
@@ -4268,7 +4304,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     bldCenterRef.current = { lat: bldLat, lng: bldLng };
   }
   useEffect(() => {
-    if (!terrainFieldRef.current) return;
+    if (!terrainFieldRef.current || isLowSpecMode) return;
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
     if (urbanLoadedKeyRef.current === key) return;
@@ -4322,7 +4358,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       .catch(() => {});
 
     return () => controller.abort();
-  }, [bldLat, bldLng, requestRender, buildingSyncTick]);
+  }, [bldLat, bldLng, requestRender, buildingSyncTick, isLowSpecMode]);
 
   const bldEnabled = Boolean(layers.buildings);
   useEffect(() => {

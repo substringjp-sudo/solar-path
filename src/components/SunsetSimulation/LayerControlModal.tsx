@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, Modal, ScrollView, Alert } from 'react-native';
-import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
+import { LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import type { FarStatus } from '../SkyScreen/SandboxPanel';
 import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -41,7 +41,6 @@ function skyQualityLabel(mag: number, L: Language): string {
   if (mag < 6.0) return t('skyQ_rural', L);
   return t('skyQ_dark', L);
 }
-const PIX_KEY: Record<number, 'pixOff' | 'pixFine' | 'pixMid' | 'pixBold'> = { 0: 'pixOff', 256: 'pixFine', 160: 'pixMid', 96: 'pixBold' };
 
 export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   visible,
@@ -224,33 +223,6 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
           {/* 하단 고정 조절 슬라이더 영역 */}
           <View style={styles.sliderSection}>
-            {/* 도트 모드(§97) — 하늘을 낮은 해상도로 그려 네모 화소 그대로 보여 줍니다. */}
-            <View style={styles.dotRow}>
-              <Text style={[styles.layerLabel, { fontWeight: skySettings.pixelArtRows > 0 ? '700' : '500' }]}>
-                {t('dotMode', language)}
-              </Text>
-              <View style={styles.segment}>
-                {PIXEL_ART_CHOICES.map((c) => {
-                  const on = skySettings.pixelArtRows === c.rows;
-                  return (
-                    <PressScale
-                      key={c.rows}
-                      style={[
-                        styles.segmentBtn,
-                        on ? styles.toggleOn : styles.toggleOff,
-                      ]}
-                      onPress={() => onChangeSkySettings({ pixelArtRows: c.rows })}
-                      activeOpacity={0.7}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: on }}
-                    >
-                      <Text style={[styles.toggleText, { color: on ? DARK.onAccent : DARK.textDim }]}>{PIX_KEY[c.rows] ? t(PIX_KEY[c.rows], language) : c.label}</Text>
-                    </PressScale>
-                  );
-                })}
-              </View>
-            </View>
-
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
                 <Text style={styles.sliderLabel}>{t('starBrightness', language)}</Text>

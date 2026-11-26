@@ -51,7 +51,7 @@ import { DevTuningPanel } from './DevTuningPanel';
 import {
   getVolumetricStatus,
   subscribeVolumetricStatus,
-  type VolumetricPrewarmStatus,
+  type VolumetricStatus,
 } from '../VolumetricProbe/volumetricStatus';
 import { getMoonPositionPrecise, moonSemidiameterDeg } from '../../utils/moonPosition';
 import { sunPosition } from '../../utils/solarPosition';
@@ -339,10 +339,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 값은 더 이상 화면에 쓰이지 않고(옛 화면의 새로고침 줄) 설정자만 흐름 정리에 남습니다.
   const [, setIsForceRefreshing] = useState(false);
   const [, setWeatherRefreshError] = useState<string | null>(null);
-  const [volPrewarm, setVolPrewarm] = useState<VolumetricPrewarmStatus | null>(() => getVolumetricStatus().prewarm);
+  const [volStatus, setVolStatus] = useState<VolumetricStatus>(() => getVolumetricStatus());
 
   useEffect(() => {
-    return subscribeVolumetricStatus(s => setVolPrewarm(s.prewarm));
+    return subscribeVolumetricStatus(setVolStatus);
   }, []);
 
   const simObj = useMemo(() => ({
@@ -815,8 +815,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     fov: 65,
     roll: 0,
   });
-  const sandboxGearActive = useMemo(() => hasActiveOpticalGear(sandboxGearBag), [sandboxGearBag]);
-  const sandboxGearBadge = useMemo(() => summarizeGearForCell(sandboxGearBag, language), [sandboxGearBag, language]);
+  const graphicsQuality = useCelestialStore(s => s.graphicsQuality);
+  const effectiveSandboxGearBag = useMemo<CameraGearBagState>(
+    () => (graphicsQuality === 'low' ? { ...sandboxGearBag, lensMount: 'standard', verticalShift: false } : sandboxGearBag),
+    [graphicsQuality, sandboxGearBag],
+  );
+  const sandboxGearActive = useMemo(() => hasActiveOpticalGear(effectiveSandboxGearBag), [effectiveSandboxGearBag]);
+  const sandboxGearBadge = useMemo(() => summarizeGearForCell(effectiveSandboxGearBag, language), [effectiveSandboxGearBag, language]);
   const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
@@ -1022,7 +1027,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         const hFov = (2 * Math.atan(Math.tan((vFov * Math.PI) / 360) * (sw / sh)) * 180) / Math.PI;
         const obs0 = interpolatedWeather[0];
         const optRes = await applyOpticalGearToPhoto(baseUri, {
-          gear: sandboxGearBag,
+          gear: effectiveSandboxGearBag,
           attitude: { yawDeg: st.view.az, pitchDeg: st.view.el, rollDeg: st.view.roll ?? 0 },
           intrinsics: intrinsicsFromHfov(sw, sh, hFov),
           horizon: buildArHorizon(),
@@ -1056,7 +1061,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [
     sandboxShootMode,
     sandboxGearActive,
-    sandboxGearBag,
+    effectiveSandboxGearBag,
     sandboxAstroSettings,
     sandboxAstroSummary.clampedIso,
     interpolatedWeather,
@@ -1139,7 +1144,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       longExpAbortRef.current?.abort();
       sceneRef.current?.cancelLongExposure?.();
     };
-  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, sandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, effectiveSandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
@@ -1732,7 +1737,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <ViewfinderOpticsOverlay
             width={Dimensions.get('window').width}
             height={Dimensions.get('window').height}
-            gear={sandboxGearBag}
+            gear={effectiveSandboxGearBag}
             optics={sandboxOptics}
             attitude={{ yawDeg: sandboxLiveView.az, pitchDeg: sandboxLiveView.el, rollDeg: sandboxLiveView.roll }}
             horizon={buildArHorizon()}
@@ -1926,19 +1931,30 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {/* 날씨 수신 배너 (터치 통과). 2026-11-18 하늘 사전 계산 진행은 팝업 대신 시간 막대 아래 선으로 보입니다(DateTimeBar). */}
-        {!weatherError && isWeatherLoading && (() => {
+        {/* 날씨·하늘 연산 진행 배너 (터치 통과): 기상 수신 → 대기 생성 → 구름 장면 계산 → 24시간 하늘 준비 */}
+        {!weatherError && (isWeatherLoading || volStatus.phase === 'creating' || volStatus.buildingScene || volStatus.prewarm?.active) && (() => {
+          const volPrewarm = volStatus.prewarm;
+          const isCreatingAtmos = !isWeatherLoading && volStatus.phase === 'creating';
+          const isBuildingCloud = !isWeatherLoading && !isCreatingAtmos && !!volStatus.buildingScene;
           const pct = isWeatherLoading
-            ? 15
-            : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));
+            ? 20
+            : isCreatingAtmos
+              ? 45
+              : isBuildingCloud
+                ? 70
+                : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));
           const label = isWeatherLoading
             ? L3(language, '기상 데이터 수신 중…', 'Fetching weather data…', '気象データを受信中…')
-            : L3(
-                language,
-                `오늘의 하늘 준비 중 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-                `Preparing day sky · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-                `1日の空を準備中 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
-              );
+            : isCreatingAtmos
+              ? L3(language, '대기 산란 모델 생성 중…', 'Building atmosphere LUT…', '大気散乱モデルを生成中…')
+              : isBuildingCloud
+                ? L3(language, '구름·기상 장면 계산 중…', 'Computing cloud weather field…', '雲・気象シーンを計算中…')
+                : L3(
+                    language,
+                    `오늘의 하늘 준비 중 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                    `Preparing day sky · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                    `1日の空を準備中 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                  );
           const hint = isWeatherLoading
             ? L3(
                 language,
@@ -1946,12 +1962,26 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 'Loading 360° cloud forecast for selected date & place',
                 '選択した日時・場所の360°雲予報を読み込んでいます',
               )
-            : L3(
-                language,
-                '백그라운드에서 시간대별 하늘을 미리 계산하고 있습니다',
-                'Precomputing hourly sky in the background',
-                'バックグラウンドで時間帯別の空を計算しています',
-              );
+            : isCreatingAtmos
+              ? L3(
+                  language,
+                  'GPU에서 하늘·노을 빛 산란 표를 초기화하고 있습니다',
+                  'Initializing GPU sky scattering tables',
+                  'GPUで空の散乱テーブルを初期化しています',
+                )
+              : isBuildingCloud
+                ? L3(
+                    language,
+                    '기압·바람·운량을 바탕으로 3D 구름장을 합성하고 있습니다',
+                    'Synthesizing 3D cloud field from weather data',
+                    '気象データから3D雲フィールドを合成しています',
+                  )
+                : L3(
+                    language,
+                    '백그라운드에서 시간대별 하늘을 미리 계산하고 있습니다',
+                    'Precomputing hourly sky in the background',
+                    'バックグラウンドで時間帯別の空を計算しています',
+                  );
           return (
             <View style={[overlayStyles.buildBanner, overlayStyles.bannerTop]} pointerEvents="none">
               <Text style={overlayStyles.buildLabel} numberOfLines={1}>{label}</Text>

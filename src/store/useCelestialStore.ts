@@ -196,6 +196,9 @@ interface CelestialState extends ClockState {
   themeMode: 'system' | 'light' | 'dark';
   /** 상단 알림바(StatusBar) 아이콘 색 — 배경은 검은색으로 고정하고 아이콘만 밝게(흰색)/어둡게(검은색) 전환합니다. */
   statusBarIcon: 'light' | 'dark';
+  /** 시뮬레이션 화질 모드 — 'high'(기본 고화질) | 'low'(도트 256줄 기반 저사양 모드). 저장합니다. */
+  graphicsQuality: 'high' | 'low';
+  setGraphicsQuality: (q: 'high' | 'low') => void;
   /**
    * 전문가 모드 (2026-11-19, docs/SANDBOX_MODE_PLAN.md 2.4). 꺼짐(기본)이면 하늘 화면이 초보자용으로 덜어낸 모습이고,
    * 켜면 지금까지의 모든 조작(레이어·지구/지도·태양 추적·달력·기상정보·수치)이 그대로 나옵니다.
@@ -418,6 +421,7 @@ export const useCelestialStore = create<CelestialState>()(
       language: 'ko',
       themeMode: 'dark',
       statusBarIcon: 'light',
+      graphicsQuality: 'high',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       expertMode: false,
       onboardingSeen: false,
@@ -885,6 +889,13 @@ export const useCelestialStore = create<CelestialState>()(
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
       setStatusBarIcon: (icon) => set({ statusBarIcon: icon }),
+      setGraphicsQuality: (q) => set((state) => ({
+        graphicsQuality: q,
+        skySettings: {
+          ...state.skySettings,
+          pixelArtRows: q === 'low' ? 256 : 0,
+        },
+      })),
       setExpertMode: (on) => set({ expertMode: !!on }),
       setOnboardingSeen: (seen) => set({ onboardingSeen: !!seen }),
       setHomeCoords: (c) => set({ homeCoords: c }),
@@ -1167,7 +1178,17 @@ export const useCelestialStore = create<CelestialState>()(
       // 저장소에서 읽은 장면은 한 번 더 정리합니다(파일이 깨지거나 앱 버전이 바뀌어도 화면이 망가지지 않게). 나머지는 기본 병합과 같습니다.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<CelestialState>;
-        return { ...current, ...p, savedScenes: sanitizeScenes(p.savedScenes) };
+        const gq = p.graphicsQuality === 'low' ? 'low' : 'high';
+        return {
+          ...current,
+          ...p,
+          graphicsQuality: gq,
+          skySettings: {
+            ...current.skySettings,
+            pixelArtRows: gq === 'low' ? 256 : 0,
+          },
+          savedScenes: sanitizeScenes(p.savedScenes),
+        };
       },
       partialize: (state) => ({ 
         location: state.location,
@@ -1178,6 +1199,7 @@ export const useCelestialStore = create<CelestialState>()(
         language: state.language,
         themeMode: state.themeMode,
         statusBarIcon: state.statusBarIcon,
+        graphicsQuality: state.graphicsQuality,
         notifPrefs: state.notifPrefs,
         expertMode: state.expertMode,
         onboardingSeen: state.onboardingSeen,

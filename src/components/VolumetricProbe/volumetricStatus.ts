@@ -24,9 +24,11 @@ export interface VolumetricStatus {
   summary: string | null;
   /** 날짜·장소 변경 후 백그라운드 24시간 하늘 프리워밍 진행률 */
   prewarm: VolumetricPrewarmStatus | null;
+  /** 첫 볼륨 구름 타일/장면 연산 중 여부 */
+  buildingScene?: boolean;
 }
 
-let status: VolumetricStatus = { phase: 'off', sinceMs: 0, error: null, summary: null, prewarm: null };
+let status: VolumetricStatus = { phase: 'off', sinceMs: 0, error: null, summary: null, prewarm: null, buildingScene: false };
 const listeners = new Set<(s: VolumetricStatus) => void>();
 
 export function getVolumetricStatus(): VolumetricStatus {
@@ -48,6 +50,7 @@ export function setVolumetricStatus(patch: Partial<VolumetricStatus>): void {
     next.error === status.error &&
     next.summary === status.summary &&
     next.sinceMs === status.sinceMs &&
+    next.buildingScene === status.buildingScene &&
     samePrewarm
   ) {
     return;
