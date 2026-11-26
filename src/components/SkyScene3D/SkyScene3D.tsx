@@ -990,16 +990,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 정지 상태에서 1초 간격으로 가볍게 갱신합니다.
+  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 현재시간 자동재생 중일 때만 1초 간격으로 가볍게 갱신합니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
+      const st = useCelestialStore.getState();
+      const isLiveNow = !st.isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
       if (
+        isLiveNow &&
         volRef.current &&
         !isSlidingRef.current &&
         !volPendingRef.current &&
         volSettleRef.current <= 0 &&
-        !useCelestialStore.getState().isGestureBlocked
+        !st.isGestureBlocked
       ) {
         requestRender(1);
       }
@@ -3137,7 +3140,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volPending: volPendingRef.current,
             isInteracting: isInteractingNow,
             volSettleRemaining: volSettleRef.current,
-            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled,
+            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - nowWall) <= 60_000,
           });
           driftAnchorRef.current = syncDecision.nextAnchor;
           lastVolDateSyncRef.current = syncDecision.nextLastSync;
@@ -3332,7 +3335,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       let isTrackingMoving = false;
       try {
-        const isLive = !useCelestialStore.getState().isTimeMachineEnabled;
+        const isLive = !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
         const wallElapsedMs = (isSlidingRef.current || !isLive) ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
         const effectiveTimeMs = overrideSceneTimeMsRef.current ?? (targetTimeMsRef.current + wallElapsedMs);
         renderedTimeMsRef.current = effectiveTimeMs;
@@ -3542,7 +3545,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const lampRegion = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
       const lampTime = 0.65 + 0.35 * cityTimeScale;
       const lampGlow = lampT * lampT * (3 - 2 * lampT) * lampRegion * lampTime;
-      buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
+      const pxRows = skySettingsRef.current.pixelArtRows ?? 0;
+      const lampPxRatio = pxRows > 0 ? 0.1 : PixelRatio.get();
+      buildingFieldRef.current.setLampGlow(lampGlow, lampPxRatio);
       terrainFieldRef.current?.setLampGlow(lampGlow);
     }
     if (seaPlaneRef.current) {
@@ -3805,12 +3810,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const liveMagLimit = cachedMoonMagLimitRef.current + exposureMagBonus;
 
     if (starFieldRef.current) {
+      const pxRows = settings.pixelArtRows ?? 0;
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
         brightness: settings.starBrightness * starBoostOverrideRef.current,
         magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
+        pixelArt: pxRows > 0,
         planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
         showPlanets: currentLayers.planets,
