@@ -602,6 +602,8 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
+/** H 품질에서 구름 패스가 쓰는 텍스처 수(하네스 측정: 거시 A|B 합치기 · 깊이 판 제거 뒤에도 17) — 기기 MAX_TEXTURE_IMAGE_UNITS 가 이보다 작으면 M 으로 낮춤. */
+export const HIGH_QUALITY_MIN_UNITS = 17;
 /** 시간 업스케일 누적 — 새 표본 무게(`cloudAccum`). 0.25 ≈ 최근 표본 ~7 개 평균. */
 export const CLOUD_ACCUM_DEFAULT = 0.25;
 export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, cloudAccum: CLOUD_ACCUM_DEFAULT, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
@@ -3248,7 +3250,10 @@ export async function createVolumetricScene(
     updateContinuousScene,
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
-    setQuality: q => {
+    setQuality: q0 => {
+      // 기기 텍스처 단위가 모자라면 H 를 M 으로(구름 패스가 H 에서 17 개 — 한도 16 이면 셰이더가 안 만들어져 화면이 깨짐. 하네스 측정 2026-11-26).
+      const units = maxTextureUnits();
+      const q: VolumetricQuality = q0 === 'high' && typeof units === 'number' && units > 0 && units < HIGH_QUALITY_MIN_UNITS ? 'medium' : q0;
       // §179 T_sun 이 켜져 있으면 새 단계의 샘플러 한도를 바꾸기 전에 점검(넘으면 throw — 상태를 바꾸지 않음).
       if (opt.tsun === 1) checkTsunSamplerBudget(q, maxTextureUnits());
       curQuality = q;
