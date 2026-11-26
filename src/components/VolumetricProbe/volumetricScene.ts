@@ -92,7 +92,7 @@ import { GENUS_FLOW, type FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, particleOpticalLane, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
 import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT, GENUS_SHEET_B_GLSL } from './cloudFlowShader';
-import { macroLutGlsl, macroLutVectors, makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
+import { macroLutGlsl, macroLutVectors, macroPairGlsl, macroPairTexture, makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
@@ -956,7 +956,8 @@ export async function createVolumetricScene(
       '    viewZ = -tkm * 1000.0 * dot(rayDirection, vCameraDirection);',
       '    return tkm * 1000.0;',
       '  }',
-      '  float depth = readDepthValue(depthBuffer, vUv * targetUvScale + temporalJitter);',
+      // 이 장면(`scene`)은 늘 비어 있어 깊이 판은 항상 "없음"(1)입니다 — 읽지 않아 구름 패스 텍스처 단위를 1 개 아낍니다(기기 한도 16).
+      '  float depth = 1.0;',
     ].join('\n'));
     mat.uniforms.terrainDistBuffer = { value: null };
     mat.uniforms.terrainDistOn = { value: 0 };
@@ -1039,7 +1040,7 @@ export async function createVolumetricScene(
       '  return cloud * t + inScat;',
       '}',
       'uniform sampler2D farWeatherTex;', 'uniform float farWeatherOn;',
-      'uniform sampler2D farMacroTex;', 'uniform sampler2D farMacroTexB;', 'uniform float farMacroMix;', macroLutGlsl('farMacroLutU', 'farMacroLutVec'), 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
+      'uniform sampler2D farMacroTexAB;', macroPairGlsl('farMacroTexAB', 'farMacroPairAt'), 'uniform float farMacroMix;', macroLutGlsl('farMacroLutU', 'farMacroLutVec'), 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
       'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
       'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
       'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
@@ -1087,7 +1088,7 @@ export async function createVolumetricScene(
       '    if (farLsAmt > 0.0) dens = pow(clamp(dens, 0.0, 1.0), exp(-farLsAmt * (1.0 - 0.65 * farFl) * 0.75 * (2.0 * farLsField(planeKm + dKm) - 1.0)));',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
-      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(mix(texture(farMacroTex, mUv), texture(farMacroTexB, mUv), farMacroMix), mMask);',
+      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(farMacroPairAt(mUv, farMacroMix), mMask);',
       '      if (lutCol >= -0.5) {',
       '        vec4 sVec = farMacroLutVec(mCov);',
       '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
@@ -1528,8 +1529,7 @@ export async function createVolumetricScene(
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     fx.uniforms.set('farWeatherTex', new Uniform(null));
     fx.uniforms.set('farWeatherOn', new Uniform(0));
-    fx.uniforms.set('farMacroTex', new Uniform(null));
-    fx.uniforms.set('farMacroTexB', new Uniform(null));
+    fx.uniforms.set('farMacroTexAB', new Uniform(null));
     fx.uniforms.set('farMacroMix', new Uniform(0));
     fx.uniforms.set('farMacroLutU', new Uniform(macroLutVectors(null)));
     fx.uniforms.set('farMacroOn', new Uniform(0));
@@ -2554,8 +2554,7 @@ export async function createVolumetricScene(
     (au.get('farDriftKmV')!.value as Vector4).set(pick(kdv, s[0]), pick(kdv, s[1]), pick(kdv, s[2]), pick(kdv, s[3]));
     (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
     (au.get('farMacroDriftV')!.value as Vector4).set(pick(mdv, s[0]), pick(mdv, s[1]), pick(mdv, s[2]), pick(mdv, s[3]));
-    au.get('farMacroTex')!.value = macro ? macro.texA : null;
-    au.get('farMacroTexB')!.value = macro ? macro.texB : null;
+    au.get('farMacroTexAB')!.value = macro ? macroPairTexture(macro.texA, macro.texB) : null;
     au.get('farMacroMix')!.value = (cu.genusMacroMix?.value as number | undefined) ?? 0;
     au.get('farMacroLutU')!.value = macroLutVectors(macro ? macro.lut : null);
     au.get('farMacroOn')!.value = macro ? 1 : 0;

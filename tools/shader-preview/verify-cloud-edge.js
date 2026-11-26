@@ -54,7 +54,7 @@ function build() {
   console.log('\n[4] 셰이더');
   const src = fs.readFileSync(path.join(ROOT, 'src/components/VolumetricProbe/cloudEdge.ts'), 'utf8');
   ok(src.includes("const ANCHOR = '  vec4 gCloudMask = smoothstep(vec4(0.0), vec4(1.5 / 255.0), localWeather);';"), '흐름 문장 앞에 끼움');
-  ok((src.match(/if \(localWeather\.[xyzw] > 0\.0\) eN\.[xyzw] = textureLod\(edgeNoise/g) || []).length === 4, '날씨 값 0 인 레인은 읽지 않음(4 레인)');
+  ok((src.match(/if \(localWeather\.[xyzw] > 0\.0\) eN\.[xyzw] = textureLod\(noiseTile/g) || []).length === 4, '날씨 값 0 인 레인은 읽지 않음(4 레인)');
   ok((src.match(/genusDriftKmU\.[xyzw], genusDriftKmV\.[xyzw]/g) || []).length === 4, '층 표류를 따라감');
   ok(/step\(vec4\(1e-6\), localWeather\)/.test(src), '맑은 하늘은 그대로(셰이더)');
 
