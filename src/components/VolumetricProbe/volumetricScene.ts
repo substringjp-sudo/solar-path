@@ -64,6 +64,22 @@ import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLay
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
+import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
+/**
+ * §25.9 렌더가 구름 속 밀도를 남기는 몫(구름이 덮은 화소의 머리 위 기둥 τ 중앙값 ÷ 미세물리 tauRendered).
+ * 하네스 측정(2026-11-26, 미세물리 · 흐름 · 세포 · 가장자리 거칠기 켬, 운량 0.6, 밀도 0.03 배 선형 구간):
+ * 층적운 0.41, 고적운 0.38, 적운 0.20(대류 종류는 같은 값). 판 구름(st · as · ns)은 깎기가 약해 1.
+ * 보정 배율은 1/남는 몫, 최대 2.5(적운 4.9 배는 탑이 과하게 짙어짐).
+ */
+export const PHYS_RENDER_KEEP: Partial<Record<string, number>> = { sc: 0.41, ac: 0.38, cu: 0.2, cg: 0.2, cb: 0.2 };
+export function physRenderComp(genus: string): number {
+  const k = PHYS_RENDER_KEEP[genus];
+  return k ? Math.min(2.5, 1 / k) : 1;
+}
+/** §25.8 먼 거리 가림 지도가 시작하는 거리(km) — 해 쪽 추적은 지도가 켜지면 여기까지만 걷습니다. */
+export const FAR_NEAR_KM = 12;
+/** 해 쪽 추적 거리 상한(m) — 지도가 꺼져 있을 때. */
+const SUN_MARCH_MAX_M = 40000;
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveDrift, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
@@ -487,6 +503,11 @@ export interface VolumetricOptions extends TsunOptions {
   /** §136 P2 — physics 위에 얼음 층 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. physics 가 켜졌을 때만. */
   physicsIce: boolean;
   /**
+   * §25.9 미세물리 렌더 보정: 날씨 무늬 · 모양 잡음 · 깎기가 구름 속 밀도를 평균으로 깎는 몫(PHYS_RENDER_KEEP)을 되돌려
+   * 구름이 덮은 곳의 기둥 τ 중앙값이 미세물리 tauRendered 가 되게 합니다. physics 가 켜졌을 때만. 기본 켬.
+   */
+  physicsRenderComp: boolean;
+  /**
    * §137 H1 — **물리 없이**(소광·단면은 손값) 얼음 종류(ci·cs·모루) 층에만 22°·46° 무리. 무리 상수는 physicsIce 와 같음. physics+physicsIce 가 켜져 있으면 그쪽이 우선.
    * 얼음 층이 없는 장면은 켜 두어도 셰이더·균일변수가 끈 것과 같음.
    */
@@ -528,6 +549,8 @@ export interface VolumetricOptions extends TsunOptions {
   billow: boolean;
   /** 고적운·층적운 세포 무늬(cloudCells, 계획 §24.11) — 흐름 모형 위에서만. 기본 켬. */
   cells: boolean;
+  /** 구름 가장자리 기본 거칠기(cloudEdge, 계획 §26) — 구름 문턱을 fBm 으로 흔드는 세기(날씨 값 단위, 0 = 끔). 모든 종류 공통. */
+  edgeRough: number;
   /**
    * 구름 빛(계획 문서 §25). 'physical' = 해 쪽 직선 추적을 구름층 꼭대기까지(고도 문턱 없음) · 운량으로 판 확산 섞기 · 그늘 하늘빛을 위쪽 기둥 두께로.
    * 구름 자기 그늘에 그림자 지도를 쓰지 않으므로, 빛줄기가 꺼진 품질(low)에서는 그림자 지도 패스를 건너뜁니다. 'legacy' = 예전(takram 짧은 행진 + 그림자 지도).
@@ -572,7 +595,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1570,6 +1593,9 @@ export async function createVolumetricScene(
   // 고적운·층적운 세포 무늬 — 흐름 패치 직후(그 문장 앞에 끼움). 레인 세기 0 이면 날씨 값 그대로.
   patchCellShader(clouds.cloudsPass.currentMaterial as never);
   patchCellShader(clouds.shadowPass.currentMaterial as never);
+  // §26 가장자리 거칠기 — 세포 다음(세포 경계까지 거칠게), 같은 문장 앞.
+  patchEdgeShader(clouds.cloudsPass.currentMaterial as never);
+  patchEdgeShader(clouds.shadowPass.currentMaterial as never);
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
   // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
@@ -1662,9 +1688,11 @@ export async function createVolumetricScene(
     cu.cloudAirShadeC.value = Math.max(lastAirShadeC, farAirShadeV);
   };
   let lastAirShadeC = 0;
+  // §25.8 해 쪽 추적 거리 상한 — 먼 거리 가림 지도가 켜지면 그 지도가 FAR_NEAR_KM 너머를 맡으므로 추적은 거기까지만(그늘 두 번 셈 방지).
+  const setSunMaxM = (m: number) => { for (const mat of [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial]) { const u = (mat as unknown as { uniforms: Record<string, { value: number }> }).uniforms.genusSunMaxM; if (u) u.value = m; } };
   const applyFarSun = (p: VolumetricSceneInput, sunAltDeg: number) => {
     const cm = clouds.cloudsPass.currentMaterial as never;
-    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); return; }
+    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); setSunMaxM(SUN_MARCH_MAX_M); return; }
     const ls = p.layers.slice(0, 4);
     const bandRange = (b: 'low' | 'mid' | 'high', d: [number, number]): [number, number] => {
       let lo = Infinity, hi = -Infinity;
@@ -1706,7 +1734,7 @@ export async function createVolumetricScene(
         { ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg },
         draft ? 24 : 32,
         300,
-        12,
+        FAR_NEAR_KM,
         420,
         draft ? 12 : 8,
         farCover.grids,
@@ -1716,6 +1744,7 @@ export async function createVolumetricScene(
     const ch = ls.map(x => (x?.band === 'mid' ? 1 : x?.band === 'high' ? 2 : 0));
     while (ch.length < 4) ch.push(0);
     setFarSunUniforms(cm, farMap.map, ch as [number, number, number, number]);
+    setSunMaxM(FAR_NEAR_KM * 1000);
     lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3], tAirHere: farMap.map.centerT[3] };
     // 일몰 후(태양 고도 < −0.5°) 및 고도 10° 접근 시 부드럽게 감쇠해 farSun 온/오프 경계 단차를 없앱니다.
     const airSunWeight = Math.min(1, Math.max(0, (sunAltDeg + 0.5) / 1.3));
@@ -1748,6 +1777,8 @@ export async function createVolumetricScene(
     // 그늘 하늘빛(skyPhys): 2026-11-25 단위 오류(takram 하늘 조도 = 평면 × 2π)를 고쳐 다시 켬(계획 문서 §25.5 · §25.6).
     const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: true, deck: true } : null;
     for (const m of genusMats) setGenusLight(m, light);
+    // §26 가장자리 거칠기(종류 모형이 켜진 경우만 — 끄면 takram 그대로).
+    for (const m of genusMats) setEdgeRough(m as never, opt.genus ? opt.edgeRough : 0);
   }
   applyCloudLight();
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
@@ -2593,7 +2624,7 @@ export async function createVolumetricScene(
       const phys = physRaw && Number.isFinite(physRaw.betaTop) && physRaw.betaTop >= 0 && physRaw.profile.every(Number.isFinite) ? physRaw : null;
       physLanes[i] = phys;
       const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
-      const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
+      const physShape = phys ? { densityScale: phys.betaTop * (opt.physicsRenderComp ? physRenderComp(g!.genus) : 1), densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
         : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } }
           : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
             ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }

@@ -150,6 +150,19 @@ import {
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
+/** 개발 패널 상태 줄 덧붙임(§25.9) — 층마다 종류 · 렌더 두께(m) · 미세물리 기둥 τ(렌더 봉투 반영). 기기에서 구름이 실제로 얼마나 두껍게 그려지는지 한 줄로. */
+function layerOpticsNote(
+  layers: readonly { genus?: string | null; thicknessM?: number | null }[] | undefined,
+  phys: readonly ({ tauRendered: number } | null)[] | null | undefined,
+): string {
+  if (!layers?.length) return '';
+  const parts = layers.slice(0, 4).map((L, i) => {
+    if (!L?.genus) return null;
+    const t = phys?.[i]?.tauRendered;
+    return `${L.genus} ${L.thicknessM ? `${Math.round(L.thicknessM)}m` : '기본'}${t != null && Number.isFinite(t) ? ` τ${t.toFixed(0)}` : ''}`;
+  }).filter(Boolean);
+  return parts.length ? ` · 층 ${parts.join(' / ')}` : '';
+}
 import {
   evaluateVolDateSync,
   buildDayPrewarmBuckets,
@@ -3054,7 +3067,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
             volumetricStats.weatherMs = vol.weatherMs();
             volHasSceneRef.current = true;
-            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary });
+            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
             const g = built.genus;
             lastVolSceneRef.current = built.obs ? {
               t: vDate.toISOString(),
@@ -3097,7 +3110,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volHasSceneRef.current = true;
                 volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = null;
-                setVolumetricStatus({ summary: built.summary });
+                setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
                 const g = built.genus;
                 lastVolSceneRef.current = built.obs ? {
                   t: vDate.toISOString(),
@@ -3158,7 +3171,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 metar: metarRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
               });
               vol.updateContinuousScene(contBuilt.input);
-              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary });
+              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary + layerOpticsNote(contBuilt.input.layers, vol.physicsInfo()) });
             }
           }
           if (syncDecision.shouldCallSetDate) vol.setDate(vDate, syncDecision.driftSec);
