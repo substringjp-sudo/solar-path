@@ -671,6 +671,8 @@ export interface VolumetricScene {
   setQuality(q: VolumetricQuality): void;
   /** 상호작용 중(드래그/줌) 레이마칭 보폭·2차 해 행진을 낮춰 응답성을 높이고, 떼면 원복합니다. */
   setInteracting?(active: boolean, deferFarSun?: boolean): void;
+  /** 표본 누적(`cloudAccum`)을 켜고 끔 — 가만히 있는 다듬기 동안만 켭니다. 균일변수 하나만 바꿔 가볍습니다. */
+  setCloudAccumActive(on: boolean): void;
   setResolutionScale(s: number): void;
   /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
   resolutionScale(): number;
@@ -1808,6 +1810,8 @@ export async function createVolumetricScene(
   };
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   /** §25 물리 빛 균일변수. 끌기 중에는 해 쪽 걸음을 6 으로. */
+  /** 시간 업스케일 표본 누적을 지금 쓰는지(`setCloudAccumActive`). 꺼져 있으면 takram 그대로. */
+  let accumActive = false;
   function applyCloudLight(): void {
     // 그늘 하늘빛(skyPhys): 2026-11-25 단위 오류(takram 하늘 조도 = 평면 × 2π)를 고쳐 다시 켬(계획 문서 §25.5 · §25.6).
     const light = physLight() ? { sunTopN: isInteracting ? 6 : 8, skyPhys: true, deck: true } : null;
@@ -1815,7 +1819,8 @@ export async function createVolumetricScene(
     // §26 가장자리 거칠기(종류 모형이 켜진 경우만 — 끄면 takram 그대로).
     for (const m of genusMats) setEdgeRough(m as never, opt.genus ? opt.edgeRough : 0);
     const rmU = (clouds.cloudsPass.resolveMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
-    if (rmU.cloudAccum) rmU.cloudAccum.value = Math.max(0.02, Math.min(1, opt.cloudAccum));
+    // 누적은 가만히 있을 때(다듬기 중)만 — 움직이는 동안 섞으면 구름이 일렁이고 끌립니다(기기, 2026-11-26).
+    if (rmU.cloudAccum) rmU.cloudAccum.value = accumActive ? Math.max(0.02, Math.min(1, opt.cloudAccum)) : 1;
   }
   applyCloudLight();
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
@@ -3316,6 +3321,12 @@ export async function createVolumetricScene(
       }
       // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
       if (lastInput && reapply) setScene(lastInput);
+    },
+    setCloudAccumActive: on => {
+      if (accumActive === on) return;
+      accumActive = on;
+      const rmU = (clouds.cloudsPass.resolveMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+      if (rmU.cloudAccum) rmU.cloudAccum.value = on ? Math.max(0.02, Math.min(1, opt.cloudAccum)) : 1;
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
     resolutionScale: () => clouds.resolutionScale,
