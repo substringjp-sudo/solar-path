@@ -815,8 +815,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     fov: 65,
     roll: 0,
   });
-  const sandboxGearActive = useMemo(() => hasActiveOpticalGear(sandboxGearBag), [sandboxGearBag]);
-  const sandboxGearBadge = useMemo(() => summarizeGearForCell(sandboxGearBag, language), [sandboxGearBag, language]);
+  const graphicsQuality = useCelestialStore(s => s.graphicsQuality);
+  const effectiveSandboxGearBag = useMemo<CameraGearBagState>(
+    () => (graphicsQuality === 'low' ? { ...sandboxGearBag, lensMount: 'standard', verticalShift: false } : sandboxGearBag),
+    [graphicsQuality, sandboxGearBag],
+  );
+  const sandboxGearActive = useMemo(() => hasActiveOpticalGear(effectiveSandboxGearBag), [effectiveSandboxGearBag]);
+  const sandboxGearBadge = useMemo(() => summarizeGearForCell(effectiveSandboxGearBag, language), [effectiveSandboxGearBag, language]);
   const [sandboxAstroSettings, setSandboxAstroSettings] = useState<AstroSettingsState>(() => ({ ...createDefaultAstroSettings(), mode: 'trails' }));
   const [sandboxTlPlan, setSandboxTlPlan] = useState<TimelapsePlan | null>(null);
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
@@ -1022,7 +1027,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         const hFov = (2 * Math.atan(Math.tan((vFov * Math.PI) / 360) * (sw / sh)) * 180) / Math.PI;
         const obs0 = interpolatedWeather[0];
         const optRes = await applyOpticalGearToPhoto(baseUri, {
-          gear: sandboxGearBag,
+          gear: effectiveSandboxGearBag,
           attitude: { yawDeg: st.view.az, pitchDeg: st.view.el, rollDeg: st.view.roll ?? 0 },
           intrinsics: intrinsicsFromHfov(sw, sh, hFov),
           horizon: buildArHorizon(),
@@ -1056,7 +1061,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [
     sandboxShootMode,
     sandboxGearActive,
-    sandboxGearBag,
+    effectiveSandboxGearBag,
     sandboxAstroSettings,
     sandboxAstroSummary.clampedIso,
     interpolatedWeather,
@@ -1139,7 +1144,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       longExpAbortRef.current?.abort();
       sceneRef.current?.cancelLongExposure?.();
     };
-  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, sandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, effectiveSandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
@@ -1732,7 +1737,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <ViewfinderOpticsOverlay
             width={Dimensions.get('window').width}
             height={Dimensions.get('window').height}
-            gear={sandboxGearBag}
+            gear={effectiveSandboxGearBag}
             optics={sandboxOptics}
             attitude={{ yawDeg: sandboxLiveView.az, pitchDeg: sandboxLiveView.el, rollDeg: sandboxLiveView.roll }}
             horizon={buildArHorizon()}

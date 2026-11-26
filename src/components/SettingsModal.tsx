@@ -84,6 +84,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setThemeMode,
     statusBarIcon,
     setStatusBarIcon,
+    graphicsQuality,
+    setGraphicsQuality,
     notifPrefs: storedNotifPrefs,
     setNotifPref,
   } = useCelestialStore();
@@ -275,6 +277,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ))}
                   </View>
                 </View>
+              </View>
+
+              {/* 1-b3. 시뮬레이션 화질 (고화질 / 저사양 도트 모드) */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '시뮬레이션 화질', 'Simulation quality', 'シミュレーション画質')}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.langSelectorRow}>
+                    {([
+                      ['high', L3(language, '고화질', 'High quality', '高画質')],
+                      ['low', L3(language, '저화질 (도트)', 'Low spec (Pixel)', '低画質 (ドット)')],
+                    ] as const).map(([qMode, label]) => (
+                      <PressScale
+                        key={qMode}
+                        style={[styles.langOption, graphicsQuality === qMode && { backgroundColor: color.accentSoft }]}
+                        onPress={() => setGraphicsQuality(qMode)}
+                        accessibilityState={{ selected: graphicsQuality === qMode }}
+                      >
+                        <Text style={[styles.langText, { color: graphicsQuality === qMode ? color.accent : theme.text, fontWeight: graphicsQuality === qMode ? '800' : '500' }]}>{label}</Text>
+                      </PressScale>
+                    ))}
+                  </View>
+                </View>
+                <Text style={[styles.modeHint, { color: theme.subText }]}>
+                  {L3(
+                    language,
+                    '저화질 모드는 도트 그래픽으로 그리며 구름 미세 결·추가 지형 마스크 연산과 데이터를 생략해 배터리와 데이터를 아낍니다.',
+                    'Low-spec mode renders in pixel art and skips fine cloud detail & extra terrain mask downloads to save battery and data.',
+                    '低画質モードはドット絵で描画し、雲の細部計算や追加データの取得を省略して負荷を抑えます。',
+                  )}
+                </Text>
               </View>
 
               {/* 1-c. 알림 — 노을·일출 예보 + 천체력으로 정해지는 하늘 이벤트(utils/notificationPlan.ts) */}

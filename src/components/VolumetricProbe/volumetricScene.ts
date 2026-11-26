@@ -2830,7 +2830,8 @@ export async function createVolumetricScene(
    */
   const setSceneAsync = async (p: VolumetricSceneInput, isFast = false, sliceMs = 12): Promise<boolean> => {
     const my = ++sceneToken;
-    const plan = weatherPlan(p, isFast);
+    const planFull = weatherPlan(p, false);
+    const plan = isFast && weatherCache.has(planFull.key) ? planFull : weatherPlan(p, isFast);
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
@@ -2860,7 +2861,8 @@ export async function createVolumetricScene(
     return true;
   };
   const hasCachedScene = (p: VolumetricSceneInput, isFast = false): boolean => {
-    const plan = weatherPlan(p, isFast);
+    const planFull = weatherPlan(p, false);
+    const plan = isFast && weatherCache.has(planFull.key) ? planFull : weatherPlan(p, isFast);
     if (!weatherCache.has(plan.key)) return false;
     const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
     if (wp && !waveCacheMap.has(waveKey(wp))) return false;
@@ -3280,6 +3282,7 @@ export async function createVolumetricScene(
         validateTsunOptions(next);
         if (next.tsun === 1) checkTsunSamplerBudget(curQuality, maxTextureUnits());
       }
+      const isoptChangedDetail = ('billow' in o && o.billow !== opt.billow) || ('cells' in o && o.cells !== opt.cells);
       Object.assign(opt, o);
       applySunMarch();
       applyCloudLight();
@@ -3299,6 +3302,18 @@ export async function createVolumetricScene(
         }
       }
       applyTsun();
+      if (isoptChangedDetail && lastInput && genLayers) {
+        const bp = genLayers.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
+          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));
+        const bFirst = bp.find(x => x) ?? null;
+        const bLanes = bp.map(x => (x ? 1 : 0));
+        activeBillowOn = !!bFirst && bLanes.some(x => x > 0);
+        for (const m of genusMats) {
+          setBillowUniforms(m, bFirst, bLanes);
+          setCellUniforms(m, cellLanesOf(genLayers, lastInput));
+        }
+        syncBillowInteractionUniform();
+      }
       // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
       if (lastInput && reapply) setScene(lastInput);
     },

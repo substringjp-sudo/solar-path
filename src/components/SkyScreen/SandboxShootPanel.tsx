@@ -16,6 +16,7 @@ import { MiniFilterRingIcon, type LensKind } from '../AstroCamera/CameraLensZoom
 import { GLASS, TEXT } from '../../theme/glassTokens';
 import { color as DARK } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
+import { useCelestialStore } from '../../store/useCelestialStore';
 import type { AstroCameraCapabilities } from '../../../modules/astro-camera';
 import type { AstroWindowAnalysis } from '../../utils/astroForecast';
 import type { AstroSettingsState, AstroShotSummary } from '../../utils/astroCameraUi';
@@ -121,6 +122,8 @@ export const SandboxShootPanel: React.FC<Props> = ({
   onTimelapsePlanChange,
   maxHeight,
 }) => {
+  const graphicsQuality = useCelestialStore(s => s.graphicsQuality);
+  const isLowSpec = graphicsQuality === 'low';
   const tabs: Array<{ key: SandboxShootMode; label: string; icon: React.ReactNode }> = [
     { key: 'photo', label: L3(language, '일반', 'Normal', '通常'), icon: <Sun size={13} color={mode === 'photo' ? DARK.accent : TEXT} /> },
     { key: 'astro', label: L3(language, '천체', 'Astro', '天体'), icon: <Moon size={13} color={mode === 'astro' ? DARK.accent : TEXT} /> },
@@ -131,7 +134,9 @@ export const SandboxShootPanel: React.FC<Props> = ({
     <View style={styles.gearCard}>
       <View style={styles.headerRow}>
         <Text style={styles.label}>
-          {L3(language, '광학 렌즈 마운트 · 필터 · 필름 (즉시 조절)', 'OPTICAL LENS · FILTER · FILM (LIVE TUNE)', '光学レンズ・フィルター・フィルム')}
+          {isLowSpec
+            ? L3(language, '광학 필터 · 필름 (저화질 모드 — 렌즈 효과 제외)', 'OPTICAL FILTER · FILM (LOW SPEC)', 'フィルター・フィルム（低画質モード）')
+            : L3(language, '광학 렌즈 마운트 · 필터 · 필름 (즉시 조절)', 'OPTICAL LENS · FILTER · FILM (LIVE TUNE)', '光学レンズ・フィルター・フィルム')}
         </Text>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {hasActiveOpticalGear(gearBag) && (
@@ -152,7 +157,9 @@ export const SandboxShootPanel: React.FC<Props> = ({
         </View>
       </View>
 
-      {/* 1. 렌즈 마운트 빠른 선택 */}
+      {/* 1. 렌즈 마운트 빠른 선택 (고화질 모드 전용) */}
+      {!isLowSpec && (
+      <>
       <View style={styles.chipRow}>
         {(['standard', 'scheimpflug', 'dolly', 'anamorphic'] as OpticalLensMount[]).map(m => (
           <GlassChip
@@ -255,6 +262,8 @@ export const SandboxShootPanel: React.FC<Props> = ({
             ))}
           </View>
         </View>
+      )}
+      </>
       )}
 
       {/* 2. 전면 원형 광학 필터 빠른 토글 (최대 2개) */}

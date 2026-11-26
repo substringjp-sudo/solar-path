@@ -1453,8 +1453,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const optCloudCover = typeof obsForOptics?.total === 'number' ? obsForOptics.total / 100 : 0.3;
       const optAod = typeof obsForOptics?.aod550 === 'number' ? obsForOptics.aod550 : 0.25;
 
+      const isLowSpec = useCelestialStore.getState().graphicsQuality === 'low';
+      const effectiveGearForCapture: CameraGearBagState = isLowSpec
+        ? { ...gear, lensMount: 'standard', verticalShift: false }
+        : gear;
       const optResult = await applyOpticalGearToPhoto(rawInputUri, {
-        gear,
+        gear: effectiveGearForCapture,
         attitude: attSnap,
         intrinsics: optics.k,
         horizon: horizonRef.current ?? terrainSamplerRef.current?.horizon ?? null,
