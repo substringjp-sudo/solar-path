@@ -77,4 +77,8 @@ export const volumetricStats = {
   atmosMs: 0,
   /** §128 대기 표가 파장 15개(분광)인지 — false 면 takram 3파장(생성기 내부가 달라 되돌린 경우). */
   spectral: false,
+  /** 기기 GL 조각 셰이더 텍스처 단위 한도(MAX_TEXTURE_IMAGE_UNITS) — 0 이면 모름. */
+  texUnits: 0,
+  /** 구름 패스 셰이더가 실제로 쓰는 텍스처 수(링크된 프로그램의 활성 샘플러) — 0 이면 아직 모름. */
+  cloudSamplers: 0,
 };
