@@ -669,6 +669,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 정착 뒤 다듬기 프레임 남은 수(`VOL_REFINE_FRAMES`) — 움직이면 멈추고 다음 정착 끝에서 다시 채움. */
   const volRefineRef = useRef(0);
   const volRefineStartRef = useRef(0);
+  const volAccumOnRef = useRef(false);
   const volViewRef = useRef('');
   /** §127 첫 장면이 걸리기 전에는 볼륨 하늘을 쓰지 않습니다(날씨를 잘라 만드는 동안 예전 하늘). */
   const volHasSceneRef = useRef(false);
@@ -3267,6 +3268,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volSettleRef.current = Math.max(volSettleRef.current, 18);
             }
           }
+          // 표본 누적은 가만히 있는 다듬기 동안만(이번 프레임을 그리기 전에 정함) — 움직일 때 섞으면 구름이 일렁이고 끌립니다.
+          const accumWant = volRefineRef.current > 0 && volSettleRef.current === 0 && !isInteractingNow && !isSlidingNow
+            && (skySettingsRef.current.volumetricRefine ?? true) && (skySettingsRef.current.pixelArtRows ?? 0) <= 0;
+          if (accumWant !== volAccumOnRef.current) { volAccumOnRef.current = accumWant; vol.setCloudAccumActive?.(accumWant); }
           volTex = vol.renderToTexture(dtSec);
           if (volSettleRef.current > 0) {
             volSettleRef.current--;
