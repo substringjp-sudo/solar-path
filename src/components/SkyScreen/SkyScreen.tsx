@@ -1105,21 +1105,44 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [expertMode, sandboxShootMode, isTimeMachineEnabled, setTimeMachineEnabled]);
 
-  // 천체 탭 또는 광학 렌즈·필터 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 합성
+  // 천체 탭: 설정창이 열려 있으면 5초 후 자동 합성, 설정창을 내리면 즉시(200ms) 합성. 일반(광학) 탭: 180ms 후 합성.
+  const [sandboxSheetOpen, setSandboxSheetOpen] = useState(false);
+  const sandboxLongExpUriRef = useRef<string | null>(null);
+  sandboxLongExpUriRef.current = sandboxLongExpUri;
+  const astroSynthDoneKeyRef = useRef<string>('');
+  const astroSynthKey = useMemo(
+    () => (sandboxShootMode === 'astro'
+      ? JSON.stringify({ sandboxAstroSettings, sandboxViewSig, t: currentTime.getTime() })
+      : ''),
+    [sandboxShootMode, sandboxAstroSettings, sandboxViewSig, currentTime],
+  );
   useEffect(() => {
-    longExpReqRef.current += 1;
-    longExpBusyRef.current = false;
-    longExpAbortRef.current?.abort();
-    longExpAbortRef.current = null;
-    sceneRef.current?.cancelLongExposure?.();
-
     const shouldSynthesize =
       expertMode &&
       !isCameraOverlayActive &&
       !ascended &&
       (sandboxShootMode === 'astro' || (sandboxShootMode === 'photo' && sandboxGearActive));
 
+    if (
+      shouldSynthesize &&
+      sandboxShootMode === 'astro' &&
+      !isSliding &&
+      !isGestureBlocked &&
+      !sandboxGearBagOpen &&
+      sandboxLongExpUriRef.current &&
+      astroSynthDoneKeyRef.current === astroSynthKey
+    ) {
+      return undefined;
+    }
+
+    longExpReqRef.current += 1;
+    longExpBusyRef.current = false;
+    longExpAbortRef.current?.abort();
+    longExpAbortRef.current = null;
+    sceneRef.current?.cancelLongExposure?.();
+
     if (!shouldSynthesize) {
+      astroSynthDoneKeyRef.current = '';
       setSandboxLongExpUri(null);
       setSandboxZoneHist(null);
       setSandboxSkyline(null);
@@ -1127,16 +1150,22 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       return undefined;
     }
     if (isSliding || isGestureBlocked || sandboxGearBagOpen) {
+      astroSynthDoneKeyRef.current = '';
       setSandboxLongExpUri(null);
       setSandboxZoneHist(null);
       setSandboxSkyline(null);
       setSandboxLongExpBusy(false);
       return undefined;
     }
+    astroSynthDoneKeyRef.current = '';
     setSandboxLongExpUri(null);
     setSandboxSkyline(null);
-    const delayMs = sandboxShootMode === 'photo' ? 180 : 450;
+    const delayMs = sandboxShootMode === 'photo'
+      ? 180
+      : (sandboxSheetOpen ? 5000 : 200);
+    const keySnapshot = astroSynthKey;
     const t = setTimeout(() => {
+      if (sandboxShootMode === 'astro') astroSynthDoneKeyRef.current = keySnapshot;
       runSandboxLongExp();
     }, delayMs);
     return () => {
@@ -1144,7 +1173,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       longExpAbortRef.current?.abort();
       sceneRef.current?.cancelLongExposure?.();
     };
-  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, effectiveSandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, runSandboxLongExp]);
+  }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, effectiveSandboxGearBag, sandboxGearBagOpen, isSliding, isGestureBlocked, sandboxViewSig, currentTime, sandboxSheetOpen, astroSynthKey, runSandboxLongExp]);
 
   const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
   const sandboxLensInfo = useMemo(() => {
@@ -2110,6 +2139,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onOpenLatestScene={savedScenes.length > 0 ? () => openScene(savedScenes[0]) : undefined}
           onOpenCalendar={onOpenDatePicker}
           onSimBodyOpenChange={setSheetOpen}
+          onSandboxSheetOpenChange={setSandboxSheetOpen}
         />
       )}
       </View>

@@ -70,11 +70,13 @@ interface Props {
   onOpenCalendar?: () => void;
   /** 시뮬레이션을 끝까지 펼쳐 `simBody` 가 보이는지가 바뀔 때(예보 카드는 펼칠 때 한 번 받습니다). */
   onSimBodyOpenChange?: (open: boolean) => void;
+  /** 샌드박스 설정 시트 열림/닫힘 상태가 바뀔 때 */
+  onSandboxSheetOpenChange?: (open: boolean) => void;
 }
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, live = false, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange,
+  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange, onSandboxSheetOpenChange,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | 'shoot' | null>(null);
@@ -82,6 +84,10 @@ export const SkyFrame: React.FC<Props> = ({
   const simBodyCb = React.useRef(onSimBodyOpenChange);
   simBodyCb.current = onSimBodyOpenChange;
   React.useEffect(() => { simBodyCb.current?.(simBodyOpen); }, [simBodyOpen]);
+  const sandboxSheetOpen = mode === 'sandbox' && stage !== 'min';
+  const sandboxSheetCb = React.useRef(onSandboxSheetOpenChange);
+  sandboxSheetCb.current = onSandboxSheetOpenChange;
+  React.useEffect(() => { sandboxSheetCb.current?.(sandboxSheetOpen); }, [sandboxSheetOpen]);
   React.useEffect(() => { if (collapseNonce > 0) { setStage('min'); setActive(null); } }, [collapseNonce]);
   const modes = React.useMemo(() => modeList(false), []);
 
