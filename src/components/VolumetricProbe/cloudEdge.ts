@@ -18,7 +18,6 @@
  * 잡음은 평균이 0.5 라 흐려져도 구름 면적은 그대로입니다(날씨 자체에 밉을 걸 때 먼 구름이 사라진 §127.8 과 다름).
  * 층마다 바람 표류(genusDriftKm)를 따라 무늬가 구름과 함께 움직입니다.
  */
-import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RedFormat, RepeatWrapping, UnsignedByteType } from 'three';
 import { mulberry32 as rng } from '../../utils/math';
 
 export const EDGE_TILE_PX = 256;
@@ -66,19 +65,6 @@ export function makeEdgeNoiseData(seed = 11, px = EDGE_TILE_PX): Uint8Array {
   return out;
 }
 
-let tile: DataTexture | null = null;
-function edgeTile(): DataTexture {
-  if (tile) return tile;
-  const t = new DataTexture(makeEdgeNoiseData(), EDGE_TILE_PX, EDGE_TILE_PX, RedFormat, UnsignedByteType);
-  t.wrapS = t.wrapT = RepeatWrapping;
-  t.magFilter = LinearFilter;
-  t.minFilter = LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.needsUpdate = true;
-  tile = t;
-  return t;
-}
-
 /** CPU 판(판정용): 날씨 값 lw 에 잡음 n(0..1)을 세기 a 로 더함. 맑은 하늘(lw = 0)은 그대로. */
 export function edgeModulate(lw: number, n: number, a: number): number {
   if (!(lw > 0)) return lw;
@@ -94,11 +80,12 @@ const MARCH_MIP = '    float mipLevel = log2(max(1.0, rayStartTexelsPerPixel + r
 
 export function patchEdgeShader(mat: PatchableMaterial): void {
   let src = mat.fragmentShader;
+  // 잡음 타일은 세포 패치(`cloudCells.noiseTile`, RGB 세포 · A 가장자리)가 이미 걸어 둔 한 장을 읽습니다 — 텍스처 단위 절약. 세포 패치가 먼저여야 합니다.
+  if (!src.includes('uniform sampler2D noiseTile;') || !mat.uniforms.noiseTile) throw new Error('cloudEdge: noiseTile missing — patchCellShader must run first');
   for (const a of [ANCHOR, DECL]) if (!src.includes(a)) throw new Error('cloudEdge: shader anchor missing — ' + a.trim().slice(0, 50));
   const texelM = (EDGE_PERIOD_M / EDGE_TILE_PX).toFixed(4);
   src = src.replace(DECL, DECL + [
     '',
-    'uniform sampler2D edgeNoise;',
     'uniform float edgeRough;   // §26 가장자리 거칠기 세기(0 = 끔)',
     'uniform float edgePixelRad; // 구름 버퍼 한 화소의 각(라디안)',
     'float gEdgeFootM = 0.0;     // 지금 표본의 화소 발자국(m) — 행진 고리가 채움, 0 이면 예전 어림',
@@ -121,16 +108,15 @@ export function patchEdgeShader(mat: PatchableMaterial): void {
     '    float eFoot = gEdgeFootM > 0.0 ? gEdgeFootM : genusTexelM * exp2(mipLevel);',
     `    float eLod = max(0.0, log2(max(eFoot, 1.0) / ${texelM}));`,
     '    vec4 eN = vec4(0.5);',
-    `    if (localWeather.x > 0.0) eN.x = textureLod(edgeNoise, (eP + 1000.0 * vec2(genusDriftKmU.x, genusDriftKmV.x)) / ${EDGE_PERIOD_M.toFixed(1)}, eLod).r;`,
-    `    if (localWeather.y > 0.0) eN.y = textureLod(edgeNoise, (eP + 1000.0 * vec2(genusDriftKmU.y, genusDriftKmV.y)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.37, 0.61), eLod).r;`,
-    `    if (localWeather.z > 0.0) eN.z = textureLod(edgeNoise, (eP + 1000.0 * vec2(genusDriftKmU.z, genusDriftKmV.z)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.71, 0.13), eLod).r;`,
-    `    if (localWeather.w > 0.0) eN.w = textureLod(edgeNoise, (eP + 1000.0 * vec2(genusDriftKmU.w, genusDriftKmV.w)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.19, 0.83), eLod).r;`,
+    `    if (localWeather.x > 0.0) eN.x = textureLod(noiseTile, (eP + 1000.0 * vec2(genusDriftKmU.x, genusDriftKmV.x)) / ${EDGE_PERIOD_M.toFixed(1)}, eLod).a;`,
+    `    if (localWeather.y > 0.0) eN.y = textureLod(noiseTile, (eP + 1000.0 * vec2(genusDriftKmU.y, genusDriftKmV.y)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.37, 0.61), eLod).a;`,
+    `    if (localWeather.z > 0.0) eN.z = textureLod(noiseTile, (eP + 1000.0 * vec2(genusDriftKmU.z, genusDriftKmV.z)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.71, 0.13), eLod).a;`,
+    `    if (localWeather.w > 0.0) eN.w = textureLod(noiseTile, (eP + 1000.0 * vec2(genusDriftKmU.w, genusDriftKmV.w)) / ${EDGE_PERIOD_M.toFixed(1)} + vec2(0.19, 0.83), eLod).a;`,
     '    localWeather = mix(localWeather, clamp(localWeather + edgeRough * (eN - vec4(0.5)), 0.0, 1.0), step(vec4(1e-6), localWeather));',
     '  }',
     ANCHOR,
   ].join('\n'));
   mat.fragmentShader = src;
-  mat.uniforms.edgeNoise = { value: edgeTile() };
   mat.uniforms.edgeRough = { value: EDGE_ROUGH_DEFAULT };
   mat.uniforms.edgePixelRad = { value: 0.003 };
   mat.needsUpdate = true;

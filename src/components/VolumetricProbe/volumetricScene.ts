@@ -92,7 +92,7 @@ import { GENUS_FLOW, type FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, particleOpticalLane, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
 import { flowParam, patchFlowShader, setFlowUniforms, setGenusDrift, setGenusLife, setSkeletonTilt, GENUS_LS_AMT, GENUS_SHEET_B_GLSL } from './cloudFlowShader';
-import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
+import { macroLutGlsl, macroLutVectors, macroPairGlsl, macroPairTexture, makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
 import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
@@ -602,6 +602,8 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
+/** H 품질에서 구름 패스가 쓰는 텍스처 수(하네스 측정: 거시 A|B 합치기 · 깊이 판 제거 뒤에도 17) — 기기 MAX_TEXTURE_IMAGE_UNITS 가 이보다 작으면 M 으로 낮춤. */
+export const HIGH_QUALITY_MIN_UNITS = 17;
 /** 시간 업스케일 누적 — 새 표본 무게(`cloudAccum`). 0.25 ≈ 최근 표본 ~7 개 평균. */
 export const CLOUD_ACCUM_DEFAULT = 0.25;
 export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, cloudAccum: CLOUD_ACCUM_DEFAULT, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
@@ -956,7 +958,8 @@ export async function createVolumetricScene(
       '    viewZ = -tkm * 1000.0 * dot(rayDirection, vCameraDirection);',
       '    return tkm * 1000.0;',
       '  }',
-      '  float depth = readDepthValue(depthBuffer, vUv * targetUvScale + temporalJitter);',
+      // 이 장면(`scene`)은 늘 비어 있어 깊이 판은 항상 "없음"(1)입니다 — 읽지 않아 구름 패스 텍스처 단위를 1 개 아낍니다(기기 한도 16).
+      '  float depth = 1.0;',
     ].join('\n'));
     mat.uniforms.terrainDistBuffer = { value: null };
     mat.uniforms.terrainDistOn = { value: 0 };
@@ -1039,7 +1042,7 @@ export async function createVolumetricScene(
       '  return cloud * t + inScat;',
       '}',
       'uniform sampler2D farWeatherTex;', 'uniform float farWeatherOn;',
-      'uniform sampler2D farMacroTex;', 'uniform sampler2D farMacroTexB;', 'uniform float farMacroMix;', 'uniform sampler2D farMacroLut;', 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
+      'uniform sampler2D farMacroTexAB;', macroPairGlsl('farMacroTexAB', 'farMacroPairAt'), 'uniform float farMacroMix;', macroLutGlsl('farMacroLutU', 'farMacroLutVec'), 'uniform float farMacroOn;', 'uniform float farMacroExtentKm;',
       'uniform mat4 farWeatherMask;', 'uniform mat4 farMacroMask;',
       'uniform vec3 farOriginKm;', 'uniform vec3 farEast;', 'uniform vec3 farNorth;', 'uniform float farTileKm;',
       'uniform vec4 farBaseKm;', 'uniform vec4 farThickKm;', 'uniform vec4 farTauV;', 'uniform vec4 farDensPow;', 'uniform vec4 farIce;', 'uniform vec4 farCoverFb;',
@@ -1087,9 +1090,9 @@ export async function createVolumetricScene(
       '    if (farLsAmt > 0.0) dens = pow(clamp(dens, 0.0, 1.0), exp(-farLsAmt * (1.0 - 0.65 * farFl) * 0.75 * (2.0 * farLsField(planeKm + dKm) - 1.0)));',
       '    if (farMacroOn > 0.5) {',
       '      vec2 mUv = (planeKm + mDrift) / max(farMacroExtentKm, 1.0) + 0.5;',
-      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(mix(texture(farMacroTex, mUv), texture(farMacroTexB, mUv), farMacroMix), mMask);',
+      '      float mCov = (mUv.x < 0.0 || mUv.x > 1.0 || mUv.y < 0.0 || mUv.y > 1.0) ? 1.0 : dot(farMacroPairAt(mUv, farMacroMix), mMask);',
       '      if (lutCol >= -0.5) {',
-      '        vec4 sVec = texture(farMacroLut, vec2((mCov * 63.0 + 0.5) / 64.0, 0.5));',
+      '        vec4 sVec = farMacroLutVec(mCov);',
       '        float gMS = lutCol < 0.5 ? sVec.x : lutCol < 1.5 ? sVec.y : lutCol < 2.5 ? sVec.z : sVec.w;',
       '        dens = clamp((dens - gMS) / max(1.0 - gMS, 1e-3), 0.0, 1.0);',
       '        dens = pow(dens, mix(1.0, 1.85, clamp(gMS * 1.25, 0.0, 1.0) * (1.0 - smoothstep(0.72, 0.96, mCov))));',
@@ -1556,10 +1559,9 @@ export async function createVolumetricScene(
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     fx.uniforms.set('farWeatherTex', new Uniform(null));
     fx.uniforms.set('farWeatherOn', new Uniform(0));
-    fx.uniforms.set('farMacroTex', new Uniform(null));
-    fx.uniforms.set('farMacroTexB', new Uniform(null));
+    fx.uniforms.set('farMacroTexAB', new Uniform(null));
     fx.uniforms.set('farMacroMix', new Uniform(0));
-    fx.uniforms.set('farMacroLut', new Uniform(null));
+    fx.uniforms.set('farMacroLutU', new Uniform(macroLutVectors(null)));
     fx.uniforms.set('farMacroOn', new Uniform(0));
     fx.uniforms.set('farMacroExtentKm', new Uniform(768));
     fx.uniforms.set('farWeatherMask', new Uniform(new Matrix4()));
@@ -2582,10 +2584,9 @@ export async function createVolumetricScene(
     (au.get('farDriftKmV')!.value as Vector4).set(pick(kdv, s[0]), pick(kdv, s[1]), pick(kdv, s[2]), pick(kdv, s[3]));
     (au.get('farMacroDriftU')!.value as Vector4).set(pick(mdu, s[0]), pick(mdu, s[1]), pick(mdu, s[2]), pick(mdu, s[3]));
     (au.get('farMacroDriftV')!.value as Vector4).set(pick(mdv, s[0]), pick(mdv, s[1]), pick(mdv, s[2]), pick(mdv, s[3]));
-    au.get('farMacroTex')!.value = macro ? macro.texA : null;
-    au.get('farMacroTexB')!.value = macro ? macro.texB : null;
+    au.get('farMacroTexAB')!.value = macro ? macroPairTexture(macro.texA, macro.texB) : null;
     au.get('farMacroMix')!.value = (cu.genusMacroMix?.value as number | undefined) ?? 0;
-    au.get('farMacroLut')!.value = macro ? macro.lut : null;
+    au.get('farMacroLutU')!.value = macroLutVectors(macro ? macro.lut : null);
     au.get('farMacroOn')!.value = macro ? 1 : 0;
     au.get('farMacroExtentKm')!.value = macro ? macro.extentKm : 768;
   };
@@ -3277,7 +3278,10 @@ export async function createVolumetricScene(
     updateContinuousScene,
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
-    setQuality: q => {
+    setQuality: q0 => {
+      // 기기 텍스처 단위가 모자라면 H 를 M 으로(구름 패스가 H 에서 17 개 — 한도 16 이면 셰이더가 안 만들어져 화면이 깨짐. 하네스 측정 2026-11-26).
+      const units = maxTextureUnits();
+      const q: VolumetricQuality = q0 === 'high' && typeof units === 'number' && units > 0 && units < HIGH_QUALITY_MIN_UNITS ? 'medium' : q0;
       // §179 T_sun 이 켜져 있으면 새 단계의 샘플러 한도를 바꾸기 전에 점검(넘으면 throw — 상태를 바꾸지 않음).
       if (opt.tsun === 1) checkTsunSamplerBudget(q, maxTextureUnits());
       curQuality = q;
