@@ -40,6 +40,7 @@ import {
   type TuningField,
 } from '../../utils/skyTuning';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { belowHeader } from '../../utils/headerLayout';
 import { volumetricStats } from '../../utils/volumetricGovernor';
 import { getVolumetricStatus, subscribeVolumetricStatus, type VolumetricStatus } from '../VolumetricProbe/volumetricStatus';
 // 볼륨 하늘 칩·상태 줄을 보입니다. 시험 화면(§123 VolumetricProbe, 가나자와·후쿠이 장면)은 2026-11-11 사용자 결정으로 패널에서 뺐습니다 — 앱 화면에서 위치를 바꿔 봅니다.
@@ -347,7 +348,7 @@ const styles = StyleSheet.create({
   // 오른쪽 절반만 씁니다 — 왼쪽에서 하늘이 바뀌는 걸 봐야 조정이 됩니다.
   panel: {
     position: 'absolute',
-    top: 0,
+    top: belowHeader(6),
     right: 0,
     bottom: 0,
     width: 208,
@@ -357,9 +358,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(6, 10, 20, 0.90)',
     borderLeftWidth: 1,
+    borderTopWidth: 1,
     borderLeftColor: 'rgba(148, 163, 184, 0.25)',
+    borderTopColor: 'rgba(148, 163, 184, 0.25)',
+    borderTopLeftRadius: 12,
     paddingHorizontal: 10,
-    paddingTop: Platform.OS === 'ios' ? 46 : 16,
+    paddingTop: 10,
   },
   header: {
     flexDirection: 'row',
