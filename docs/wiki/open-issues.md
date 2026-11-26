@@ -10,7 +10,8 @@
 | 가장자리 거칠기 · 보정 뒤 운량-면적 다시 맞추기 | 미착수 | [모양](cloud-shape.md) |
 | 해 쪽 하늘 비대칭을 그늘 하늘빛에 | 미착수 | [빛](cloud-lighting.md) |
 | 노을색 곱하기를 노출 · 톤 단계로 | 미착수 | [빛](cloud-lighting.md) |
-| 기기 프레임 시간(해 쪽 추적 · 가장자리 잡음 비용) | 기기 측정 필요 | [기기 디버깅](device-debugging.md) |
+| 기기 프레임 시간(해 쪽 추적 · 가장자리 잡음 비용) | 기기 측정 필요 — 단계별 ms 계측 없음 | [성능](performance.md) |
+| 회전 중 지형 빛 패스 원해상도 재그림 · 해 쪽 추적 비용 | 개선 후보 5개 정리 | [성능](performance.md) |
 | 구름 종류 규칙이 자를 못 넘음 | §159 이후 보류 | [배치](cloud-placement.md) |
 | T_sun · 아치 빛(해 진 뒤 분홍) | 하네스 도구만, 기본 끔 | [하늘](sky-atmosphere.md) |
 | g1-baseline 재측정(G1 도구가 있는 커밋에서) | 보류 | [하네스](harness-verification.md) |

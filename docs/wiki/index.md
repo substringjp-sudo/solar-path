@@ -26,3 +26,4 @@ BeforeGlow(solar-path) LLM 위키. 처음이면 [개요](overview.md) → [결�
 ## 작업 도구
 - [하네스 · 판정](harness-verification.md) — volsky 잡 필드, 판정 스크립트, 함정
 - [기기 디버깅](device-debugging.md) — 개발 패널 여는 법, 상태 줄 읽기, 칩
+- [성능](performance.md) — 시간 스크롤 · 카메라 회전 때 도는 일과 비용, 개선 후보
