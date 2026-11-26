@@ -687,20 +687,6 @@ export const SandboxShootPanel: React.FC<Props> = ({
 
         {mode === 'astro' && (
           <View style={styles.section}>
-            {inlineGearSection ?? (onOpenCameraBag && (
-              <View style={styles.headerRow}>
-                <Text style={styles.label}>{L3(language, '확장 광학 · 필터', 'OPTICAL GEAR', '拡張光学・フィルター')}</Text>
-                <GlassChip
-                  testID="sb-astro-open-gear-bag"
-                  icon={<MiniFilterRingIcon active={gearActive} />}
-                  label={gearBadge
-                    ? `${L3(language, '광학 가방', 'Gear Bag', '光学バッグ')} · ${gearBadge}`
-                    : L3(language, '광학 렌즈·필터 ▾', 'Optical Gear ▾', '光学レンズ・フィルター ▾')}
-                  active={gearActive}
-                  onPress={onOpenCameraBag}
-                />
-              </View>
-            ))}
             <AstroForecastBanner
               analysis={astroAnalysis}
               durationSec={astroSettings.durationSec}

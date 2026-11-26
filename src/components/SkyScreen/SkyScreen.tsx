@@ -1014,7 +1014,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       let nextZoneHist: ZoneHistogramResult | null = null;
       let nextSkyline: GuidedSkylineResult | null = null;
 
-      if (sandboxGearActive) {
+      if (wantPhotoGear && sandboxGearActive) {
         const win = Dimensions.get('window');
         const sw = Math.max(1, win.width);
         const sh = Math.max(1, win.height);
@@ -1022,9 +1022,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         const hFov = (2 * Math.atan(Math.tan((vFov * Math.PI) / 360) * (sw / sh)) * 180) / Math.PI;
         const obs0 = interpolatedWeather[0];
         const optRes = await applyOpticalGearToPhoto(baseUri, {
-          gear: wantAstro && sandboxGearBag.filmBack === 'astroDual'
-            ? { ...sandboxGearBag, filmBack: 'natural' }
-            : sandboxGearBag,
+          gear: sandboxGearBag,
           attitude: { yawDeg: st.view.az, pitchDeg: st.view.el, rollDeg: st.view.roll ?? 0 },
           intrinsics: intrinsicsFromHfov(sw, sh, hFov),
           horizon: buildArHorizon(),
@@ -1094,6 +1092,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const id = setInterval(poll, 220);
     return () => clearInterval(id);
   }, [expertMode, isCameraOverlayActive, ascended, sandboxShootMode, sandboxGearActive, isSliding, isGestureBlocked]);
+
+  // 샌드박스 천체 모드에서는 현재 시각 자동 흐름(초·분 시계 진행)으로 인해 장노출이 반복 재계산되지 않도록 시각을 고정합니다.
+  useEffect(() => {
+    if (expertMode && sandboxShootMode === 'astro' && !isTimeMachineEnabled) {
+      setTimeMachineEnabled?.(true);
+    }
+  }, [expertMode, sandboxShootMode, isTimeMachineEnabled, setTimeMachineEnabled]);
 
   // 천체 탭 또는 광학 렌즈·필터 활성 시 시간·시선·설정 변경 후 450ms 정지하면 자동으로 합성
   useEffect(() => {
@@ -1722,8 +1727,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         )}
 
-        {/* 샌드박스 라이브 뷰파인더 광학 가이드 오버레이 (능선 GND · 아나모픽 2.39:1 & 선스타 · 틸트-시프트 · 고스트 · 봉우리 거리) */}
-        {expertMode && !isCameraOverlayActive && !ascended && (
+        {/* 샌드박스 라이브 뷰파인더 광학 가이드 오버레이 (일반 사진 탭에서만 표시) */}
+        {expertMode && !isCameraOverlayActive && !ascended && sandboxShootMode === 'photo' && (
           <ViewfinderOpticsOverlay
             width={Dimensions.get('window').width}
             height={Dimensions.get('window').height}
@@ -1742,7 +1747,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         )}
 
         {/* Zone System 흑백 모드 활성 시 11단계 Zone 0~X 분포 막대 */}
-        {expertMode && !isCameraOverlayActive && !ascended && sandboxGearBag.filmBack === 'monoZone' && sandboxZoneHist && sandboxLongExpUri && (
+        {expertMode && !isCameraOverlayActive && !ascended && sandboxShootMode === 'photo' && sandboxGearBag.filmBack === 'monoZone' && sandboxZoneHist && sandboxLongExpUri && (
           <View
             pointerEvents="none"
             style={{ position: 'absolute', left: 16, right: 16, bottom: dockInset + 104, zIndex: 24 }}
@@ -1768,9 +1773,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 <>
                   <Text style={overlayStyles.previewBannerText}>
                     {sandboxShootMode === 'astro'
-                      ? (sandboxGearActive
-                        ? `${L3(language, '장노출 + 광학', 'Long-exp + Optics', '長露光 + 光学')} · ${sandboxGearBadge}`
-                        : L3(language, '장노출 합성 결과', 'Long-exposure preview', '長露光プレビュー'))
+                      ? L3(language, '장노출 합성 결과', 'Long-exposure preview', '長露光プレビュー')
                       : `${L3(language, '광학 시뮬레이션', 'Optical preview', '光学プレビュー')} · ${sandboxGearBadge}`}
                   </Text>
                   <GlassChip
@@ -2028,9 +2031,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             || Math.abs(currentTime.getTime() - Date.now()) > 60_000
             || (homeCoords != null && distanceM(homeCoords, { latitude, longitude }) > 20)
           }
-          live={!isTimeMachineEnabled && Math.abs(currentTime.getTime() - Date.now()) <= 60_000}
+          live={
+            !(expertMode && sandboxShootMode === 'astro')
+            && !isTimeMachineEnabled
+            && Math.abs(currentTime.getTime() - Date.now()) <= 60_000
+          }
           onNow={() => {
-            setTimeMachineEnabled?.(false);
+            if (expertMode && sandboxShootMode === 'astro') {
+              useCelestialStore.getState().pinTime(new Date());
+            } else {
+              setTimeMachineEnabled?.(false);
+            }
             if (homeCoords && distanceM(homeCoords, { latitude, longitude }) > 20) {
               glide.cancel();
               sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
