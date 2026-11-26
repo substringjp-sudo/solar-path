@@ -65,6 +65,17 @@ import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
 import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
+/**
+ * §25.9 렌더가 구름 속 밀도를 남기는 몫(구름이 덮은 화소의 머리 위 기둥 τ 중앙값 ÷ 미세물리 tauRendered).
+ * 하네스 측정(2026-11-26, 미세물리 · 흐름 · 세포 · 가장자리 거칠기 켬, 운량 0.6, 밀도 0.03 배 선형 구간):
+ * 층적운 0.41, 고적운 0.38, 적운 0.20(대류 종류는 같은 값). 판 구름(st · as · ns)은 깎기가 약해 1.
+ * 보정 배율은 1/남는 몫, 최대 2.5(적운 4.9 배는 탑이 과하게 짙어짐).
+ */
+export const PHYS_RENDER_KEEP: Partial<Record<string, number>> = { sc: 0.41, ac: 0.38, cu: 0.2, cg: 0.2, cb: 0.2 };
+export function physRenderComp(genus: string): number {
+  const k = PHYS_RENDER_KEEP[genus];
+  return k ? Math.min(2.5, 1 / k) : 1;
+}
 /** §25.8 먼 거리 가림 지도가 시작하는 거리(km) — 해 쪽 추적은 지도가 켜지면 여기까지만 걷습니다. */
 export const FAR_NEAR_KM = 12;
 /** 해 쪽 추적 거리 상한(m) — 지도가 꺼져 있을 때. */
@@ -492,6 +503,11 @@ export interface VolumetricOptions extends TsunOptions {
   /** §136 P2 — physics 위에 얼음 층 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. physics 가 켜졌을 때만. */
   physicsIce: boolean;
   /**
+   * §25.9 미세물리 렌더 보정: 날씨 무늬 · 모양 잡음 · 깎기가 구름 속 밀도를 평균으로 깎는 몫(PHYS_RENDER_KEEP)을 되돌려
+   * 구름이 덮은 곳의 기둥 τ 중앙값이 미세물리 tauRendered 가 되게 합니다. physics 가 켜졌을 때만. 기본 켬.
+   */
+  physicsRenderComp: boolean;
+  /**
    * §137 H1 — **물리 없이**(소광·단면은 손값) 얼음 종류(ci·cs·모루) 층에만 22°·46° 무리. 무리 상수는 physicsIce 와 같음. physics+physicsIce 가 켜져 있으면 그쪽이 우선.
    * 얼음 층이 없는 장면은 켜 두어도 셰이더·균일변수가 끈 것과 같음.
    */
@@ -579,7 +595,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -2608,7 +2624,7 @@ export async function createVolumetricScene(
       const phys = physRaw && Number.isFinite(physRaw.betaTop) && physRaw.betaTop >= 0 && physRaw.profile.every(Number.isFinite) ? physRaw : null;
       physLanes[i] = phys;
       const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
-      const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
+      const physShape = phys ? { densityScale: phys.betaTop * (opt.physicsRenderComp ? physRenderComp(g!.genus) : 1), densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
         : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } }
           : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
             ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }

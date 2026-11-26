@@ -115,6 +115,14 @@ function build() {
     ok(/volumetricPhysics: true,/.test(sky) && /volumetricPhysics: true,/.test(store), '미세물리 단면·소광 기본 켬(§25.7)');
   }
 
+  {
+    console.log('\n[8] 미세물리 렌더 보정(§25.9)');
+    ok(/physicsRenderComp: true/.test(scene) && /phys\.betaTop \* \(opt\.physicsRenderComp \? physRenderComp\(g!\.genus\) : 1\)/.test(scene), '기본 켬, 미세물리 소광에만 곱함');
+    const m = scene.match(/PHYS_RENDER_KEEP[^=]*= \{([^}]*)\}/);
+    const keep = m ? Object.fromEntries(m[1].split(',').map(x => x.split(':').map(y => y.trim())).map(([k, v]) => [k, +v])) : {};
+    ok(keep.sc > 0 && keep.sc < 1 && keep.ac > 0 && keep.ac < 1 && keep.cu > 0 && keep.cu < 1 && !('st' in keep) && !('ns' in keep), `남는 몫 측정값 sc ${keep.sc} · ac ${keep.ac} · cu ${keep.cu}, 판 구름 없음`);
+    ok(/Math\.min\(2\.5, 1 \/ k\)/.test(scene), '보정 배율 최대 2.5');
+  }
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
   process.exit(fail ? 1 : 0);
 })();
