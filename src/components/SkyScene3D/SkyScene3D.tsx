@@ -150,6 +150,19 @@ import {
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
+/** 개발 패널 상태 줄 덧붙임(§25.9) — 층마다 종류 · 렌더 두께(m) · 미세물리 기둥 τ(렌더 봉투 반영). 기기에서 구름이 실제로 얼마나 두껍게 그려지는지 한 줄로. */
+function layerOpticsNote(
+  layers: readonly { genus?: string | null; thicknessM?: number | null }[] | undefined,
+  phys: readonly ({ tauRendered: number } | null)[] | null | undefined,
+): string {
+  if (!layers?.length) return '';
+  const parts = layers.slice(0, 4).map((L, i) => {
+    if (!L?.genus) return null;
+    const t = phys?.[i]?.tauRendered;
+    return `${L.genus} ${L.thicknessM ? `${Math.round(L.thicknessM)}m` : '기본'}${t != null && Number.isFinite(t) ? ` τ${t.toFixed(0)}` : ''}`;
+  }).filter(Boolean);
+  return parts.length ? ` · 층 ${parts.join(' / ')}` : '';
+}
 import {
   evaluateVolDateSync,
   buildDayPrewarmBuckets,
@@ -990,16 +1003,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 정지 상태에서 1초 간격으로 가볍게 갱신합니다.
+  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 현재시간 자동재생 중일 때만 1초 간격으로 가볍게 갱신합니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
+      const st = useCelestialStore.getState();
+      const isLiveNow = !st.isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
       if (
+        isLiveNow &&
         volRef.current &&
         !isSlidingRef.current &&
         !volPendingRef.current &&
         volSettleRef.current <= 0 &&
-        !useCelestialStore.getState().isGestureBlocked
+        !st.isGestureBlocked
       ) {
         requestRender(1);
       }
@@ -3051,7 +3067,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
             volumetricStats.weatherMs = vol.weatherMs();
             volHasSceneRef.current = true;
-            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary });
+            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
             const g = built.genus;
             lastVolSceneRef.current = built.obs ? {
               t: vDate.toISOString(),
@@ -3094,7 +3110,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volHasSceneRef.current = true;
                 volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = null;
-                setVolumetricStatus({ summary: built.summary });
+                setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
                 const g = built.genus;
                 lastVolSceneRef.current = built.obs ? {
                   t: vDate.toISOString(),
@@ -3137,7 +3153,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volPending: volPendingRef.current,
             isInteracting: isInteractingNow,
             volSettleRemaining: volSettleRef.current,
-            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled,
+            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - nowWall) <= 60_000,
           });
           driftAnchorRef.current = syncDecision.nextAnchor;
           lastVolDateSyncRef.current = syncDecision.nextLastSync;
@@ -3155,7 +3171,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 metar: metarRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
               });
               vol.updateContinuousScene(contBuilt.input);
-              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary });
+              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary + layerOpticsNote(contBuilt.input.layers, vol.physicsInfo()) });
             }
           }
           if (syncDecision.shouldCallSetDate) vol.setDate(vDate, syncDecision.driftSec);
@@ -3332,7 +3348,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       let isTrackingMoving = false;
       try {
-        const isLive = !useCelestialStore.getState().isTimeMachineEnabled;
+        const isLive = !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
         const wallElapsedMs = (isSlidingRef.current || !isLive) ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
         const effectiveTimeMs = overrideSceneTimeMsRef.current ?? (targetTimeMsRef.current + wallElapsedMs);
         renderedTimeMsRef.current = effectiveTimeMs;
@@ -3542,7 +3558,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const lampRegion = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
       const lampTime = 0.65 + 0.35 * cityTimeScale;
       const lampGlow = lampT * lampT * (3 - 2 * lampT) * lampRegion * lampTime;
-      buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
+      const pxRows = skySettingsRef.current.pixelArtRows ?? 0;
+      const lampPxRatio = pxRows > 0 ? 0.1 : PixelRatio.get();
+      buildingFieldRef.current.setLampGlow(lampGlow, lampPxRatio);
       terrainFieldRef.current?.setLampGlow(lampGlow);
     }
     if (seaPlaneRef.current) {
@@ -3805,12 +3823,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const liveMagLimit = cachedMoonMagLimitRef.current + exposureMagBonus;
 
     if (starFieldRef.current) {
+      const pxRows = settings.pixelArtRows ?? 0;
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
         brightness: settings.starBrightness * starBoostOverrideRef.current,
         magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
+        pixelArt: pxRows > 0,
         planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
         showPlanets: currentLayers.planets,

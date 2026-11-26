@@ -1477,7 +1477,7 @@ const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdg
  *  - genusDeckOn · genusDeckW: 운량이 높은(옆으로 넓은) 층은 1차원 판 확산(두-흐름), 좁은 조각구름은 직선 추적 음영 — 운량 0.6→0.95 에서 섞음.
  *  - genusSkyPhys: 조각구름 그늘의 하늘빛 = 위쪽 기둥 두께의 두-흐름 확산 투과(경험식 "높이 × 가림 바닥 0.35" 대신).
  */
-export const GENUS_LIGHT_DECL = 'uniform float genusSunTopN;\nuniform float genusSkyPhys;\nuniform float genusDeckOn;\nuniform vec4 genusDeckW;\n#define GENUS_DIFFW max(genusThru, genusDeckW * genusDeckOn)';
+export const GENUS_LIGHT_DECL = 'uniform float genusSunMaxM;\nuniform float genusSunTopN;\nuniform float genusSkyPhys;\nuniform float genusDeckOn;\nuniform vec4 genusDeckW;\n#define GENUS_DIFFW max(genusThru, genusDeckW * genusDeckOn)';
 /** 해 쪽 추적을 멈추는 두께(직사광 e^−24). */
 export const SUN_MARCH_EARLY_TAU = 24;
 /** 판 확산 비중: 운량 0.6 이하 0, 0.95 이상 1(smoothstep). */
@@ -1489,12 +1489,19 @@ export function deckWeight(cover: number): number {
 export function diffuseTransmission(tau: number, g = 0.85): number {
   return 1 / (1 + 0.75 * (1 - g) * Math.max(0, tau));
 }
-/** 해 쪽 걸음(기하급수 1.6배)의 첫 걸음 — N 걸음 합이 꼭대기까지 거리 dTop 이 되게. 셰이더와 같은 식(판정용). */
-export function sunMarchFirstStep(dTop: number, n: number, s = 1.6): number {
+/** §25.8 해 쪽 첫 걸음 상한(m) — 구름 표면에서 빛이 줄어드는 거리(τ 1 ≈ 수십~백 m)보다 짧게. */
+export const SUN_MARCH_FIRST_MAX_M = 40;
+/** 해 쪽 걸음 배율 — 기본 1.6, 꼭대기까지가 멀면(해가 낮으면) 첫 걸음이 상한을 넘지 않도록 키움. 셰이더와 같은 식(판정용). */
+export function sunMarchGrowth(dTop: number, n: number): number {
+  return Math.max(1.6, Math.pow(dTop / SUN_MARCH_FIRST_MAX_M, 1 / Math.max(n - 1, 1)));
+}
+/** 해 쪽 첫 걸음 — N 걸음 합이 꼭대기까지 거리 dTop 이 되게. 셰이더와 같은 식(판정용). */
+export function sunMarchFirstStep(dTop: number, n: number, s = sunMarchGrowth(dTop, n)): number {
   return dTop * (s - 1) / (Math.pow(s, n) - 1);
 }
 function initGenusLightUniforms(mat: PatchableMaterial): void {
   mat.uniforms.genusSunTopN = { value: 0 };
+  mat.uniforms.genusSunMaxM = { value: 40000 };
   mat.uniforms.genusSkyPhys = { value: 0 };
   mat.uniforms.genusDeckOn = { value: 0 };
   mat.uniforms.genusDeckW = { value: new Vector4() };
@@ -1564,8 +1571,10 @@ export function patchGenusShader(mat: PatchableMaterial): void {
     'float genusMarchSun(const vec3 ro, const vec3 rd, const int n, const float mipLevel, const float jitter, out float dist) {',
     '  float h0 = length(ro) - bottomRadius;',
     '  float mu = max(dot(normalize(ro), rd), 0.03);',
-    '  float dTop = clamp((maxHeight - h0) / mu, 50.0, 40000.0);',
-    '  float s = 1.6;',
+    '  float dTop = clamp((maxHeight - h0) / mu, 50.0, genusSunMaxM);',
+    // §25.8 첫 걸음을 SUN_MARCH_FIRST_MAX_M 이하로 — 해가 낮아 꼭대기까지가 수십 km 여도 표면에서 빛이 줄어드는 첫 100~200 m 를 놓치지 않게.
+    //   걸음 배율 s = max(1.6, (dTop / 첫걸음 상한)^(1/(N−1))), 첫 걸음은 합이 dTop 이 되게 다시 셈.
+    `  float s = max(1.6, pow(dTop / ${SUN_MARCH_FIRST_MAX_M.toFixed(1)}, 1.0 / float(max(n - 1, 1))));`,
     '  float step0 = dTop * (s - 1.0) / (pow(s, float(n)) - 1.0);',
     '  float stepSize = step0;',
     '  float d = step0 * jitter;',

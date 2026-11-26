@@ -209,7 +209,7 @@ export const DockSheet: React.FC<Props> = ({
       {!hideHandle && (
         <Animated.View pointerEvents="none" style={[styles.backdropDim, { opacity: dimOpacity }]} />
       )}
-      <View testID="dock" pointerEvents="box-none" style={styles.dock} {...(hideHandle ? {} : pan.panHandlers)}>
+      <View testID="dock" pointerEvents="box-none" style={styles.dock}>
         <Scrim edge="bottom" height={fixedH + 72} />
         {!hideHandle && (
           USE_NATIVE_SHEET ? (
@@ -299,6 +299,7 @@ export const DockSheet: React.FC<Props> = ({
             onFixedHeight?.(h + (hideHandle ? 0 : HANDLE_ROW_H));
           }}
           style={styles.fixed}
+          {...(hideHandle ? {} : pan.panHandlers)}
         >
           {children}
         </View>
