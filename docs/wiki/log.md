@@ -1,5 +1,6 @@
 # 위키 기록 (위에 새 줄)
 
+- 2026-11-26 · compute-triggers.md 추가 — 날짜 · 장소 / 시간 / 카메라 계산 지도(코드 읽기).
 - 2026-11-26 · performance — 방향(근사 대신 미리 · 재사용) 결정, PR #169(끄는 중 미리 굽기) 반영.
 - 2026-11-26 · performance.md 추가 — 시간 스크롤 · 카메라 회전 경로 조사(코드 읽기 + V8 측정: 날씨 굽기 196/28 ms, buildLiveScene 0.9 ms, farSun 2~7 ms).
 - 2026-11-26 · history.md 추가 — main 병합 이력(PR #34~#166) 을 8단계로. 출처 git log --merges.
