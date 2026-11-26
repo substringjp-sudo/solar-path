@@ -7,11 +7,12 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Moon, Sun, Timer } from 'lucide-react-native';
 import { GlassChip } from '../glass/GlassChip';
+import { ValueDialStrip } from '../glass/ValueDialStrip';
 import { AstroSettingsPanel } from '../AstroCamera/AstroSettingsPanel';
 import { AstroForecastBanner } from '../AstroCamera/AstroForecastBanner';
 import { TimelapsePanel } from '../AstroCamera/TimelapsePanel';
 import { ExposureCells } from '../AstroCamera/ExposureCells';
-import { MiniFilterRingIcon, MiniLensBarrelIcon, type LensKind } from '../AstroCamera/CameraLensZoomSection';
+import { MiniFilterRingIcon, type LensKind } from '../AstroCamera/CameraLensZoomSection';
 import { GLASS, TEXT } from '../../theme/glassTokens';
 import { color as DARK } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
@@ -36,10 +37,12 @@ import {
 
 export type SandboxShootMode = 'photo' | 'astro' | 'timelapse';
 
-const EV_STEPS = [-1.0, -0.5, 0, 0.5, 1.0] as const;
+const EV_STEPS = [-2.0, -1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5, 2.0] as const;
+const ND_DURATION_STEPS = [3, 6, 10, 12, 15, 20, 30, 45, 60] as const;
 const LENS_ZOOM_PRESETS: ReadonlyArray<{ zoom: number; mm: string; kind: LensKind }> = [
   { zoom: 0.6, mm: '14mm', kind: 'ultrawide' },
   { zoom: 1, mm: '24mm', kind: 'wide' },
+  { zoom: 1.5, mm: '35mm', kind: 'wide' },
   { zoom: 2, mm: '48mm', kind: 'wide' },
   { zoom: 3, mm: '70mm', kind: 'tele' },
   { zoom: 5, mm: '120mm', kind: 'tele' },
@@ -79,6 +82,8 @@ interface Props {
   sunAltAt: (ms: number) => number;
   timelapsePlan: TimelapsePlan | null;
   onTimelapsePlanChange: (plan: TimelapsePlan) => void;
+  /** 부모 시트가 할당한 최대 높이(px). 전달되면 고정 탭 바를 제외한 내부 ScrollView 높이를 명확히 제한해 스크롤이 끊기지 않게 합니다. */
+  maxHeight?: number;
 }
 
 export const SandboxShootPanel: React.FC<Props> = ({
@@ -114,6 +119,7 @@ export const SandboxShootPanel: React.FC<Props> = ({
   sunAltAt,
   timelapsePlan,
   onTimelapsePlanChange,
+  maxHeight,
 }) => {
   const tabs: Array<{ key: SandboxShootMode; label: string; icon: React.ReactNode }> = [
     { key: 'photo', label: L3(language, '일반', 'Normal', '通常'), icon: <Sun size={13} color={mode === 'photo' ? DARK.accent : TEXT} /> },
@@ -347,17 +353,17 @@ export const SandboxShootPanel: React.FC<Props> = ({
               'ND1000: 地形を固定したまま雲だけを風向に沿って長露光で流します。',
             )}
           </Text>
-          <View style={styles.chipRow}>
-            {[6, 12, 20, 30].map(sec => (
-              <GlassChip
-                key={sec}
-                label={`${sec}s`}
-                mono
-                active={gearBag.ndDurationSec === sec}
-                onPress={() => onChangeGearBag(s => ({ ...s, ndDurationSec: sec }))}
-              />
-            ))}
-          </View>
+          <ValueDialStrip
+            label={L3(language, 'ND 장노출 촬영 시간 (좌우 스크롤)', 'ND EXPOSURE DURATION (SCROLL)', 'ND長露光時間（左右スクロール）')}
+            valueText={`${gearBag.ndDurationSec}s`}
+            options={ND_DURATION_STEPS.map(sec => ({
+              value: sec,
+              label: `${sec}s`,
+              major: sec % 10 === 0 || sec === 6,
+            }))}
+            selectedValue={gearBag.ndDurationSec}
+            onSelect={sec => onChangeGearBag(s => ({ ...s, ndDurationSec: sec }))}
+          />
         </View>
       )}
 
@@ -577,8 +583,10 @@ export const SandboxShootPanel: React.FC<Props> = ({
     </View>
   ) : null;
 
+  const scrollMaxH = maxHeight != null && maxHeight > 56 ? maxHeight - 46 : undefined;
+
   return (
-    <View testID="sandbox-shoot-panel" style={styles.root}>
+    <View testID="sandbox-shoot-panel" style={[styles.root, maxHeight != null ? { maxHeight } : null]}>
       {/* 고정 세그먼트 탭 바 (스크롤되지 않음) */}
       <View style={styles.tabBar} accessibilityRole="tablist">
         {tabs.map(tab => {
@@ -604,16 +612,18 @@ export const SandboxShootPanel: React.FC<Props> = ({
 
       {/* 탭 본문 (내부 스크롤) */}
       <ScrollView
-        style={styles.bodyScroll}
+        style={[styles.bodyScroll, scrollMaxH != null ? { maxHeight: scrollMaxH } : null]}
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
       >
         {mode === 'photo' && (
           <View style={styles.section}>
             {(onChangeTeleX || onOpenCameraBag) && (
               <>
                 <View style={styles.headerRow}>
-                  <Text style={styles.label}>{L3(language, '렌즈 · 배율', 'LENS · ZOOM', 'レンズ · 倍率')}</Text>
+                  <Text style={styles.label}>{L3(language, '렌즈 · 배율 (좌우 스크롤)', 'LENS · ZOOM (SCROLL)', 'レンズ · 倍率（スクロール）')}</Text>
                   {onOpenCameraBag && (
                     <GlassChip
                       testID="sb-open-gear-bag"
@@ -627,36 +637,33 @@ export const SandboxShootPanel: React.FC<Props> = ({
                   )}
                 </View>
                 {onChangeTeleX && (
-                  <View style={styles.chipRow}>
-                    {LENS_ZOOM_PRESETS.map(p => {
-                      const isSel = Math.abs(teleX - p.zoom) < 0.08;
-                      return (
-                        <GlassChip
-                          key={p.zoom}
-                          icon={<MiniLensBarrelIcon active={isSel} kind={p.kind} />}
-                          label={`${p.zoom}x · ${p.mm}`}
-                          mono
-                          active={isSel}
-                          onPress={() => onChangeTeleX(p.zoom)}
-                        />
-                      );
-                    })}
-                  </View>
+                  <ValueDialStrip
+                    testID="sb-lens-zoom-dial"
+                    options={LENS_ZOOM_PRESETS.map(p => ({
+                      value: p.zoom,
+                      label: `${p.zoom}x · ${p.mm}`,
+                      major: p.zoom === 1 || p.zoom === 2 || p.zoom === 5 || p.zoom === 10,
+                    }))}
+                    selectedValue={teleX}
+                    isSelected={(opt, cur) => Math.abs(opt - cur) < 0.08}
+                    onSelect={onChangeTeleX}
+                  />
                 )}
               </>
             )}
-            <Text style={styles.label}>{L3(language, '노출 보정 (EV)', 'EXPOSURE (EV)', '露出補正 (EV)')}</Text>
-            <View style={styles.chipRow}>
-              {EV_STEPS.map(ev => (
-                <GlassChip
-                  key={ev}
-                  label={ev === 0 ? '0' : `${ev > 0 ? '+' : ''}${ev.toFixed(1)}`}
-                  mono
-                  active={Math.abs(exposure - ev) < 0.05}
-                  onPress={() => onExposureChange(ev)}
-                />
-              ))}
-            </View>
+            <ValueDialStrip
+              testID="sb-ev-dial"
+              label={L3(language, '노출 보정 (EV · 좌우 스크롤)', 'EXPOSURE (EV · SCROLL)', '露出補正 (EV · スクロール)')}
+              valueText={`${exposure > 0 ? '+' : ''}${exposure.toFixed(1)} EV`}
+              options={EV_STEPS.map(ev => ({
+                value: ev,
+                label: ev === 0 ? '0' : `${ev > 0 ? '+' : ''}${ev.toFixed(1)}`,
+                major: Number.isInteger(ev),
+              }))}
+              selectedValue={exposure}
+              isSelected={(opt, cur) => Math.abs(opt - cur) < 0.05}
+              onSelect={onExposureChange}
+            />
             {expoAdvice ? (
               <ExposureCells
                 language={language}
@@ -738,7 +745,7 @@ export const SandboxShootPanel: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  root: { maxHeight: '100%' },
+  root: { maxHeight: '100%', flexShrink: 1 },
   tabBar: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -779,7 +786,7 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: DARK.accent,
   },
-  bodyScroll: { flexGrow: 0 },
+  bodyScroll: { flexGrow: 0, flexShrink: 1 },
   bodyContent: { padding: 12, gap: 10 },
   section: { gap: 10 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },

@@ -11,15 +11,16 @@ import { X } from 'lucide-react-native';
 import Svg, { Polyline } from 'react-native-svg';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface, glassTextShadow } from '../glass/GlassSurface';
+import { ValueDialStrip } from '../glass/ValueDialStrip';
 import { TEXT } from '../../theme/glassTokens';
 import { mono, radius } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
 import { exposureLine, exposureStops, exposureSummary } from '../../utils/exposureCurve';
 import { MIN_INTERVAL_S, STACK_RANGE, clockLabel, planTimelapse, windowLabel, type TimelapseKind, type TimelapsePlan } from '../../utils/timelapsePlan';
 
-export const VIDEO_SEC_CHOICES = [5, 10, 20, 30] as const;
-export const DURATION_MIN_CHOICES = [10, 30, 60, 300] as const;
-export type DurationMinChoice = (typeof DURATION_MIN_CHOICES)[number];
+export const VIDEO_SEC_CHOICES = [3, 5, 8, 10, 12, 15, 20, 25, 30, 45, 60] as const;
+export const DURATION_MIN_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 360] as const;
+export type DurationMinChoice = number;
 const KINDS: readonly TimelapseKind[] = ['plain', 'stacked', 'trail'];
 
 interface Props {
@@ -61,10 +62,15 @@ const kindDesc = (k: TimelapseKind, l: Language): string => {
 };
 
 export const durationLabel = (min: number, l: Language): string => {
-  if (min === 10) return L3(l, '10분', '10m', '10分');
-  if (min === 30) return L3(l, '30분', '30m', '30分');
-  if (min === 60) return L3(l, '1시간', '1h', '1時間');
-  if (min === 300) return L3(l, '5시간', '5h', '5時間');
+  if (min >= 60 && min % 60 === 0) {
+    const h = min / 60;
+    return `${h}${L3(l, '시간', 'h', '時間')}`;
+  }
+  if (min > 60) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return `${h}${L3(l, '시간', 'h', '時間')} ${m}${L3(l, '분', 'm', '分')}`;
+  }
   return `${min}${L3(l, '분', 'm', '分')}`;
 };
 
@@ -84,17 +90,13 @@ export const timelapseChipLabel = (plan: TimelapsePlan, l: Language): string => 
 
 export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, language, events, nowMs, tzHours, peak = null, lowCloud = null, sunAltAt = null, onPreview, onStart, startLabel, initialPlan = null, onPlanChange, onClose, onSummaryChange }) => {
   const [totalMin, setTotalMin] = useState<DurationMinChoice>(() => (
-    initialPlan && (DURATION_MIN_CHOICES as readonly number[]).includes(initialPlan.totalMin)
-      ? (initialPlan.totalMin as DurationMinChoice)
-      : 60
+    initialPlan?.totalMin ?? 60
   ));
   const [videoSec, setVideoSec] = useState<number>(() => initialPlan?.targetVideoSec ?? 10);
   const [kind, setKind] = useState<TimelapseKind>(() => initialPlan?.kind ?? 'plain');
   useEffect(() => {
     if (!initialPlan) return;
-    if ((DURATION_MIN_CHOICES as readonly number[]).includes(initialPlan.totalMin)) {
-      setTotalMin(initialPlan.totalMin as DurationMinChoice);
-    }
+    setTotalMin(initialPlan.totalMin);
     setVideoSec(initialPlan.targetVideoSec);
     setKind(initialPlan.kind);
   }, [initialPlan]);
@@ -142,15 +144,49 @@ export const TimelapsePanel: React.FC<Props> = ({ visible, inline = false, langu
       ))}
     </View>
   );
+  const durationOptions = useMemo(
+    () => DURATION_MIN_CHOICES.map(v => ({
+      value: v,
+      label: durationLabel(v, language),
+      testID: `tl-dur-${v}`,
+      major: v === 10 || v === 30 || v === 60 || v === 120 || v === 180 || v === 300,
+    })),
+    [language],
+  );
+  const videoSecOptions = useMemo(
+    () => VIDEO_SEC_CHOICES.map(v => ({
+      value: v,
+      label: `${v}${L3(language, '초', 's', '秒')}`,
+      testID: `tl-video-${v}`,
+      major: v === 5 || v === 10 || v === 15 || v === 20 || v === 30 || v === 60,
+    })),
+    [language],
+  );
   const body = (
     <>
       <Text style={styles.label}>{L3(language, '종류', 'TYPE', '種類')}</Text>
       {chipsOf(KINDS, v => kind === v, setKind, v => kindLabel(v, language), v => `tl-kind-${v}`)}
       <Text style={styles.note}>{kindDesc(kind, language)}</Text>
-      <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '구간', 'WINDOW', '区間')}</Text>
-      {chipsOf(DURATION_MIN_CHOICES, v => totalMin === v, setTotalMin, v => durationLabel(v, language), v => `tl-dur-${v}`)}
-      <Text style={[styles.label, { marginTop: 8 }]}>{L3(language, '영상 길이', 'VIDEO LENGTH', '動画の長さ')}</Text>
-      {chipsOf(VIDEO_SEC_CHOICES, v => videoSec === v, setVideoSec, v => `${v}${L3(language, '초', ' s', '秒')}`, v => `tl-video-${v}`)}
+      <View style={{ marginTop: 6 }}>
+        <ValueDialStrip
+          testID="tl-duration-dial"
+          label={L3(language, '촬영 시간 (구간 · 좌우 스크롤)', 'SHOOT DURATION (SCROLL)', '撮影時間（左右スクロール）')}
+          valueText={`${durationLabel(totalMin, language)} (${subtitle})`}
+          options={durationOptions}
+          selectedValue={totalMin}
+          onSelect={setTotalMin}
+        />
+      </View>
+      <View style={{ marginTop: 6 }}>
+        <ValueDialStrip
+          testID="tl-video-dial"
+          label={L3(language, '동영상 길이 (좌우 스크롤)', 'VIDEO LENGTH (SCROLL)', '動画の長さ（左右スクロール）')}
+          valueText={`${videoSec}${L3(language, '초', 's', '秒')} · ${Math.round(plan.speedup)}×`}
+          options={videoSecOptions}
+          selectedValue={videoSec}
+          onSelect={setVideoSec}
+        />
+      </View>
       <View testID="tl-card" style={styles.card}>
         <View style={styles.cellRow}>
           {cells.map(c => (

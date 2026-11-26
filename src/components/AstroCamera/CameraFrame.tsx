@@ -119,11 +119,22 @@ export const CameraFrame: React.FC<Props> = ({
 
   const panel = activeKey ? panels?.[activeKey] : null;
   // 패널은 펼친 영역이 정해 준 최대 높이 안에서 그려지고, 길면 안쪽에서 스크롤됩니다(막대의 고정부 쪽으로 삐져나오지 않게).
-  const expanded = panel ? (maxH: number) => (
-    <GlassSurface blurred testID={`panel-${activeKey}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
-      <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{panel}</ScrollView>
-    </GlassSurface>
-  ) : null;
+  const expanded = panel ? (maxH: number) => {
+    const panelMaxH = Math.max(96, maxH - 8);
+    return (
+      <GlassSurface blurred testID={`panel-${activeKey}`} style={[styles.panel, { maxHeight: panelMaxH }]}>
+        <ScrollView
+          style={[styles.panelScroll, { maxHeight: panelMaxH }]}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.panelContent}
+        >
+          {panel}
+        </ScrollView>
+      </GlassSurface>
+    );
+  } : null;
 
   const visibleChips = zoomDial ? chips.filter(c => !c.id.startsWith('zoom-')) : chips;
   const renderChip = (c: CameraChipSpec) => (

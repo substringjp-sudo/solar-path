@@ -378,8 +378,8 @@ export function formatDurationLabel(sec: number, lang: 'ko' | 'en' | 'ja'): stri
 
 type UiLang = 'ko' | 'en' | 'ja';
 
-/** 시간 칩(초): 1 · 2 · 4 · 6 · 8 · 10 · 15 분 — 60 초 단위 슬라이더의 대표값. */
-export const ASTRO_DURATION_CHIPS_SEC: readonly number[] = [60, 120, 240, 360, 480, 600, 900];
+/** 시간 다이얼(초): 30초 ~ 30분(1800초) — 가로 스크롤 다이얼로 세밀하게 고릅니다. */
+export const ASTRO_DURATION_CHIPS_SEC: readonly number[] = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720, 900, 1200, 1800];
 
 /** 주어진 총 노출(초)에 가장 가까운 시간 칩. 같은 거리면 작은 쪽, 숫자가 아니면 480(8분). */
 export function nearestDurationChip(sec: number): number {

@@ -8,7 +8,7 @@
  * - 눈금(`rulerTicks`)과 노을 점수 띠(`rulerBand`) 계산을 `useMemo`로 감싸 불필요한 배열 재할당을 줄였습니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Animated, Easing, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Sun } from 'lucide-react-native';
 import { color as DARK, mono } from '../../theme/tokens';
 import { TEXT } from '../../theme/glassTokens';
@@ -68,6 +68,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
   const [dayDragY, setDayDragY] = useState(0);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
+  const spinAnim = useRef(new Animated.Value(0)).current;
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef(timeMs);
   const lastRef = useRef(timeMs);
@@ -81,9 +82,12 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
   }, []);
 
+  // 현재시간일 때만 자동재생(isLiveTicking = true)으로 동작하며, 다른 시각으로 이동하거나 드래그하는 즉시 멈춥니다.
+  const isLiveTicking = live && scrubMs === null && dayDragY === 0 && Math.abs(timeMs - liveNowMs) <= 65_000;
+
   // '지금' 실시간 추종 중일 때는 전체 화면을 리렌더하지 않고 TimeRuler 내부에서만 매초 시각과 눈금을 진행합니다.
   useEffect(() => {
-    if (!live || scrubMs !== null || dayDragY !== 0) return;
+    if (!isLiveTicking) return;
     setLiveNowMs(Date.now());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
@@ -98,7 +102,32 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [live, scrubMs, dayDragY]);
+  }, [isLiveTicking]);
+
+  // 현재시간 자동재생 중일 때만 시계 바늘 아이콘을 연속 회전합니다.
+  useEffect(() => {
+    if (!isLiveTicking) {
+      spinAnim.stopAnimation();
+      spinAnim.setValue(0);
+      return;
+    }
+    spinAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 3600,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isLiveTicking, spinAnim]);
+
+  const spinRotate = useMemo(
+    () => spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }),
+    [spinAnim],
+  );
 
   const setRulerOpen = useCallback((open: boolean) => {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
@@ -118,6 +147,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     onPanResponderGrant: () => {
       startRef.current = propsRef.current.live ? Date.now() : propsRef.current.timeMs;
       lastRef.current = startRef.current;
+      setScrubMs(startRef.current);
       setRulerOpen(true);
       propsRef.current.onDragStart?.();
     },
@@ -198,8 +228,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     },
   }), []);
 
-  const isLiveTicking = live && scrubMs === null;
-  const displayMs = scrubMs ?? (live ? liveNowMs : timeMs);
+  const displayMs = scrubMs ?? (isLiveTicking ? liveNowMs : timeMs);
   // 드래그·고정 시각에서는 1분 버킷으로 메모이제이션하고, 실시간 모드에서는 매초 눈금·마커가 부드럽게 흐르게 합니다.
   const trackCenterMs = isLiveTicking ? displayMs : Math.round(displayMs / 60_000) * 60_000;
   const ticks = useMemo(() => rulerTicks(trackCenterMs, tz, width, PX_PER_HOUR), [trackCenterMs, tz, width]);
@@ -247,7 +276,21 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
         </View>
 
         <View pointerEvents="none" style={styles.digitsCenter}>
-          <Text testID="ruler-digits" style={[styles.digits, glassTextShadow]}>{text}</Text>
+          {isLiveTicking ? (
+            <View testID="ruler-live-clock" style={styles.liveClockFace}>
+              <View style={styles.liveClockHourHand} />
+              <Animated.View style={[styles.liveClockSpinWrap, { transform: [{ rotate: spinRotate }] }]}>
+                <View style={styles.liveClockMinuteHand} />
+              </Animated.View>
+              <View style={styles.liveClockCenterDot} />
+            </View>
+          ) : null}
+          <Text
+            testID="ruler-digits"
+            style={[styles.digits, isLiveTicking ? styles.digitsLive : null, glassTextShadow]}
+          >
+            {text}
+          </Text>
         </View>
 
         <View style={styles.nowWrap}>
@@ -309,8 +352,47 @@ const styles = StyleSheet.create({
   dateWheelWindow: { height: DAY_ROW_H * 2.4, overflow: 'hidden', justifyContent: 'center', minWidth: 68 },
   dateAdjacent: { height: DAY_ROW_H, lineHeight: DAY_ROW_H, fontSize: 9.5, fontWeight: '400', color: 'rgba(241,245,249,0.42)' },
   dateCurrent: { height: DAY_ROW_H, lineHeight: DAY_ROW_H, fontSize: 11.5, fontWeight: '500', color: TEXT },
-  digitsCenter: { position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
+  digitsCenter: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   digits: { fontFamily: mono, fontSize: 16, fontWeight: '500', color: TEXT, letterSpacing: 0.4 },
+  digitsLive: { color: DARK.accent, fontWeight: '600' },
+  liveClockFace: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.4,
+    borderColor: DARK.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+  },
+  liveClockHourHand: {
+    position: 'absolute',
+    width: 3.2,
+    height: 1.3,
+    borderRadius: 1,
+    backgroundColor: DARK.accent,
+    transform: [{ translateX: 1.2 }],
+  },
+  liveClockSpinWrap: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveClockMinuteHand: {
+    width: 1.3,
+    height: 4.5,
+    borderRadius: 1,
+    backgroundColor: DARK.accent,
+    transform: [{ translateY: -1.8 }],
+  },
+  liveClockCenterDot: {
+    width: 2.2,
+    height: 2.2,
+    borderRadius: 1.1,
+    backgroundColor: DARK.accent,
+  },
   nowWrap: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 },
   sunBtn: { width: 28, minHeight: 28, borderRadius: 14, paddingHorizontal: 0 },
   track: { height: RULER_TRACK_H, overflow: 'hidden' },

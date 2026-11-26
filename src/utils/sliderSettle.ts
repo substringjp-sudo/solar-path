@@ -96,12 +96,14 @@ export function evaluateVolDateSync(input: VolDateSyncInput): VolDateSyncDecisio
       ? { sceneMs: targetMs, wallMs: nowWall }
       : driftAnchor;
 
-  const driftElapsedMs = nowWall - nextAnchor.wallMs;
+  const driftElapsedMs = isLiveClock ? Math.max(0, nowWall - nextAnchor.wallMs) : 0;
   const driftSec = (nextAnchor.sceneMs + driftElapsedMs) / 1000;
 
   // 수렴 중(!isInteracting && volSettleRemaining > 0)에는 250ms 미세 드리프트 호출을 미뤄
   // TAAU 18프레임 수렴이 깔끔하게 끝난 뒤 2초 드리프트로 이어지게 한다.
+  // 현재시간 실시간 자동재생(isLiveClock === true)일 때만 드리프트를 진행한다.
   const driftDue =
+    isLiveClock &&
     !dateChanged &&
     (isInteracting || volSettleRemaining <= 0) &&
     nowWall - lastSync.wallMs >= DRIFT_SYNC_INTERVAL_MS;

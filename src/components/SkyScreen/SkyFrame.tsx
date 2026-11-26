@@ -111,22 +111,47 @@ export const SkyFrame: React.FC<Props> = ({
       ? (active as 'shoot' | 'scene')
       : firstSandboxTab;
     if (sbTab && sandbox?.[sbTab]) {
-      expanded = (maxH: number) => (
-        <GlassSurface blurred testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
-          {sbTab === 'shoot' ? (
-            sandbox[sbTab]
-          ) : (
-            <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{sandbox[sbTab]}</ScrollView>
-          )}
-        </GlassSurface>
-      );
+      expanded = (maxH: number) => {
+        const panelMaxH = Math.max(96, maxH - 8);
+        const node = sandbox[sbTab];
+        return (
+          <GlassSurface blurred testID={`panel-${sbTab}`} style={[styles.panel, { maxHeight: panelMaxH }]}>
+            {sbTab === 'shoot' ? (
+              React.isValidElement(node)
+                ? React.cloneElement(node as React.ReactElement<any>, { maxHeight: panelMaxH })
+                : node
+            ) : (
+              <ScrollView
+                style={[styles.panelScroll, { maxHeight: panelMaxH }]}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.panelContent}
+              >
+                {node}
+              </ScrollView>
+            )}
+          </GlassSurface>
+        );
+      };
     }
   } else if (mode === 'simulation' && simBody) {
-    expanded = (maxH: number) => (
-      <GlassSurface blurred testID="panel-sim" style={[styles.panel, { maxHeight: Math.max(96, maxH - 8) }]}>
-        <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.panelContent}>{simBody}</ScrollView>
-      </GlassSurface>
-    );
+    expanded = (maxH: number) => {
+      const panelMaxH = Math.max(96, maxH - 8);
+      return (
+        <GlassSurface blurred testID="panel-sim" style={[styles.panel, { maxHeight: panelMaxH }]}>
+          <ScrollView
+            style={[styles.panelScroll, { maxHeight: panelMaxH }]}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.panelContent}
+          >
+            {simBody}
+          </ScrollView>
+        </GlassSurface>
+      );
+    };
   }
 
   const dockChips: BottomDockChip[] = [];
