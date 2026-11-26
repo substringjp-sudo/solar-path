@@ -3108,7 +3108,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
             volumetricStats.weatherMs = vol.weatherMs();
             volHasSceneRef.current = true;
-            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+            if (!isSlidingNow) setVolumetricStatus({ buildingScene: false, summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+            else setVolumetricStatus({ buildingScene: false });
             const g = built.genus;
             lastVolSceneRef.current = built.obs ? {
               t: vDate.toISOString(),
@@ -3139,6 +3140,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volKeyRef.current = key;
             volPendingRef.current = true;
             volSettleRef.current = 0;
+            setVolumetricStatus({ buildingScene: true });
             if (framesToRenderRef.current > 1) framesToRenderRef.current = 1;
             const myBuildSeq = ++volBuildSeqRef.current;
             const tW = Date.now();
@@ -3151,7 +3153,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volHasSceneRef.current = true;
                 volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = null;
-                setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
+                setVolumetricStatus({ buildingScene: false, summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
                 const g = built.genus;
                 lastVolSceneRef.current = built.obs ? {
                   t: vDate.toISOString(),
@@ -3164,7 +3166,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lastVolDateSyncRef.current.targetMs = null;
                 volSettleRef.current = 18;
                 volFreshRef.current = false;
-              } else if (volKeyRef.current === key) volKeyRef.current = '';
+              } else if (volKeyRef.current === key) {
+                volKeyRef.current = '';
+                setVolumetricStatus({ buildingScene: false });
+              } else {
+                setVolumetricStatus({ buildingScene: false });
+              }
               if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
               requestRender(3);
             }).catch(e => {
@@ -3172,7 +3179,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volPendingRef.current = false;
               if (volKeyRef.current === key) volKeyRef.current = '';
               volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
-              setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
+              setVolumetricStatus({ phase: 'failed', buildingScene: false, error: volFailedRef.current });
               console.warn('[SkyScene] 볼륨 층 생성 실패:', (e as Error)?.stack ?? e); requestRender(2);
             });
           }
