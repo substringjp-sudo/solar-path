@@ -150,9 +150,23 @@ import {
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
+/** 개발 패널 상태 줄 덧붙임(§25.9) — 층마다 종류 · 렌더 두께(m) · 미세물리 기둥 τ(렌더 봉투 반영). 기기에서 구름이 실제로 얼마나 두껍게 그려지는지 한 줄로. */
+function layerOpticsNote(
+  layers: readonly { genus?: string | null; thicknessM?: number | null }[] | undefined,
+  phys: readonly ({ tauRendered: number } | null)[] | null | undefined,
+): string {
+  if (!layers?.length) return '';
+  const parts = layers.slice(0, 4).map((L, i) => {
+    if (!L?.genus) return null;
+    const t = phys?.[i]?.tauRendered;
+    return `${L.genus} ${L.thicknessM ? `${Math.round(L.thicknessM)}m` : '기본'}${t != null && Number.isFinite(t) ? ` τ${t.toFixed(0)}` : ''}`;
+  }).filter(Boolean);
+  return parts.length ? ` · 층 ${parts.join(' / ')}` : '';
+}
 import {
   evaluateVolDateSync,
   buildDayPrewarmBuckets,
+  nextPrewarmBucket,
   type VolDateSyncState,
 } from '../../utils/sliderSettle';
 // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 경로로 활성화
@@ -990,16 +1004,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 정지 상태에서 1초 간격으로 가볍게 갱신합니다.
+  // 볼륨 하늘 실시간 구름 유영 및 LIVE 시계 진행: 현재시간 자동재생 중일 때만 1초 간격으로 가볍게 갱신합니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
+      const st = useCelestialStore.getState();
+      const isLiveNow = !st.isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
       if (
+        isLiveNow &&
         volRef.current &&
         !isSlidingRef.current &&
         !volPendingRef.current &&
         volSettleRef.current <= 0 &&
-        !useCelestialStore.getState().isGestureBlocked
+        !st.isGestureBlocked
       ) {
         requestRender(1);
       }
@@ -2912,26 +2929,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
       const metarSnap = metarRef.current;
       const fillSnap = skySettingsRef.current.volumetricFill ?? true;
+      // 2026-11-26 시간 막대를 끄는 동안에도 굽기(짧은 조각) — 예전에는 끄는 동안 멈춰, 안 구운 시간으로 가면 구름이 수 초 늦게 바뀌었음.
+      // 같은 텍스처를 미리 만드는 것뿐이라 손을 뗐을 때 그림은 그대로(근사 없음). 지금 장면 굽기(volPending)가 우선.
       const shouldPausePrewarm = () =>
         !isActiveRef.current ||
         !glVisibleForProgress(zoomProgressRef.current) ||
-        isSlidingRef.current ||
         useCelestialStore.getState().isGestureBlocked ||
         volPendingRef.current ||
-        volSettleRef.current > 0;
+        (volSettleRef.current > 0 && !isSlidingRef.current);
+      const focusBucketNow = () => Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000;
       (async () => {
         const totalHours = hourBuckets.length;
         await new Promise(r => setTimeout(r, 1500));
         let reportedActive = false;
         const readyMs: number[] = [];
         setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
+        const remaining = hourBuckets.slice();
         for (let idx = 0; idx < totalHours; idx++) {
           if (aborted) return;
           while (shouldPausePrewarm() && !aborted) {
             await new Promise(r => setTimeout(r, 60));
           }
           if (aborted) return;
-          const bMs = hourBuckets[idx];
+          // 막대가 움직였으면 지금 가리키는 시간 칸에 가장 가까운 것부터.
+          const bMs = nextPrewarmBucket(remaining, focusBucketNow())!;
+          remaining.splice(remaining.indexOf(bMs), 1);
           const bDate = new Date(bMs);
           const bWx = getInterpolatedWeather(vPath, bDate);
           const input = live.buildLiveScene({
@@ -2946,7 +2968,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               reportedActive = true;
               setVolumetricStatus({ prewarm: { active: true, done: idx, total: totalHours, readyMs: readyMs.slice() } });
             }
-            await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm);
+            await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm, true);
             if (aborted) return;
           }
           const done = idx + 1;
@@ -3051,7 +3073,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastVolContMinRef.current = Math.floor(vDate.getTime() / 60000);
             volumetricStats.weatherMs = vol.weatherMs();
             volHasSceneRef.current = true;
-            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary });
+            if (!isSlidingNow) setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
             const g = built.genus;
             lastVolSceneRef.current = built.obs ? {
               t: vDate.toISOString(),
@@ -3094,7 +3116,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volHasSceneRef.current = true;
                 volSceneOriginRef.current = { latitude: vLat, longitude: vLon };
                 lastVolContMinRef.current = null;
-                setVolumetricStatus({ summary: built.summary });
+                setVolumetricStatus({ summary: built.summary + layerOpticsNote(built.input.layers, vol.physicsInfo()) });
                 const g = built.genus;
                 lastVolSceneRef.current = built.obs ? {
                   t: vDate.toISOString(),
@@ -3120,7 +3142,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             });
           }
         }
-        if (live && volHasSceneRef.current && !isInteractingNow && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
+        // 시간 막대를 끄는 중에도 시작(다른 날로 넘어가면 그날을 곧바로 굽기 시작) — 다른 상호작용(회전 · 이동) 중에는 예전처럼 기다림.
+        if (live && volHasSceneRef.current && (!isInteractingNow || isSlidingNow) && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
           startDayPrewarmIfNeeded(live, vol, vLat, vLon, vElev, vDate, vBucketMs, vPath, effectiveAz, effectiveElev, altitudeM);
         }
         if (volHasSceneRef.current) {
@@ -3137,7 +3160,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volPending: volPendingRef.current,
             isInteracting: isInteractingNow,
             volSettleRemaining: volSettleRef.current,
-            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled,
+            isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - nowWall) <= 60_000,
           });
           driftAnchorRef.current = syncDecision.nextAnchor;
           lastVolDateSyncRef.current = syncDecision.nextLastSync;
@@ -3155,7 +3178,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 metar: metarRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
               });
               vol.updateContinuousScene(contBuilt.input);
-              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary });
+              if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary + layerOpticsNote(contBuilt.input.layers, vol.physicsInfo()) });
             }
           }
           if (syncDecision.shouldCallSetDate) vol.setDate(vDate, syncDecision.driftSec);
@@ -3332,7 +3355,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       let isTrackingMoving = false;
       try {
-        const isLive = !useCelestialStore.getState().isTimeMachineEnabled;
+        const isLive = !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - Date.now()) <= 60_000;
         const wallElapsedMs = (isSlidingRef.current || !isLive) ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
         const effectiveTimeMs = overrideSceneTimeMsRef.current ?? (targetTimeMsRef.current + wallElapsedMs);
         renderedTimeMsRef.current = effectiveTimeMs;
@@ -3542,7 +3565,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const lampRegion = 0.25 + 0.75 * Math.max(0, Math.min(1, localNorm));
       const lampTime = 0.65 + 0.35 * cityTimeScale;
       const lampGlow = lampT * lampT * (3 - 2 * lampT) * lampRegion * lampTime;
-      buildingFieldRef.current.setLampGlow(lampGlow, PixelRatio.get());
+      const pxRows = skySettingsRef.current.pixelArtRows ?? 0;
+      const lampPxRatio = pxRows > 0 ? 0.1 : PixelRatio.get();
+      buildingFieldRef.current.setLampGlow(lampGlow, lampPxRatio);
       terrainFieldRef.current?.setLampGlow(lampGlow);
     }
     if (seaPlaneRef.current) {
@@ -3805,12 +3830,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const liveMagLimit = cachedMoonMagLimitRef.current + exposureMagBonus;
 
     if (starFieldRef.current) {
+      const pxRows = settings.pixelArtRows ?? 0;
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
         brightness: settings.starBrightness * starBoostOverrideRef.current,
         magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
+        pixelArt: pxRows > 0,
         planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
         showPlanets: currentLayers.planets,

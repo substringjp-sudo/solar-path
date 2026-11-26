@@ -8,7 +8,8 @@
  * 먼저 정한 줄(실행 전):
  *  1. 하드코딩 제거 — 셰이더 패치에 붉은 가장자리 항(gRim)이 없고, 노을색(gWarmChroma)은 직사광 몫(gSunPart)에만 곱한다.
  *  2. 다른 패치의 앵커 보존 — takram 해 직사광 줄(얼음 무리 ICE_RAD · T_sun I-2 앵커)이 원문 그대로 남는다.
- *  3. 해 쪽 추적 — 기하급수(1.6 배) N 걸음의 합이 꼭대기까지 거리와 같다(N = 6 · 8, 거리 0.5 · 6 · 30 km, 상대 오차 1e-9).
+ *  3. 해 쪽 추적 — 기하급수 N 걸음의 합이 꼭대기까지 거리와 같다(N = 6 · 8, 거리 0.5 · 6 · 30 km, 상대 오차 1e-9).
+ *     첫 걸음은 40 m 이하(§25.8 — 해가 낮아 꼭대기까지가 멀면 배율을 키움), 가까우면 배율 1.6 그대로.
  *  4. 판 확산 비중 — 운량 ≤ 0.6 → 0, ≥ 0.95 → 1, 그 사이 단조 증가.
  *  5. 그늘 하늘빛 — 두-흐름 확산 투과 + 충돌 전 항 근사가 몬테카를로(판, g 0.85, 구름 밑에서 천정 휘도, 평면 조도 1)의 0.3~1.5 배 안
  *     (τ 3 · 10 · 20 · 40; 몬테카를로 값은 scratchpad mc2.py 광자 20만 결과를 적어 둠). 그리고 단위: takram skyIrradiance 는 평면 조도 × 2π
@@ -55,11 +56,17 @@ function build() {
   {
     let bad = 0;
     for (const n of [6, 8]) for (const d of [500, 6000, 30000]) {
-      const s0 = G.sunMarchFirstStep(d, n); let sum = 0, st = s0;
-      for (let i = 0; i < n; i++) { sum += st; st *= 1.6; }
+      const g = G.sunMarchGrowth(d, n), s0 = G.sunMarchFirstStep(d, n); let sum = 0, st = s0;
+      for (let i = 0; i < n; i++) { sum += st; st *= g; }
       if (Math.abs(sum - d) / d > 1e-9) bad++;
     }
     ok(bad === 0, `N 걸음 합 = 꼭대기까지 거리 (어긋남 ${bad})`);
+  }
+  {
+    // §25.8 해가 낮아 꼭대기까지가 멀어도 첫 걸음은 상한 이하, 가까우면 예전(1.6 배) 그대로.
+    const far = [6000, 20000, 40000].map(d => G.sunMarchFirstStep(d, 8));
+    ok(far.every(x => x <= G.SUN_MARCH_FIRST_MAX_M + 1e-9), `먼 꼭대기 첫 걸음 ${far.map(x => x.toFixed(1)).join(' · ')} m ≤ ${G.SUN_MARCH_FIRST_MAX_M} m`);
+    ok(G.sunMarchGrowth(500, 8) === 1.6, '가까운 꼭대기(500 m)는 배율 1.6 그대로');
   }
 
   console.log('\n[4] 판 확산 비중');
@@ -99,6 +106,8 @@ function build() {
   ok(/if \(physLight\(\)\) \{ clouds\.clouds\.maxIterationCountToSun = 0; return; \}/.test(scene), '켜지면 takram 해 쪽 행진 0 걸음');
   ok(/if \(!\(physLight\(\) && !clouds\.lightShafts\)\) orig\(r, f, d\)/.test(scene), '빛줄기가 꺼지면 그림자 지도 패스 건너뜀');
   ok(/sunTopN: isInteracting \? 6 : 8/.test(scene), '끌기 중 6 걸음, 평소 8 걸음');
+  ok(/clamp\(\(maxHeight - h0\) \/ mu, 50\.0, genusSunMaxM\)/.test(genus) && /setSunMaxM\(FAR_NEAR_KM \* 1000\)/.test(scene) && /FAR_NEAR_KM,\n\s+420,/.test(scene),
+    '먼 거리 가림 지도가 켜지면 해 쪽 추적은 지도 시작 거리까지만(그늘 두 번 셈 방지, §25.8)');
   ok(/skyPhys: true, deck: true/.test(scene), '그늘 하늘빛 켬(§25.6 단위 고친 뒤)');
   {
     const sky = fs.readFileSync(path.join(ROOT, 'src/components/SkyScene3D/SkyScene3D.tsx'), 'utf8');
@@ -106,6 +115,14 @@ function build() {
     ok(/volumetricPhysics: true,/.test(sky) && /volumetricPhysics: true,/.test(store), '미세물리 단면·소광 기본 켬(§25.7)');
   }
 
+  {
+    console.log('\n[8] 미세물리 렌더 보정(§25.9)');
+    ok(/physicsRenderComp: true/.test(scene) && /phys\.betaTop \* \(opt\.physicsRenderComp \? physRenderComp\(g!\.genus\) : 1\)/.test(scene), '기본 켬, 미세물리 소광에만 곱함');
+    const m = scene.match(/PHYS_RENDER_KEEP[^=]*= \{([^}]*)\}/);
+    const keep = m ? Object.fromEntries(m[1].split(',').map(x => x.split(':').map(y => y.trim())).map(([k, v]) => [k, +v])) : {};
+    ok(keep.sc > 0 && keep.sc < 1 && keep.ac > 0 && keep.ac < 1 && keep.cu > 0 && keep.cu < 1 && !('st' in keep) && !('ns' in keep), `남는 몫 측정값 sc ${keep.sc} · ac ${keep.ac} · cu ${keep.cu}, 판 구름 없음`);
+    ok(/Math\.min\(2\.5, 1 \/ k\)/.test(scene), '보정 배율 최대 2.5');
+  }
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
   process.exit(fail ? 1 : 0);
 })();

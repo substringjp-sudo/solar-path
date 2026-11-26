@@ -35,6 +35,7 @@ uniform mat3  uEquToHorizon; // 적도좌표 → 지평좌표 회전
 uniform float uMagLimit;     // 표시 상한 등급 (사용자 조절)
 uniform float uBrightness;   // 밝기 배율 (사용자 조절)
 uniform float uPixelRatio;
+uniform float uPixelArt;     // 도트 모드 여부 (1 = 도트 모드 1×1 도트 고정)
 uniform float uSunAltDeg;    // 낮에는 별이 보이지 않음
 uniform float uShowStars;    // 항성 레이어 ON/OFF (0/1)
 uniform float uShowPlanets;  // 행성 레이어 ON/OFF (0/1)
@@ -58,9 +59,12 @@ void main() {
   // 나누면 도시 하늘(4등급)에서 베가까지 같이 어두워지는데, 광공해는 흐린 별을
   // 가릴 뿐 밝은 별을 어둡게 만들지 않습니다.
   float t = clamp((${STAR_MAG_LIMIT.toFixed(2)} - aMag) / ${(STAR_MAG_LIMIT + 1.46).toFixed(2)}, 0.0, 1.0);
-  float norm = pow(t, 1.15);
+  // 도트 모드에서는 모든 별이 1×1 도트 사각형 전체를 채우므로, 어두운 별의 밝기 감쇠를 가파르게 하고
+  // 한계 등급을 1.1등급 낮춰 잔별들이 인접 도트와 뭉쳐 거대한 사각형 덩어리로 보이지 않게 합니다.
+  float norm = pow(t, mix(1.15, 2.0, uPixelArt));
+  float effMagLimit = uMagLimit - uPixelArt * 1.1;
   // 한계 등급 부근에서 딱 잘리지 않고 부드럽게 사라지게 합니다.
-  norm *= smoothstep(uMagLimit + 0.35, uMagLimit - 0.35, aMag);
+  norm *= smoothstep(effMagLimit + 0.35, effMagLimit - 0.35, aMag);
 
   // 광공해·달빛에 따른 배경 산란 세척(Veiling) — 등급이 3.0 쪽으로 내려갈수록
   // 희미한 별이 지워질 뿐 아니라 밝은 별의 대비·겉보기 밝기·크기도 함께 낮아집니다.
@@ -90,8 +94,10 @@ void main() {
 
   // 밝은 별일수록 크게. 등급 차이는 알파보다 크기로 읽히는 편이 자연스럽습니다.
   // 행성은 살짝만 더 크게 그려 항성과 구분하되, 달 원반(기본 화각 ~6.9dp)보다 확실히 작은 광점으로 유지합니다.
+  // ⚠ 도트 모드(uPixelArt > 0.5)에서는 저해상도 도트 버퍼(rtPixel)의 1텍셀이 곧 화면의 도트 1칸이므로,
+  //   gl_PointSize가 1.0을 조금이라도 넘으면 2×2~4×4 도트 블록으로 비대해집니다. 무조건 1.0텍셀(1도트)로 고정합니다.
   float size = (1.0 + 2.0 * pow(clamp(vis, 0.0, 1.0), 0.60)) * (1.0 + aKind * 0.15);
-  gl_PointSize = size * uPixelRatio;
+  gl_PointSize = uPixelArt > 0.5 ? 1.0 : (size * uPixelRatio);
 
   gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
 }
@@ -100,11 +106,22 @@ void main() {
 const FRAG = `
 precision highp float;
 
+uniform float uPixelArt;
+
 varying vec3  vColor;
 varying float vAlpha;
 
 void main() {
   if (vAlpha <= 0.002) discard;
+
+  // 도트 모드에서는 1×1 텍셀 중심(gl_PointCoord = 0.5)에서 원형 감쇠가 걸리지 않아 사각형 전체가
+  // 1.3배(core 1.0 + halo 0.3)로 포화되므로, 면적 증가를 감안해 깔끔한 단일 도트 알파만 남깁니다.
+  if (uPixelArt > 0.5) {
+    float aPx = vAlpha * 0.68;
+    if (aPx <= 0.005) discard;
+    gl_FragColor = vec4(vColor, aPx);
+    return;
+  }
 
   // 점을 원형으로 다듬고 가장자리를 부드럽게 (사각형 점은 바로 티가 납니다)
   vec2 d = gl_PointCoord - 0.5;
@@ -186,6 +203,7 @@ export function createStarField(maxPlanets: number = 8): StarFieldHandle {
       uMagLimit: { value: STAR_MAG_LIMIT },
       uBrightness: { value: 1.0 },
       uPixelRatio: { value: 1.0 },
+      uPixelArt: { value: 0.0 },
       uSunAltDeg: { value: -20 },
       uShowStars: { value: 1.0 },
       uShowPlanets: { value: 1.0 },
@@ -299,6 +317,8 @@ export interface StarFieldUpdate {
   /** 사용자 조절 표시 등급 상한 (예: 4.5면 도시 하늘 수준) */
   magLimit: number;
   pixelRatio: number;
+  /** 도트 모드 여부 (켜지면 모든 별을 1×1 단일 도트로 고정) */
+  pixelArt?: boolean;
   planets?: PlanetPoint[];
   /** 항성 레이어 표시 여부 (기본 true) */
   showStars?: boolean;
@@ -317,6 +337,7 @@ export function updateStarField(handle: StarFieldHandle, u: StarFieldUpdate): vo
   uni.uBrightness.value = u.brightness;
   uni.uSunAltDeg.value = u.sunAltDeg;
   uni.uPixelRatio.value = u.pixelRatio;
+  if (uni.uPixelArt) uni.uPixelArt.value = u.pixelArt ? 1.0 : 0.0;
   uni.uShowStars.value = u.showStars === false ? 0 : 1;
   uni.uShowPlanets.value = u.showPlanets === false ? 0 : 1;
 

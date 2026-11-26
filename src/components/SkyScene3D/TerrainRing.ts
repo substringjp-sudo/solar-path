@@ -919,9 +919,16 @@ export function createCompassGroup(): THREE.Group {
   const axisLines = new THREE.LineSegments(axisGeom, axisMat);
   group.add(axisLines);
 
-  // 3. 주요 8방위 노치 마커 (Points)
+  // 3. 주요 8방위 노치 마커 (월드 공간 3D 다이아몬드 메쉬)
+  // ⚠ 기존 THREE.Points + PointsMaterial({ size: 10 })은 Three.js 내부에서
+  //   도트 모드 렌더 타깃(rtPixel, 세로 80~180px)이 아니라 전체 화면 버퍼
+  //   (drawingBufferHeight) 기준으로 gl_PointSize(약 25텍셀)를 계산해,
+  //   도트 모드에서 화면의 15~25%를 덮는 거대한 사각형으로 뻥튀기되었습니다.
+  //   월드 좌표계 3D 다이아몬드 기하로 그리면 카메라 화각(0.5x~20x)과 도트 해상도에
+  //   맞춰 투영 행렬로 정확히 스케일링됩니다.
   const markerPositions: number[] = [];
   const markerColors: number[] = [];
+  const markerIndices: number[] = [];
   const directions = [
     { name: 'N', az: 0, main: true },
     { name: 'NE', az: 45, main: false },
@@ -933,35 +940,55 @@ export function createCompassGroup(): THREE.Group {
     { name: 'NW', az: 315, main: false },
   ];
 
-  directions.forEach(dir => {
+  directions.forEach((dir, idx) => {
     const rad = (dir.az * Math.PI) / 180;
-    const x = Math.sin(rad) * ringRadius;
-    const z = -Math.cos(rad) * ringRadius;
-    markerPositions.push(x, 0.5, z);
+    const sinR = Math.sin(rad);
+    const cosR = Math.cos(rad);
+    const cx = sinR * ringRadius;
+    const cy = 0.5;
+    const cz = -cosR * ringRadius;
+    // 접선 벡터 (방위 링 원주 방향)
+    const tx = cosR;
+    const tz = sinR;
+    const hw = dir.main ? 1.6 : 1.1;
+    const hh = dir.main ? 1.6 : 1.1;
 
+    // 상(0), 우(1), 하(2), 좌(3) 4정점 다이아몬드
+    markerPositions.push(
+      cx, cy + hh, cz,
+      cx + tx * hw, cy, cz + tz * hw,
+      cx, cy - hh, cz,
+      cx - tx * hw, cy, cz - tz * hw,
+    );
+
+    let r = 0.6, g = 0.7, b = 0.8;
     if (dir.name === 'N') {
       // 북쪽(N)은 붉은색 강렬한 마커
-      markerColors.push(0.94, 0.25, 0.37);
+      r = 0.94; g = 0.25; b = 0.37;
     } else if (dir.main) {
       // 동, 남, 서는 연푸른색
-      markerColors.push(0.22, 0.74, 0.97);
-    } else {
-      // 보조 방위는 은은한 백색
-      markerColors.push(0.6, 0.7, 0.8);
+      r = 0.22; g = 0.74; b = 0.97;
     }
+    for (let v = 0; v < 4; v++) {
+      markerColors.push(r, g, b);
+    }
+
+    const base = idx * 4;
+    markerIndices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   });
 
   const markerGeom = new THREE.BufferGeometry();
   markerGeom.setAttribute('position', new THREE.Float32BufferAttribute(markerPositions, 3));
   markerGeom.setAttribute('color', new THREE.Float32BufferAttribute(markerColors, 3));
+  markerGeom.setIndex(markerIndices);
 
-  const markerMat = new THREE.PointsMaterial({
-    size: 10,
+  const markerMat = new THREE.MeshBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
   });
-  const markers = new THREE.Points(markerGeom, markerMat);
+  const markers = new THREE.Mesh(markerGeom, markerMat);
   group.add(markers);
 
   return group;

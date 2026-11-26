@@ -96,12 +96,14 @@ export function evaluateVolDateSync(input: VolDateSyncInput): VolDateSyncDecisio
       ? { sceneMs: targetMs, wallMs: nowWall }
       : driftAnchor;
 
-  const driftElapsedMs = nowWall - nextAnchor.wallMs;
+  const driftElapsedMs = isLiveClock ? Math.max(0, nowWall - nextAnchor.wallMs) : 0;
   const driftSec = (nextAnchor.sceneMs + driftElapsedMs) / 1000;
 
   // 수렴 중(!isInteracting && volSettleRemaining > 0)에는 250ms 미세 드리프트 호출을 미뤄
   // TAAU 18프레임 수렴이 깔끔하게 끝난 뒤 2초 드리프트로 이어지게 한다.
+  // 현재시간 실시간 자동재생(isLiveClock === true)일 때만 드리프트를 진행한다.
   const driftDue =
+    isLiveClock &&
     !dateChanged &&
     (isInteracting || volSettleRemaining <= 0) &&
     nowWall - lastSync.wallMs >= DRIFT_SYNC_INTERVAL_MS;
@@ -134,3 +136,20 @@ export function buildDayPrewarmBuckets(dayStartMs: number, focusBucketMs: number
   buckets.sort((a, b) => Math.abs(a - focusBucketMs) - Math.abs(b - focusBucketMs));
   return buckets;
 }
+
+/**
+ * 시간 막대를 움직이는 동안 미리 굽기 순서를 그때그때 다시 정한다(2026-11-26, 위키 performance) —
+ * 남은 버킷 중 **지금 막대가 가리키는 버킷**에 가장 가까운 것. 같으면 뒤(미래) 쪽을 먼저(막대는 보통 앞으로 끈다).
+ * 남은 것이 없으면 null.
+ */
+export function nextPrewarmBucket(remaining: readonly number[], focusBucketMs: number): number | null {
+  let best: number | null = null, bestD = Infinity;
+  for (const b of remaining) {
+    const d = Math.abs(b - focusBucketMs);
+    if (d < bestD || (d === bestD && best != null && b > best)) { best = b; bestD = d; }
+  }
+  return best;
+}
+
+/** 미리 굽기 한 조각의 길이(ms) — 끄는 동안은 프레임을 지키려고 짧게. */
+export const PREWARM_SLICE_MS = { idle: 14, interacting: 4 } as const;
