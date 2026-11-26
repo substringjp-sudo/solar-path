@@ -18,6 +18,7 @@
 앱 기본에 맞추려면 options 를 SkyScene3D.tsx 의 `vol.setOptions({...})` 와 같게(accurateSunBelowDeg 91 · macro 1 · physics true …).
 
 ## 함정(실제로 밟은 것)
+- **기본 환경은 맥북 실제 GPU**(2026-11-26 사용자 결정): `run-desktop.js`(Chrome, ANGLE Metal). 폰과 같은 `MAX_TEXTURE_IMAGE_UNITS`=16 이라 텍스처 초과가 그대로 재현되고, 장면당 약 2 초(컨테이너는 분 단위). 컨테이너 SwiftShader 는 한도가 커서 #174 문제를 가렸으니 보조로만. 필요: `npm install --no-save playwright`(맥북은 `NODE_PATH=/tmp/pwtool/node_modules`), 기기 장면 `jobs-device-1611.json`. 환경변수 `GPU=swiftshader` · `HEADFUL=1` · `BROWSER=chromium` · `NO_BUILD=1`.
 - **SwiftShader 시간(ms)은 믿을 수 없음** — 그리기를 건너뜀. 성능은 정적 텍스처 읽기 수로 어림하고 기기에서 잴 것.
 - **`load` 인자 = 3파장 대기 표** → 박명이 자주색. 앱은 15파장 — 쓰지 말 것.
 - **알파는 takram 끝내기 문턱에서 잘림**(낮은 품질 투과율 ~1 %) → τ 를 재려면 `debugDensityMul` 로 밀도를 낮춰 선형 구간에서.

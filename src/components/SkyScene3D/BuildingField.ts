@@ -291,11 +291,42 @@ float bf_hash13(vec3 p3) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+float bf_crossImpulse(vec2 q, float seed) {
+  vec3 p3 = fract(vec3(q.xy, seed) * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  float h = fract((p3.x + p3.y) * p3.z);
+  return smoothstep(0.68, 0.96, h) - smoothstep(0.68, 0.96, 1.0 - h);
+}
+
 /**
- * 2026-11-25 텍스처 없는 미니멀 건축 매스(Townscaper · Sky · Dystopika 스타일) 재질 계산.
- * 저해상도 볼륨 패스(TERRAIN_LIT_OUT)에서 지저분하게 뭉개지던 주간 검은 창문 격자, 벽돌 체크무늬,
- * floor() 해시 노이즈 블록, 골강판 줄무늬를 모두 제거하고, 건물별 깨끗한 솔리드 색조와
- * 수직 AO 그라데이션 · 옥상 파라펫/처마 단차만으로 매끈한 입체 매스를 표현합니다.
+ * 9-tap 십자(+) 커널 컨볼루션: 대각선(±1, ±1) 가중치는 0으로 두고 중심(0,0)과 상하좌우 팔(±1, ±2)만 합산해
+ * 각 시드마다 뚜렷한 십자(+) 무늬가 찍히고 이웃한 십자 무늬들이 서로 겹쳐지는 구름 특유의 직조 질감을 만듭니다.
+ */
+float bf_crossLayer(vec2 coord, float seed) {
+  vec2 p = floor(coord);
+  float c  = bf_crossImpulse(p, seed);
+  float arm1 = bf_crossImpulse(p + vec2(1.0, 0.0), seed)
+             + bf_crossImpulse(p - vec2(1.0, 0.0), seed)
+             + bf_crossImpulse(p + vec2(0.0, 1.0), seed)
+             + bf_crossImpulse(p - vec2(0.0, 1.0), seed);
+  float arm2 = bf_crossImpulse(p + vec2(2.0, 0.0), seed)
+             + bf_crossImpulse(p - vec2(2.0, 0.0), seed)
+             + bf_crossImpulse(p + vec2(0.0, 2.0), seed)
+             + bf_crossImpulse(p - vec2(0.0, 2.0), seed);
+  return clamp(c * 0.95 + arm1 * 0.62 + arm2 * 0.30, -1.35, 1.35);
+}
+
+float bf_crossWeave(vec2 wallXY, float distM, float seed) {
+  float cellM = clamp(0.28 + distM * 0.00055, 0.28, 1.15);
+  vec2 uv0 = wallXY / cellM;
+  vec2 uv1 = wallXY / (cellM * 1.75) + vec2(17.3, 29.7);
+  return (bf_crossLayer(uv0, seed) * 0.64 + bf_crossLayer(uv1, seed + 13.7) * 0.36);
+}
+
+/**
+ * 2026-11-27 볼륨 구름 특유의 십자(+) 무늬가 겹쳐진 거친 스티플 질감을 입힌 미니멀 건축 매스 재질 계산.
+ * 인위적인 주간 검은 창문 격자나 계단식 포스터라이징 단차 없이 깔끔한 건축 매스를 유지하면서,
+ * 상하좌우 십자(+) 커널이 2겹의 스케일로 겹쳐지는 표면 직조감으로 구름과 이질감 없이 어우러지게 합니다.
  */
 void bf_facadeMaterial(
   vec3 n,
@@ -311,8 +342,11 @@ void bf_facadeMaterial(
   outGlassMask = 0.0;
   outGroundAo = 1.0;
 
+  float massFade = 1.0 - smoothstep(950.0, 2400.0, vDistM);
+  float seedVal = bSeed.x * 1.31 + bSeed.y * 2.17;
+
   if (abs(n.y) > 0.5) {
-    // 옥상/지붕면: 노이즈 블록 없이 매끈한 슬레이트/테라코타 지붕 톤
+    // 옥상/지붕면: 십자(+) 중첩 스티플이 은은하게 얹힌 슬레이트/테라코타 지붕 톤
     float isSloped = step(n.y, 0.99);
     vec3 flatRoofTone = vStyle < 0.5
       ? mix(vec3(0.115, 0.122, 0.130), vec3(0.108, 0.128, 0.120), bWarm)
@@ -324,34 +358,39 @@ void bf_facadeMaterial(
       : (vStyle < 2.5
         ? mix(vec3(0.172, 0.105, 0.085), vec3(0.132, 0.145, 0.132), bWarm)
         : vec3(0.135, 0.145, 0.160));
+    float roofCross = bf_crossWeave(vBuildPos + max(vec2(0.0), vWallCoord.xy), vDistM, seedVal + 7.1);
     outMatAlb = mix(flatRoofTone, slopedRoofTone, isSloped) * (0.93 + 0.14 * bTone);
+    outMatAlb *= 1.0 + roofCross * 0.11 * massFade;
     return;
   }
 
-  // 지면 접지 음영(1~4층 가로 협곡 그늘) + 상단 파라펫·처마 매스 음영
-  float wallY = max(0.0, vWallCoord.y);
+  vec2 rawWall = max(vec2(0.0), vWallCoord.xy);
+  float crossStipple = bf_crossWeave(rawWall, vDistM, seedVal);
+
+  // 지면 접지 음영(1~4층 가로 협곡 그늘) + 상단 파라펫·처마 매스 음영에 십자(+) 디더링이 자연스럽게 스며듦
+  float wallY = max(0.0, rawWall.y + crossStipple * 0.85 * massFade);
   outGroundAo = 0.46 + 0.54 * smoothstep(0.0, 15.0, wallY);
   float wallHAll = max(${WINDOW_CELL_M.toFixed(1)}, vWallCoord.w * ${WINDOW_CELL_M.toFixed(1)});
-  float topDistAll = max(0.0, wallHAll - wallY);
-  float massFade = 1.0 - smoothstep(900.0, 2200.0, vDistM);
+  float topDistAll = max(0.0, wallHAll - max(0.0, vWallCoord.y));
   float parapetRim = (1.0 - smoothstep(0.0, 0.55, topDistAll)) * massFade;
   float corniceShadow = smoothstep(0.45, 0.78, topDistAll) * (1.0 - smoothstep(0.88, 1.75, topDistAll)) * massFade;
   float verticalLift = 0.74 + 0.30 * smoothstep(0.0, min(32.0, wallHAll), wallY);
 
   if (vStyle < 0.5) {
-    // 0: 아파트·주거 — 따뜻한 아이보리/스톤 솔리드 매스
+    // 0: 아파트·주거 — 따뜻한 아이보리/스톤 매스
     outMatAlb = mix(vec3(0.248, 0.238, 0.222), vec3(0.202, 0.208, 0.218), bWarm) * (0.92 + 0.16 * bTone);
   } else if (vStyle < 1.5) {
-    // 1: 오피스·타워 — 차분한 슬레이트 블루/실버 글래스 매스
+    // 1: 오피스·타워 — 차분한 슬레이트 블루/실버 매스
     outMatAlb = mix(vec3(0.125, 0.148, 0.178), vec3(0.138, 0.158, 0.172), bWarm) * (0.92 + 0.16 * bTone);
   } else if (vStyle < 2.5) {
-    // 2: 저층 상가·석재 — 따뜻한 샌드스톤/테라코타 솔리드 매스
+    // 2: 저층 상가·석재 — 따뜻한 샌드스톤/테라코타 매스
     outMatAlb = mix(vec3(0.232, 0.162, 0.128), vec3(0.242, 0.205, 0.168), bWarm) * (0.90 + 0.20 * bTone);
   } else {
-    // 3: 산업·창고 — 깔끔한 그래파이트 매스
+    // 3: 산업·창고 — 그래파이트 매스
     outMatAlb = vec3(0.135, 0.140, 0.150) * (0.92 + 0.16 * bTone);
   }
 
+  outMatAlb *= 1.0 + crossStipple * 0.135 * massFade;
   outMatAlb *= verticalLift * (1.0 + 0.18 * parapetRim - 0.16 * corniceShadow);
 }
 

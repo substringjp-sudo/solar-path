@@ -9,8 +9,8 @@
  * 시간: 격자는 1 분마다 AR(1) 로 새로 만들어(CPU) 두 장 A→B 를 `genusMacroMix` 로 섞어 읽습니다(툭 바뀌지 않게). 이류는 층 바람으로
  * 격자 uv 를 밉니다(km 단위, 타일 드리프트와 같은 부호·속도).
  *
- * 균일변수: genusMacroOn, genusMacroTexA/B(sampler2D, R 저·G 중·B 상, 없는 층은 1), genusMacroMix, genusMacroExtentKm, genusMacroLane(mat4, 레인별 채널 one-hot),
- *   genusMacroLut(sampler2D 64×1 RGBA, 채널 = 레인), genusMacroDriftU/V(vec4, km).
+ * 균일변수: genusMacroOn, genusMacroTexAB(sampler2D 2n×n, 왼쪽 A · 오른쪽 B, R 저·G 중·B 상, 없는 층은 1), genusMacroMix, genusMacroExtentKm, genusMacroLane(mat4, 레인별 채널 one-hot),
+ *   genusMacroLutU(vec4[64], 채널 = 레인 — 64×1 RGBA 표를 uniform 배열로), genusMacroDriftU/V(vec4, km).
  * 기준 문자열이 없으면 throw(§124 규칙).
  */
 import { DataTexture, LinearFilter, Matrix4, NoColorSpace, ClampToEdgeWrapping, RGBAFormat, UnsignedByteType, Vector4 } from 'three';
@@ -20,6 +20,73 @@ import { flowParam } from './cloudFlowShader';
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
 
 export const MACRO_LUT_N = 64;
+
+/**
+ * 문턱 표를 텍스처가 아니라 uniform 배열(vec4 × 64)로 읽습니다 — 구름 패스 · 대기 합성 패스의 텍스처 단위(MAX_TEXTURE_IMAGE_UNITS 16)를 아끼려고
+ * (기기에서 18 · 20 / 16 초과로 그늘이 사라지고 M 품질이 깨짐, 2026-11-26). 텍스처 선형 읽기와 같은 값: 칸 중심 사이를 선형 보간, 끝은 칸 값.
+ */
+export function macroLutGlsl(arrName: string, fnName: string): string {
+  return [
+    `uniform vec4 ${arrName}[${MACRO_LUT_N}];`,
+    `vec4 ${fnName}(const float cover) {`,
+    `  float p = clamp(cover, 0.0, 1.0) * ${(MACRO_LUT_N - 1).toFixed(1)};`,
+    '  int i0 = int(floor(p));',
+    `  int i1 = min(i0 + 1, ${MACRO_LUT_N - 1});`,
+    `  return mix(${arrName}[i0], ${arrName}[i1], p - float(i0));`,
+    '}',
+  ].join('\n');
+}
+/**
+ * 거시 격자 A · B 두 장(시간 섞기용)을 **가로로 나란히 한 장**(2n × n)으로 — 텍스처 단위 1 개 절약. 읽을 때 각 절반의 칸 중심 안쪽으로 uv 를 잘라
+ * (clamp-to-edge 와 같은 값) 절반 경계에서 이웃 절반이 섞이지 않게 합니다. A 와 B 가 같은 텍스처면 두 절반이 같습니다.
+ */
+export function macroPairGlsl(texName: string, fnName: string): string {
+  return [
+    `vec4 ${fnName}(const vec2 muv, const float m) {`,
+    `  float n = float(textureSize(${texName}, 0).y);`,
+    '  vec2 c = clamp(muv, vec2(0.5 / n), vec2(1.0 - 0.5 / n));',
+    `  return mix(texture(${texName}, vec2(c.x * 0.5, c.y)), texture(${texName}, vec2(c.x * 0.5 + 0.5, c.y)), m);`,
+    '}',
+  ].join('\n');
+}
+const pairCache = new Map<string, { a: DataTexture; b: DataTexture; tex: DataTexture }>();
+/** 두 거시 텍스처를 한 장으로 합친 텍스처(같은 쌍은 재사용, 오래된 것은 버림). 두 장의 크기가 다르면 큰 쪽에 맞춰 최근접으로 늘림. */
+export function macroPairTexture(a: DataTexture, b: DataTexture): DataTexture {
+  const key = `${a.uuid}|${b.uuid}`;
+  const hit = pairCache.get(key);
+  if (hit && hit.a === a && hit.b === b) { pairCache.delete(key); pairCache.set(key, hit); return hit.tex; }
+  const n = Math.max(a.image.width, b.image.width);
+  const rd = (t: DataTexture, x: number, y: number) => {
+    const w = t.image.width;
+    const sx = Math.min(w - 1, Math.floor((x + 0.5) * w / n)), sy = Math.min(w - 1, Math.floor((y + 0.5) * w / n));
+    return sy * w + sx;
+  };
+  const da = a.image.data as Uint8Array, db = b.image.data as Uint8Array;
+  const out = new Uint8Array(2 * n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const ia = rd(a, x, y) * 4, ib = rd(b, x, y) * 4, o = (y * 2 * n + x) * 4, o2 = o + n * 4;
+    for (let k = 0; k < 4; k++) { out[o + k] = da[ia + k]; out[o2 + k] = db[ib + k]; }
+  }
+  const t = new DataTexture(out, 2 * n, n, RGBAFormat, UnsignedByteType);
+  t.wrapS = t.wrapT = ClampToEdgeWrapping;
+  t.minFilter = LinearFilter; t.magFilter = LinearFilter; t.generateMipmaps = false;
+  t.colorSpace = NoColorSpace; t.flipY = false;
+  t.needsUpdate = true;
+  pairCache.set(key, { a, b, tex: t });
+  for (const [k, v] of pairCache) { if (pairCache.size <= 4) break; pairCache.delete(k); v.tex.dispose(); }
+  return t;
+}
+const lutVecCache = new WeakMap<DataTexture, Vector4[]>();
+/** 문턱 표 텍스처의 바이트(RGBA)를 uniform 배열 값으로(0~1). 텍스처마다 한 번만 만들어 재사용. */
+export function macroLutVectors(tex: DataTexture | null | undefined): Vector4[] {
+  if (!tex) return Array.from({ length: MACRO_LUT_N }, () => new Vector4());
+  let v = lutVecCache.get(tex);
+  if (v) return v;
+  const d = tex.image.data as Uint8Array;
+  v = Array.from({ length: MACRO_LUT_N }, (_, i) => new Vector4(d[i * 4] / 255, d[i * 4 + 1] / 255, d[i * 4 + 2] / 255, d[i * 4 + 3] / 255));
+  lutVecCache.set(tex, v);
+  return v;
+}
 
 export function patchMacroShader(mat: PatchableMaterial): void {
   let src = mat.fragmentShader;
@@ -32,22 +99,22 @@ export function patchMacroShader(mat: PatchableMaterial): void {
   src = src.replace(decl, decl + [
     '',
     'uniform float genusMacroTexOn;',
-    'uniform sampler2D genusMacroTexA;',
-    'uniform sampler2D genusMacroTexB;',
+    'uniform sampler2D genusMacroTexAB;   // A | B 나란히(macroPairTexture)',
     'uniform float genusMacroMix;',
     'uniform float genusMacroExtentKm;',
     'uniform mat4 genusMacroLane;',
-    'uniform sampler2D genusMacroLut;',
+    macroLutGlsl('genusMacroLutU', 'genusMacroLutVec'),
     'uniform vec4 genusMacroDriftU;',
     'uniform vec4 genusMacroDriftV;',
+    macroPairGlsl('genusMacroTexAB', 'genusMacroPairAt'),
     'float genusMacroCoverAt(const vec2 km, const vec4 lane) {',
     '  vec2 muv = km / genusMacroExtentKm + 0.5;',
     '  if (muv.x < 0.0 || muv.x > 1.0 || muv.y < 0.0 || muv.y > 1.0) return 1.0;   // 격자 밖(380 km 너머 모서리)은 타일 그대로',
-    '  vec4 c = mix(texture(genusMacroTexA, muv), texture(genusMacroTexB, muv), genusMacroMix);',
+    '  vec4 c = genusMacroPairAt(muv, genusMacroMix);',
     '  return dot(c, lane);',
     '}',
     'float genusMacroLutAt(const float cover, const int lane) {',
-    '  vec4 s = texture(genusMacroLut, vec2((cover * 63.0 + 0.5) / 64.0, 0.5));',
+    '  vec4 s = genusMacroLutVec(cover);',
     '  return lane == 0 ? s.x : lane == 1 ? s.y : lane == 2 ? s.z : s.w;',
     '}',
   ].join('\n'));
@@ -72,12 +139,11 @@ export function patchMacroShader(mat: PatchableMaterial): void {
   ].join('\n'));
   mat.fragmentShader = src;
   mat.uniforms.genusMacroTexOn = { value: 0 };
-  mat.uniforms.genusMacroTexA = { value: null };
-  mat.uniforms.genusMacroTexB = { value: null };
+  mat.uniforms.genusMacroTexAB = { value: null };
   mat.uniforms.genusMacroMix = { value: 0 };
   mat.uniforms.genusMacroExtentKm = { value: 768 };
   mat.uniforms.genusMacroLane = { value: new Matrix4() };
-  mat.uniforms.genusMacroLut = { value: null };
+  mat.uniforms.genusMacroLutU = { value: macroLutVectors(null) };
   mat.uniforms.genusMacroDriftU = { value: new Vector4() };
   mat.uniforms.genusMacroDriftV = { value: new Vector4() };
   mat.needsUpdate = true;
@@ -148,11 +214,10 @@ export interface MacroUniformInput {
 export function setMacroUniforms(mat: PatchableMaterial, u: MacroUniformInput | null): void {
   mat.uniforms.genusMacroTexOn.value = u ? 1 : 0;
   if (!u) return;
-  mat.uniforms.genusMacroTexA.value = u.texA;
-  mat.uniforms.genusMacroTexB.value = u.texB;
+  mat.uniforms.genusMacroTexAB.value = macroPairTexture(u.texA, u.texB);
   mat.uniforms.genusMacroMix.value = Math.min(1, Math.max(0, u.mix));
   mat.uniforms.genusMacroExtentKm.value = u.extentKm;
-  mat.uniforms.genusMacroLut.value = u.lut;
+  mat.uniforms.genusMacroLutU.value = macroLutVectors(u.lut);
   const m = mat.uniforms.genusMacroLane.value as Matrix4;
   const e = m.elements; e.fill(0);
   // 열 i = 레인 i 의 one-hot(열우선 저장: e[i*4 + row]). 없는 밴드는 A 채널(= 1) → 문턱 0.

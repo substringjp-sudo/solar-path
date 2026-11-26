@@ -19,6 +19,7 @@
 import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, RepeatWrapping, UnsignedByteType, Vector4 } from 'three';
 import type { GenusLayer } from './cloudGenus';
 import { mulberry32 as rng } from '../../utils/math';
+import { makeEdgeNoiseData } from './cloudEdge';
 
 export const CELL_TILE_N = 8;
 export const CELL_TILE_PX = 256;
@@ -85,9 +86,16 @@ export function cellModulate(lw: number, t: [number, number, number], amp: numbe
 }
 
 let tileTex: DataTexture | null = null;
-function cellTile(): DataTexture {
+/**
+ * 세포 무늬(RGB)와 가장자리 거칠기 잡음(A)을 **한 장**에 — 구름 패스의 텍스처 단위(MAX_TEXTURE_IMAGE_UNITS 16)를 아끼려고(기기 18/16 초과로 그늘이 사라지고
+ * M 품질이 깨진 문제, 2026-11-26). 둘 다 256² · 반복 · 밉맵이라 읽는 값은 따로 둘 때와 같습니다. 가장자리 쪽은 `cloudEdge.ts` 가 `.a` 로 읽습니다.
+ */
+export function noiseTile(edgeA: Uint8Array = makeEdgeNoiseData()): DataTexture {
   if (tileTex) return tileTex;
-  const t = new DataTexture(makeCellTileData(), CELL_TILE_PX, CELL_TILE_PX, RGBAFormat, UnsignedByteType);
+  if (edgeA.length !== CELL_TILE_PX * CELL_TILE_PX) throw new Error('cloudCells: edge noise tile size mismatch');
+  const data = makeCellTileData();
+  for (let i = 0; i < edgeA.length; i++) data[i * 4 + 3] = edgeA[i];
+  const t = new DataTexture(data, CELL_TILE_PX, CELL_TILE_PX, RGBAFormat, UnsignedByteType);
   t.wrapS = t.wrapT = RepeatWrapping;
   t.magFilter = LinearFilter;
   t.minFilter = LinearMipmapLinearFilter;
@@ -96,6 +104,7 @@ function cellTile(): DataTexture {
   tileTex = t;
   return t;
 }
+const cellTile = () => noiseTile();
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
 /** patchFlowShader 가 만든 문장 — 흐름 층의 바닥 올리기 바로 앞(여기서 0 이 된 곳은 구름이 아님). */
@@ -109,7 +118,7 @@ export function patchCellShader(mat: PatchableMaterial): void {
   const f = (x: number) => x.toFixed(4);
   src = src.replace(DECL, DECL + [
     '',
-    'uniform sampler2D cellTile;',
+    'uniform sampler2D noiseTile;   // RGB 세포 · A 가장자리 잡음(cloudEdge)',
     'uniform vec4 cellAmp;     // 레인별 세기(0 = 끔)',
     'uniform vec4 cellLamKm;   // 레인별 세포 파장(km)',
     'uniform vec4 cellDir;     // 레인별 바람 방향(rad, 북 0 시계)',
@@ -119,7 +128,7 @@ export function patchCellShader(mat: PatchableMaterial): void {
     `  vec2 q = vec2(dot(pKm, w) / ${f(P.elong)}, dot(pKm, n)) / (${CELL_TILE_N}.0 * lam);`,
     `  float texelM = ${CELL_TILE_N}.0 * lam * 1000.0 / ${CELL_TILE_PX}.0;`,
     '  float lod = max(0.0, log2(max(footM, 1.0) / texelM) - 1.0);',
-    '  vec3 t = textureLod(cellTile, q, lod).rgb;',
+    '  vec3 t = textureLod(noiseTile, q, lod).rgb;',
     `  float inner = clamp((t.r * 0.6 + (t.b - 0.5) * ${f(2 * P.rag)} - ${f(P.border)}) / ${f(P.soft)}, 0.0, 1.0);`,
     '  float dome = sqrt(clamp(1.0 - t.g * 0.8 / 0.9, 0.0, 1.0));',
     '  float far = smoothstep(0.35 * lam * 1000.0, 1.2 * lam * 1000.0, footM);',
@@ -141,7 +150,7 @@ export function patchCellShader(mat: PatchableMaterial): void {
     ANCHOR,
   ].join('\n'));
   mat.fragmentShader = src;
-  mat.uniforms.cellTile = { value: cellTile() };
+  mat.uniforms.noiseTile = { value: noiseTile() };
   mat.uniforms.cellAmp = { value: new Vector4() };
   mat.uniforms.cellLamKm = { value: new Vector4(1, 1, 1, 1) };
   mat.uniforms.cellDir = { value: new Vector4() };

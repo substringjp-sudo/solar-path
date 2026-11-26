@@ -34,6 +34,15 @@ export interface MetarObs {
 export const OKTA_PCT: Record<MetarCover, number> = { FEW: 19, SCT: 44, BKN: 75, OVC: 100, VV: 100 };
 export const METAR_MAX_AGE_MIN = 90;
 export const METAR_MAX_KM = 60;
+/** 창 밖의 서서히 줄어드는 꼬리(2026-11-27): 보고 ±90 분 · 공항 60 km 안은 무게 1, 각각 240 분 · 120 km 에서 0 — 문턱에서 한 번에 끊기지 않게. */
+export const METAR_FADE_END_MIN = 240;
+export const METAR_FADE_END_KM = 120;
+export function metarWindowWeight(diffMin: number, distKm: number, fullMin = METAR_MAX_AGE_MIN, fullKm = METAR_MAX_KM): number {
+  const d = Math.abs(diffMin);
+  const wT = d <= fullMin ? 1 : d >= METAR_FADE_END_MIN ? 0 : (METAR_FADE_END_MIN - d) / (METAR_FADE_END_MIN - fullMin);
+  const wD = distKm <= fullKm ? 1 : distKm >= METAR_FADE_END_KM ? 0 : (METAR_FADE_END_KM - distKm) / (METAR_FADE_END_KM - fullKm);
+  return wT * wD;
+}
 const LOW_TOP_M = 2000, MID_TOP_M = 6500;
 const FT = 0.3048;
 
@@ -121,11 +130,13 @@ export interface MetarOverride { obs: CloudData; note: string; sky: MetarSky }
 export function applyMetarToObs(obs: CloudData, m: MetarObs | null | undefined, sceneMs: number, groundM: number,
   opts: { maxAgeMin?: number; maxKm?: number } = {}): MetarOverride | null {
   if (!m) return null;
-  const maxAge = (opts.maxAgeMin ?? METAR_MAX_AGE_MIN) * 60_000, maxKm = opts.maxKm ?? METAR_MAX_KM;
-  if (Math.abs(sceneMs - m.timeMs) > maxAge || m.distanceKm > maxKm) return null;
+  // 창 안(±90 분 · 60 km)은 무게 1 — 예전과 똑같이 덮어씀. 창 밖은 무게가 0 까지 서서히 줄고, 숫자(운량)는 무게만큼만 섞음(밑면 높이 · 강수 문장은 무게 ≥ ½ 일 때).
+  const w = metarWindowWeight((sceneMs - m.timeMs) / 60_000, m.distanceKm, opts.maxAgeMin ?? METAR_MAX_AGE_MIN, opts.maxKm ?? METAR_MAX_KM);
+  if (!(w > 0)) return null;
   const sky = metarSky(m);
   const out: CloudData = { ...obs };
   const parts: string[] = [];
+  const mixPct = (cur: number | undefined, target: number) => (w >= 1 || cur == null || !Number.isFinite(cur) ? target : cur + (target - cur) * w);
   if (sky.lowCoverPct != null) {
     // 비·눈 관측과 함께 공항 METAR 가 BKN(5~7 옥타 = 62.5~87.5%)이고 원 예보가 이미 흐림(>= 85% / 총운량 >= 90%)이면
     // 최대 60 km 떨어진 공항의 BKN 대푯값 75%로 내려 비구름 채우기가 깨지지 않도록 하한(88%)을 유지합니다.
@@ -135,8 +146,8 @@ export function applyMetarToObs(obs: CloudData, m: MetarObs | null | undefined, 
       (obs.low ?? 0) >= 85 &&
       (obs.total ?? obs.low ?? 0) >= 90;
     const effectiveLow = keepOvercastRain ? Math.max(88, Math.min(95, obs.low)) : sky.lowCoverPct;
-    out.low = effectiveLow; parts.push(`저 ${Math.round(effectiveLow)}%`);
-    if (sky.lowBaseKmAgl != null && effectiveLow > 0) {
+    out.low = mixPct(obs.low, effectiveLow); parts.push(`저 ${Math.round(out.low)}%`);
+    if (w >= 0.5 && sky.lowBaseKmAgl != null && effectiveLow > 0) {
       const base = groundM / 1000 + sky.lowBaseKmAgl;
       const oldThick = obs.lowDeckBaseKm != null && obs.lowDeckTopKm != null ? obs.lowDeckTopKm - obs.lowDeckBaseKm : NaN;
       out.lowDeckBaseKm = base;
@@ -144,31 +155,43 @@ export function applyMetarToObs(obs: CloudData, m: MetarObs | null | undefined, 
       parts.push(`밑면 ${Math.round(sky.lowBaseKmAgl * 1000)} m`);
     }
     // 단면 운량은 예보 것이라 METAR 와 어긋날 수 있음 — 저층이 0 이면 2 km 아래 단면도 비움(lowDeck 이 다시 생기지 않게)
-    if (sky.lowCoverPct === 0 && out.profileHeightM && out.profileCoverPct) {
+    if (w >= 0.5 && sky.lowCoverPct === 0 && out.profileHeightM && out.profileCoverPct) {
       out.profileCoverPct = out.profileCoverPct.map((c, i) => (out.profileHeightM![i] - groundM < LOW_TOP_M ? 0 : c));
       out.lowDeckBaseKm = undefined; out.lowDeckTopKm = undefined;
     }
   }
-  if (sky.midCoverPct != null) { out.mid = sky.midCoverPct; parts.push(`중 ${Math.round(sky.midCoverPct)}%`); }
-  if (sky.raining || sky.snowing) { out.precipitation = Math.max(obs.precipitation ?? 0, 0.5); parts.push(sky.snowing ? '눈' : '비'); }
+  if (sky.midCoverPct != null) { out.mid = mixPct(obs.mid, sky.midCoverPct); parts.push(`중 ${Math.round(out.mid)}%`); }
+  if (w < 0.5) { /* 약한 무게에서는 강수 문장은 건드리지 않음 */ }
+  else if (sky.raining || sky.snowing) { out.precipitation = Math.max(obs.precipitation ?? 0, 0.5); parts.push(sky.snowing ? '눈' : '비'); }
   else if (out.precipitation != null && out.precipitation >= 0.3 && m.wx == null && sky.lowCoverPct != null) {
     // 보고에 날씨가 없으면 지금 비는 안 옴 — 예보 강수를 0.1 아래로 내려 ns 가 되지 않게
     out.precipitation = Math.min(out.precipitation, 0.05); parts.push('강수 없음');
   }
   const hhmm = new Date(m.timeMs).toISOString().slice(11, 16) + 'Z';
-  return { obs: out, sky, note: `METAR ${m.icao} ${Math.round(m.distanceKm)} km ${hhmm}: ${parts.join(' · ')}` };
+  return { obs: out, sky, note: `METAR ${m.icao} ${Math.round(m.distanceKm)} km ${hhmm}${w < 1 ? ` (${Math.round(w * 100)}%)` : ''}: ${parts.join(' · ')}` };
 }
 
-const cache = new Map<string, { at: number; metar: MetarObs | null }>();
+const reportsCache = new Map<string, { at: number; reports: MetarObs[] }>();
 const CACHE_MS = 10 * 60_000;
 
-/** 가장 가까운 공항의 최근 2 시간 METAR(±1° 상자). 실패·없음 → null. 10 분 캐시. */
-export const fetchNearestMetar = async (lat: number, lon: number, signal?: AbortSignal): Promise<MetarObs | null> => {
+/** 가장 가까운 공항의 **가장 최근** 보고(이미 파싱한 보고 목록에서). */
+export function nearestStationLatest(reports: readonly MetarObs[]): MetarObs | null {
+  if (!reports.length) return null;
+  const sorted = [...reports].sort((a, b) => a.distanceKm - b.distanceKm || b.timeMs - a.timeMs);
+  const icao = sorted[0].icao;
+  return sorted.filter(m => m.icao === icao).sort((a, b) => b.timeMs - a.timeMs)[0];
+}
+
+/**
+ * 주변(±1.5°, 약 165 km 상자) 공항의 최근 6 시간 보고. 상자를 ±2° 이상으로 넓히면 API 가 가까운 군용 공항(성남 RKSM · 평택 RKSG)을 조용히 빼서 ±1.5° 로 둡니다(2026-11-27 측정). 고리 보정은 공항 여러 곳을 · 시간에 따라 서서히 줄이며 씁니다(`metarRing.ts`).
+ * 실패·없음 → 빈 배열. 10 분 캐시. 자리마다 거리는 (lat, lon) 기준.
+ */
+export const fetchMetarReports = async (lat: number, lon: number, signal?: AbortSignal): Promise<MetarObs[]> => {
   const key = `metar_${gridBucket(lat, lon)}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.metar;
-  const d = 1.0;
-  const url = `https://aviationweather.gov/api/data/metar?bbox=${(lat - d).toFixed(2)},${(lon - d).toFixed(2)},${(lat + d).toFixed(2)},${(lon + d).toFixed(2)}&format=json&hours=2`;
+  const hit = reportsCache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.reports;
+  const d = 1.5;
+  const url = `https://aviationweather.gov/api/data/metar?bbox=${(lat - d).toFixed(2)},${(lon - d).toFixed(2)},${(lat + d).toFixed(2)},${(lon + d).toFixed(2)}&format=json&hours=6`;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   signal?.addEventListener('abort', () => ctl.abort());
@@ -176,14 +199,18 @@ export const fetchNearestMetar = async (lat: number, lon: number, signal?: Abort
     const res = await fetch(url, { signal: ctl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const items = await res.json();
-    const metar = pickNearestMetar(Array.isArray(items) ? items : [], lat, lon);
-    cache.set(key, { at: Date.now(), metar });
-    return metar;
+    const reports = (Array.isArray(items) ? items : []).map(it => parseMetarItem(it, lat, lon)).filter((m): m is MetarObs => !!m);
+    reportsCache.set(key, { at: Date.now(), reports });
+    return reports;
   } catch (error) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) console.warn('METAR 를 받지 못했습니다. 예보 그대로 갑니다:', error);
-    cache.set(key, { at: Date.now(), metar: null });
-    return null;
+    reportsCache.set(key, { at: Date.now(), reports: [] });
+    return [];
   } finally {
     clearTimeout(timer);
   }
 };
+
+/** 가장 가까운 공항의 최근 보고(관측점 덮어쓰기용). 실패·없음 → null. */
+export const fetchNearestMetar = async (lat: number, lon: number, signal?: AbortSignal): Promise<MetarObs | null> =>
+  nearestStationLatest(await fetchMetarReports(lat, lon, signal));

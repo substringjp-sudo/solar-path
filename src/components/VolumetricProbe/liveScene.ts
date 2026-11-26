@@ -18,6 +18,7 @@ import { pickDni } from '../../utils/satelliteIrradiance';
 import { clearSkyGHIMean } from '../../utils/satelliteBias';
 import { DIFFUSE_G, DIFFUSE_G_ICE, DIFFUSE_K, diffuseTransmittance } from './cloudDiffuse';
 import { applyMetarToObs, type MetarObs } from '../../utils/metar';
+import { correctMacroRing } from '../../utils/metarRing';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { GENUS_MICRO, lclBaseKm, particleCloudState, thermoAt, type ThermoInput } from './cloudPhysics';
 
@@ -71,6 +72,8 @@ export interface LiveSceneArgs {
   altitudeM?: number;
   /** §160 가장 가까운 공항 METAR — 장면 시각이 보고 ±90 분·60 km 안이면 저층 운량·밑면·강수를 관측으로 바꿉니다. */
   metar?: MetarObs | null;
+  /** 주변 공항 여러 곳의 최근 보고(`fetchMetarReports`) — 거시 운량 고리를 관측으로 보정(`metarRing.ts`). 없으면 예보 고리 그대로. */
+  metars?: readonly MetarObs[] | null;
   /** 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9). 기본 켬 — 조건이 맞을 때만 저·중층을 파동 장 한 층으로 바꿉니다. */
   fill?: boolean;
 }
@@ -1144,19 +1147,24 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     ? getCachedMacroKnot(ptsAll, k1Ms)
     : undefined;
   const genus = { low: forecast.low, mid: promoteMid ? 'as' as const : forecast.mid, high: promoteHigh ? 'cs' as const : forecast.high };
+  // 공항 관측으로 거시 고리 보정(30 분 매듭마다 그 시각 기준 — 시간 무게가 매듭 사이에서 이어짐). 캐시된 고리는 바꾸지 않고 복사본을 씁니다.
+  const ringFix = macroRing && a.metars?.length ? correctMacroRing(macroRing, a.metars, k0Ms, a.lat, a.lon) : null;
+  const ringNextFix = macroRingNext && a.metars?.length ? correctMacroRing(macroRingNext, a.metars, k1Ms, a.lat, a.lon) : null;
+  const macroRingUse = ringFix && ringFix.used > 0 ? ringFix.ring : macroRing;
+  const macroRingNextUse = ringNextFix && ringNextFix.used > 0 ? ringNextFix.ring : macroRingNext;
   return {
     input: {
       ...base,
       layers,
       thermo,
       ...(haze ? { haze } : {}),
-      ...(macroRing ? { macro: macroRing } : {}),
-      ...(macroRingNext ? { macroNext: macroRingNext, macroSpanMs: [k0Ms, k1Ms] as [number, number] } : {}),
+      ...(macroRingUse ? { macro: macroRingUse } : {}),
+      ...(macroRingNextUse ? { macroNext: macroRingNextUse, macroSpanMs: [k0Ms, k1Ms] as [number, number] } : {}),
       ...(tileCoverEnvelope ? { tileCoverEnvelope } : {}),
     },
     forecast,
     obs,
-    summary,
+    summary: ringFix && ringFix.used > 0 ? `${summary} · 고리 공항 ${ringFix.used}곳` : summary,
     tauDni,
     genus,
   };
