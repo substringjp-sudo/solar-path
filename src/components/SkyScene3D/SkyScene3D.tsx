@@ -242,6 +242,8 @@ const sunDirRayVec = new THREE.Vector3();
  * 더 얻어 누적(cloudAccum 0.25)이 행진 지터 잡음을 평균합니다. 30 fps 에서 ~3 초, 손을 대면 멈춥니다.
  */
 const VOL_REFINE_FRAMES = 96;
+/** 다듬기 시간 상한(ms) — 느린 기기에서 프레임 수를 다 못 채워도 여기서 멈춥니다. */
+const VOL_REFINE_MAX_MS = 2500;
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
   starBrightness: 1.0,
@@ -666,6 +668,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volSettleRef = useRef(0);
   /** 정착 뒤 다듬기 프레임 남은 수(`VOL_REFINE_FRAMES`) — 움직이면 멈추고 다음 정착 끝에서 다시 채움. */
   const volRefineRef = useRef(0);
+  const volRefineStartRef = useRef(0);
   const volViewRef = useRef('');
   /** §127 첫 장면이 걸리기 전에는 볼륨 하늘을 쓰지 않습니다(날씨를 잘라 만드는 동안 예전 하늘). */
   const volHasSceneRef = useRef(false);
@@ -3012,10 +3015,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const szKey = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
         if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
         const q = volSet.volumetricQuality ?? 'low';
-        const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
+        const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}|${volSet.volumetricRefine ?? true ? 1 : 0}`;
         if (qKey !== volQualityRef.current) {
           vol.setQuality(q);
-          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 91 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true, keepIceShaderLoaded: true }, false);
+          vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 91 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunLowpass: 1, sunMarch: (volSet.volumetricBillow ?? true) ? [6, 90, 1.75] : [4, 280, 2.0], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true, cloudAccum: (volSet.volumetricRefine ?? true) ? 0.25 : 1, keepIceShaderLoaded: true }, false);
           volKeyRef.current = '';
           const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
           if (changed != null) vol.setResolutionScale(changed);
@@ -3166,7 +3169,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             driftAnchor: driftAnchorRef.current,
             volPending: volPendingRef.current,
             isInteracting: isInteractingNow,
-            volSettleRemaining: volSettleRef.current,
+            // 다듬기 중에도 바람 드리프트를 미룸 — 그리는 동안 구름이 흐르면 누적이 흐르는 그림을 섞어 일렁임.
+            volSettleRemaining: volSettleRef.current + volRefineRef.current,
             isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled && Math.abs(targetTimeMsRef.current - nowWall) <= 60_000,
           });
           driftAnchorRef.current = syncDecision.nextAnchor;
@@ -3230,9 +3234,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           volTex = vol.renderToTexture(dtSec);
           if (volSettleRef.current > 0) {
             volSettleRef.current--;
-            if (volSettleRef.current === 0) volRefineRef.current = VOL_REFINE_FRAMES;
+            if (volSettleRef.current === 0 && (skySettingsRef.current.volumetricRefine ?? true)) { volRefineRef.current = VOL_REFINE_FRAMES; volRefineStartRef.current = performance.now(); }
             if (framesToRenderRef.current < 2) framesToRenderRef.current = 2;
-          } else if (volRefineRef.current > 0 && !isInteractingNow && !isSlidingNow) {
+          } else if (volRefineRef.current > 0 && (isInteractingNow || isSlidingNow || performance.now() - volRefineStartRef.current > VOL_REFINE_MAX_MS)) {
+            volRefineRef.current = 0;   // 손을 대거나 시간 상한을 넘기면 다듬기를 끝냄(느린 기기에서 오래 붙잡지 않게)
+          } else if (volRefineRef.current > 0) {
             // 정착 뒤 다듬기(2026-11-26 알갱이 잡음): 시간 업스케일은 화소마다 16 프레임에 표본 하나라, 정착(18 프레임)에서 멈추면
             // 표본 1 개의 행진 잡음이 굳습니다. 손을 뗀 채로 몇 초 더 그려 구름 패스의 누적(cloudAccum)이 표본을 평균하게 합니다.
             volRefineRef.current--;

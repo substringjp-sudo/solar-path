@@ -48,6 +48,8 @@ export interface SkySettings {
   volumetricAccurateSun?: boolean;
   volumetricLowSunShadow?: boolean;
   volumetricFarSun?: boolean;
+  /** 구름 알갱이 다듬기(표본 누적 + 정착 뒤 몇 초 더 그림, PR #171). 끄면 그 전과 같음. 기본 켬. */
+  volumetricRefine?: boolean;
   volumetricSheetDiffuse?: boolean;
   diagRawTerrain?: boolean;
   volumetricClampInscatter?: boolean;
