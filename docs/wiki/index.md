@@ -27,4 +27,5 @@ BeforeGlow(solar-path) LLM 위키. 처음이면 [개요](overview.md) → [결�
 - [하네스 · 판정](harness-verification.md) — volsky 잡 필드, 판정 스크립트, 함정
 - [기기 디버깅](device-debugging.md) — 개발 패널 여는 법, 상태 줄 읽기, 칩
 - [계산 지도](compute-triggers.md) — 날짜 · 장소 / 시간 / 카메라가 바뀔 때 무엇이 계산되나
+- [최적화 검토](optimization-review.md) — 중복 · 재사용 · 근사 · 낮은 복잡도 · 미리 만든 표, 항목별
 - [성능](performance.md) — 시간 스크롤 · 카메라 회전 때 도는 일과 비용, 개선 후보
