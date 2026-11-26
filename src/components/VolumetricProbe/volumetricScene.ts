@@ -65,6 +65,10 @@ import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
 import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
+/** §25.8 먼 거리 가림 지도가 시작하는 거리(km) — 해 쪽 추적은 지도가 켜지면 여기까지만 걷습니다. */
+export const FAR_NEAR_KM = 12;
+/** 해 쪽 추적 거리 상한(m) — 지도가 꺼져 있을 때. */
+const SUN_MARCH_MAX_M = 40000;
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveDrift, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
@@ -1668,9 +1672,11 @@ export async function createVolumetricScene(
     cu.cloudAirShadeC.value = Math.max(lastAirShadeC, farAirShadeV);
   };
   let lastAirShadeC = 0;
+  // §25.8 해 쪽 추적 거리 상한 — 먼 거리 가림 지도가 켜지면 그 지도가 FAR_NEAR_KM 너머를 맡으므로 추적은 거기까지만(그늘 두 번 셈 방지).
+  const setSunMaxM = (m: number) => { for (const mat of [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial]) { const u = (mat as unknown as { uniforms: Record<string, { value: number }> }).uniforms.genusSunMaxM; if (u) u.value = m; } };
   const applyFarSun = (p: VolumetricSceneInput, sunAltDeg: number) => {
     const cm = clouds.cloudsPass.currentMaterial as never;
-    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); return; }
+    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); setSunMaxM(SUN_MARCH_MAX_M); return; }
     const ls = p.layers.slice(0, 4);
     const bandRange = (b: 'low' | 'mid' | 'high', d: [number, number]): [number, number] => {
       let lo = Infinity, hi = -Infinity;
@@ -1712,7 +1718,7 @@ export async function createVolumetricScene(
         { ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg },
         draft ? 24 : 32,
         300,
-        12,
+        FAR_NEAR_KM,
         420,
         draft ? 12 : 8,
         farCover.grids,
@@ -1722,6 +1728,7 @@ export async function createVolumetricScene(
     const ch = ls.map(x => (x?.band === 'mid' ? 1 : x?.band === 'high' ? 2 : 0));
     while (ch.length < 4) ch.push(0);
     setFarSunUniforms(cm, farMap.map, ch as [number, number, number, number]);
+    setSunMaxM(FAR_NEAR_KM * 1000);
     lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3], tAirHere: farMap.map.centerT[3] };
     // 일몰 후(태양 고도 < −0.5°) 및 고도 10° 접근 시 부드럽게 감쇠해 farSun 온/오프 경계 단차를 없앱니다.
     const airSunWeight = Math.min(1, Math.max(0, (sunAltDeg + 0.5) / 1.3));
