@@ -1,5 +1,6 @@
 # 위키 기록 (위에 새 줄)
 
+- 2026-11-26 · 병합 — #167 · #169 · #170 · #168(위키) 을 사용자 요청으로 main 에 병합. #169 와 #167 이 volumetricScene.ts import 에서 충돌(양쪽 추가 — 둘 다 유지). verify-slider-settle 2 실패는 main 에도 있던 것.
 - 2026-11-26 · optimization-review — 1번 묶음(A1~A4 · D1 · D2) 을 PR #170 으로. 화소 비교는 A/A 흔들림 수준, D2 는 표 보간 대신 정확 메모.
 - 2026-11-26 · optimization-review.md 추가 — 17 항목(정확 · 근사 · 표 구분, 추천 순서).
 - 2026-11-26 · compute-triggers.md 추가 — 날짜 · 장소 / 시간 / 카메라 계산 지도(코드 읽기).
