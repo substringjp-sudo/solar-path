@@ -5,6 +5,7 @@ BeforeGlow(solar-path) LLM 위키. 처음이면 [개요](overview.md) → [결�
 ## 전체
 - [개요](overview.md) — 앱이 무엇이고 어떻게 짜였나, 원칙, 코드 지도
 - [결정 · 사용자 선호](decisions.md) — 새 작업 전에 읽을 것
+- [작업 히스토리](history.md) — PR #34~#168 을 단계별로(언제 무엇을)
 - [남은 일](open-issues.md) — 열린 문제 한곳에
 - [용어집](glossary.md) · [출처 지도](sources.md)
 
