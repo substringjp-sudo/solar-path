@@ -15,3 +15,4 @@
 - 타입: `npx tsc --noEmit -p .`
 - 구름 판정: `node tools/shader-preview/verify-cloud-light.js` · `verify-cloud-edge.js` · `verify-cloud-cells.js`
 - 볼륨 하네스: `bash tools/genus-ruler/volsky/build.sh` 후 `node tools/genus-ruler/volsky/run.js jobs.json outDir W H` — 함정은 `docs/wiki/harness-verification.md`.
+- **볼륨 하네스는 사용자 맥북(실제 GPU, 폰과 비슷한 한도)에서 돌리는 것이 기본**: `node tools/genus-ruler/volsky/run-desktop.js jobs.json outDir W H`(맥북 `_host`). 컨테이너 SwiftShader(`run.js`)는 텍스처 단위 한도 같은 기기 제약을 가려서 보조로만 쓴다.
