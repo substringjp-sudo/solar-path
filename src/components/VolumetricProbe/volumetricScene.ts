@@ -65,7 +65,7 @@ import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
 import { PREWARM_SLICE_MS } from '../../utils/sliderSettle';
-import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
+import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgePixelRad, setEdgeRough } from './cloudEdge';
 /**
  * §25.9 렌더가 구름 속 밀도를 남기는 몫(구름이 덮은 화소의 머리 위 기둥 τ 중앙값 ÷ 미세물리 tauRendered).
  * 하네스 측정(2026-11-26, 미세물리 · 흐름 · 세포 · 가장자리 거칠기 켬, 운량 0.6, 밀도 0.03 배 선형 구간):
@@ -960,6 +960,7 @@ export async function createVolumetricScene(
     lodUniforms.weatherLodOn.value = opt.weatherLod != null && opt.genus ? 1 : 0;
     lodUniforms.weatherLodBias.value = opt.weatherLod ?? 0;
     lodUniforms.weatherPixelAngle.value = radians(camera.fov) / Math.max(1, viewH * clouds.resolutionScale);
+    setEdgePixelRad(clouds.cloudsPass.currentMaterial as never, lodUniforms.weatherPixelAngle.value as number);
   };
   /** §178 대기 효과의 고치기 전 글자(앱 패치까지 넣은 것) — clampInscatter·irradianceLogMu 를 켜고 끌 때 여기서 다시 만듭니다. */
   let aerialBase = '';
