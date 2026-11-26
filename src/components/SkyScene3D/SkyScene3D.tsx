@@ -153,6 +153,7 @@ import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
 import {
   evaluateVolDateSync,
   buildDayPrewarmBuckets,
+  nextPrewarmBucket,
   type VolDateSyncState,
 } from '../../utils/sliderSettle';
 // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 경로로 활성화
@@ -2912,26 +2913,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
       const metarSnap = metarRef.current;
       const fillSnap = skySettingsRef.current.volumetricFill ?? true;
+      // 2026-11-26 시간 막대를 끄는 동안에도 굽기(짧은 조각) — 예전에는 끄는 동안 멈춰, 안 구운 시간으로 가면 구름이 수 초 늦게 바뀌었음.
+      // 같은 텍스처를 미리 만드는 것뿐이라 손을 뗐을 때 그림은 그대로(근사 없음). 지금 장면 굽기(volPending)가 우선.
       const shouldPausePrewarm = () =>
         !isActiveRef.current ||
         !glVisibleForProgress(zoomProgressRef.current) ||
-        isSlidingRef.current ||
         useCelestialStore.getState().isGestureBlocked ||
         volPendingRef.current ||
-        volSettleRef.current > 0;
+        (volSettleRef.current > 0 && !isSlidingRef.current);
+      const focusBucketNow = () => Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000;
       (async () => {
         const totalHours = hourBuckets.length;
         await new Promise(r => setTimeout(r, 1500));
         let reportedActive = false;
         const readyMs: number[] = [];
         setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
+        const remaining = hourBuckets.slice();
         for (let idx = 0; idx < totalHours; idx++) {
           if (aborted) return;
           while (shouldPausePrewarm() && !aborted) {
             await new Promise(r => setTimeout(r, 60));
           }
           if (aborted) return;
-          const bMs = hourBuckets[idx];
+          // 막대가 움직였으면 지금 가리키는 시간 칸에 가장 가까운 것부터.
+          const bMs = nextPrewarmBucket(remaining, focusBucketNow())!;
+          remaining.splice(remaining.indexOf(bMs), 1);
           const bDate = new Date(bMs);
           const bWx = getInterpolatedWeather(vPath, bDate);
           const input = live.buildLiveScene({
@@ -2946,7 +2952,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               reportedActive = true;
               setVolumetricStatus({ prewarm: { active: true, done: idx, total: totalHours, readyMs: readyMs.slice() } });
             }
-            await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm);
+            await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm, true);
             if (aborted) return;
           }
           const done = idx + 1;
@@ -3120,7 +3126,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             });
           }
         }
-        if (live && volHasSceneRef.current && !isInteractingNow && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
+        // 시간 막대를 끄는 중에도 시작(다른 날로 넘어가면 그날을 곧바로 굽기 시작) — 다른 상호작용(회전 · 이동) 중에는 예전처럼 기다림.
+        if (live && volHasSceneRef.current && (!isInteractingNow || isSlidingNow) && !volPendingRef.current && vPath.length > 0 && vol.prewarmScenesAsync) {
           startDayPrewarmIfNeeded(live, vol, vLat, vLon, vElev, vDate, vBucketMs, vPath, effectiveAz, effectiveElev, altitudeM);
         }
         if (volHasSceneRef.current) {

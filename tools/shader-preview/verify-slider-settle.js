@@ -226,6 +226,25 @@ const ok = (cond, label) => {
        `날씨/파동 3D/원시 파동 캐시 한도가 모두 32로 일치 (weather=${weatherSize}, wave=${waveSize}, raw=${rawWaveSize})`);
   }
 
+  console.log('\n[5] 시간 막대를 끄는 동안 미리 굽기(2026-11-26)');
+  {
+    const H = 3600000, day = Date.UTC(2026, 10, 26, 0, 0, 0);
+    const b = h => day + h * H + 1800000;
+    const rem = [b(5), b(9), b(10), b(12), b(20)];
+    ok(S.nextPrewarmBucket(rem, b(11)) === b(12), '가까운 칸 둘(10 · 12시)이 같으면 앞(미래) 쪽부터');
+    ok(S.nextPrewarmBucket(rem, b(6)) === b(5), '막대가 움직이면 새 위치에 가장 가까운 칸');
+    ok(S.nextPrewarmBucket([], b(6)) === null, '남은 칸 없으면 null');
+    ok(S.PREWARM_SLICE_MS.interacting < S.PREWARM_SLICE_MS.idle && S.PREWARM_SLICE_MS.interacting <= 4, `끄는 동안 조각 ${S.PREWARM_SLICE_MS.interacting} ms(평소 ${S.PREWARM_SLICE_MS.idle} ms)`);
+    const repoRoot = path.resolve(__dirname, '../..');
+    const sky = fs.readFileSync(path.join(repoRoot, 'src/components/SkyScene3D/SkyScene3D.tsx'), 'utf8');
+    const vol = fs.readFileSync(path.join(repoRoot, 'src/components/VolumetricProbe/volumetricScene.ts'), 'utf8');
+    const pause = sky.match(/const shouldPausePrewarm = \(\) =>([\s\S]*?);\n/)?.[1] ?? '';
+    ok(pause && !/isSlidingRef\.current \|\|/.test(pause) && /volSettleRef\.current > 0 && !isSlidingRef\.current/.test(pause), '끄는 중에는 멈추지 않음(정착 프레임도 끄는 중엔 무시), 지금 장면 굽기는 우선');
+    ok(/nextPrewarmBucket\(remaining, focusBucketNow\(\)\)/.test(sky), '매 칸 지금 막대 위치로 순서를 다시 정함');
+    ok(/prewarmScenesAsync!\(\[input\], \(\) => aborted, undefined, shouldPausePrewarm, true\)/.test(sky) && /\(isInteracting && !allowWhileInteracting\)/.test(vol), '끄는 중 굽기 허용이 장면까지 이어짐');
+    ok(/\(!isInteractingNow \|\| isSlidingNow\) && !volPendingRef\.current/.test(sky), '끄는 중에도 그날 미리 굽기를 시작');
+  }
+
   console.log(`\n결과: ${pass} PASS / ${fail} FAIL`);
   process.exit(fail > 0 ? 1 : 0);
 })();

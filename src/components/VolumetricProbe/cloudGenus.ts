@@ -1367,16 +1367,18 @@ export function makeGenusWeather(
  */
 export async function makeGenusWeatherAsync(
   layers: (GenusLayer | null)[], S = 256, tileKm = 24, seed = 7, plainCover: number[] = [],
-  sliceMs = 16, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
+  sliceMs: number | (() => number) = 16, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
   restMs = 0, shouldPause?: () => boolean,
 ): Promise<DataTexture | null> {
+  // 조각 길이는 함수로도 받음 — 미리 굽기가 끄는 동안 짧게, 손을 떼면 길게(같은 굽기를 이어서).
+  const slice = typeof sliceMs === 'function' ? sliceMs : () => sliceMs;
   const data = new Uint8Array(S * S * 4);
   const stats = {};
   const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow, stats);
   let t0 = Date.now();
   for (; ;) {
     if (it.next().done) break;
-    if (Date.now() - t0 >= sliceMs) {
+    if (Date.now() - t0 >= slice()) {
       await new Promise<void>(r => setTimeout(r, restMs));
       while (shouldPause?.() && !cancelled()) {
         await new Promise<void>(r => setTimeout(r, 80));
