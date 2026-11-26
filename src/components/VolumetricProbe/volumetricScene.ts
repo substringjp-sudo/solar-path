@@ -65,6 +65,7 @@ import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
 import { PREWARM_SLICE_MS } from '../../utils/sliderSettle';
+import { volumetricStats } from '../../utils/volumetricGovernor';
 import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgePixelRad, setEdgeRough } from './cloudEdge';
 /**
  * §25.9 렌더가 구름 속 밀도를 남기는 몫(구름이 덮은 화소의 머리 위 기둥 τ 중앙값 ÷ 미세물리 tauRendered).
@@ -1851,6 +1852,22 @@ export async function createVolumetricScene(
   let sceneSerial = 0;
   /** §173 관측점의 종류 평면 좌표(km) = weatherOffsetKm ?? camKm ?? 0 — 아틀라스 중심(하네스 구축 입력). */
   let tsunObsKm: [number, number] = [0, 0];
+  /** 2026-11-26 기기 진단 — 구름 패스 프로그램의 활성 샘플러 수와 기기 한도(개발 패널에 표시). 한도를 넘으면 기기마다 그림이 깨지거나 엉뚱한 텍스처를 읽습니다. */
+  let samplerProbeN = 0;
+  const probeSamplers = () => {
+    try {
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      volumetricStats.texUnits = Number(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)) || 0;
+      const props = (renderer as unknown as { properties: { get(o: object): { currentProgram?: { program?: WebGLProgram } } } }).properties;
+      const prog = props.get(clouds.cloudsPass.currentMaterial as unknown as object)?.currentProgram?.program;
+      if (!prog) return;
+      const n = Number(gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS)) || 0;
+      const samplerTypes: number[] = [gl.SAMPLER_2D, gl.SAMPLER_3D, gl.SAMPLER_2D_ARRAY, gl.SAMPLER_CUBE, gl.SAMPLER_2D_SHADOW];
+      let c = 0;
+      for (let i = 0; i < n; i++) { const u = gl.getActiveUniform(prog, i); if (u && samplerTypes.includes(u.type)) c += u.size; }
+      volumetricStats.cloudSamplers = c;
+    } catch { /* 진단 전용 — 실패해도 그리기에는 영향 없음 */ }
+  };
   const maxTextureUnits = () => (renderer.capabilities as unknown as { maxTextures?: number } | undefined)?.maxTextures;
   const applyTsun = () => {
     const mat = clouds.cloudsPass.currentMaterial as never;
@@ -3335,6 +3352,7 @@ export async function createVolumetricScene(
     // postprocessing 은 렌더러의 autoClear 를 끕니다 — 하늘 화면 합성기는 제 몫을 스스로 정하지만, 다른 직접 그리기
     // 경로(스냅샷 등)가 놀라지 않게 되돌립니다.
     renderToTexture: dt => {
+      if ((samplerProbeN++ & 127) === 0) probeSamplers();
       const prevAutoClear = renderer.autoClear;
       tonePass.renderToScreen = false; setCloudAlphaOut(true); composer.render(dt);
       renderer.autoClear = prevAutoClear;
