@@ -49,8 +49,13 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
   const ov = M.applyMetarToObs(obs, { ...k, distanceKm: 30 }, T0 - 60 * 60_000, 100);
   ok(ov && ov.obs.low === 75 && near(ov.obs.lowDeckBaseKm, 0.557, 0.001) && near(ov.obs.lowDeckTopKm, 0.557 + 0.7, 0.001) && ov.obs.precipitation === 0.5, `60 분 전·30 km → 저 ${ov?.obs.low}% 밑면 ${ov?.obs.lowDeckBaseKm?.toFixed(3)} km 윗면 ${ov?.obs.lowDeckTopKm?.toFixed(3)} 강수 ${ov?.obs.precipitation}`);
   ok(obs.low === 24 && obs.lowDeckBaseKm === 1.2, '원본 obs 불변');
-  ok(M.applyMetarToObs(obs, { ...k, distanceKm: 30 }, T0 + 2 * 3600_000, 100) === null, '2 시간 뒤 → 무시');
-  ok(M.applyMetarToObs(obs, { ...k, distanceKm: 80 }, T0, 100) === null, '80 km → 무시');
+  // 2026-11-27: 창 밖은 한 번에 끊기지 않고 서서히 — 보고 ±90 분 · 60 km 는 무게 1, 240 분 · 120 km 에서 0. 숫자(운량)는 무게만큼 섞임.
+  const late = M.applyMetarToObs(obs, { ...k, distanceKm: 30 }, T0 + 2 * 3600_000, 100);
+  ok(late && late.obs.low > 24 && late.obs.low < 75 && near(late.obs.low, 24 + (75 - 24) * 0.8, 0.01), `2 시간 뒤 → 무게 0.8 로 섞임(저 ${late?.obs.low?.toFixed(1)}%)`);
+  ok(M.applyMetarToObs(obs, { ...k, distanceKm: 30 }, T0 + 4 * 3600_000, 100) === null, '4 시간 뒤 → 무게 0 → 무시');
+  const far = M.applyMetarToObs(obs, { ...k, distanceKm: 80 }, T0, 100);
+  ok(far && near(far.obs.low, 24 + (75 - 24) * (40 / 60), 0.01), `80 km → 무게 0.67 로 섞임(저 ${far?.obs.low?.toFixed(1)}%)`);
+  ok(M.applyMetarToObs(obs, { ...k, distanceKm: 130 }, T0, 100) === null, '130 km → 무게 0 → 무시');
   ok(M.applyMetarToObs(obs, null, T0, 100) === null, 'METAR 없음 → null');
   const ovRain = M.applyMetarToObs({ ...obs, low: 94.3, total: 98.8, precipitation: 0.45 }, { ...k, distanceKm: 39 }, T0, 4);
   ok(ovRain && ovRain.obs.low >= 88 && near(ovRain.obs.lowDeckBaseKm, 0.461, 0.01) && /METAR RJNK/.test(ovRain.note),
