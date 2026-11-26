@@ -1391,6 +1391,64 @@ export async function makeGenusWeatherAsync(
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+/**
+ * 위키 optimization-review A2 · A3(2026-11-26): takram 다중 산란 근사를 같은 값으로 싸게.
+ *  - 위상(이중 HG, 옥타브마다 2 pow)은 cosθ(시선 · 해 각)에만 달림 — 한 화소 안에서 일정하므로 처음 한 번만 세어 두고 다시 씀.
+ *  - 옥타브 감쇠 exp(−τ·0.5ⁱ) 8 번 → 가장 작은 것 exp 1 번 + 제곱 7 번(e^(−τ/2ⁱ) = (e^(−τ/2ⁱ⁺¹))²).
+ * 합 순서만 바뀜(부동소수 반올림 수준 차이). 구름 패스에만 있음(그림자 패스엔 이 함수가 없음).
+ */
+export const MULTI_SCATTER_ORIG = [
+  'float approximateMultipleScattering(const float opticalDepth, const float cosTheta) {',
+  '  // Multiple scattering approximation',
+  '  // See: https://fpsunflower.github.io/ckulla/data/oz_volumes.pdf',
+  '  // a: attenuation, b: contribution, c: phase attenuation',
+  '  vec3 coeffs = vec3(1.0); // [a, b, c]',
+  '  const vec3 attenuation = vec3(0.5, 0.5, 0.5); // Should satisfy a <= b',
+  '  float scattering = 0.0;',
+  '  float beerLambert;',
+  '  #pragma unroll_loop_start',
+  '  for (int i = 0; i < 12; ++i) {',
+  '    #if UNROLLED_LOOP_INDEX < MULTI_SCATTERING_OCTAVES',
+  '    beerLambert = exp(-opticalDepth * coeffs.y);',
+  '    scattering += coeffs.x * beerLambert * phaseFunction(cosTheta, coeffs.z);',
+  '    coeffs *= attenuation;',
+  '    #endif // UNROLLED_LOOP_INDEX < MULTI_SCATTERING_OCTAVES',
+  '  }',
+  '  #pragma unroll_loop_end',
+  '  return scattering;',
+  '}',
+].join('\n');
+export const MULTI_SCATTER_FAST = [
+  'float gMsCos = 2.0;',
+  'float gMsPhase[MULTI_SCATTERING_OCTAVES];',
+  'float approximateMultipleScattering(const float opticalDepth, const float cosTheta) {',
+  '  if (cosTheta != gMsCos) {',
+  '    gMsCos = cosTheta;',
+  '    float gC = 1.0;',
+  '    for (int i = 0; i < MULTI_SCATTERING_OCTAVES; ++i) { gMsPhase[i] = phaseFunction(cosTheta, gC); gC *= 0.5; }',
+  '  }',
+  '  float gA = exp2(-float(MULTI_SCATTERING_OCTAVES - 1));',
+  '  float gBl = exp(-opticalDepth * gA);',
+  '  float scattering = 0.0;',
+  '  for (int i = MULTI_SCATTERING_OCTAVES - 1; i >= 0; --i) { scattering += gA * gBl * gMsPhase[i]; gBl *= gBl; gA *= 2.0; }',
+  '  return scattering;',
+  '}',
+].join('\n');
+export function patchMultiScatterCache(mat: PatchableMaterial): void {
+  const src = mat.fragmentShader;
+  const head = 'float approximateMultipleScattering(const float opticalDepth, const float cosTheta) {';
+  const i = src.indexOf(head);
+  if (i < 0) return;   // 그림자 패스 — 함수 없음
+  const tail = '  return scattering;\n}';
+  const j = src.indexOf(tail, i);
+  const body = j > i ? src.slice(i, j + tail.length) : '';
+  // 원식의 핵심 줄이 그대로인지 확인(공백 · 주석 차이는 허용) — 바뀌었으면 손대지 않음.
+  if (!body || !/exp\(-opticalDepth \* coeffs\.y\)/.test(body) || !/coeffs\.x \* beerLambert \* phaseFunction\(cosTheta, coeffs\.z\)/.test(body) || !/vec3\(0\.5, 0\.5, 0\.5\)/.test(body)) {
+    throw new Error('cloudGenus: multiscatter anchor changed');
+  }
+  mat.fragmentShader = src.slice(0, i) + MULTI_SCATTER_FAST + src.slice(i + body.length);
+  mat.needsUpdate = true;
+}
 /** §126.6 햇빛 확산 투과(thru) 블록 — patchGenusShader 가 넣고 §138 injectGenusDiffuse 가 같은 글자를 찾아 바꿉니다(한 상수). */
 const THRU_BLOCK = [
   '',
@@ -1868,7 +1926,9 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
     const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
     // 덱 아래 확산광(gUnderJ)은 역광 감쇠(직사광 실루엣용) 뒤에 더함 — 해를 마주볼 때 덱 τ 로 편운이 검게 되던 것.
-    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', [
+    // 위키 optimization-review A4(2026-11-26): 확산장의 기둥 τ 는 하늘빛 블록(DIFF_SKY_FLOOR, 앞서 실행)이 같은 입력 · 같은 식(COLW)으로
+    //   이미 구해 gTauAo · gTauTo 에 둔 값 — 다시 돌리지 않고 씀(8 걸음 × 4 레인 루프 한 번 절약, 값 동일).
+    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, '        vec4 gTauA = gTauAo;\n        vec4 gTauT = gTauTo;').replace('radiance += gJ * dot(genusOn, media.weight);', [
       // 2026-11-12 방향 보정: J 는 4π 평균 휘도라 등방 산란원으로 쓰면 덱 밑에서 올려다볼 때(아래로 가는 빛을 봄) 절반쯤 어두움.
       // 두-흐름의 순 흐름 비 f = F_net/(F↓+F↑) ≈ T/D 로 L ≈ J·(1 + f·μ), μ = 빛 진행(아래)과 눈으로 오는 방향의 코사인 = dot(시선, 위).
       // 밑면(f≈1)을 올려다보면 2J = F↓/π, 위에서 내려다보면 0 쪽(아래로 빠져나간 빛은 안 보임).

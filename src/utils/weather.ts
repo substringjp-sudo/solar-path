@@ -1378,10 +1378,36 @@ const monotoneCubicHermite = (y0: number, y1: number, y2: number, y3: number, u:
 /**
  * Interpolates hourly weather data for a specific time.
  */
+/**
+ * 위키 optimization-review D1(2026-11-26): 같은 예보 · 같은 시각의 보간을 여러 곳(볼륨 장면 · 연속 갱신 · 노을 예측 · 옛 하늘 …)이
+ * 따로 부르므로, 예보 배열마다 최근 시각 몇 개의 결과를 기억합니다(값 동일 — 같은 입력의 같은 계산). 결과는 읽기 전용으로 씁니다.
+ */
+const INTERP_MEMO_MAX = 8;
+const interpMemo = new WeakMap<CloudPathData[], Map<number, CloudData[]>>();
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
   if (!pathData || !Array.isArray(pathData)) return [];
+  const ms = targetTime.getTime();
+  let memo = interpMemo.get(pathData);
+  const hit = memo?.get(ms);
+  if (hit) return hit;
+  const out = interpolateWeatherAt(pathData, ms);
+  if (!memo) { memo = new Map(); interpMemo.set(pathData, memo); }
+  memo.set(ms, out);
+  if (memo.size > INTERP_MEMO_MAX) memo.delete(memo.keys().next().value as number);
+  return out;
+};
 
-  const targetMs = targetTime.getTime();
+/** 시각 배열에서 targetMs 를 넘지 않는 마지막 칸(앞 칸) — 예전 선형 탐색(while times[i+1] < target)과 같은 i 를 이분 탐색으로. */
+export function bracketIndex(times: readonly number[], targetMs: number): number {
+  let lo = 0, hi = times.length - 1;   // 답 i ∈ [0, len−1]: times[i+1] < target 인 동안 i++ 와 같음
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (times[mid] < targetMs) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+const interpolateWeatherAt = (pathData: CloudPathData[], targetMs: number): CloudData[] => {
   return pathData.map(p => {
     if (!p?.hourly?.time || !p?.hourly?.high || !p?.hourly?.low) {
       return { high: 0, mid: 0, low: 0, distance: p.distance || 0, azimuthOffset: p.azimuthOffset || 0 };
@@ -1394,9 +1420,8 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       return { distance: p.distance || 0, azimuthOffset: p.azimuthOffset || 0, low: 0, mid: 0, high: 0 };
     }
 
-    // Find the two nearest hours
-    let i = 0;
-    while (i < times.length - 1 && times[i + 1] < targetMs) i++;
+    // Find the two nearest hours(이분 탐색 — 예전 선형 탐색과 같은 칸)
+    const i = bracketIndex(times, targetMs);
 
     const t1 = times[i];
     const t2 = times[i + 1] || t1 + 3600000;
