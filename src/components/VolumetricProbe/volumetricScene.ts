@@ -64,6 +64,7 @@ import { patchMultiScatterCache, flowCamCellOffsetKm, flowCoverIn, genusCoverIn,
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
+import { PREWARM_SLICE_MS } from '../../utils/sliderSettle';
 import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgeRough } from './cloudEdge';
 /**
  * §25.9 렌더가 구름 속 밀도를 남기는 몫(구름이 덮은 화소의 머리 위 기둥 τ 중앙값 ÷ 미세물리 tauRendered).
@@ -615,6 +616,8 @@ export interface VolumetricScene {
     shouldAbort?: () => boolean,
     onProgress?: (done: number, total: number) => void,
     shouldPause?: () => boolean,
+    /** 끄는(상호작용) 동안에도 굽기 — 조각을 PREWARM_SLICE_MS.interacting 으로 짧게. 기본 거짓(예전처럼 멈춤). */
+    allowWhileInteracting?: boolean,
   ): Promise<number>;
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
@@ -2836,12 +2839,14 @@ export async function createVolumetricScene(
     shouldAbort?: () => boolean,
     onProgress?: (done: number, total: number) => void,
     shouldPause?: () => boolean,
+    allowWhileInteracting = false,
   ): Promise<number> => {
     let doneCount = 0;
     const total = inputs.length;
     const seenKeys = new Set<string>();
     const seenWaveKeys = new Set<string>();
-    const isPaused = () => isInteracting || !!shouldPause?.();
+    const isPaused = () => (isInteracting && !allowWhileInteracting) || !!shouldPause?.();
+    const sliceNow = () => (isInteracting ? PREWARM_SLICE_MS.interacting : PREWARM_SLICE_MS.idle);
     for (let idx = 0; idx < inputs.length; idx++) {
       const p = inputs[idx];
       while (isPaused() && !shouldAbort?.() && !disposed) {
@@ -2856,7 +2861,7 @@ export async function createVolumetricScene(
         if (!tex) {
           didWork = true;
           const bakedTex = plan.useGenus
-            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 14, () => !!shouldAbort?.() || disposed, plan.flow, 0, isPaused)
+            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, sliceNow, () => !!shouldAbort?.() || disposed, plan.flow, 0, isPaused)
             : makeWeather(plan.plain, opt);
           if (!bakedTex || shouldAbort?.() || disposed) {
             bakedTex?.dispose();
@@ -2872,7 +2877,7 @@ export async function createVolumetricScene(
           seenWaveKeys.add(wKey);
           if (!waveCacheGet(wKey)) {
             didWork = true;
-            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 14, 0, isPaused);
+            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, PREWARM_SLICE_MS.interacting, 0, isPaused);
             if (!field || shouldAbort?.() || disposed) {
               field?.tex.dispose();
               return doneCount;
