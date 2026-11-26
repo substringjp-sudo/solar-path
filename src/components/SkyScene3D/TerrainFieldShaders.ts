@@ -813,6 +813,31 @@ void main() {
   waterRaw *= (1.0 - smoothstep(0.45, 0.75, paveAny)) * (1.0 - smoothstep(0.8, 1.8, slope));
   float waterMix = smoothstep(0.25, 0.65, waterRaw);
 
+  // ── 구름 특유의 십자(+) 무늬가 겹쳐진 지면 스티플 직조 질감 (0.6 m ~ 4.5 km 전 구간) ──
+  // 대각선 이웃은 배제하고 중심(0,0)과 상하좌우 팔(±1, ±2)만 합산하는 십자(+) 임펄스 컨볼루션을 2겹으로 중첩합니다.
+  float lodCont = clamp(log2(max(0.20, pixG * 1.85)), -1.0, 5.0);
+  float lodLo = floor(lodCont);
+  float lodFrac = fract(lodCont);
+  float dotCell0 = exp2(lodLo);
+  float dotCell1 = dotCell0 * 2.0;
+  vec2 gP0 = floor(wGround / dotCell0);
+  vec2 gP1 = floor(wGround / dotCell1 + vec2(19.3, 41.7));
+  float cImp0 = (smoothstep(0.66, 0.96, tn_hash(gP0)) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP0))) * 0.95
+    + ((smoothstep(0.66, 0.96, tn_hash(gP0 + vec2(1.0, 0.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP0 + vec2(1.0, 0.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP0 - vec2(1.0, 0.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP0 - vec2(1.0, 0.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP0 + vec2(0.0, 1.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP0 + vec2(0.0, 1.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP0 - vec2(0.0, 1.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP0 - vec2(0.0, 1.0))))) * 0.62;
+  float cImp1 = (smoothstep(0.66, 0.96, tn_hash(gP1)) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP1))) * 0.95
+    + ((smoothstep(0.66, 0.96, tn_hash(gP1 + vec2(1.0, 0.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP1 + vec2(1.0, 0.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP1 - vec2(1.0, 0.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP1 - vec2(1.0, 0.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP1 + vec2(0.0, 1.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP1 + vec2(0.0, 1.0))))
+     + (smoothstep(0.66, 0.96, tn_hash(gP1 - vec2(0.0, 1.0))) - smoothstep(0.66, 0.96, 1.0 - tn_hash(gP1 - vec2(0.0, 1.0))))) * 0.62;
+  float crossWeave = clamp(mix(cImp0, cImp1, lodFrac) * 0.65 + cImp1 * 0.35, -1.25, 1.25);
+  float dotDistFade = (1.0 - smoothstep(2200.0, 5500.0, vDistM)) * (1.0 - 0.85 * waterMix);
+  float voxelGrain = crossWeave * dotDistFade;
+  float voxelPaveScale = mix(1.0, 0.45, paveAny);
+  alb *= 1.0 + voxelGrain * 0.14 * voxelPaveScale;
+
 #ifdef TERRAIN_LIT_OUT
   // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §157 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
   //
@@ -830,6 +855,7 @@ void main() {
     alb = mix(alb, alb * 0.52, wet);
     alb = mix(alb, albUrban, urbanMask);
     alb = mix(mix(alb, albConcrete, paveC), albAsphalt, paveA);
+    alb *= 1.0 + voxelGrain * 0.14 * voxelPaveScale;
   }
 
   // ── 알베도 얼룩 + 초근접 입자감 ─────────────────────────────────────────
@@ -898,7 +924,7 @@ void main() {
   float crackOcc = clamp(rockCrack * 0.55 * mix(0.4, 1.0, rockMaskHi), 0.0, 0.45);
   float microAo = mix(1.0, clamp(mix(0.76, 1.16, detailH) - crackOcc * 0.20, 0.60, 1.14), microStrength);
   float microDirect = mix(1.0, clamp(mix(0.80, 1.16, detailH) - crackOcc * 0.16, 0.64, 1.14), microStrength);
-  float litOut = litFactor * microDirect;
+  float litOut = clamp(litFactor * microDirect * (1.0 + voxelGrain * 0.08 * voxelPaveScale), 0.0, 1.0);
 
   // ── 하늘빛 몫: 지평선 가림(AO) × 사면 방향(반구) × Micro Cavity AO ────────
   // 수평면이 받는 하늘 조도(takram) 에 곱합니다. 직달이 구름에 가려진 날 땅의 형태를 보여 주는 것은 이것뿐입니다.
@@ -910,6 +936,7 @@ void main() {
   float terrainAzWrap = 1.0 + nightAzW * (0.34 * dot(nHorizT, cDirT) + 0.12 * dot(nHorizT, cPerpT));
   float ridgeOcc = 1.0 + 0.28 * (convex - 0.5) * (1.0 - paveAny);
   float amb = mix(1.0, aoV, uLookAo) * mix(1.0, 0.5 + 0.5 * n.y, uLookHemi) * uLookAmbGain * microAo * ridgeOcc * terrainAzWrap;
+  amb *= 1.0 + voxelGrain * 0.12 * voxelPaveScale;
   // 구름 그늘의 땅에 닿는 **구름을 뚫은 햇빛**(확산) — 직달 투과가 막힌 만큼.
   // 구름을 뚫은 햇빛은 **해 쪽이 밝은 넓은 빛**입니다(해 둘레가 가장 밝은 구름 밑면) — 랩 램버트로 사면의 향을 보여 줍니다.
   // 평지의 값으로 나눠 평평한 벌판의 밝기는 그대로 둡니다.
@@ -924,7 +951,7 @@ void main() {
   vec3 urbLitAlb = vec3(0.056, 0.058, 0.062) * urbLumaScale;
   // 포장은 도시 평균 회색(urbLitAlb, 밝기 ±30% 로 묶임)을 거치지 않고 제 색을 씁니다.
   // 풀밭 0.05 안팎에 견줘 인도(시멘트)는 밝은 회백색, 차도(아스팔트)는 차가운 암회색이며 연석(curbLine)으로 경계를 또렷이 가릅니다.
-  float paveGrain = 1.0 + 0.04 * mot + (nearW > 0.001 ? (detailGrain - 0.5) * 0.06 * nearW : 0.0);
+  float paveGrain = 1.0 + 0.04 * mot + voxelGrain * 0.09 + (nearW > 0.001 ? (detailGrain - 0.5) * 0.06 * nearW : 0.0);
   vec3 concreteLit = vec3(0.092, 0.091, 0.088) * paveGrain * (1.0 - 0.28 * curbLine);
   vec3 asphaltLit = vec3(0.023, 0.025, 0.029) * paveGrain;
   vec3 outLitAlb = mix(natLitAlb, urbLitAlb, urbanMask);
