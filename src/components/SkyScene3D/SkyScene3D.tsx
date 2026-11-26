@@ -207,7 +207,7 @@ import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
 import { useCloudTopView } from '../IsolineMap/useCloudTopView';
 import { fetchDayWeatherRing, getInterpolatedWeather, type CloudPathData } from '../../utils/weather';
-import { fetchNearestMetar, type MetarObs } from '../../utils/metar';
+import { fetchMetarReports, nearestStationLatest, type MetarObs } from '../../utils/metar';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
@@ -664,6 +664,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const isSnapshottingRef = useRef(false);
   /** §160 가장 가까운 공항 METAR(10 분마다). 오면 볼륨 장면 키를 비워 다시 만들게 합니다. */
   const metarRef = useRef<MetarObs | null>(null);
+  /** 주변 공항 여러 곳의 최근 보고 — 거시 운량 고리 보정(liveScene `metars`). */
+  const metarsRef = useRef<MetarObs[]>([]);
   /** 장면·시선이 바뀐 뒤 시간 누적(1/16 화소씩)이 차도록 더 그릴 프레임 수 */
   const volSettleRef = useRef(0);
   /** 정착 뒤 다듬기 프레임 남은 수(`VOL_REFINE_FRAMES`) — 움직이면 멈추고 다음 정착 끝에서 다시 채움. */
@@ -1748,12 +1750,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (!VOLUMETRIC_SKY_ENABLED || metarLat == null || metarLon == null) return;
     const ctl = new AbortController();
     let alive = true;
-    const pull = () => fetchNearestMetar(metarLat, metarLon, ctl.signal).then(m => {
+    const pull = () => fetchMetarReports(metarLat, metarLon, ctl.signal).then(reports => {
       if (!alive) return;
       const before = metarRef.current;
+      const m = nearestStationLatest(reports);
       metarRef.current = m;
-      // 씬이 이미/곧 그려진 상태에서 무작정 키를 비우면 권운 등 전 층이 2번 계산됨 — effectiveVolSceneKey 가 실제 운량/강수 변화 여부로 재빌드를 결정합니다.
-      if ((before?.icao ?? '') !== (m?.icao ?? '') || (before?.timeMs ?? 0) !== (m?.timeMs ?? 0)) { requestRender(3); }
+      const prevSig = metarsRef.current.length + '|' + metarsRef.current.reduce((a, r) => Math.max(a, r.timeMs), 0);
+      metarsRef.current = reports;
+      const sig = reports.length + '|' + reports.reduce((a, r) => Math.max(a, r.timeMs), 0);
+      // 씬이 이미/곧 그려진 상태에서 무작정 키를 비우면 권운 등 전 층이 2번 계산됨 — effectiveVolSceneKey 가 실제 운량/강수 변화 여부로 재빌드를 결정
+      if ((before?.icao ?? '') !== (m?.icao ?? '') || (before?.timeMs ?? 0) !== (m?.timeMs ?? 0) || prevSig !== sig) { requestRender(3); }
     }).catch(() => {});
     pull();
     const id = setInterval(pull, 10 * 60_000);
@@ -2939,6 +2945,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       prewarmCancelRef.current = () => { aborted = true; };
       const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
       const metarSnap = metarRef.current;
+      const metarsSnap = metarsRef.current;
       const fillSnap = skySettingsRef.current.volumetricFill ?? true;
       // 2026-11-26 시간 막대를 끄는 동안에도 굽기(짧은 조각) — 예전에는 끄는 동안 멈춰, 안 구운 시간으로 가면 구름이 수 초 늦게 바뀌었음.
       // 같은 텍스처를 미리 만드는 것뿐이라 손을 뗐을 때 그림은 그대로(근사 없음). 지금 장면 굽기(volPending)가 우선.
@@ -2971,7 +2978,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lat: vLat, lon: vLon, heightM: vElev, date: bDate,
             pathData: vPath, obs: bWx[0] ?? null, interpolatedWeather: bWx,
             az: effectiveAz, el: effectiveElev, fov: camera.fov,
-            altitudeM, metar: metarSnap, fill: fillSnap,
+            altitudeM, metar: metarSnap, metars: metarsSnap, fill: fillSnap,
           }).input;
           const alreadyCached = vol.hasCachedScene?.(input, false) ?? false;
           if (!alreadyCached) {
@@ -3099,7 +3106,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: vPath,
             obs: curWx[0] ?? vObs, interpolatedWeather: curWx.length ? curWx : vWx,
             az: effectiveAz, el: effectiveElev, fov: camera.fov, altitudeM,
-            metar: metarRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
+            metar: metarRef.current, metars: metarsRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
           });
           const cachedHit = vol.hasCachedScene?.(built.input, isFast) ?? false;
           if (cachedHit) {
@@ -3223,7 +3230,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: vPath,
                 obs: contWx[0] ?? null, interpolatedWeather: contWx,
                 az: effectiveAz, el: effectiveElev, fov: camera.fov, altitudeM,
-                metar: metarRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
+                metar: metarRef.current, metars: metarsRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
               });
               vol.updateContinuousScene(contBuilt.input);
               if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary + layerOpticsNote(contBuilt.input.layers, vol.physicsInfo()) });
