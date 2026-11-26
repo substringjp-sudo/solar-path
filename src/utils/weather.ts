@@ -97,6 +97,8 @@ export interface CloudData {
   pm25?: number;
   pm10?: number;
   directNormalIrradiance?: number;
+  /** 예보 전천 일사(GHI, W/m², 직전 한 시간 평균). 관측점에서만. */
+  shortwaveRadiation?: number;
   /** §160 위성 관측 일사(W/m²). 관측점에서만, 관측이 있는 시각만. τ 는 이것이 있으면 이것으로(`pickDni`). */
   satDirectNormalIrradiance?: number;
   satShortwaveRadiation?: number;
@@ -234,6 +236,8 @@ export interface HourlyCloudData {
   pm25?: (number | null)[];
   pm10?: (number | null)[];
   directNormalIrradiance?: number[];
+  /** 예보 전천 일사(GHI, W/m², 직전 한 시간 평균). 관측점에서만. */
+  shortwaveRadiation?: number[];
   /** §160 위성 **관측** 일사(W/m², 직전 한 시간 평균). 관측점에서만, 관측 없는 시각은 null. `satelliteIrradiance.ts`. */
   satDirectNormalIrradiance?: (number | null)[];
   satShortwaveRadiation?: (number | null)[];
@@ -1156,10 +1160,10 @@ export const fetchDayWeatherRing = async (
     let src = weatherSourceFor(targetDateStr, todayStr, 'ring', { historicalForbidden: isHistoricalForbidden() });
     const ringUrlFor = (sr: WeatherSource) => isArchiveOrigin(sr.origin)
       ? `${sr.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,shortwave_radiation,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
       : `${sr.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,shortwave_radiation,total_column_integrated_water_vapour,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${sr.modelParam}`;
 
     // 1) 360° 메인 구름 링 먼저 수신 (서버 지연·5xx 시 경량 단일 모델 폴백으로 1회 자동 재시도)
@@ -1262,6 +1266,8 @@ export const fetchDayWeatherRing = async (
       };
       if (qp.dist === 0) {
         hourly.directNormalIrradiance = rh?.direct_normal_irradiance;
+        // 예보 전천 일사(GHI, 직전 한 시간 평균) — 위성 관측이 없는 시각(미래)의 흐린 날 덱 두께를 맞춥니다(liveScene `deckTauFromGhi`).
+        if (Array.isArray(rh?.shortwave_radiation)) hourly.shortwaveRadiation = rh.shortwave_radiation;
         hourly.totalColumnWaterVapour = rh?.total_column_integrated_water_vapour;
         hourly.precipitation = rh?.precipitation;
         if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
@@ -1493,6 +1499,7 @@ const interpolateWeatherAt = (pathData: CloudPathData[], targetMs: number): Clou
       pm25: interpolateOpt(p.hourly.pm25 as number[] | undefined),
       pm10: interpolateOpt(p.hourly.pm10 as number[] | undefined),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
+      shortwaveRadiation: interpolateOpt(p.hourly.shortwaveRadiation),
       // §160 위성 관측: 두 시각 중 하나가 없으면 보간하지 않고 없음(관측 없는 시각을 지어내지 않음)
       satDirectNormalIrradiance: interpolateOpt(p.hourly.satDirectNormalIrradiance as number[] | undefined),
       satShortwaveRadiation: interpolateOpt(p.hourly.satShortwaveRadiation as number[] | undefined),

@@ -89,12 +89,15 @@ const FRACTUS_OPTS = { densityScale: 0.06, shapeAmount: 1, shapeDetailAmount: 1,
 const FILL_DENSITY_SCALE = 0.03;
 
 /**
- * 관측 일사로 흐린 날 덱의 기둥 광학두께(2026-11-12). 위성 GHI(직전 한 시간 평균을 보간한 값)를 같은 창의 맑은 하늘 GHI(Haurwitz)로 나눈
+ * 일사로 흐린 날 덱의 기둥 광학두께(2026-11-12). GHI(직전 한 시간 평균을 보간한 값)를 같은 창의 맑은 하늘 GHI(Haurwitz)로 나눈
  * 투과율 T 를 두-흐름 T = 1/(1 + K(1−g)τ) 로 되짚음. 11월 8일 13:43 서울 비: 154/520 → T 0.30 → τ ≈ 21 (모형 기본값은 약 2 배 두꺼움).
- * 위성 값이 없거나(미래·결측) 해가 10° 아래면 null — 기본 밀도 그대로. τ 는 5~150 으로 자름.
+ * GHI 는 위성 관측이 있으면 그것, 없으면(미래 시각) **예보 GHI**(2026-11-27 — 전에는 기본 밀도로 떨어져 예보 시각의 덱이 τ 58~64 로
+ * 해가 맑다는 예보 직달일사와 어긋나게 짙었음). 둘 다 없거나 해가 10° 아래면 null — 기본 밀도 그대로. τ 는 5~150 으로 자름.
  */
-export function deckTauFromGhi(obs: CloudData, date: Date, lat: number, lon: number): { tau: number; T: number } | null {
-  const ghi = obs.satShortwaveRadiation;
+export function deckTauFromGhi(obs: CloudData, date: Date, lat: number, lon: number): { tau: number; T: number; source: 'sat' | 'fc' } | null {
+  const sat = obs.satShortwaveRadiation;
+  const source: 'sat' | 'fc' = sat != null && Number.isFinite(sat) ? 'sat' : 'fc';
+  const ghi = source === 'sat' ? sat : obs.shortwaveRadiation;
   if (ghi == null || !Number.isFinite(ghi)) return null;
   const cosZAt = (ms: number) => Math.sin(sunPosition(new Date(ms), lat, lon).altitude);
   if (cosZAt(date.getTime()) < Math.sin((10 * Math.PI) / 180)) return null;
@@ -102,7 +105,7 @@ export function deckTauFromGhi(obs: CloudData, date: Date, lat: number, lon: num
   if (!(clear > 50)) return null;
   const T = clamp(ghi / clear, 0.05, 0.9);
   const tau = clamp((1 / T - 1) / (DIFFUSE_K * (1 - DIFFUSE_G)), 5, 150);
-  return { tau: Math.round(tau * 10) / 10, T: Math.round(T * 1000) / 1000 };
+  return { tau: Math.round(tau * 10) / 10, T: Math.round(T * 1000) / 1000, source };
 }
 
 /**
@@ -1030,7 +1033,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const fillProf = a.fill !== false && !anvil ? fillProfileOf(obs) : null;
   let fillOn = false;
   let fillRough = 0;
-  let deckTau: { tau: number; T: number } | null = null;
+  let deckTau: { tau: number; T: number; source: 'sat' | 'fc' } | null = null;
   if (fillProf) {
     const rr = rainRoughness(obs, Wpat.low);
     const rEff = hasDayWind ? Math.round(rr.r * 4) / 4 : rr.r;
@@ -1130,7 +1133,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   for (const L of layers) if (L && L.genus) L.driftKm = driftKm(L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low'));
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
+  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(${deckTau.source === 'sat' ? '위성' : '예보'} 일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   // 습한 막이 있으면 그 막이 곧 습한 에어로졸층(직달일사 감소 전체로 두께를 정함) — 연무를 따로 더하면 두 번 셈.
   const haze = mist ? undefined : hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 30분 간격 에르미트 곡선 매듭([K0, K1])을 전후로 잡아 GPU에서 연속 블렌딩합니다.
