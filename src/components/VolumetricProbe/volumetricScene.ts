@@ -580,6 +580,11 @@ export interface VolumetricOptions extends TsunOptions {
   /** E3c 진단 전용 — setScene 의 층 CloudLayer.densityScale 에 곱함(기본 1 = 손대지 않음). 채택 대상 아님. */
   debugDensityMul: number;
   /**
+   * 시간 업스케일에서 새 표본의 무게(2026-11-26, 알갱이 잡음). takram 은 이번 프레임에 그린 화소를 이력 없이 그대로 써서(1 = takram)
+   * 화소마다 표본 하나(행진 지터 잡음)가 그대로 남습니다. < 1 이면 같은 화소의 이력(재투영 · 분산 자르기)과 섞어 표본을 평균합니다.
+   */
+  cloudAccum: number;
+  /**
    * §178 (e) 대기 원근 산란(GetSkyRadianceToPoint)을 0 에서 자름 — 구름 패스와 대기 효과(지형 빛 판) 둘 다. 깊은 박명(해 ≲ −9°)에 낮은 고도의
    * 높은 덮개가 음수 산란으로 검게 그려지던 결함(§177.6). 끄면 셰이더 글자가 고치기 전과 같음(A/B 용).
    * 여기 기본값은 끔(하네스 관례: 동결된 grain·tsun 꾸러미가 새 손잡이를 기본 0 으로 받음) — 앱은 SkyScene3D·VolumetricProbe 가 켜서 넘깁니다(사용자 승인 기본 켬).
@@ -596,7 +601,9 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
+/** 시간 업스케일 누적 — 새 표본 무게(`cloudAccum`). 0.25 ≈ 최근 표본 ~7 개 평균. */
+export const CLOUD_ACCUM_DEFAULT = 0.25;
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, cloudAccum: CLOUD_ACCUM_DEFAULT, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -902,6 +909,28 @@ export async function createVolumetricScene(
       ['  outputColor = mix(clippedColor, currentColor, temporalAlpha);',
         `  outputColor = mix(clippedColor, currentColor, temporalAlpha);\n  outputColor = ${finite4('outputColor', clean4('currentColor'))};`],
     ]);
+    // 2026-11-26 알갱이 잡음 — 시간 업스케일이 이번 프레임에 그린 화소를 이력 없이 그대로 씁니다(takram: "without any accumulation").
+    // 1/16 업스케일 × 구름 배율 0.5 에서 화소마다 표본이 16 프레임에 하나라, 하늘 화면이 정착 후 그리기를 멈추면 표본 1 개의
+    // 행진 지터 잡음이 그대로 굳습니다(기기 낮 10시 화면). 같은 화소의 재투영 이력(분산 자르기로 유령 막음)과 무게 cloudAccum 으로 섞습니다.
+    {
+      const rm = clouds.cloudsPass.resolveMaterial as unknown as { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+      const from = '    // Use the texel just rendered without any accumulation.\n    outputColor = currentColor;';
+      const decl = 'uniform float temporalAlpha;';
+      for (const a of [from, decl]) if (!rm.fragmentShader.includes(a)) throw new Error('volumetricScene: resolve accum anchor missing — ' + a.trim().slice(0, 40));
+      rm.fragmentShader = rm.fragmentShader.replace(decl, decl + '\nuniform float cloudAccum;').replace(from, [
+        '    outputColor = currentColor;',
+        '    if (cloudAccum < 1.0) {',
+        '      vec2 aPrevUv = vUv - getClosestFragment(lowResCoord).gb;',
+        '      if (all(greaterThanEqual(aPrevUv, vec2(0.0))) && all(lessThanEqual(aPrevUv, vec2(1.0)))) {',
+        '        vec4 aHist = varianceClipping(colorBuffer, vUv, currentColor, texture(colorHistoryBuffer, aPrevUv), varianceGamma);',
+        '        vec4 aMix = mix(aHist, currentColor, cloudAccum);',
+        `        outputColor = ${finite4('aMix', clean4('currentColor'))};`,
+        '      }',
+        '    }',
+      ].join('\n'));
+      rm.uniforms.cloudAccum = { value: 1 };
+      rm.needsUpdate = true;
+    }
   }
   // §127 지형 거리 — 구름 패스가 장면 깊이 대신 하늘 화면의 지형 거리 판을 읽습니다. takram 의 RenderPass 장면은
   // 비어 있어 원래 깊이는 늘 "없음"이었으므로 바꿔도 지형이 없을 때는 같습니다.
@@ -1785,6 +1814,8 @@ export async function createVolumetricScene(
     for (const m of genusMats) setGenusLight(m, light);
     // §26 가장자리 거칠기(종류 모형이 켜진 경우만 — 끄면 takram 그대로).
     for (const m of genusMats) setEdgeRough(m as never, opt.genus ? opt.edgeRough : 0);
+    const rmU = (clouds.cloudsPass.resolveMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    if (rmU.cloudAccum) rmU.cloudAccum.value = Math.max(0.02, Math.min(1, opt.cloudAccum));
   }
   applyCloudLight();
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
