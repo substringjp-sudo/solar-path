@@ -24,3 +24,10 @@ L/M/H 품질(기기 low) · 해상도 · 뭉게 혹(billow) · 흐린 날 채우
 
 ## 출처
 `docs/SANDBOX_MODE_PLAN.md §25.5~§25.9`, `src/components/SkyScreen/DevTuningPanel.tsx`, `src/components/SkyScene3D/SkyScene3D.tsx`.
+
+
+## 텍스처 단위 한도(MAX_TEXTURE_IMAGE_UNITS 16) — 2026-11-26
+- 증상: 구름 그늘이 사라지고 M 품질에서 화면이 검은 · 흰 블록으로 깨짐. 개발 패널 VOL 줄 끝 `텍스처 N/16` 에서 N 이 16 을 넘음(L 18, M `?`).
+- 원인: 구름 패스(CloudsMaterial)와 대기 합성(EffectMaterial)의 조각 셰이더가 쓰는 샘플러가 기기 한도를 넘음. 하네스(SwiftShader)는 한도가 커서 재현 안 됨 — **진짜 GPU 에서는 `FRAGMENT shader texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`**(맥북 M4 에서 재현).
+- 고침: 세포 RGB + 가장자리 A 한 장(`noiseTile`), 거시 문턱 표 `vec4[64]` uniform, 거시 A|B 가로 한 장(`macroPairTexture`), 깊이 판 읽기 제거(장면이 비어 늘 "없음"). H(17)는 한도 16 이면 M 으로.
+- 점검: 새 텍스처를 구름 · 합성 셰이더에 더하면 **하네스 샘플러 수**(`run-desktop.js` 가 장면마다 찍음)가 L · M 16 이하인지 확인. 데스크탑(진짜 GPU)에서 돌릴 것.
