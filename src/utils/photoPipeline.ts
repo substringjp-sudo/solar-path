@@ -216,13 +216,14 @@ half4 main(float2 coord) {
   // 3D 샤임플러그 기울어진 초점 평면 착란원(CoC) 가변 보케
   // 단일 외곽 링 8점 샘플링은 큰 반경에서 사진이 여러 겹 겹치는 고스팅을 만들므로,
   // 다중 동심원(3링×8점) 디스크 샘플링 + 다단 다운샘플링 저주파 이미지(uBokehLow)를 CoC 크기에 따라 연속 블렌딩합니다.
+  // 또한 샘플 탭마다 상대 CoC 가중치를 곱해 뒤쪽 흐린 하늘이 앞쪽 선명한 건물 옥상 경계로 번지는 현상을 억제합니다.
   if (uBokehOn > 0.5) {
     float coc = abs(g.b - 0.5) * 0.08; // 정규화 폭 비율 (최대 ~0.04)
     if (coc > 0.0012) {
       float aspectScale = uRes.x / max(1.0, uRes.y);
       float3 hiAcc = rgb;
       float hiW = 1.0;
-      float3 loAcc = float3(uBokehLow.eval(coord).rgb);
+      float3 loAcc = rgb;
       float loW = 1.0;
       for (int ring = 0; ring < 3; ring++) {
         float rFrac = (float(ring) + 1.0) / 3.0;
@@ -232,17 +233,21 @@ half4 main(float2 coord) {
           float ang = float(k) * 0.78539816 + angOff;
           float2 off = float2(cos(ang), sin(ang) * aspectScale) * (coc * rFrac);
           float2 buv = clamp(uv + off, float2(0.0), float2(1.0));
-          hiAcc += float3(uImage.eval(buv * uRes).rgb) * ringW;
-          hiW += ringW;
+          half4 bg = uGeom.eval(buv * uGrid);
+          float bCoc = abs(bg.b - 0.5) * 0.08;
+          // 이웃 픽셀도 현재 픽셀만큼 흐릴 때만 강하게 섞어 선명한 건물 경계 보호
+          float tapW = ringW * smoothstep(0.0006, max(0.002, coc * 0.85), bCoc);
+          hiAcc += float3(uImage.eval(buv * uRes).rgb) * tapW;
+          hiW += tapW;
           if (ring >= 1) {
-            loAcc += float3(uBokehLow.eval(buv * uRes).rgb) * ringW;
-            loW += ringW;
+            loAcc += float3(uBokehLow.eval(buv * uRes).rgb) * tapW;
+            loW += tapW;
           }
         }
       }
       float3 diskBlur = hiAcc / hiW;
       float3 softBlur = loAcc / loW;
-      float lowMix = smoothstep(0.004, 0.016, coc);
+      float lowMix = smoothstep(0.005, 0.018, coc);
       float3 bokehCol = mix(diskBlur, softBlur, lowMix);
       rgb = mix(rgb, bokehCol, smoothstep(0.0012, 0.0045, coc));
     }
@@ -294,34 +299,102 @@ half4 main(float2 coord) {
     }
   }
 
-  // 아나모픽 수평 플레어 & 3D 차폐 선스타
+  // 아나모픽 광학 플레어 & 3D 차폐 선스타 (프레넬 입사각 · 전면 실린더 시상면 곡률 · 광축 ABCD 다중 반사 결상 기반)
   if (uFlareOn > 0.5) {
     float aspect = uRes.y / max(1.0, uRes.x);
-    float2 dSun = uv - uSunUv;
-    float2 dIso = float2(dSun.x, dSun.y * aspect);
-    float dist = max(1e-4, length(dIso));
 
-    // 아나모픽 수평 청백색 플레어 스트릭 (광원 중심 + 화면 내 밝은 하이라이트 가로 번짐)
+    // 1) 화면 내 실제 고대비 점광원(국소 주변부 대비 돌출된 강한 광원만)에서 발생하는 미세 실린더 스트릭
     if (uAnaInt > 0.01) {
-      float streakX = exp(-abs(dSun.x) / max(0.06, uAnaHalfW * 0.65));
-      float streakY = exp(-pow(dIso.y / 0.018, 2.0));
-      float3 hStreak = float3(0.0);
-      for (int k = -4; k <= 4; k++) {
-        float2 huv = clamp(uv + float2(float(k) * 0.028, 0.0), float2(0.0), float2(1.0));
+      float3 hNeedle = float3(0.0);
+      float3 hCoat = float3(0.0);
+      for (int k = -6; k <= 6; k++) {
+        float fk = float(k);
+        float normK = abs(fk) / 6.0;
+        float dx = sign(fk) * pow(normK, 1.35) * 0.26;
+        // 전면 실린더 렌즈의 시상면(Sagittal) 비축 곡률: 중심(v=0.5)에서 멀수록 스트릭이 미세한 호(Arc)로 휨
+        float sagDy = (uv.y - 0.5) * (dx * dx) * 0.32;
+        float2 huv = clamp(uv + float2(dx, sagDy), float2(0.0), float2(1.0));
         float3 hs = float3(uImage.eval(huv * uRes).rgb);
-        float hl = dot(hs, float3(0.2126, 0.7152, 0.0722));
-        hStreak += smoothstep(0.55, 0.95, hl) * float3(0.38, 0.78, 1.0);
+        // 샘플 지점 위·아래 주변 평균 휘도와 비교해, 면광원(일반 구름/하늘)은 거르고 점/경계 피크 광원만 통과
+        float3 hUp = float3(uImage.eval(clamp(huv + float2(0.0, 0.025), float2(0.0), float2(1.0)) * uRes).rgb);
+        float3 hDn = float3(uImage.eval(clamp(huv - float2(0.0, 0.025), float2(0.0), float2(1.0)) * uRes).rgb);
+        float lumC = dot(hs, float3(0.2126, 0.7152, 0.0722));
+        float lumSur = 0.5 * (dot(hUp, float3(0.2126, 0.7152, 0.0722)) + dot(hDn, float3(0.2126, 0.7152, 0.0722)));
+        float peak = max(hs.r, max(hs.g, hs.b));
+        float localContrast = clamp((lumC - lumSur * 0.82) / 0.24, 0.0, 1.0);
+        float pointEnergy = pow(smoothstep(0.78, 0.99, max(lumC, peak * 0.95)), 2.2) * localContrast;
+
+        float wTight = exp(-normK * 3.1);
+        float wWide = exp(-normK * 1.9);
+        float3 coatTint = mix(float3(0.45, 0.88, 1.0), float3(0.12, 0.38, 0.96), normK);
+        hNeedle += (pointEnergy * wTight) * float3(0.86, 0.96, 1.0);
+        hCoat += (pointEnergy * wWide) * coatTint;
       }
-      rgb += float3(0.42, 0.80, 1.0) * (streakX * streakY * uAnaInt * 0.85) + (hStreak / 9.0) * (uAnaInt * 0.42);
+      rgb += (hNeedle / 6.0) * (uAnaInt * 0.55) + (hCoat / 6.5) * (uAnaInt * 0.45);
     }
 
-    // 조리개 날 회절 선스타
-    if (uSunstarInt > 0.01) {
-      float theta = atan(dIso.y, dIso.x);
-      float rays = pow(max(1e-4, cos(theta * uSunstarRays * 0.5)), 20.0);
-      float radial = exp(-dist / max(0.04, uSunstarLen * 0.55)) * smoothstep(0.002, 0.018, dist);
-      float core = exp(-dist / 0.022) * 0.45;
-      rgb += float3(1.0, 0.93, 0.80) * ((rays * radial + core) * uSunstarInt * 0.95);
+    // 2) 차폐·구름 검증을 통과한 실제 입사 광원(uSunUv)의 실린더 굴절 스트릭 & 다중 렌즈 요소 반사 고스트 체인
+    if (uSunUv.x > -0.20 && uSunUv.x < 1.20 && uSunUv.y > -0.20 && uSunUv.y < 1.20) {
+      float2 dSun = uv - uSunUv;
+      // 실린더 렌즈 비축 시상면 곡률(Sagittal Bow): 광원이 광축(y=0.5) 위/아래에 있을 때 수평선이 휘어지는 광학 현상
+      float sagCurve = (uSunUv.y - 0.5) * (dSun.x * dSun.x) * 0.42;
+      float2 dIso = float2(dSun.x, (dSun.y - sagCurve) * aspect);
+      float dist = max(1e-4, length(float2(dSun.x, dSun.y * aspect)));
+
+      if (uAnaInt > 0.01) {
+        // Layer A: 전면 실린더 메리디안 산란에 의한 백청색 코어 침 (Needle Core)
+        float needleY = exp(-abs(dIso.y) / 0.0020);
+        float needleX = exp(-abs(dSun.x) / max(0.10, uAnaHalfW * 1.10));
+        float3 needleCol = mix(float3(0.92, 0.98, 1.0), float3(0.32, 0.84, 1.0), clamp(abs(dSun.x) * 2.1, 0.0, 1.0));
+
+        // Layer B: AR 박막 코팅 파장 분산에 의한 코발트-사파이어 외곽 할로우
+        float glowY = exp(-pow(abs(dIso.y) / 0.012, 1.4));
+        float glowX = exp(-abs(dSun.x) / max(0.07, uAnaHalfW * 0.72));
+        float3 glowCol = mix(float3(0.22, 0.72, 1.0), float3(0.10, 0.28, 0.95), clamp(abs(dSun.x) * 1.8, 0.0, 1.0));
+
+        rgb += needleCol * (needleX * needleY * uAnaInt * 0.95);
+        rgb += glowCol * (glowX * glowY * uAnaInt * 0.58);
+
+        // Layer C: 광축(0.5, 0.5)을 지나는 반사 광선 경로(P_k = C + k*(P_s - C)) 상의 다중 렌즈 요소 결상 고스트
+        // (predictBacklightGhosts로 계산된 uGhost0, uGhost1, uGhost2 위치에 아나모픽 2:1 타원 조리개 상과 커스틱 링 형성)
+        float2 axisDir = normalize(float2(0.5 - uSunUv.x, (0.5 - uSunUv.y) * aspect) + float2(1e-5, 0.0));
+        for (int gi = 0; gi < 3; gi++) {
+          float4 gp = gi == 0 ? uGhost0 : (gi == 1 ? uGhost1 : uGhost2);
+          if (gp.w > 0.01) {
+            // 아나모픽 전면 렌즈를 거친 내부 반사상은 가로로 ~1.9배 늘어난 타원형 동공(Pupil)을 형성
+            float2 dG = float2((uv.x - gp.x) * 0.54, (uv.y - gp.y) * aspect * 1.15);
+            float rG = length(dG) / max(0.008, gp.z);
+            // 구면수차로 인해 테두리에 에너지가 모이는 커스틱 링(Caustic Rim) + 내부 디스크
+            float disc = smoothstep(1.05, 0.65, rG) * 0.45;
+            float causticRim = exp(-pow((rG - 0.86) / 0.14, 2.0)) * 0.85;
+            // 광축 방향 비대칭 프레넬 편향
+            float dirBias = 0.75 + 0.45 * clamp(dot(normalize(dG + float2(1e-5)), axisDir), -1.0, 1.0);
+            // 렌즈 코팅층마다 다른 박막 간섭색 (0: 시안-그린, 1: 코발트 블루, 2: 앰버-마젠타)
+            float3 gTint = gi == 0
+              ? float3(0.28, 0.92, 0.78)
+              : (gi == 1 ? float3(0.22, 0.64, 1.0) : float3(0.88, 0.52, 0.92));
+            // 각 반사 결상점을 가로지르는 미세 2차 실린더 스트릭
+            float secStreak = exp(-abs((uv.y - gp.y) * aspect) / 0.0028) * exp(-abs(uv.x - gp.x) / (gp.z * 3.8)) * 0.35;
+            rgb += gTint * ((disc + causticRim + secStreak) * dirBias * gp.w * uAnaInt * 0.48);
+          }
+        }
+      }
+
+      // 조리개 날 회절 선스타 (능선/건물 모서리에 걸려 점광원화될 때 강해짐)
+      if (uSunstarInt > 0.01) {
+        float theta = atan(dSun.y * aspect, dSun.x);
+        float rays = pow(max(1e-4, cos(theta * uSunstarRays * 0.5)), 22.0);
+        float radial = exp(-dist / max(0.04, uSunstarLen * 0.52)) * smoothstep(0.002, 0.016, dist);
+        float core = exp(-dist / 0.018) * 0.38;
+        rgb += float3(1.0, 0.93, 0.80) * ((rays * radial + core) * uSunstarInt * 0.90);
+      }
+    }
+
+    if (uAnaInt > 0.01) {
+      // 아나모픽 실린더 주변부 타원형 비네팅
+      float2 vigD = float2((uv.x - 0.5) * 0.92, (uv.y - 0.5) * 1.35);
+      float vig = 1.0 - smoothstep(0.42, 0.92, length(vigD)) * 0.22;
+      rgb *= vig;
     }
   }
 
@@ -648,9 +721,12 @@ export async function applyOpticalGearToPhoto(
 
   // 2) 3D 지형 가이드를 시작점으로 삼아 실제 이미지 픽셀(건물·나무·능선 명암 경계)에서 스카이라인 정밀 추론
   let skylineRes: GuidedSkylineResult | null = null;
+  let skyLowPx: Uint8Array | null = null;
+  const SKY_LOW_W = SKYLINE_COLS;
+  const SKY_LOW_H = 54;
   {
-    const sw = SKYLINE_COLS;
-    const sh = 54;
+    const sw = SKY_LOW_W;
+    const sh = SKY_LOW_H;
     const skySurf = Skia.Surface.Make(sw, sh);
     if (skySurf) {
       skySurf.getCanvas().drawImageRect(
@@ -667,6 +743,7 @@ export async function applyOpticalGearToPhoto(
         alphaType: AlphaType.Unpremul,
       });
       if (skyPx && skyPx instanceof Uint8Array) {
+        skyLowPx = skyPx;
         skylineRes = refineSkylineWithImagePrior(skyPx, sw, sh, priorGndCurve.horizonYNorm, {
           priorWeight: gear.skylinePriorWeight ?? 0.45,
           searchRadiusNorm: gear.skylineSearchNorm ?? 0.14,
@@ -684,6 +761,38 @@ export async function applyOpticalGearToPhoto(
       })
     : priorGndCurve;
   const gndGrid = bakeContourGndGrid(gndCurve, GRID_W, GRID_H);
+
+  // 2-b) 지형선(priorYNorm) 위로 솟은 수직 건물·구조물 기둥 거리 보정:
+  // 바닥 지형 고도각만으로는 지평선 위로 솟은 건물 상단이 하늘(Infinity)이나 수십 km 원경으로 잡혀
+  // 초점 거리 안에 있는 높은 건물도 윗부분이 흐려집니다.
+  // 이미지 스카이라인(refinedYNorm)이 지형선보다 위로 솟은 열에서는 건물 하단(지면 접점)의 거리를
+  // 건물 꼭대기(refinedYNorm)까지 수직 기둥으로 전파해 건물 전체가 동일한 3D 거리를 갖게 합니다.
+  if (depthGrid && skylineRes) {
+    for (let x = 0; x < GRID_W; x++) {
+      const u = (x + 0.5) / GRID_W;
+      const colIdx = clamp(Math.floor(u * SKYLINE_COLS), 0, SKYLINE_COLS - 1);
+      const refY = skylineRes.refinedYNorm[colIdx];
+      const priY = priorGndCurve.horizonYNorm[colIdx];
+      if (!Number.isFinite(refY)) continue;
+      const basePriorY = Number.isFinite(priY) ? Math.max(refY, priY) : refY + 0.06;
+      const lift = Math.max(0, basePriorY - refY);
+      // 건물 발밑(지면 접점) 행: 위로 많이 솟은 건물일수록 지면 기준점을 살짝 아래(중·근경)에서 샘플링
+      const footV = clamp(basePriorY + Math.max(0.04, lift * 0.9), 0.15, 0.94);
+      const footRow = clamp(Math.floor(footV * GRID_H), 0, GRID_H - 1);
+      let colBaseDist = depthGrid[footRow * GRID_W + x];
+      if (!Number.isFinite(colBaseDist) || colBaseDist <= 0 || colBaseDist > 4500) {
+        colBaseDist = gear.focusDistM > 0 ? clamp(gear.focusDistM, 450, 3200) : 1200;
+      }
+      const topRow = clamp(Math.floor(refY * GRID_H), 0, GRID_H - 1);
+      for (let y = topRow; y <= footRow; y++) {
+        const idx = y * GRID_W + x;
+        const curD = depthGrid[idx];
+        if (!Number.isFinite(curD) || curD <= 0 || curD > colBaseDist) {
+          depthGrid[idx] = colBaseDist;
+        }
+      }
+    }
+  }
 
   const useCpl = gear.frontFilters.includes('cpl');
   const cplGrid = useCpl
@@ -837,18 +946,62 @@ export async function applyOpticalGearToPhoto(
   const useGhostClean = gear.frontFilters.includes('ghostClean');
   const useAnamorphic = gear.lensMount === 'anamorphic';
 
-  const sunPt = project(dirFromAzEl(ctx.sunAzDeg, Math.max(-2, ctx.sunAltDeg)), ctx.attitude, ctx.intrinsics);
+  // 실제 태양 고도로 투영 (지평선 아래로 진 태양을 억지로 끌어올리지 않음)
+  const sunPt = project(dirFromAzEl(ctx.sunAzDeg, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics);
   const sunIn = !!sunPt;
+
+  // 렌더링된 실제 이미지(skyLowPx)에서 태양 투영 좌표 주변의 입사 광속(고휘도 피크 + 주변 대비)을 실측해
+  // 건물이나 두꺼운 구름에 가려진 경우에는 억지 플레어가 생기지 않도록 검증합니다.
+  let measuredSunFlux = 1.0;
+  if (sunPt && skyLowPx) {
+    const su = sunPt.x / Math.max(1, ctx.intrinsics.width);
+    const sv = sunPt.y / Math.max(1, ctx.intrinsics.height);
+    if (su >= 0 && su <= 1 && sv >= 0 && sv <= 1) {
+      const cx = clamp(Math.floor(su * SKY_LOW_W), 0, SKY_LOW_W - 1);
+      const cy = clamp(Math.floor(sv * SKY_LOW_H), 0, SKY_LOW_H - 1);
+      let peakL = 0;
+      let sumSur = 0;
+      let cntSur = 0;
+      for (let dy = -4; dy <= 4; dy++) {
+        const yy = clamp(cy + dy, 0, SKY_LOW_H - 1);
+        for (let dx = -4; dx <= 4; dx++) {
+          const xx = clamp(cx + dx, 0, SKY_LOW_W - 1);
+          const p = (yy * SKY_LOW_W + xx) * 4;
+          const r = skyLowPx[p] / 255;
+          const g = skyLowPx[p + 1] / 255;
+          const b = skyLowPx[p + 2] / 255;
+          const lum = Math.max(0.2126 * r + 0.7152 * g + 0.0722 * b, Math.max(r, g, b) * 0.92);
+          if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+            if (lum > peakL) peakL = lum;
+          } else {
+            sumSur += lum;
+            cntSur++;
+          }
+        }
+      }
+      const surL = cntSur > 0 ? sumSur / cntSur : peakL;
+      // 광원 중심이 실제로 매우 밝고(>0.76) 주변보다 뚜렷하게 집중된 광속일 때만 플레어 허용
+      const brightGate = clamp((peakL - 0.72) / 0.22, 0, 1);
+      const contrastGate = clamp((peakL - surL * 0.78) / 0.16, 0, 1);
+      measuredSunFlux = brightGate * (0.35 + 0.65 * contrastGate);
+    }
+  }
+
   const flareRes = (useAnamorphic || useProMist || useGhostClean) && sunIn
-    ? computeSunstarAndFlareParams(ctx.sunAzDeg, Math.max(0.15, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics, {
+    ? computeSunstarAndFlareParams(ctx.sunAzDeg, ctx.sunAltDeg, ctx.attitude, ctx.intrinsics, {
         horizon: ctx.horizon,
+        skylineYNorm: skylineRes?.refinedYNorm ?? priorGndCurve.horizonYNorm,
+        measuredSourceFlux: measuredSunFlux,
         aod,
         apertureBlades: gear.sunstarBlades,
         proMistGrade: gear.proMistGrade,
       })
     : null;
-  const ghostRes = useGhostClean
-    ? predictBacklightGhosts(ctx.sunAzDeg, Math.max(0, ctx.sunAltDeg), ctx.attitude, ctx.intrinsics)
+  // 아나모픽 다중 반사 결상(고스트 체인)과 고스트 억제 필터 모두 광축 대칭 반사 광선 추적 결과를 공유
+  const ghostRes = (useGhostClean || (useAnamorphic && flareRes?.visible))
+    ? predictBacklightGhosts(ctx.sunAzDeg, ctx.sunAltDeg, ctx.attitude, ctx.intrinsics, {
+        sunStrength: flareRes?.anamorphicIntensity ?? 1.0,
+      })
     : null;
 
   const needSpatial = useBokeh || useCloud || useProMist || useGhostClean || useAnamorphic;
@@ -899,13 +1052,13 @@ export async function applyOpticalGearToPhoto(
           cloudFlow ? cloudFlow.flowUv[0] : 0,
           cloudFlow ? cloudFlow.flowUv[1] : 0,
           useAnamorphic || (flareRes && flareRes.visible && gear.filmBack === 'sunsetWb') ? 1 : 0,
-          flareRes?.sunUv?.[0] ?? 0.5,
-          flareRes?.sunUv?.[1] ?? horizonMeanV,
-          useAnamorphic ? Math.max(0.55, flareRes?.sunstarIntensity ?? 0.65) : (flareRes?.sunstarIntensity ?? 0),
+          flareRes?.visible ? (flareRes.sunUv?.[0] ?? -2.0) : -2.0,
+          flareRes?.visible ? (flareRes.sunUv?.[1] ?? -2.0) : -2.0,
+          flareRes?.visible ? (flareRes.sunstarIntensity ?? 0) : 0,
           flareRes?.rayCount ?? (gear.sunstarBlades % 2 === 0 ? gear.sunstarBlades : gear.sunstarBlades * 2),
           flareRes?.sunstarLengthNorm ?? 0.18,
-          useAnamorphic ? Math.max(0.55, flareRes?.anamorphicIntensity ?? 0.65) : 0,
-          flareRes?.anamorphicHalfWidthNorm ?? 0.42,
+          useAnamorphic ? (flareRes?.visible ? Math.max(0.25, flareRes.anamorphicIntensity) : 0.45) : 0,
+          flareRes?.anamorphicHalfWidthNorm ?? 0.36,
           useProMist ? (0.35 + 0.75 * gear.proMistGrade) : 0,
           0.025 + 0.055 * gear.proMistGrade,
           useGhostClean ? 1 : 0,
@@ -1015,7 +1168,9 @@ export async function applyOpticalGearToPhoto(
     }
   }
 
-  // Pass D: 2.39:1 아나모픽 시네마 레터박스 (원본 해상도·화각을 유지한 채 상하 시네마 바 렌더링)
+  // Pass D: 2.39:1 아나모픽 시네마 디스퀴즈(Desqueeze) & 레터박스
+  // 단순히 상하를 검은 바로 가리는 것이 아니라, 더 넓은 세로 화각 구간을 2.39:1 프레임 안으로 압축하고
+  // 가로 방향으로 1.18배 당겨(총 ~1.55× 아나모픽 수평 스트레치) 시네마 아나모픽 특유의 공간감을 만듭니다.
   if (useAnamorphic) {
     const targetH = Math.max(16, Math.round(workW / 2.39));
     if (targetH < workH - 8) {
@@ -1023,14 +1178,25 @@ export async function applyOpticalGearToPhoto(
       const surf = Skia.Surface.Make(workW, workH);
       if (surf) {
         const canvas = surf.getCanvas();
-        canvas.drawImage(curImg, 0, 0);
-        const barPaint = Skia.Paint();
-        barPaint.setColor(Skia.Color('rgba(0, 0, 0, 0.78)'));
-        canvas.drawRect(rect(0, 0, workW, barH), barPaint);
-        canvas.drawRect(rect(0, workH - barH, workW, barH), barPaint);
+        const bgPaint = Skia.Paint();
+        bgPaint.setColor(Skia.Color('#000000'));
+        canvas.drawRect(rect(0, 0, workW, workH), bgPaint);
+
+        // 세로는 targetH의 1.38배 영역을 담고, 가로는 중앙 86%(1.16× 수평 스트레치)를 전체 폭으로 당김
+        const srcH = Math.min(workH, Math.round(targetH * 1.38));
+        const srcY = Math.round((workH - srcH) / 2);
+        const srcW = Math.max(16, Math.round(workW / 1.16));
+        const srcX = Math.round((workW - srcW) / 2);
+
+        canvas.drawImageRect(
+          curImg,
+          rect(srcX, srcY, srcW, srcH),
+          rect(0, barH, workW, targetH),
+          Skia.Paint(),
+        );
         surf.flush();
         curImg = surf.makeImageSnapshot();
-        appliedTags.push('2.39:1');
+        appliedTags.push('2.39:1 Anamorphic');
       }
     }
   }

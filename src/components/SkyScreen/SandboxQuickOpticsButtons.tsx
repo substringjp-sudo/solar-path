@@ -1,15 +1,17 @@
 /**
- * SandboxQuickOpticsButtons.tsx — 샌드박스 좌측 상단 세로 원형 빠른 확장 버튼(효과렌즈 · 필터).
- * 위아래로 렌즈/필터 버튼을 배치하고, 누르면 오른쪽 옆으로 작은 원형 아이콘과 짧은 이름만 펼쳐집니다.
+ * SandboxQuickOpticsButtons.tsx — 샌드박스 좌측 상단 세로 원형 빠른 확장 버튼(효과렌즈 · 필터 · 필름).
+ * 위아래로 렌즈/필터/필름 3단 버튼을 배치하고, 누르면 오른쪽 옆으로 작은 원형 아이콘과 짧은 이름만 펼쳐집니다.
  * 세부 설정은 설정 시트에서 조절합니다.
  */
 import React, { useState } from 'react';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   Aperture,
+  CircleDot,
   Contrast,
   Disc,
   Droplets,
+  Film,
   Layers,
   Maximize2,
   MoveHorizontal,
@@ -18,20 +20,21 @@ import {
   Sparkles,
   Stars,
   SunDim,
+  Sunset,
 } from 'lucide-react-native';
 import { GlassSurface } from '../glass/GlassSurface';
 import { MiniFilterRingIcon, MiniLensBarrelIcon } from '../AstroCamera/CameraLensZoomSection';
 import { color as DARK, mono } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
 import {
-  createDefaultGearBag,
   toggleFrontFilter,
   type CameraGearBagState,
+  type FilmBackMode,
   type FrontFilterId,
   type OpticalLensMount,
 } from '../../utils/photoAlgorithms';
 
-type QuickMenu = 'lens' | 'filter' | null;
+type QuickMenu = 'lens' | 'filter' | 'film' | null;
 
 const EFFECT_LENS_ITEMS: ReadonlyArray<{
   id: OpticalLensMount;
@@ -102,6 +105,28 @@ const QUICK_FILTER_ITEMS: ReadonlyArray<{
   },
 ];
 
+const QUICK_FILM_ITEMS: ReadonlyArray<{
+  id: FilmBackMode;
+  label: (lang: Language) => string;
+  renderIcon: (active: boolean) => React.ReactNode;
+}> = [
+  {
+    id: 'natural',
+    label: lang => L3(lang, '표준', 'Natural', '標準'),
+    renderIcon: a => <CircleDot size={14} color={a ? DARK.accent : DARK.text} />,
+  },
+  {
+    id: 'sunsetWb',
+    label: lang => L3(lang, '노을', 'Sunset', '夕焼'),
+    renderIcon: a => <Sunset size={14} color={a ? DARK.accent : DARK.text} />,
+  },
+  {
+    id: 'monoZone',
+    label: lang => L3(lang, '흑백', 'B&W', '白黒'),
+    renderIcon: a => <Contrast size={14} color={a ? DARK.accent : DARK.text} />,
+  },
+];
+
 interface Props {
   language: Language;
   top: number;
@@ -124,7 +149,8 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
   const [openMenu, setOpenMenu] = useState<QuickMenu>(null);
 
   const lensActive = !isLowSpec && (gearBag.lensMount !== 'standard' || gearBag.verticalShift);
-  const filterActive = gearBag.frontFilters.length > 0 || gearBag.filmBack !== 'natural';
+  const filterActive = gearBag.frontFilters.length > 0;
+  const filmActive = gearBag.filmBack !== 'natural';
   const expandMaxWidth = Math.max(200, Dimensions.get('window').width - left - 36 - 20);
 
   return (
@@ -201,7 +227,7 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
           </View>
         )}
 
-        {/* 2행: 필터 버튼 (아래) + 옆으로 작은 원형 아이콘/이름 확장 */}
+        {/* 2행: 필터 버튼 (중간) + 옆으로 작은 원형 아이콘/이름 확장 */}
         <View style={styles.row} pointerEvents="box-none">
           <Pressable
             testID="sb-quick-filter-btn"
@@ -229,7 +255,7 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
             >
               {filterActive && (
                 <Pressable
-                  onPress={() => onChangeGearBag(createDefaultGearBag())}
+                  onPress={() => onChangeGearBag(s => ({ ...s, frontFilters: [] }))}
                   accessibilityRole="button"
                   accessibilityLabel={L3(language, '초기화', 'Reset', 'リセット')}
                   style={styles.itemCol}
@@ -259,6 +285,67 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
                     </View>
                     <Text style={[styles.itemLabel, active && styles.itemLabelActive]} numberOfLines={1}>
                       {f.label(language)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* 3행: 필름 버튼 (아래) + 옆으로 작은 원형 아이콘/이름 확장 */}
+        <View style={styles.row} pointerEvents="box-none">
+          <Pressable
+            testID="sb-quick-film-btn"
+            onPress={() => setOpenMenu(m => (m === 'film' ? null : 'film'))}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: openMenu === 'film' }}
+            accessibilityLabel={L3(language, '필름 빠른 선택', 'Quick film selector', 'フィルムクイック選択')}
+            style={styles.circleBtn}
+          >
+            <GlassSurface active={openMenu === 'film' || filmActive} style={StyleSheet.absoluteFill} />
+            <Film size={15} color={openMenu === 'film' || filmActive ? DARK.accent : DARK.text} />
+          </Pressable>
+
+          {openMenu === 'film' && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.expandRow}
+              style={{ maxWidth: expandMaxWidth }}
+            >
+              {filmActive && (
+                <Pressable
+                  onPress={() => onChangeGearBag(s => ({ ...s, filmBack: 'natural' }))}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '초기화', 'Reset', 'リセット')}
+                  style={styles.itemCol}
+                >
+                  <View style={styles.miniCircleBtn}>
+                    <GlassSurface blurred style={StyleSheet.absoluteFill} />
+                    <RotateCcw size={13} color={DARK.textDim} />
+                  </View>
+                  <Text style={styles.itemLabel} numberOfLines={1}>
+                    {L3(language, '초기화', 'Reset', '戻す')}
+                  </Text>
+                </Pressable>
+              )}
+              {QUICK_FILM_ITEMS.map(item => {
+                const active = gearBag.filmBack === item.id;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => onChangeGearBag(s => ({ ...s, filmBack: item.id }))}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.label(language)}
+                    style={styles.itemCol}
+                  >
+                    <View style={styles.miniCircleBtn}>
+                      <GlassSurface active={active} blurred style={StyleSheet.absoluteFill} />
+                      {item.renderIcon(active)}
+                    </View>
+                    <Text style={[styles.itemLabel, active && styles.itemLabelActive]} numberOfLines={1}>
+                      {item.label(language)}
                     </Text>
                   </Pressable>
                 );

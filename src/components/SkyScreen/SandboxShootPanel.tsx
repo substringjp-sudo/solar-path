@@ -636,6 +636,7 @@ export const SandboxShootPanel: React.FC<Props> = ({
               caps={astroCaps}
               language={language}
             />
+            {inlineGearSection}
           </View>
         )}
 
@@ -660,6 +661,7 @@ export const SandboxShootPanel: React.FC<Props> = ({
               onPlanChange={onTimelapsePlanChange}
               onClose={() => {}}
             />
+            {inlineGearSection}
           </View>
         )}
       </ScrollView>

@@ -138,6 +138,10 @@ export function computeSunstarAndFlareParams(
   intrinsics: Intrinsics,
   opts: {
     horizon?: HorizonProfile | null;
+    /** 이미지 기반 추론된 건물·능선 스카이라인(0..1 정규화 Y). 전달되면 건물 차폐까지 반영합니다. */
+    skylineYNorm?: Float32Array | null;
+    /** 렌더링된 장면에서 실측된 광원 점광속(0..1). 구름·건물에 가려 광속이 없으면 플레어를 억제합니다. */
+    measuredSourceFlux?: number;
     sunAngularRadiusDeg?: number;
     aod?: number;
     apertureBlades?: number;
@@ -167,30 +171,77 @@ export function computeSunstarAndFlareParams(
 
   const su = pt.x / Math.max(1, intrinsics.width);
   const sv = pt.y / Math.max(1, intrinsics.height);
+  const cu = intrinsics.cx / Math.max(1, intrinsics.width);
+  const cv = intrinsics.cy / Math.max(1, intrinsics.height);
+
+  // 렌즈 경통/후드 입사 허용 각도 밖이면 전면 렌즈에 직접 입사하지 않음
+  const offAxisDist = Math.hypot(su - cu, sv - cv);
+  if (offAxisDist > 1.08) {
+    return {
+      visible: false,
+      sunUv: [su, sv],
+      occludedFraction: 1,
+      rayCount,
+      sunstarIntensity: 0,
+      sunstarLengthNorm: 0,
+      anamorphicIntensity: 0,
+      anamorphicHalfWidthNorm: 0,
+      proMistRadiusNorm: 0,
+      proMistStrength: 0,
+    };
+  }
+
   const rDeg = opts.sunAngularRadiusDeg ?? 0.266;
   const horizonEl = opts.horizon ? horizonAt(opts.horizon, sunAzDeg) : 0;
 
-  // 태양 원반이 능선에 걸린 비율 계산 (0=완전 위, 1=완전 아래)
+  // 1) 3D DEM 능선 차폐율
   const dEl = sunElDeg - horizonEl;
-  const occludedFraction = clamp((rDeg - dEl) / (2 * rDeg), 0, 1);
-  const visible = occludedFraction < 0.995;
+  let occludedFraction = clamp((rDeg - dEl) / (2 * rDeg), 0, 1);
 
-  // 능선 모서리에 살짝 걸려 점광원화될 때(occluded 0.3~0.85) 선스타가 가장 선명해짐
-  const grazingBoost = Math.exp(-Math.pow((occludedFraction - 0.62) / 0.28, 2));
+  // 2) 이미지 스카이라인(높은 건물·나무·능선) 차폐 반영
+  if (opts.skylineYNorm && opts.skylineYNorm.length > 0 && su >= 0 && su <= 1) {
+    const col = clamp(Math.floor(su * opts.skylineYNorm.length), 0, opts.skylineYNorm.length - 1);
+    const skyY = opts.skylineYNorm[col];
+    if (Number.isFinite(skyY)) {
+      const rNorm = Math.max(0.008, (rDeg * D2R * intrinsics.fy) / Math.max(1, intrinsics.height));
+      // sv > skyY 이면 건물/능선 아래로 가려진 상태
+      const bldgOccl = clamp((sv - (skyY - rNorm)) / (2 * rNorm), 0, 1);
+      occludedFraction = Math.max(occludedFraction, bldgOccl);
+    }
+  }
+
+  // 3) 실측 광속(구름 차폐 등) 반영: 광원이 두꺼운 구름이나 건물에 막혀 있으면 0
+  const fluxGate = opts.measuredSourceFlux !== undefined ? clamp(opts.measuredSourceFlux, 0, 1) : 1;
+  const visible = occludedFraction < 0.98 && fluxGate > 0.05;
+
+  // 능선·건물 모서리에 살짝 걸려 점광원(슬릿)화될 때(occluded 0.25~0.85) 프레넬-키르히호프 회절이 극대화됨
+  const grazingBoost = Math.exp(-Math.pow((occludedFraction - 0.58) / 0.26, 2));
   const exposed = 1 - occludedFraction;
   const aod = clamp(opts.aod ?? 0.2, 0.02, 1.2);
   const clarity = clamp(1 - aod * 0.55, 0.25, 1);
 
-  const sunstarIntensity = visible ? clamp((0.35 * exposed + 0.65 * grazingBoost) * clarity, 0, 1) : 0;
-  const sunstarLengthNorm = 0.10 + 0.18 * sunstarIntensity;
+  // 4) 광축 입사각(θ_i)에 따른 프레넬(Fresnel) 내부 반사 게인:
+  // 정중앙(offAxisDist ≈ 0)에서는 AR 멀티코팅 투과율이 가장 높고,
+  // 비축 입사(offAxisDist 0.15~0.65)에서 렌즈 요소 간 내부 반사 및 실린더 산란이 강해집니다.
+  const cosTheta = 1 / Math.hypot(1, offAxisDist * 0.95);
+  const fresnelGain = clamp(0.42 + 2.8 * Math.pow(1 - cosTheta, 1.35), 0.42, 1.25);
+  const hoodVignette = 1 - clamp((offAxisDist - 0.72) / 0.36, 0, 1);
+  const opticalGain = fresnelGain * hoodVignette * fluxGate;
 
-  // 아나모픽 수평 스트릭은 광원이 밝고 노출될수록 강함
-  const anamorphicIntensity = visible ? clamp(Math.pow(exposed, 0.6) * (0.7 + 0.3 * grazingBoost), 0, 1) : 0;
-  const anamorphicHalfWidthNorm = 0.22 + 0.45 * anamorphicIntensity;
+  const sunstarIntensity = visible
+    ? clamp((0.28 * exposed + 0.72 * grazingBoost) * clarity * fluxGate * hoodVignette, 0, 1)
+    : 0;
+  const sunstarLengthNorm = 0.09 + 0.18 * sunstarIntensity;
+
+  // 아나모픽 플레어는 실제 입사 광속 × 비축 프레넬 게인 × 모서리 회절에 비례
+  const anamorphicIntensity = visible
+    ? clamp(Math.pow(exposed, 0.55) * (0.55 + 0.45 * grazingBoost) * opticalGain, 0, 1)
+    : 0;
+  const anamorphicHalfWidthNorm = 0.18 + 0.46 * anamorphicIntensity;
 
   // Pro-Mist 글로우는 필터 등급(1/8 ~ 1)과 대기 탁도(AOD)에 비례
   const grade = opts.proMistGrade ?? 0.25;
-  const proMistStrength = visible ? clamp(grade * (0.55 + 0.7 * aod) * exposed, 0, 1) : 0;
+  const proMistStrength = visible ? clamp(grade * (0.55 + 0.7 * aod) * exposed * fluxGate, 0, 1) : 0;
   const proMistRadiusNorm = 0.04 + 0.12 * grade * (1 + 0.5 * aod);
 
   return {

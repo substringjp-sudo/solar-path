@@ -582,11 +582,24 @@ export function computeScheimpflugCocGrid(
       const ry = wx * basis.u[0] + wy * basis.u[1] + wz * basis.u[2];
       const rz = Math.max(0.05, wx * basis.f[0] + wy * basis.f[1] + wz * basis.f[2]);
 
-      // 3D 점 P = (rx, ry, rz) * distM 과 초점 평면 사이의 부호 있는 거리
-      const signedErr = (nx * rx + ny * ry + nz * rz) * distM - planeD;
-      // 원거리 풍경에서도 미니어처/대구경 공간감이 드러나도록 상대 거리 편차 반영
-      const relErr = signedErr / Math.max(1, distM * focusD);
-      const coc = relErr * cocScale * 180;
+      // 3D 점의 전방 거리 zDist 기준:
+      // 기존 (ny * ry * distM) / (distM * focusD) 식은 distM이 약분되어 거리와 무관한
+      // 2D 화면 상하(ry) 블러로 동작하던 문제가 있었습니다.
+      // 실제 거리 편차 (zDist vs effFocusD)가 초점 여부를 결정하도록 수정해,
+      // 초점 거리 대역 안에 있는 높은 건물은 화면 위쪽(옥상)까지 선명하게 유지됩니다.
+      const zDist = Math.max(15, rz * distM);
+      const tiltMod = clamp(1 + 0.14 * Math.sin(tp) * ry + 0.10 * Math.sin(ty) * rx, 0.78, 1.28);
+      const effFocusD = Math.max(10, focusD * tiltMod);
+
+      // 피사계 심도(DoF) 선명 구간: 조리개에 비례하는 로그 거리 대역 안에서는 착란원을 크게 억제
+      const logDiff = Math.abs(Math.log(zDist / effFocusD));
+      const dofHalfBand = 0.12 + 0.035 * fNum;
+      const dofAtten = smoothstep(dofHalfBand * 0.45, dofHalfBand * 1.45, logDiff);
+
+      // 박막 렌즈 거리 편차: (zDist - effFocusD) / (zDist * effFocusD)
+      const signedErr = zDist - effFocusD;
+      const relErr = (signedErr / Math.max(1, zDist * effFocusD)) * dofAtten;
+      const coc = relErr * cocScale * 220;
       out[idx] = clamp(coc, -maxCoc, maxCoc);
     }
   }
