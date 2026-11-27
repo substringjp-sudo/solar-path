@@ -138,9 +138,73 @@ void main() {
 }
 `;
 
+const TRAIL_VERT = `
+precision highp float;
+
+attribute float aMag;
+attribute vec3  aColor;
+attribute float aArcFrac; // 0.0 (노출 시작) ~ 1.0 (노출 끝)
+
+uniform mat3  uEquToHorizon;
+uniform float uMagLimit;
+uniform float uBrightness;
+uniform float uSunAltDeg;
+uniform float uShowStars;
+uniform float uTrailAngleRad; // 노출 시간 동안 하늘이 도는 각도(라디안)
+
+varying vec3  vColor;
+varying float vAlpha;
+
+void main() {
+  // 적도좌표에서 자전축(Z)을 중심으로 -uTrailAngleRad * aArcFrac 만큼 회전
+  float ang = -uTrailAngleRad * aArcFrac;
+  float c = cos(ang);
+  float s = sin(ang);
+  vec3 eq = normalize(position);
+  vec3 eqRot = vec3(eq.x * c - eq.y * s, eq.x * s + eq.y * c, eq.z);
+
+  vec3 h = uEquToHorizon * eqRot;
+  vec3 worldPos = h * ${STAR_RADIUS}.0;
+
+  float t = clamp((${STAR_MAG_LIMIT.toFixed(2)} - aMag) / ${(STAR_MAG_LIMIT + 1.46).toFixed(2)}, 0.0, 1.0);
+  float norm = pow(t, 1.15);
+  norm *= smoothstep(uMagLimit + 0.35, uMagLimit - 0.35, aMag);
+
+  float skyClarity = clamp((uMagLimit - 3.0) / 3.5, 0.0, 1.0);
+  float starContrast = mix(0.38, 1.10, pow(skyClarity, 0.75));
+
+  float altDeg = degrees(asin(clamp(h.y, -1.0, 1.0)));
+  float airmass = 1.0 / max(0.09, sin(radians(max(altDeg, 3.0))));
+  float extinction = exp(-0.16 * (airmass - 1.0));
+  float night = smoothstep(-2.0, -11.0, uSunAltDeg);
+  float above = smoothstep(-1.5, 1.5, altDeg);
+
+  // 궤적 끝부분이 자연스럽게 가늘어지듯 살짝 페이드
+  float tailFade = mix(1.0, 0.55, aArcFrac);
+  vAlpha = clamp(norm * extinction * night * above * starContrast * uBrightness * uShowStars * 0.75 * tailFade, 0.0, 1.0);
+  vColor = aColor;
+
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
+}
+`;
+
+const TRAIL_FRAG = `
+precision highp float;
+
+varying vec3  vColor;
+varying float vAlpha;
+
+void main() {
+  if (vAlpha <= 0.002) discard;
+  gl_FragColor = vec4(vColor, vAlpha);
+}
+`;
+
 export interface StarFieldHandle {
   points: THREE.Points;
+  trails: THREE.LineSegments;
   material: THREE.ShaderMaterial;
+  trailMaterial: THREE.ShaderMaterial;
   /** 항성 개수 (행성은 뒤에 이어붙음) */
   starCount: number;
   /** 마지막으로 GPU에 올린 행성 배열. 같은 배열이면 재전송을 건너뜁니다. */
@@ -221,13 +285,86 @@ export function createStarField(maxPlanets: number = 8): StarFieldHandle {
   points.frustumCulled = false;
   points.renderOrder = -0.5; // 하늘(-1) 위, 구름(1) 아래
 
+  // ── 셔터 장노출 별 궤적 (LineSegments, 밝은 별 5.2등급 이하만 호 세그먼트 구성) ──
+  const TRAIL_SEGS = 4;
+  let trailStarCount = 0;
+  for (let i = 0; i < cat.count; i++) {
+    if (cat.magnitude[i] <= 5.2) trailStarCount++;
+  }
+  const trailVertCount = trailStarCount * TRAIL_SEGS * 2;
+  const trailPos = new Float32Array(trailVertCount * 3);
+  const trailMag = new Float32Array(trailVertCount);
+  const trailCol = new Float32Array(trailVertCount * 3);
+  const trailFrac = new Float32Array(trailVertCount);
+
+  let tv = 0;
+  for (let i = 0; i < cat.count; i++) {
+    if (cat.magnitude[i] > 5.2) continue;
+    const px = positions[i * 3];
+    const py = positions[i * 3 + 1];
+    const pz = positions[i * 3 + 2];
+    const m = mags[i];
+    const cr = colors[i * 3];
+    const cg = colors[i * 3 + 1];
+    const cb = colors[i * 3 + 2];
+    for (let s = 0; s < TRAIL_SEGS; s++) {
+      const f0 = s / TRAIL_SEGS;
+      const f1 = (s + 1) / TRAIL_SEGS;
+      trailPos[tv * 3] = px; trailPos[tv * 3 + 1] = py; trailPos[tv * 3 + 2] = pz;
+      trailMag[tv] = m;
+      trailCol[tv * 3] = cr; trailCol[tv * 3 + 1] = cg; trailCol[tv * 3 + 2] = cb;
+      trailFrac[tv] = f0;
+      tv++;
+
+      trailPos[tv * 3] = px; trailPos[tv * 3 + 1] = py; trailPos[tv * 3 + 2] = pz;
+      trailMag[tv] = m;
+      trailCol[tv * 3] = cr; trailCol[tv * 3 + 1] = cg; trailCol[tv * 3 + 2] = cb;
+      trailFrac[tv] = f1;
+      tv++;
+    }
+  }
+
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+  trailGeo.setAttribute('aMag', new THREE.BufferAttribute(trailMag, 1));
+  trailGeo.setAttribute('aColor', new THREE.BufferAttribute(trailCol, 3));
+  trailGeo.setAttribute('aArcFrac', new THREE.BufferAttribute(trailFrac, 1));
+
+  const trailMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uEquToHorizon: { value: material.uniforms.uEquToHorizon.value },
+      uMagLimit: { value: STAR_MAG_LIMIT },
+      uBrightness: { value: 1.0 },
+      uSunAltDeg: { value: -20 },
+      uShowStars: { value: 1.0 },
+      uTrailAngleRad: { value: 0.0 },
+    },
+    vertexShader: TRAIL_VERT,
+    fragmentShader: TRAIL_FRAG,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const trails = new THREE.LineSegments(trailGeo, trailMaterial);
+  trails.name = 'starTrails';
+  trails.frustumCulled = false;
+  trails.renderOrder = -0.5;
+  trails.visible = false;
+  points.add(trails);
+
   return {
     points,
+    trails,
     material,
+    trailMaterial,
     starCount: cat.count,
     dispose: () => {
       geometry.dispose();
       material.dispose();
+      trailGeo.dispose();
+      trailMaterial.dispose();
     },
   };
 }
@@ -324,7 +461,13 @@ export interface StarFieldUpdate {
   showStars?: boolean;
   /** 행성 레이어 표시 여부 (기본 true) */
   showPlanets?: boolean;
+  /** 셔터 시간(초). 0.8초 이상일 때 지구 자전에 의한 별 궤적을 그립니다. */
+  shutterS?: number | null;
 }
+
+/** 항성시 자전 각속도 (rad/s) × 화면 시인성 보정 배율 */
+const EARTH_ROT_RAD_PER_S = (Math.PI * 2) / 86164.09;
+const TRAIL_VISUAL_GAIN = 4.0;
 
 /**
  * 항성/행성 상태 갱신. 회전 행렬 하나와 uniform 몇 개만 바꾸므로
@@ -340,6 +483,18 @@ export function updateStarField(handle: StarFieldHandle, u: StarFieldUpdate): vo
   if (uni.uPixelArt) uni.uPixelArt.value = u.pixelArt ? 1.0 : 0.0;
   uni.uShowStars.value = u.showStars === false ? 0 : 1;
   uni.uShowPlanets.value = u.showPlanets === false ? 0 : 1;
+
+  const shutter = u.shutterS ?? 0;
+  const showTrails = shutter >= 0.8 && !u.pixelArt && u.showStars !== false;
+  handle.trails.visible = showTrails;
+  if (showTrails) {
+    const tUni = handle.trailMaterial.uniforms;
+    tUni.uMagLimit.value = u.magLimit;
+    tUni.uBrightness.value = u.brightness;
+    tUni.uSunAltDeg.value = u.sunAltDeg;
+    tUni.uShowStars.value = 1;
+    tUni.uTrailAngleRad.value = Math.min(Math.PI * 0.5, shutter * EARTH_ROT_RAD_PER_S * TRAIL_VISUAL_GAIN);
+  }
 
   // 행성은 개수가 적으므로 attribute를 직접 갱신합니다.
   //

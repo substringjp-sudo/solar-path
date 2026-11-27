@@ -38,7 +38,7 @@ const QUICK_LENS_PRESETS: ReadonlyArray<{ zoom: number; mm: string; kind: LensKi
 interface Props {
   language: Language;
   top: number;
-  right?: number;
+  left?: number;
   teleX: number;
   onChangeTeleX: (x: number) => void;
   gearBag: CameraGearBagState;
@@ -49,7 +49,7 @@ interface Props {
 export const SandboxQuickOpticsButtons: React.FC<Props> = ({
   language,
   top,
-  right = 12,
+  left = 12,
   teleX,
   onChangeTeleX,
   gearBag,
@@ -75,8 +75,8 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
         />
       )}
 
-      <View style={[styles.wrap, { top, right }]} pointerEvents="box-none">
-        {/* 우측 상단 작은 원형 확장 버튼 2개 */}
+      <View style={[styles.wrap, { top, left }]} pointerEvents="box-none">
+        {/* 좌측 상단 작은 원형 확장 버튼 2개 */}
         <View style={styles.btnRow} pointerEvents="box-none">
           <Pressable
             testID="sb-quick-lens-btn"
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     zIndex: 27,
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     gap: 8,
   },
   btnRow: {

@@ -1739,12 +1739,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           );
         })()}
 
-        {/* 샌드박스 우측 상단 작은 원형 확장 버튼 (렌즈 · 필터 빠른 선택) */}
-        {expertMode && !isCameraOverlayActive && !ascended && !isDevPanelOpen && sandboxShootMode === 'photo' && (
+        {/* 샌드박스 좌측 상단 작은 원형 확장 버튼 (현재 설정값 줄 아래: 렌즈 · 필터 빠른 선택) */}
+        {expertMode && !isCameraOverlayActive && !ascended && sandboxShootMode === 'photo' && (
           <SandboxQuickOpticsButtons
             language={language}
-            top={HEADER_HEIGHT + 8}
-            right={12}
+            top={HEADER_HEIGHT + 38}
+            left={12}
             teleX={teleX}
             onChangeTeleX={setTeleX}
             gearBag={sandboxGearBag}
@@ -1762,7 +1762,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             manualIso={sandboxIso}
             manualShutterS={sandboxShutterS}
             manualWb={sandboxWb}
-            top={HEADER_HEIGHT + 52}
+            top={HEADER_HEIGHT + 8}
             right={12}
           />
         )}
@@ -2133,7 +2133,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             onCameraPress?.();
           }}
           getView={frameGetView}
-          readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el, fov: v.fov } : null; }} eyeHeightM={expertMode ? eyeH : undefined} />}
+          readout={<LiveReadout language={language} getView={() => { const v = sceneRef.current?.getRenderState?.()?.view; return v ? { az: v.az, el: v.el, fov: v.fov } : null; }} />}
           simBody={sheetOpen ? (
             <>
               {cloudCaption ? (

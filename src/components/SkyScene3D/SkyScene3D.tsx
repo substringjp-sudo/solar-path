@@ -330,6 +330,10 @@ interface SkyScene3DProps {
    * 지도로 올라가는 구간은 자기 고도 곡선을 쓰므로 높이를 올려 둔 채 줌아웃하면 올라가기 시작할 때 한 번 낮아집니다.
    */
   eyeHeightM?: number;
+  /** 샌드박스: 3D 볼류메트릭 및 셰이더 노출 배율 (기본 1). EV·ISO·셔터 조절 시 실시간 반영됩니다. */
+  exposureScale?: number;
+  /** 샌드박스: 셔터 시간(초, 기본 null). 0.8초 이상일 때 실시간 별 궤적을 그립니다. */
+  shutterS?: number | null;
   /** 하늘 화면의 장면을 다른 화면(촬영)이 renderRemote 로 빌려 쓰게 등록합니다(primarySky.ts). */
   registerPrimary?: boolean;
 }
@@ -368,7 +372,8 @@ export interface SkyScene3DHandle {
   loadFarBuildings?: (opts?: { onProgress?: (p: { tilesDone: number; tilesTotal: number; bytes: number }) => void }) => Promise<FarBuildingsResult | null>;
 }
 
-/** 망원 배율 상한 — 지상 시야각 30~120° 를 이 값으로 나눕니다(1.5~6°). */
+/** 망원/초광각 배율 범위 — 지상 시야각 30~120° 를 이 값으로 나눕니다(최소 0.5× 초광각 ~ 최대 20× 망원). */
+export const TELE_MIN = 0.5;
 export const TELE_MAX = 20;
 
 const DEFAULT_LAYERS: LayerState = {
@@ -415,6 +420,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     showLensInfo = false,
     topInset = 0,
     eyeHeightM,
+    exposureScale = 1,
+    shutterS = null,
     pickEnabled = false,
     onPickTarget,
     pickedTarget = null,
@@ -712,6 +719,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const overrideSceneTimeMsRef = useRef<number | null>(null);
   /** 장노출 시뮬레이션 동안 별 밝기 추가 배율 */
   const starBoostOverrideRef = useRef<number>(1);
+  /** 샌드박스 노출 배율 (EV·ISO·셔터 실시간 반영) */
+  const exposureScaleRef = useRef<number>(Math.max(0.1, Math.min(8, Number.isFinite(exposureScale) ? exposureScale : 1)));
+  const lastAppliedExposureScaleRef = useRef<number>(1);
+  /** 샌드박스 셔터 시간(초, 별 궤적 계산용) */
+  const shutterSRef = useRef<number | null>(shutterS ?? null);
   /** 장노출 누적 패스 지시자 (animate 루프가 한 스텝씩 처리) */
   const accumDirectiveRef = useRef<{
     begin?: boolean;
@@ -830,8 +842,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     zoomProgressRef.current = p;
     if (Math.abs(p - prev) > 1e-6) lastViewMoveMsRef.current = Date.now();
     if (p <= P_FOV_END) {
-      fovRef.current = (30 + p * 90) / teleRef.current;
-    } else if (teleRef.current > 1) {
+      fovRef.current = Math.min(130, Math.max(1, (30 + p * 90) / teleRef.current));
+    } else if (Math.abs(teleRef.current - 1) > 1e-6) {
       teleRef.current = 1;
       onChangeTelephotoRef.current?.(1);
     }
@@ -1872,14 +1884,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     lastViewMoveMsRef.current = Date.now();
     requestRender(6);
   }, [eyeHeightM, requestRender]);
-  // 망원 배율 — 지상에서만. 바뀌면 지상 시야각을 다시 셉니다(손가락 줌의 기본 시야각 ÷ 배율).
+  // 망원/초광각 배율 — 지상에서만. 바뀌면 지상 시야각을 다시 셉니다(손가락 줌의 기본 시야각 ÷ 배율).
   useEffect(() => {
-    const t = Math.max(1, Math.min(TELE_MAX, Number.isFinite(telephotoX) ? telephotoX : 1));
+    const t = Math.max(TELE_MIN, Math.min(TELE_MAX, Number.isFinite(telephotoX) ? telephotoX : 1));
     if (Math.abs(teleRef.current - t) < 1e-6) return;
     teleRef.current = t;
     const p = zoomProgressRef.current;
     if (p <= P_FOV_END) {
-      fovRef.current = (30 + p * 90) / t;
+      fovRef.current = Math.min(130, Math.max(1, (30 + p * 90) / t));
       if (cameraRef.current) {
         cameraRef.current.fov = fovRef.current;
         cameraRef.current.updateProjectionMatrix();
@@ -1889,6 +1901,23 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       requestRender(6);
     }
   }, [telephotoX, requestRender]);
+
+  // 샌드박스 노출 배율 · 셔터 시간 변경 시 즉시 렌더 요청
+  useEffect(() => {
+    const clamped = Math.max(0.1, Math.min(8, Number.isFinite(exposureScale) ? exposureScale : 1));
+    if (Math.abs(exposureScaleRef.current - clamped) > 1e-5) {
+      exposureScaleRef.current = clamped;
+      requestRender(6);
+    }
+  }, [exposureScale, requestRender]);
+
+  useEffect(() => {
+    const nextShutter = shutterS != null && Number.isFinite(shutterS) ? shutterS : null;
+    if (shutterSRef.current !== nextShutter) {
+      shutterSRef.current = nextShutter;
+      requestRender(6);
+    }
+  }, [shutterS, requestRender]);
 
   const teleportTarget = useCelestialStore((s) => s.teleportTarget);
   const language = useCelestialStore((s) => s.language);
@@ -2583,6 +2612,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(starField.points);
     // 별은 점 광원이라 **반드시 원해상도**입니다 (SceneComposer 주석).
     assignLayer(starField.points, LAYER_CELESTIAL);   // 구름 아래 (§94)
+    assignLayer(starField.trails, LAYER_CELESTIAL);
     starFieldRef.current = starField;
 
     pixelRatioRef.current = Math.max(
@@ -2871,24 +2901,32 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 구름·하늘 도시광 기준은 3등급(1.0)으로 고정하고 실제 세기/분포는 밤 불빛 지도가 정합니다.
       const volCityLightNow = cityLightsEnabled && nightLightsRef.current ? 1.0 : 0;
       const tuningNow = getTuning();
+      const expScaleNow = exposureScaleRef.current;
       if (
         tuningNow === lastAppliedTuningRef.current &&
         Math.abs(cityLightNow - lastCityLightValRef.current) <= 1e-4 &&
-        Math.abs(volCityLightNow - lastVolCityLightRef.current) <= 1e-4
+        Math.abs(volCityLightNow - lastVolCityLightRef.current) <= 1e-4 &&
+        Math.abs(expScaleNow - lastAppliedExposureScaleRef.current) <= 1e-4
       ) {
         return;
       }
       lastAppliedTuningRef.current = tuningNow;
       lastCityLightValRef.current = cityLightNow;
       lastVolCityLightRef.current = volCityLightNow;
+      lastAppliedExposureScaleRef.current = expScaleNow;
       setSceneCityLight(cityLightNow);
       volRef.current?.setCityLight(volCityLightNow);
-      volRef.current?.setExposureScale(tuningNow.displayExposure / DEFAULT_TUNING.displayExposure);
-      applyTuningUniforms(sunRef.current?.material.uniforms);
-      if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
-      if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
-      if (buildingFieldRef.current) applyTuningUniforms(buildingFieldRef.current.material.uniforms);
-      if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
+      volRef.current?.setExposureScale((tuningNow.displayExposure / DEFAULT_TUNING.displayExposure) * expScaleNow);
+      const applyExpoUniforms = (uniforms: Record<string, any> | undefined | null) => {
+        if (!uniforms) return;
+        applyTuningUniforms(uniforms);
+        if (uniforms.DISP_EXPO) uniforms.DISP_EXPO.value *= expScaleNow;
+      };
+      applyExpoUniforms(sunRef.current?.material.uniforms);
+      if (groundRef.current) applyExpoUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
+      if (terrainFieldRef.current) applyExpoUniforms(terrainFieldRef.current.material.uniforms);
+      if (buildingFieldRef.current) applyExpoUniforms(buildingFieldRef.current.material.uniforms);
+      if (seaPlaneRef.current) applyExpoUniforms(seaPlaneRef.current.material.uniforms);
     };
 
     const ensureVolumetricInstance = () => {
@@ -3281,7 +3319,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           if (accumWant !== volAccumOnRef.current) { volAccumOnRef.current = accumWant; vol.setCloudAccumActive?.(accumWant); }
           vol.setGroundGrain?.(skySettingsRef.current.volumetricGroundGrain ?? 0);
           vol.setExposureMode?.(
-            skySettingsRef.current.sandboxManualExposure ? 'manual' : (skySettingsRef.current.volumetricExposureMode ?? 'metered'),
+            skySettingsRef.current.sandboxManualExposure ? 'table' : (skySettingsRef.current.volumetricExposureMode ?? 'metered'),
             skySettingsRef.current.sandboxExposureEv ?? 0,
           );
           volTex = vol.renderToTexture(dtSec);
@@ -3898,10 +3936,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedMoonMagMsRef.current = targetTimeMs;
       cachedMoonBaseMagRef.current = baseMagLimit;
     }
-    // 장노출 시뮬레이션 시 노출시간·감도 배율에 비례해 어두운 한계등급 별까지 드러나도록 보너스 부여
+    // 장노출·노출 배율에 비례해 어두운 한계등급 별까지 드러나도록 보너스 부여
+    const liveStarBoost = starBoostOverrideRef.current * Math.max(1, Math.min(2.5, Math.pow(exposureScaleRef.current, 0.45)));
     const exposureMagBonus =
-      starBoostOverrideRef.current > 1
-        ? Math.min(2.0, Math.log2(starBoostOverrideRef.current) * 1.15)
+      liveStarBoost > 1
+        ? Math.min(2.0, Math.log2(liveStarBoost) * 1.15)
         : 0;
     const liveMagLimit = cachedMoonMagLimitRef.current + exposureMagBonus;
 
@@ -3910,13 +3949,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
-        brightness: settings.starBrightness * starBoostOverrideRef.current,
+        brightness: settings.starBrightness * liveStarBoost,
         magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
         pixelArt: pxRows > 0,
         planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
         showPlanets: currentLayers.planets,
+        shutterS: shutterSRef.current,
       });
       starFieldRef.current.points.visible = currentLayers.stars || currentLayers.planets;
     }
@@ -3926,7 +3966,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         milkyWayRef.current,
         equToHorizon,
         sunAltRef.current,
-        settings.starBrightness * starBoostOverrideRef.current,
+        settings.starBrightness * liveStarBoost,
         liveMagLimit
       );
       milkyWayRef.current.mesh.visible = currentLayers.milkyway;
