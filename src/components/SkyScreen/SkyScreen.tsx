@@ -74,6 +74,7 @@ import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface } from '../glass/GlassSurface';
 import { SandboxShootPanel, type SandboxShootMode } from './SandboxShootPanel';
+import { SandboxQuickOpticsButtons } from './SandboxQuickOpticsButtons';
 import { CornerExposureBadge } from '../AstroCamera/CornerExposureBadge';
 import { SceneSheet, type SaveResult } from './SceneSheet';
 import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type SavedScene } from '../../utils/savedScenes';
@@ -1737,6 +1738,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           );
         })()}
 
+        {/* 샌드박스 우측 상단 작은 원형 확장 버튼 (렌즈 · 필터 빠른 선택) */}
+        {expertMode && !isCameraOverlayActive && !ascended && !isDevPanelOpen && sandboxShootMode === 'photo' && (
+          <SandboxQuickOpticsButtons
+            language={language}
+            top={HEADER_HEIGHT + 8}
+            right={12}
+            teleX={teleX}
+            onChangeTeleX={setTeleX}
+            gearBag={sandboxGearBag}
+            onChangeGearBag={setSandboxGearBag}
+            isLowSpec={graphicsQuality === 'low'}
+          />
+        )}
+
         {/* 샌드박스 우측 상단 수동 설정 배지 (기본값이면 숨김, 위아래 슬라이드로 EV 조절) */}
         {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && (
           <CornerExposureBadge
@@ -1746,7 +1761,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             manualIso={sandboxIso}
             manualShutterS={sandboxShutterS}
             manualWb={sandboxWb}
-            top={HEADER_HEIGHT + 8}
+            top={HEADER_HEIGHT + 52}
             right={12}
           />
         )}
