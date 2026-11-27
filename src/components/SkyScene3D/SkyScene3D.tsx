@@ -2978,7 +2978,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lat: vLat, lon: vLon, heightM: vElev, date: bDate,
             pathData: vPath, obs: bWx[0] ?? null, interpolatedWeather: bWx,
             az: effectiveAz, el: effectiveElev, fov: camera.fov,
-            altitudeM, metar: metarSnap, metars: metarsSnap, fill: fillSnap,
+            altitudeM, metar: metarSnap, metars: metarsSnap, cloudSpeed: skySettingsRef.current.volumetricCloudSpeed, fill: fillSnap,
           }).input;
           const alreadyCached = vol.hasCachedScene?.(input, false) ?? false;
           if (!alreadyCached) {
@@ -3028,7 +3028,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const effBillow = isLowSpec ? false : (volSet.volumetricBillow ?? true);
         const effCells = !isLowSpec;
         const effEdgeRough = isLowSpec ? 0 : 0.5;
-        const qKey = `${q}|${effRes}|${isLowSpec ? 1 : 0}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${effBillow ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}|${(volSet.volumetricRefine ?? true) && !isLowSpec ? 1 : 0}`;
+        const qKey = `${q}|${effRes}|${isLowSpec ? 1 : 0}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${effBillow ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}|${(volSet.volumetricRefine ?? true) && !isLowSpec ? 1 : 0}|${volSet.volumetricCloudSpeed ?? 1}`;
         if (qKey !== volQualityRef.current) {
           const prevKey = volQualityRef.current;
           vol.setQuality(q);
@@ -3106,7 +3106,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: vPath,
             obs: curWx[0] ?? vObs, interpolatedWeather: curWx.length ? curWx : vWx,
             az: effectiveAz, el: effectiveElev, fov: camera.fov, altitudeM,
-            metar: metarRef.current, metars: metarsRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
+            metar: metarRef.current, metars: metarsRef.current, cloudSpeed: skySettingsRef.current.volumetricCloudSpeed, fill: skySettingsRef.current.volumetricFill ?? true,
           });
           const cachedHit = vol.hasCachedScene?.(built.input, isFast) ?? false;
           if (cachedHit) {
@@ -3230,7 +3230,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: vPath,
                 obs: contWx[0] ?? null, interpolatedWeather: contWx,
                 az: effectiveAz, el: effectiveElev, fov: camera.fov, altitudeM,
-                metar: metarRef.current, metars: metarsRef.current, fill: skySettingsRef.current.volumetricFill ?? true,
+                metar: metarRef.current, metars: metarsRef.current, cloudSpeed: skySettingsRef.current.volumetricCloudSpeed, fill: skySettingsRef.current.volumetricFill ?? true,
               });
               vol.updateContinuousScene(contBuilt.input);
               if (!isSlidingNow) setVolumetricStatus({ summary: contBuilt.summary + layerOpticsNote(contBuilt.input.layers, vol.physicsInfo()) });

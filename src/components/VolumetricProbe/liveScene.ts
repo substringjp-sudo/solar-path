@@ -75,6 +75,8 @@ export interface LiveSceneArgs {
   metar?: MetarObs | null;
   /** 주변 공항 여러 곳의 최근 보고(`fetchMetarReports`) — 거시 운량 고리를 관측으로 보정(`metarRing.ts`). 없으면 예보 고리 그대로. */
   metars?: readonly MetarObs[] | null;
+  /** 구름 이동 속도 배율(개발 패널, 기본 1 = 예보 바람 그대로). 0.1~1.5 로 묶음. 층별 바람(방향 · 전단)은 그대로 두고 속도만 곱함. */
+  cloudSpeed?: number;
   /** 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9). 기본 켬 — 조건이 맞을 때만 저·중층을 파동 장 한 층으로 바꿉니다. */
   fill?: boolean;
 }
@@ -626,14 +628,16 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     const w = winds[band], to = ((w.bearingDeg + 180) * Math.PI) / 180;   // bearing 은 불어오는 쪽
     return [w.speedKmh * Math.sin(to), w.speedKmh * Math.cos(to)];
   };
-  const W = { low: windOf('low'), mid: windOf('mid'), high: windOf('high') };
+  const spd = Math.max(0.1, Math.min(1.5, Number.isFinite(a.cloudSpeed as number) ? (a.cloudSpeed as number) : 1));
+  const sp = (w: [number, number]): [number, number] => (spd === 1 ? w : [w[0] * spd, w[1] * spd]);
+  const W = { low: sp(windOf('low')), mid: sp(windOf('mid')), high: sp(windOf('high')) };
   const ptsAll = a.pathData ?? [];
   const DAY = 86400000, lonMs = (a.lon / 360) * DAY;
   const dayT0 = Math.floor((a.date.getTime() + lonMs) / DAY) * DAY - lonMs;
   const dayT1 = dayT0 + DAY;
   const { dLow, dMid, dHigh, dayBandMax, dayFairLowGenus, dayHighMeanPct } = getDayPathStats(ptsAll, dayT0, dayT1);
   const hasDayWind = !!(dLow && dMid && dHigh);
-  const Wpat = hasDayWind ? { low: dLow!, mid: dMid!, high: dHigh! } : W;
+  const Wpat = hasDayWind ? { low: sp(dLow!), mid: sp(dMid!), high: sp(dHigh!) } : W;
 
   const envCoverOf = (m: number) => (m >= 0.82 ? Math.round((0.96 + 0.04 * smooth01(m, 0.82, 0.92)) * 100) / 100 : m >= 0.02 ? 0.96 : 0);
   const tileCoverEnvelope: Partial<Record<'low' | 'mid' | 'high', number>> | undefined = ptsAll.length >= 20 ? {
