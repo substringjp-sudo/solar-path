@@ -2901,7 +2901,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 구름·하늘 도시광 기준은 3등급(1.0)으로 고정하고 실제 세기/분포는 밤 불빛 지도가 정합니다.
       const volCityLightNow = cityLightsEnabled && nightLightsRef.current ? 1.0 : 0;
       const tuningNow = getTuning();
-      const expScaleNow = exposureScaleRef.current;
+      const expScaleNow = zoomProgressRef.current > P_FOV_END ? 1 : exposureScaleRef.current;
       if (
         tuningNow === lastAppliedTuningRef.current &&
         Math.abs(cityLightNow - lastCityLightValRef.current) <= 1e-4 &&
@@ -3319,7 +3319,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           if (accumWant !== volAccumOnRef.current) { volAccumOnRef.current = accumWant; vol.setCloudAccumActive?.(accumWant); }
           vol.setGroundGrain?.(skySettingsRef.current.volumetricGroundGrain ?? 0);
           vol.setExposureMode?.(
-            skySettingsRef.current.sandboxManualExposure ? 'table' : (skySettingsRef.current.volumetricExposureMode ?? 'metered'),
+            skySettingsRef.current.sandboxManualExposure && zoomProgressRef.current <= P_FOV_END
+              ? 'table'
+              : (skySettingsRef.current.volumetricExposureMode ?? 'metered'),
             skySettingsRef.current.sandboxExposureEv ?? 0,
           );
           volTex = vol.renderToTexture(dtSec);

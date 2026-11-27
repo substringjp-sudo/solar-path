@@ -258,6 +258,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
     ms: number;
     ev: number;
     zoomT: number;
+    lastZoomVal: number;
     eyeT: number;
     isoIdx: number;
     shutterIdx: number;
@@ -268,6 +269,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
     ms: timeMs,
     ev: 0,
     zoomT: 0,
+    lastZoomVal: 1,
     eyeT: 0,
     isoIdx: 0,
     shutterIdx: 0,
@@ -291,6 +293,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
             ms: startMs,
             ev: st.exposure,
             zoomT: valueToT(st.zoomX, ZOOM_DIAL_RANGE),
+            lastZoomVal: st.zoomX,
             eyeT: valueToT(st.eyeHeightM, EYE_RANGE),
             isoIdx,
             shutterIdx,
@@ -344,7 +347,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
           }
 
           if (ds.param === 'date') {
-            // 손가락을 왼쪽(-dx)으로 밀면 다음 날(+step)
+            // 손가락을 왼쪽(-dx)으로 밀면 다음 날(+step) — 드래그 중에는 UI만 갱신하고 릴리즈 시 커밋
             const daySteps = Math.max(-30, Math.min(30, Math.round(-g.dx / 26)));
             if (daySteps !== ds.lastQuant) {
               if (daySteps % 7 === 0) hapticTickMajor();
@@ -353,7 +356,6 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
               const nextMs = ds.ms + daySteps * DAY_MS;
               setScrubMs(nextMs);
               emitScrubTime(nextMs);
-              st.onDatePreview(nextMs);
             }
             return;
           }
@@ -375,7 +377,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
             const nextT = Math.max(0, Math.min(1, ds.zoomT - g.dx / 240));
             // 프리셋 줌 눈금 근처에서는 자석처럼 스냅
             let magnetPreset: number | null = null;
-            let bestDist = 0.026;
+            let bestDist = 0.036;
             for (const preset of ZOOM_MAJOR_MARKS) {
               const pt = valueToT(preset, ZOOM_DIAL_RANGE);
               const d = Math.abs(nextT - pt);
@@ -385,6 +387,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
               }
             }
             const val = magnetPreset ?? roundZoom(tToValue(nextT, ZOOM_DIAL_RANGE));
+            ds.lastZoomVal = val;
             const q = magnetPreset != null ? 10000 + Math.round(magnetPreset * 10) : Math.round(nextT * 45);
             if (q !== ds.lastQuant) {
               if (magnetPreset != null || q % 9 === 0) hapticTickMajor();
@@ -459,17 +462,31 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
             st.onDatePreview(finalMs);
             st.onDateCommit?.(finalMs);
           } else if (ds.param === 'zoom') {
-            const nextT = Math.max(0, Math.min(1, ds.zoomT - g.dx / 240));
-            st.onZoomChange(roundZoom(tToValue(nextT, ZOOM_DIAL_RANGE)));
+            st.onZoomChange(ds.lastZoomVal);
           } else if (ds.param === 'height') {
             const nextT = Math.max(0, Math.min(1, ds.eyeT - g.dx / 240));
             st.onEyeHeightChange(roundEye(tToValue(nextT, EYE_RANGE)));
           }
         },
-        onPanResponderTerminate: () => {
+        onPanResponderTerminate: (_, g) => {
           markDragEnd();
           setDialDragging(false);
-          setScrubMs(null);
+          const st = stateRef.current;
+          const ds = dragStartRef.current;
+          if (ds.param === 'date') {
+            const daySteps = Math.max(-30, Math.min(30, Math.round(-g.dx / 26)));
+            const finalMs = ds.ms + daySteps * DAY_MS;
+            setScrubMs(null);
+            st.onDatePreview(finalMs);
+            st.onDateCommit?.(finalMs);
+          } else if (ds.param === 'time') {
+            const finalMs = dragTimeMs(ds.ms, g.dx, { pxPerHour: 96, snapMin: 1 });
+            setScrubMs(null);
+            st.onTimeChange(finalMs);
+            st.onTimeCommit?.(finalMs);
+          } else {
+            setScrubMs(null);
+          }
         },
       }),
     [],
