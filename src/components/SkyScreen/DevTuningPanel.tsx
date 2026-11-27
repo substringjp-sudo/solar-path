@@ -142,6 +142,7 @@ const VolumetricPerfRow: React.FC = () => {
   const lowShadow = useCelestialStore(s => s.skySettings.volumetricLowSunShadow ?? true);
   const farSun = useCelestialStore(s => s.skySettings.volumetricFarSun ?? true);
   const refine = useCelestialStore(s => s.skySettings.volumetricRefine ?? true);
+  const groundGrain = useCelestialStore(s => s.skySettings.volumetricGroundGrain ?? 0);
   const diagRaw = useCelestialStore(s => !!s.skySettings.diagRawTerrain);
   const sheetDiff = useCelestialStore(s => s.skySettings.volumetricSheetDiffuse ?? true);
   const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
@@ -201,6 +202,10 @@ const VolumetricPerfRow: React.FC = () => {
         {/* 구름 알갱이 다듬기(표본 누적 + 손 뗀 뒤 최대 2.5초 더 그림) — 끄면 그 전(정착 18 프레임에서 멈춤)과 같음 */}
         <TouchableOpacity onPress={() => set({ volumetricRefine: !refine })} style={chip(refine)}>
           <Text style={styles.volChipText}>알갱이 다듬기</Text>
+        </TouchableOpacity>
+        {/* 땅 알갱이(실험, 기본 끔): 누를 때마다 끔 → 위치 표본(A) → 위치 + 빛 표본(A+B) */}
+        <TouchableOpacity onPress={() => set({ volumetricGroundGrain: (groundGrain + 1) % 3 })} style={chip(groundGrain > 0)}>
+          <Text style={styles.volChipText}>{`땅 알갱이 ${['끔', 'A', 'A+B'][groundGrain] ?? groundGrain}`}</Text>
         </TouchableOpacity>
         {/* 진단: 대기를 입히지 못한 원래 지형 화소를 분홍으로(기본 끔) */}
         <TouchableOpacity onPress={() => set({ diagRawTerrain: !diagRaw })} style={chip(diagRaw)}>
