@@ -446,6 +446,12 @@ float sampleElevAt(float lonRad, float latRad) {
   return mix(h, 2200.0, antPole);
 }
 
+// 구름 햇빛 색(대기 광학 두께 / 공기 질량 1, 레일리 + 에어로졸 약간): 해 15° 쯤부터 노랗고 5° 에서 주황, 0° 에서 진홍.
+const float CLOUD_TOP_DIP_DEG = 2.5;
+const float CLOUD_TAU_R = 0.07;
+const float CLOUD_TAU_G = 0.16;
+const float CLOUD_TAU_B = 0.32;
+
 void main() {
   if (uOpacity <= 0.01 || vClipBack > 0.5) discard;
 
@@ -647,17 +653,22 @@ void main() {
       // 구름 아래 지표면/바다 음영
       col *= (1.0 - cloudAlpha * 0.34 * day);
 
-      // 일출·일몰선(0°)을 가운데 두고 낮 쪽(금빛) → 경계(주황) → 밤 쪽(어두운 붉은 잔광)으로 3단 전이
-      float cloudDay = smoothstep(-1.4, 1.8, sunAltDeg);
-      float goldBand = exp(-pow((sunAltDeg - 1.6) / 2.2, 2.0));
-      float orangeBand = exp(-pow((sunAltDeg + 0.55) / 1.45, 2.0));
-      float crimsonBand = exp(-pow((sunAltDeg + 2.35) / 1.35, 2.0));
-      vec3 cloudDayCol = vec3(0.95, 0.97, 1.0) * (0.35 + 0.65 * max(0.0, ndl));
+      // 구름이 받는 햇빛 색은 대기를 지난 길이로 정합니다(하늘 화면과 같은 물리): 빛이 지나는 공기 질량 m 이 클수록
+      // 파랑부터 빠져 노랑 → 주황 → 진홍. 띠 세 개를 손으로 깔던 것(2026-11-27 이전)은 해 0° 둘레 ±2° 에만 붉어서
+      // 레이더 안(하늘 화면 위에서 본 구름)의 노을 색이 오는 자리와 이어지지 않았습니다.
+      // 구름 꼭대기(약 6~8 km)는 지표 지평선보다 2.5° 쯤 더 아래까지 해를 봅니다(지평선 처짐).
+      float hc = sunAltDeg + CLOUD_TOP_DIP_DEG;
+      float hcAir = max(hc, 0.0);
+      float airM = 1.0 / (sin(radians(hcAir)) + 0.50572 * pow(hcAir + 6.07995, -1.6364));
+      vec3 tauRGB = vec3(CLOUD_TAU_R, CLOUD_TAU_G, CLOUD_TAU_B);
+      vec3 sunT = exp(-tauRGB * (airM - 1.0));   // 천정(m = 1) 대비 해 투과율
+      // 색은 투과율의 비(빨강 기준), 밝기는 빨강 투과율의 약한 거듭제곱 — 구름 옆면이 낮은 해를 비스듬히 받아 완전히 어두워지진 않음.
+      vec3 sunCol = (sunT / max(sunT.r, 1e-3)) * pow(sunT.r, 0.3);
+      float cloudSunlit = smoothstep(-1.2, 1.6, hc);
+      float cloudNdl = 0.6 + 0.4 * max(0.0, sin(radians(max(hc, 0.0))));
+      vec3 cloudDayCol = vec3(0.95, 0.97, 1.0) * sunCol * cloudNdl;
       vec3 cloudNightCol = vec3(0.007, 0.011, 0.022);
-      vec3 cloudCol = mix(cloudNightCol, cloudDayCol, cloudDay);
-      cloudCol = mix(cloudCol, vec3(1.00, 0.78, 0.46), goldBand * 0.42);
-      cloudCol = mix(cloudCol, vec3(0.98, 0.48, 0.20), orangeBand * 0.74);
-      cloudCol = mix(cloudCol, vec3(0.52, 0.14, 0.16), crimsonBand * 0.58);
+      vec3 cloudCol = mix(cloudNightCol, cloudDayCol, cloudSunlit);
       col = mix(col, cloudCol, cloudAlpha);
     }
   }
