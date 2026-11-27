@@ -73,6 +73,7 @@ import { type FarStatus } from './SandboxPanel';
 import { SkyFrame, LiveReadout } from './SkyFrame';
 import { GlassChip } from '../glass/GlassChip';
 import { GlassSurface } from '../glass/GlassSurface';
+import { SandboxMasterDial } from '../glass/SandboxMasterDial';
 import { SandboxShootPanel, type SandboxShootMode } from './SandboxShootPanel';
 import { SandboxQuickOpticsButtons } from './SandboxQuickOpticsButtons';
 import { CornerExposureBadge } from '../AstroCamera/CornerExposureBadge';
@@ -81,7 +82,7 @@ import { makeScene, nextSceneId, pendingTargetFromScene, targetFromPicked, type 
 import { rebuildPicked, targetPointOf } from '../../utils/pickedTarget';
 import { eyeForMode } from '../../utils/flightAssist';
 import { useGlide } from '../../hooks/useGlide';
-import { DialPair, MoveStick } from './SandboxDials';
+import { MoveStick } from './SandboxDials';
 import { useJoystickDriver } from '../../hooks/useJoystickDriver';
 import { ObjectInfoPanel } from './ObjectInfoPanel';
 import { snapBuildingTarget, type PickedTarget } from '../../utils/demPick';
@@ -2073,22 +2074,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </Reveal>
         )}
 
-        {/* 샌드박스 상시 오버레이: stage 안에 두어 SkyFrame 설정 시트/배경막 아래에 놓이도록 배치 */}
+        {/* 샌드박스 상시 오버레이: stage 안에 두어 SkyFrame 설정 시트/배경막 아래에 놓이도록 배치 (높이·줌은 하단 통합 다이얼로 이동) */}
         {!isCameraOverlayActive && expertMode && !ascended && (
-          <>
-            <View style={[overlayStyles.floatingJoystick, { bottom: dockInset + 12 }]}>
-              <MoveStick
-                language={language}
-                size={88}
-                relative
-                onStick={shutterMoveDriver.onStick}
-                onNudge={shutterMoveDriver.nudge}
-              />
-            </View>
-            <View style={[overlayStyles.floatingDials, { bottom: dockInset + 12 }]}>
-              <DialPair language={language} eyeHeightM={eyeH} onEyeHeight={setEyeH} zoomX={teleX} onZoom={setTeleX} />
-            </View>
-          </>
+          <View style={[overlayStyles.floatingJoystick, { bottom: dockInset + 12 }]}>
+            <MoveStick
+              language={language}
+              size={88}
+              relative
+              onStick={shutterMoveDriver.onStick}
+              onNudge={shutterMoveDriver.nudge}
+            />
+          </View>
         )}
       </View>
 
@@ -2157,6 +2153,57 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onOpenCalendar={onOpenDatePicker}
           onSimBodyOpenChange={setSheetOpen}
           onSandboxSheetOpenChange={setSandboxSheetOpen}
+          customRuler={expertMode ? (
+            <SandboxMasterDial
+              language={language}
+              timeMs={currentTime.getTime()}
+              tz={tz}
+              nowMs={Date.now()}
+              live={
+                !(expertMode && sandboxShootMode === 'astro')
+                && !isTimeMachineEnabled
+                && Math.abs(currentTime.getTime() - Date.now()) <= 60_000
+              }
+              showNow={
+                isTimeMachineEnabled
+                || Math.abs(currentTime.getTime() - Date.now()) > 60_000
+                || (homeCoords != null && distanceM(homeCoords, { latitude, longitude }) > 20)
+              }
+              onNow={() => {
+                if (expertMode && sandboxShootMode === 'astro') {
+                  useCelestialStore.getState().pinTime(new Date());
+                } else {
+                  setTimeMachineEnabled?.(false);
+                }
+                if (homeCoords && distanceM(homeCoords, { latitude, longitude }) > 20) {
+                  glide.cancel();
+                  sceneRef.current?.setEyeLocation?.(homeCoords.latitude, homeCoords.longitude);
+                  setSpot(homeCoords);
+                }
+              }}
+              onOpenCalendar={onOpenDatePicker}
+              onTimeDragStart={() => handleBarSlidingStart('time')}
+              onTimeChange={(ms) => handleBarPick(new Date(ms), { scrub: 'time' })}
+              onTimeCommit={() => handleBarSlidingComplete('time')}
+              onDateDragStart={() => handleBarSlidingStart('date')}
+              onDatePreview={(ms) => handleBarPick(new Date(ms), { scrub: 'date' })}
+              onDateCommit={() => handleBarSlidingComplete('date')}
+              sunsetMs={events?.sunset ? events.sunset.getTime() : null}
+              sunsetLabel={`${L3(language, '일몰', 'Sunset', '日没')} ${sunsetText}`}
+              scoreSamples={scoreGraph ? scoreGraph.points : null}
+              exposure={sandboxExposure}
+              onExposureChange={setSandboxExposure}
+              zoomX={teleX}
+              onZoomChange={setTeleX}
+              eyeHeightM={eyeH}
+              onEyeHeightChange={setEyeH}
+              manualIso={sandboxIso}
+              onIsoChange={setSandboxIso}
+              manualShutterS={sandboxShutterS}
+              onShutterChange={setSandboxShutterS}
+              expoAdvice={sandboxExpoAdvice}
+            />
+          ) : undefined}
         />
       )}
       </View>

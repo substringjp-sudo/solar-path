@@ -18,6 +18,7 @@ import { GlassChip } from './GlassChip';
 import { glassTextShadow } from './GlassSurface';
 import { isRecentDrag, markDragEnd } from './dragGuard';
 import { emitScrubTime } from '../../utils/liveClock';
+import { hapticTick, hapticTickMajor } from '../../utils/haptics';
 
 type Lang = 'ko' | 'en' | 'ja';
 
@@ -154,6 +155,14 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
     onPanResponderMove: (_, g) => {
       const ms = dragTimeMs(startRef.current, g.dx);
       if (ms !== lastRef.current) {
+        const prevSlot = Math.floor(lastRef.current / 300_000);
+        const nextSlot = Math.floor(ms / 300_000);
+        if (prevSlot !== nextSlot) {
+          const prevHour = Math.floor(lastRef.current / 3_600_000);
+          const nextHour = Math.floor(ms / 3_600_000);
+          if (prevHour !== nextHour) hapticTickMajor();
+          else hapticTick();
+        }
         lastRef.current = ms;
         setScrubMs(ms);
         emitScrubTime(ms);
@@ -196,6 +205,7 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
       const step = daySwipeSteps(g.dy);
       if (step !== lastDayStepRef.current) {
         lastDayStepRef.current = step;
+        hapticTick();
         const base = dayStartMsRef.current ?? propsRef.current.timeMs;
         const nextMs = base + step * DAY_MS;
         emitScrubTime(nextMs);
@@ -232,6 +242,29 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
   // 드래그·고정 시각에서는 1분 버킷으로 메모이제이션하고, 실시간 모드에서는 매초 눈금·마커가 부드럽게 흐르게 합니다.
   const trackCenterMs = isLiveTicking ? displayMs : Math.round(displayMs / 60_000) * 60_000;
   const ticks = useMemo(() => rulerTicks(trackCenterMs, tz, width, PX_PER_HOUR), [trackCenterMs, tz, width]);
+  // 5분 간격 보조 눈금을 추가해 다이얼 눈금을 더 촘촘하게 만들고, 양끝으로 갈수록 코사인 감쇠로 투명도를 더 낮춥니다.
+  const fineTicks = useMemo(() => {
+    const out: { x: number; key: number }[] = [];
+    const stepMs = 5 * 60_000;
+    const pxPerMs = PX_PER_HOUR / 3_600_000;
+    const lo = trackCenterMs - (width / 2) / pxPerMs;
+    const hi = trackCenterMs + (width / 2) / pxPerMs;
+    const off = tz * 3_600_000;
+    let t = Math.ceil((lo + off) / stepMs) * stepMs - off;
+    for (; t <= hi; t += stepMs) {
+      const m = new Date(t + off).getUTCMinutes();
+      if (m % 15 === 0) continue; // 기본 15분 눈금과 겹치지 않게
+      const x = width / 2 + (t - trackCenterMs) * pxPerMs;
+      if (x >= 4 && x <= width - 4) out.push({ x, key: t });
+    }
+    return out;
+  }, [trackCenterMs, tz, width]);
+  const dialEdgeFade = useCallback((x: number) => {
+    const f = rulerFade(x, width);
+    const d = Math.max(0, Math.min(1, Math.abs(x - width / 2) / Math.max(1, width / 2)));
+    const cyl = Math.pow(Math.cos(d * Math.PI * 0.49), 1.85);
+    return { scale: f.scale, opacity: f.opacity * cyl };
+  }, [width]);
   const mx = useMemo(() => (sunsetMs == null ? null : markerX(trackCenterMs, sunsetMs, width, PX_PER_HOUR)), [trackCenterMs, sunsetMs, width]);
   const band = useMemo(() => (scoreSamples ? rulerBand(scoreSamples, trackCenterMs, width, PX_PER_HOUR) : []), [scoreSamples, trackCenterMs, width]);
   const step = useCallback((dir: 1 | -1) => { const ms = timeMs + dir * STEP_MS; onChange(ms); onCommit?.(ms); }, [timeMs, onChange, onCommit]);
@@ -323,17 +356,35 @@ export const TimeRuler: React.FC<Props> = React.memo(({ timeMs, tz, nowMs, langu
         style={styles.track}
       >
         {band.map((b, i) => (
-          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { bottom: rulerActive ? 31 : 21, left: b.x0, width: b.x1 - b.x0, opacity: b.alpha * rulerFade((b.x0 + b.x1) / 2, width).opacity }]} />
+          <View key={`b${i}`} testID="ruler-band" pointerEvents="none" style={[styles.band, { bottom: rulerActive ? 31 : 21, left: b.x0, width: b.x1 - b.x0, opacity: b.alpha * dialEdgeFade((b.x0 + b.x1) / 2).opacity }]} />
         ))}
+        {fineTicks.map(ft => {
+          const f = dialEdgeFade(ft.x);
+          return (
+            <View
+              key={`f${ft.key}`}
+              pointerEvents="none"
+              style={[
+                styles.tickFine,
+                {
+                  bottom: tickBottom,
+                  left: ft.x - 0.5,
+                  height: 4.5 * f.scale * tickScaleY,
+                  backgroundColor: `rgba(241,245,249,${0.28 * f.opacity * (rulerActive ? 1 : 0.7)})`,
+                },
+              ]}
+            />
+          );
+        })}
         {ticks.map(t => {
-          const f = rulerFade(t.x, width);
+          const f = dialEdgeFade(t.x);
           return <View key={t.ms} pointerEvents="none" style={[styles.tick, { bottom: tickBottom, left: t.x - 1, height: TICK_H[t.kind] * f.scale * tickScaleY, backgroundColor: `rgba(241,245,249,${TICK_A[t.kind] * f.opacity * (rulerActive ? 1 : 0.72)})` }]} />;
         })}
         {rulerActive && ticks.filter(t => t.label).map(t => {
-          const f = rulerFade(t.x, width);
+          const f = dialEdgeFade(t.x);
           return <Text key={`l${t.ms}`} pointerEvents="none" style={[styles.tickLabel, { left: t.x - 20, opacity: f.opacity, transform: [{ scale: f.scale }] }, glassTextShadow]}>{t.label}</Text>;
         })}
-        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { bottom: rulerActive ? 27 : 18, left: mx - 4, opacity: rulerFade(mx, width).opacity }]} /> : null}
+        {mx !== null ? <View pointerEvents="none" style={[styles.sunset, { bottom: rulerActive ? 27 : 18, left: mx - 4, opacity: dialEdgeFade(mx).opacity }]} /> : null}
         {rulerActive && mx !== null && sunsetLabel ? <Text pointerEvents="none" style={[styles.sunsetLabel, { left: mx + 8 }, glassTextShadow]}>{sunsetLabel}</Text> : null}
         <View pointerEvents="none" style={[styles.pin, { bottom: rulerActive ? 12 : 4, left: width / 2 - 1.5 }]} />
       </View>
@@ -397,6 +448,7 @@ const styles = StyleSheet.create({
   sunBtn: { width: 28, minHeight: 28, borderRadius: 14, paddingHorizontal: 0 },
   track: { height: RULER_TRACK_H, overflow: 'hidden' },
   tick: { position: 'absolute', width: 1.5, borderRadius: 1 },
+  tickFine: { position: 'absolute', width: 1, borderRadius: 0.5 },
   tickLabel: { position: 'absolute', bottom: 0, width: 40, textAlign: 'center', fontFamily: mono, fontSize: 9.5, fontWeight: '400', color: TEXT },
   band: { position: 'absolute', height: 3, borderRadius: 2, backgroundColor: DARK.glow },
   pin: { position: 'absolute', top: 2, width: 2.5, borderRadius: 2, backgroundColor: DARK.accent },

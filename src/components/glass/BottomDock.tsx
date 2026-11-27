@@ -80,6 +80,8 @@ export interface BottomDockProps {
   chips: readonly BottomDockChip[];
   /** 시간 자(모든 하늘/카메라 모드에서 동일한 모양으로 표시) */
   ruler: BottomDockRulerProps;
+  /** 샌드박스 통합 다이얼 등 기본 TimeRuler 를 대체할 커스텀 슬라이더 */
+  customRuler?: React.ReactNode;
   /** 셔터 줄 왼쪽 48×48 원형 유리 버튼 */
   leftAction: BottomDockSideAction;
   /** 셔터 줄 오른쪽 48×48 원형 유리 버튼 */
@@ -113,6 +115,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   zoomDial = null,
   chips,
   ruler,
+  customRuler,
   leftAction,
   rightAction,
   shutterLabel,
@@ -286,30 +289,32 @@ export const BottomDock: React.FC<BottomDockProps> = ({
         </View>
       ) : null}
 
-      <TimeRuler
-        timeMs={ruler.timeMs}
-        tz={ruler.tz}
-        nowMs={ruler.nowMs}
-        language={language}
-        live={ruler.live}
-        onDragStart={ruler.onDragStart}
-        onChange={ruler.onChange}
-        onCommit={ruler.onCommit}
-        sunsetMs={ruler.sunsetMs}
-        sunsetLabel={ruler.sunsetLabel}
-        scoreSamples={ruler.scoreSamples}
-        dateText={dateShort(ruler.timeMs, ruler.tz, language)}
-        onDatePress={ruler.onDatePress}
-        onDayShift={(n) => {
-          void off;
-          handleDayShift(n);
-        }}
-        onDayDragStart={ruler.onDayDragStart}
-        onDayPreview={ruler.onDayPreview}
-        onDayCommit={ruler.onDayCommit}
-        showNow={ruler.showNow}
-        onNow={ruler.onNow}
-      />
+      {customRuler ?? (
+        <TimeRuler
+          timeMs={ruler.timeMs}
+          tz={ruler.tz}
+          nowMs={ruler.nowMs}
+          language={language}
+          live={ruler.live}
+          onDragStart={ruler.onDragStart}
+          onChange={ruler.onChange}
+          onCommit={ruler.onCommit}
+          sunsetMs={ruler.sunsetMs}
+          sunsetLabel={ruler.sunsetLabel}
+          scoreSamples={ruler.scoreSamples}
+          dateText={dateShort(ruler.timeMs, ruler.tz, language)}
+          onDatePress={ruler.onDatePress}
+          onDayShift={(n) => {
+            void off;
+            handleDayShift(n);
+          }}
+          onDayDragStart={ruler.onDayDragStart}
+          onDayPreview={ruler.onDayPreview}
+          onDayCommit={ruler.onDayCommit}
+          showNow={ruler.showNow}
+          onNow={ruler.onNow}
+        />
+      )}
 
       <View testID="shutter-row" style={styles.shutterRow}>
         <View style={[styles.sideWrap, leftAction.disabled && styles.disabled]}>

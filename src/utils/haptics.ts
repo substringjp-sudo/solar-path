@@ -27,5 +27,22 @@ const quietly = (run: () => Promise<void>) => {
 /** 셔터를 눌렀을 때. */
 export const hapticShutter = () => quietly(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 
+/** 다이얼·시간 자의 작은 눈금을 넘길 때("드르륵"). */
+let lastTickMs = 0;
+export const hapticTick = () => {
+  const now = Date.now();
+  if (now - lastTickMs < 20) return;
+  lastTickMs = now;
+  quietly(() => Haptics.selectionAsync());
+};
+
+/** 다이얼·시간 자의 정시/큰 눈금을 넘길 때. */
+export const hapticTickMajor = () => {
+  const now = Date.now();
+  if (now - lastTickMs < 24) return;
+  lastTickMs = now;
+  quietly(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+};
+
 /** 사용자에게 알리는 오류. */
 export const hapticError = () => quietly(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));

@@ -72,11 +72,13 @@ interface Props {
   onSimBodyOpenChange?: (open: boolean) => void;
   /** 샌드박스 설정 시트 열림/닫힘 상태가 바뀔 때 */
   onSandboxSheetOpenChange?: (open: boolean) => void;
+  /** 샌드박스 모드 전용 하단 통합 다이얼 슬라이더 */
+  customRuler?: React.ReactNode;
 }
 
 export const SkyFrame: React.FC<Props> = ({
   language, tz, nowMs, timeMs, onSlideStart, onPick, onSlideEnd, onNow, showNow, live = false, sunsetMs = null, sunsetLabel, scoreSamples = null, mode, onSwitch, getView,
-  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange, onSandboxSheetOpenChange,
+  readout, simBody, sandbox, collapseNonce = 0, onDockHeight, onShoot, onSaveScene, onOpenLatestScene, onOpenCalendar, onSimBodyOpenChange, onSandboxSheetOpenChange, customRuler,
 }) => {
   const [stage, setStage] = React.useState<DockStage>('min');
   const [active, setActive] = React.useState<ChipId | 'shoot' | null>(null);
@@ -178,6 +180,7 @@ export const SkyFrame: React.FC<Props> = ({
         expanded={expanded}
         fitContent
         chips={dockChips}
+        customRuler={customRuler}
         ruler={{
           timeMs,
           tz,
