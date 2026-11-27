@@ -203,9 +203,9 @@ const VolumetricPerfRow: React.FC = () => {
         <TouchableOpacity onPress={() => set({ volumetricRefine: !refine })} style={chip(refine)}>
           <Text style={styles.volChipText}>알갱이 다듬기</Text>
         </TouchableOpacity>
-        {/* 땅 알갱이(실험, 기본 끔): 누를 때마다 끔 → 위치 표본(A) → 위치 + 빛 표본(A+B) */}
-        <TouchableOpacity onPress={() => set({ volumetricGroundGrain: (groundGrain + 1) % 3 })} style={chip(groundGrain > 0)}>
-          <Text style={styles.volChipText}>{`땅 알갱이 ${['끔', 'A', 'A+B'][groundGrain] ?? groundGrain}`}</Text>
+        {/* 땅 알갱이(실험, 기본 끔): 땅 · 건물 윤곽을 구름 해상도 칸마다 확률적 위치 표본으로 */}
+        <TouchableOpacity onPress={() => set({ volumetricGroundGrain: groundGrain > 0 ? 0 : 1 })} style={chip(groundGrain > 0)}>
+          <Text style={styles.volChipText}>땅 알갱이</Text>
         </TouchableOpacity>
         {/* 진단: 대기를 입히지 못한 원래 지형 화소를 분홍으로(기본 끔) */}
         <TouchableOpacity onPress={() => set({ diagRawTerrain: !diagRaw })} style={chip(diagRaw)}>
