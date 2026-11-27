@@ -143,6 +143,7 @@ const VolumetricPerfRow: React.FC = () => {
   const farSun = useCelestialStore(s => s.skySettings.volumetricFarSun ?? true);
   const refine = useCelestialStore(s => s.skySettings.volumetricRefine ?? true);
   const groundGrain = useCelestialStore(s => s.skySettings.volumetricGroundGrain ?? 0);
+  const cloudLife = useCelestialStore(s => s.skySettings.volumetricCloudLife ?? 1);
   const cloudSpeed = useCelestialStore(s => s.skySettings.volumetricCloudSpeed ?? 1);
   const expoMetered = useCelestialStore(s => (s.skySettings.volumetricExposureMode ?? 'metered') === 'metered');
   const diagRaw = useCelestialStore(s => !!s.skySettings.diagRawTerrain);
@@ -208,6 +209,10 @@ const VolumetricPerfRow: React.FC = () => {
         {/* 구름 이동 속도 배율: 1 = 예보 바람 그대로 → 0.5 → 0.25 (눌러서 돌림). 체감이 빠를 때 기본값을 정하려는 시험용 */}
         <TouchableOpacity onPress={() => set({ volumetricCloudSpeed: cloudSpeed > 0.9 ? 0.5 : cloudSpeed > 0.4 ? 0.25 : 1 })} style={chip(cloudSpeed < 0.99)}>
           <Text style={styles.volChipText}>{`구름 속도 ×${cloudSpeed}`}</Text>
+        </TouchableOpacity>
+        {/* 구름 수명 배율: 종류별 기본(층 구름은 길게)에 곱함 — 1 → 2 → 4 → 0.5 (눌러서 돌림). 제자리에서 구름이 자라고 사라지는 속도 시험용 */}
+        <TouchableOpacity onPress={() => set({ volumetricCloudLife: cloudLife < 0.9 ? 1 : cloudLife < 1.5 ? 2 : cloudLife < 3 ? 4 : 0.5 })} style={chip(cloudLife !== 1)}>
+          <Text style={styles.volChipText}>{`구름 수명 ×${cloudLife}`}</Text>
         </TouchableOpacity>
         {/* 노출 방식(시뮬레이션): 켬 = 화면 평균 휘도 측광(기본), 끔 = 해 고도 표만(옛 방식). 샌드박스는 수동 고정이라 무관 */}
         <TouchableOpacity onPress={() => set({ volumetricExposureMode: expoMetered ? 'table' : 'metered' })} style={chip(expoMetered)}>

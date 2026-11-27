@@ -55,6 +55,8 @@ export interface SkySettings {
   volumetricSheetDiffuse?: boolean;
   /** 구름 이동 속도 배율(개발 패널): 1 = 예보 바람 그대로, 0.5 · 0.25 로 느리게. */
   volumetricCloudSpeed?: number;
+  /** 구름 수명 배율(개발 패널): 1 = 종류별 기본, 2 · 4 로 더 오래(제자리 변화가 느려짐). */
+  volumetricCloudLife?: number;
   /** 노출 방식(개발 패널): 'metered' 화면 평균 휘도 측광(기본) · 'table' 해 고도 표만(옛 방식). 샌드박스는 이 값과 무관하게 수동. */
   volumetricExposureMode?: 'metered' | 'table';
   /** 샌드박스 수동 노출 켬(SkyScreen 이 전문가 모드일 때 채움 — 저장 설정 아님). 켜면 자동 노출 없이 고정 노출 + `sandboxExposureEv`. */

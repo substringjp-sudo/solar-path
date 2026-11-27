@@ -75,8 +75,10 @@ export interface LiveSceneArgs {
   metar?: MetarObs | null;
   /** 주변 공항 여러 곳의 최근 보고(`fetchMetarReports`) — 거시 운량 고리를 관측으로 보정(`metarRing.ts`). 없으면 예보 고리 그대로. */
   metars?: readonly MetarObs[] | null;
-  /** 구름 이동 속도 배율(개발 패널, 기본 1 = 예보 바람 그대로). 0.1~1.5 로 묶음. 층별 바람(방향 · 전단)은 그대로 두고 속도만 곱함. */
+  /** 구름 이동 속도 배율(개발 패널, 기본 1 = 예보 바람 그대로). 0~1.5 로 묶음(0 은 진단용 — 바람 정지). 층별 바람(방향 · 전단)은 그대로 두고 속도만 곱함. */
   cloudSpeed?: number;
+  /** 구름 수명 배율(개발 패널, 기본 1): 종류별 배율(`GENUS_LIFE_SCALE`)에 곱함. 클수록 구름이 제자리에서 천천히 자라고 사라짐. */
+  cloudLife?: number;
   /** 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9). 기본 켬 — 조건이 맞을 때만 저·중층을 파동 장 한 층으로 바꿉니다. */
   fill?: boolean;
 }
@@ -354,6 +356,12 @@ export function cirrusVeilKnobs(i: CirrusVeilInput) {
     densityScale,
   };
 }
+/**
+ * 구름 종류별 수명 배율(물리 수명 `lifeSec` 에 곱함). 1 = 지금까지(적운 15~30 분). 층 구름은 시간 단위로 가므로 길게.
+ * 근거: 적운 한 개 15~30 분, 층적운 · 고적운 군은 1~3 시간, 층운 · 난층운 · 고층운은 수 시간(WMO 운형 기술 · 관측 통념). 시험값 — 기기에서 보고 맞춤.
+ */
+export const GENUS_LIFE_SCALE: Partial<Record<GenusKey, number>> = { cu: 1, cg: 1, cb: 1, cbanvil: 1, sc: 2.5, ac: 2.5, ci: 2.5, cs: 4, as: 5, st: 6, ns: 6 };
+
 export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; visibilityObs?: number; humidity?: number; profileRhPct?: number[]; precipitation?: number; t2mC?: number; td2mC?: number; freezingLevelM?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
@@ -628,7 +636,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     const w = winds[band], to = ((w.bearingDeg + 180) * Math.PI) / 180;   // bearing 은 불어오는 쪽
     return [w.speedKmh * Math.sin(to), w.speedKmh * Math.cos(to)];
   };
-  const spd = Math.max(0.1, Math.min(1.5, Number.isFinite(a.cloudSpeed as number) ? (a.cloudSpeed as number) : 1));
+  const spd = Math.max(0, Math.min(1.5, Number.isFinite(a.cloudSpeed as number) ? (a.cloudSpeed as number) : 1));
   const sp = (w: [number, number]): [number, number] => (spd === 1 ? w : [w[0] * spd, w[1] * spd]);
   const W = { low: sp(windOf('low')), mid: sp(windOf('mid')), high: sp(windOf('high')) };
   const ptsAll = a.pathData ?? [];
@@ -1139,6 +1147,12 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     }
   }
   for (const L of layers) if (L && L.genus) L.driftKm = driftKm(L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low'));
+  // 구름 수명(제자리에서 무늬가 새로 바뀌는 간격): 물리식 `lifeSec`(15~80 분)는 증발 · 혼합만 보고 종류를 모름 — 층 구름이 적운처럼 15~25 분마다 통째로 바뀌었음(기기, 2026-11-27).
+  const lifeUser = Math.max(0.25, Math.min(8, Number.isFinite(a.cloudLife as number) ? (a.cloudLife as number) : 1));
+  for (const L of layers) {
+    const fls = (L?.opts as { flowLifeSec?: number } | undefined)?.flowLifeSec;
+    if (L && L.genus && fls != null) L.opts = { ...L.opts, flowLifeSec: Math.round(fls * (GENUS_LIFE_SCALE[L.genus] ?? 1) * lifeUser / 300) * 300 };
+  }
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
   const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(${deckTau.source === 'sat' ? '위성' : '예보'} 일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${visFix ? ` · 시정 ${(visFix.visM / 1000).toFixed(1)} km(공항 ${visFix.used}곳)` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
