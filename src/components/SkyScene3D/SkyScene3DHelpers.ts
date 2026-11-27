@@ -53,6 +53,12 @@ export interface SkySettings {
   /** 땅 알갱이(실험, 기본 0 끔): 1 켬(위치 표본) — 땅 · 건물을 구름과 같은 표본 방식으로(volumetricScene `GROUND_GRAIN_GLSL`). */
   volumetricGroundGrain?: number;
   volumetricSheetDiffuse?: boolean;
+  /** 노출 방식(개발 패널): 'metered' 화면 평균 휘도 측광(기본) · 'table' 해 고도 표만(옛 방식). 샌드박스는 이 값과 무관하게 수동. */
+  volumetricExposureMode?: 'metered' | 'table';
+  /** 샌드박스 수동 노출 켬(SkyScreen 이 전문가 모드일 때 채움 — 저장 설정 아님). 켜면 자동 노출 없이 고정 노출 + `sandboxExposureEv`. */
+  sandboxManualExposure?: boolean;
+  /** 샌드박스 수동 노출 보정(EV, 0 = 해 30° 맑은 하늘 기준). 설정 창 슬라이더, 저장됨. */
+  sandboxExposureEv?: number;
   diagRawTerrain?: boolean;
   volumetricClampInscatter?: boolean;
   volumetricIrradianceLogMu?: boolean;

@@ -33,6 +33,9 @@ const fmtMB = (b: number) => `${(b / 1048576).toFixed(b >= 10485760 ? 0 : 1)} MB
 
 const BRIGHT_MIN = 0.2;
 const BRIGHT_MAX = 2.0;
+/** 샌드박스 수동 노출(EV) 슬라이더 범위 — 해 30° 맑은 하늘 기준 0, 밤(약 +10 EV)까지. */
+const EXPO_EV_MIN = -4;
+const EXPO_EV_MAX = 12;
 
 function skyQualityLabel(mag: number, L: Language): string {
   if (mag < 3.6) return t('skyQ_city', L);
@@ -246,6 +249,37 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 </Text>
               </GenericSlider>
             </View>
+
+            {expertMode && (
+              <View style={styles.sliderBlock}>
+                <View style={styles.sliderHeader}>
+                  <Text style={styles.sliderLabel}>{language === 'ko' ? '샌드박스 노출' : 'Sandbox exposure'}</Text>
+                  <Text style={styles.sliderValue}>
+                    {(skySettings.sandboxExposureEv ?? 0) >= 0 ? '+' : ''}{(skySettings.sandboxExposureEv ?? 0).toFixed(1)} EV
+                  </Text>
+                </View>
+                <GenericSlider
+                  value={Math.max(0, Math.min(100, (((skySettings.sandboxExposureEv ?? 0) - EXPO_EV_MIN) / (EXPO_EV_MAX - EXPO_EV_MIN)) * 100))}
+                  onChange={(p: number) =>
+                    onChangeSkySettings({
+                      sandboxExposureEv: Math.round((EXPO_EV_MIN + (p / 100) * (EXPO_EV_MAX - EXPO_EV_MIN)) * 2) / 2,
+                    })
+                  }
+                  theme={OVERLAY_THEME}
+                  fillColor={DARK.accent}
+                  knobColor={DARK.panelRaised}
+                >
+                  <Text style={styles.knobText}>
+                    {(skySettings.sandboxExposureEv ?? 0) >= 0 ? '+' : ''}{(skySettings.sandboxExposureEv ?? 0).toFixed(1)}
+                  </Text>
+                </GenericSlider>
+                <Text style={styles.sliderHint}>
+                  {language === 'ko'
+                    ? '샌드박스는 자동 노출 없이 고정 노출입니다. 0 = 해 30° 맑은 낮 기준, 밤에는 +8 ~ +10 정도.'
+                    : 'Sandbox uses a fixed exposure (no auto). 0 = clear daylight at 30° sun; around +8 to +10 at night.'}
+                </Text>
+              </View>
+            )}
 
             <View style={styles.sliderBlock}>
               <View style={[styles.sliderHeader, { marginBottom: 4 }]}>

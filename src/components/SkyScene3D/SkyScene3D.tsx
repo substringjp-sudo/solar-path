@@ -3280,6 +3280,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             && (skySettingsRef.current.volumetricRefine ?? true) && (skySettingsRef.current.pixelArtRows ?? 0) <= 0;
           if (accumWant !== volAccumOnRef.current) { volAccumOnRef.current = accumWant; vol.setCloudAccumActive?.(accumWant); }
           vol.setGroundGrain?.(skySettingsRef.current.volumetricGroundGrain ?? 0);
+          vol.setExposureMode?.(
+            skySettingsRef.current.sandboxManualExposure ? 'manual' : (skySettingsRef.current.volumetricExposureMode ?? 'metered'),
+            skySettingsRef.current.sandboxExposureEv ?? 0,
+          );
           volTex = vol.renderToTexture(dtSec);
           if (volSettleRef.current > 0) {
             volSettleRef.current--;

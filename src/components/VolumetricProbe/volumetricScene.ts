@@ -64,6 +64,7 @@ import { patchMultiScatterCache, flowCamCellOffsetKm, flowCoverIn, genusCoverIn,
 import { morphParamsOf } from './cloudMorph';
 import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { cellLanes, patchCellShader, setCellUniforms } from './cloudCells';
+import { createExposureMeter, meterSmooth, meterTargetGain, METER_GAIN_MAX, METER_GAIN_MIN } from './exposureMeter';
 import { PREWARM_SLICE_MS } from '../../utils/sliderSettle';
 import { volumetricStats } from '../../utils/volumetricGovernor';
 import { EDGE_ROUGH_DEFAULT, patchEdgeShader, setEdgePixelRad, setEdgeRough } from './cloudEdge';
@@ -606,6 +607,8 @@ export interface VolumetricOptions extends TsunOptions {
 export const HIGH_QUALITY_MIN_UNITS = 17;
 /** 시간 업스케일 누적 — 새 표본 무게(`cloudAccum`). 0.25 ≈ 최근 표본 ~7 개 평균. */
 export const CLOUD_ACCUM_DEFAULT = 0.25;
+/** 샌드박스 수동 노출의 기준값(EV 0): 해 30° 맑은 하늘의 표 노출. 사용자는 EV 로 위아래로 조절. */
+export const MANUAL_EXPOSURE_BASE = 7.2;
 /**
  * 땅 알갱이(실험, 기본 끔): 볼륨 합성에서 땅 · 건물 판을 구름 해상도 칸(1/resolutionScale 화소)마다 확률적 위치 하나에서 읽어,
  * 구름과 같은 크기 · 같은 흩어짐으로 그립니다(재질 무늬가 아니라 표본 방식). 1 = 켬(위치 표본). 햇빛 · 하늘빛 몫을 흔드는 안(B)은 화면에 고정된 알갱이가 눈에 띄어 뺐음.
@@ -703,6 +706,8 @@ export interface VolumetricScene {
   setCloudAccumActive(on: boolean): void;
   /** 땅 알갱이(실험): 0 끔(점묘 무늬), 1 위치 표본(A), 2 + 빛 표본(B). `GROUND_GRAIN_GLSL` 참고. */
   setGroundGrain(mode: number): void;
+  /** 노출 방식. 'metered' 화면 평균 휘도 측광(기본) · 'table' 해 고도 표만 · 'manual' 고정(ev 는 MANUAL_EXPOSURE_BASE 기준 EV). */
+  setExposureMode(mode: 'metered' | 'table' | 'manual', ev?: number): void;
   setResolutionScale(s: number): void;
   /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
   resolutionScale(): number;
@@ -2463,9 +2468,16 @@ export async function createVolumetricScene(
     const nightExp = autoExposure(45) * MOON_DIM * 0.65 * Math.sqrt(MOONLIT_CLOUD_CD / Math.max(cityA, 0.0012));
     return base * (1 - nightBlend) + nightExp * nightBlend;
   };
+  // 노출 방식: 'metered' = 표 노출 × 화면 평균 휘도 측광 보정(시뮬레이션 기본), 'table' = 표만(옛 방식), 'manual' = 고정값(샌드박스: 사용자가 정함).
+  let exposureMode: 'metered' | 'table' | 'manual' = 'metered';
+  let manualExposure = MANUAL_EXPOSURE_BASE;
+  let meterGain = 1;
+  const exposureMeter = createExposureMeter();
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
     const scale = Math.max(0.1, Math.min(8, exposureScale));
-    return baseExposureFor(lightAlt, p) * scale;
+    const table = baseExposureFor(lightAlt, p);   // 밤 균일변수 등 부수효과가 있어 수동에서도 부릅니다
+    if (p.exposure == null && exposureMode === 'manual') return manualExposure * scale;
+    return table * scale * (p.exposure == null && exposureMode === 'metered' ? meterGain : 1);
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
@@ -3416,6 +3428,16 @@ export async function createVolumetricScene(
       const rmU = (clouds.cloudsPass.resolveMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
       if (rmU.cloudAccum) rmU.cloudAccum.value = on ? Math.max(0.02, Math.min(1, opt.cloudAccum)) : 1;
     },
+    setExposureMode: (mode, ev = 0) => {
+      const man = MANUAL_EXPOSURE_BASE * Math.pow(2, Math.max(-8, Math.min(14, Number.isFinite(ev) ? ev : 0)));
+      if (mode === exposureMode && Math.abs(man - manualExposure) < 1e-6) return;
+      exposureMode = mode; manualExposure = man;
+      if (mode !== 'metered') { meterGain = 1; exposureMeter.reset(); }
+      if (!lastInput) return;
+      const exposure = exposureFor(lastSunAltForLight, lastInput);
+      renderer.toneMappingExposure = exposure;
+      last = { sunAltDeg: lastSunAltForLight, exposure };
+    },
     setGroundGrain: mode => {
       const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
       au.get('groundGrain')!.value = mode;
@@ -3432,7 +3454,27 @@ export async function createVolumetricScene(
       const prevAutoClear = renderer.autoClear;
       tonePass.renderToScreen = false; setCloudAlphaOut(true); composer.render(dt);
       renderer.autoClear = prevAutoClear;
-      return (composer.inputBuffer as unknown as { texture: Texture }).texture;
+      const outTex = (composer.inputBuffer as unknown as { texture: Texture }).texture;
+      if (exposureMode !== 'manual' && lastInput && lastInput.exposure == null) {
+        exposureMeter.measure(renderer, outTex);
+        const lum = exposureMeter.lastLum();
+        if (lum != null && exposureMeter.takeFresh()) {
+          volumetricStats.meterLum = lum;
+          if (exposureMode === 'metered') {
+          // 적분 제어: 보정 배율에 (목표/측정)^세기 를 곱해 목표 쪽으로, 시정수로 부드럽게. 표 노출 기준 ±2 EV 로 묶음.
+          // 해가 지평선 아래 깊이 내려가면(밤) 측광을 서서히 끔 — 밤은 표 노출이 어둡게 맞춰 둔 값이라 밤 화면을 밝히지 않게.
+          const tgt = Math.max(METER_GAIN_MIN, Math.min(METER_GAIN_MAX, meterGain * meterTargetGain(lum)));
+          const w = Math.max(0, Math.min(1, (lastTrueSunAlt + 6) / 5));
+          const goal = Math.pow(tgt, w);
+          meterGain = meterSmooth(meterGain, goal, Math.max(dt, 0.12));
+          volumetricStats.meterGain = meterGain;
+          const exposure = exposureFor(lastSunAltForLight, lastInput);
+          renderer.toneMappingExposure = exposure;
+          last = { sunAltDeg: lastSunAltForLight, exposure };
+          }
+        }
+      }
+      return outTex;
     },
     setTerrainDistance,
     setTsunAtlas: atlas => {

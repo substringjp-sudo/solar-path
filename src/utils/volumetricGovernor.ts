@@ -81,4 +81,8 @@ export const volumetricStats = {
   texUnits: 0,
   /** 구름 패스 셰이더가 실제로 쓰는 텍스처 수(링크된 프로그램의 활성 샘플러) — 0 이면 아직 모름. */
   cloudSamplers: 0,
+  /** 노출 측광(시뮬레이션): 가장 최근 읽은 화면 로그 평균 휘도(선형) — 0 이면 아직 모름. */
+  meterLum: 0,
+  /** 측광 보정 배율(표 노출에 곱함). */
+  meterGain: 1,
 };

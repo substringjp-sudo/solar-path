@@ -195,6 +195,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const layers = useCelestialStore(s => s.skyLayers);
   const setSkyLayers = useCelestialStore(s => s.setSkyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
+  // 샌드박스는 자동 노출 없이 고정 노출 + 설정의 노출(EV) — 시뮬레이션은 화면 평균 휘도 측광.
+  const sceneSkySettings = useMemo(() => (expertMode ? { ...skySettings, sandboxManualExposure: true } : skySettings), [expertMode, skySettings]);
   const setSkySettings = useCelestialStore(s => s.setSkySettings);
 
   const latitude = location?.coords.latitude ?? 37.5665;
@@ -1684,7 +1686,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           interpolatedWeather={interpolatedWeather}
           theme={OVERLAY_THEME}
           layers={layers}
-          skySettings={skySettings}
+          skySettings={sceneSkySettings}
           telephotoX={expertMode ? teleX : 1}
           onChangeTelephoto={setTeleX}
           showLensInfo={expertMode}

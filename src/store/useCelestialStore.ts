@@ -455,6 +455,7 @@ export const useCelestialStore = create<CelestialState>()(
       skySettings: {
         starBrightness: 1.0,
         starMagLimit: 6.5,
+        sandboxExposureEv: 0,
         pixelArtRows: 0,
         volumetricSky: true,
         volumetricQuality: 'low',
