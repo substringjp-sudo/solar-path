@@ -274,6 +274,7 @@ const BUILDING_FRAG = /* glsl */ `
 precision highp float;
 
 uniform float uEyeHeightM;
+uniform float uFlatFacade;   // 1 = 십자 점묘 얼룩 없이 매끈한 면(땅 알갱이 켬)
 
 varying vec3  vNormalW;
 varying float vDistM;
@@ -342,7 +343,7 @@ void bf_facadeMaterial(
   outGlassMask = 0.0;
   outGroundAo = 1.0;
 
-  float massFade = 1.0 - smoothstep(950.0, 2400.0, vDistM);
+  float massFade = (1.0 - smoothstep(950.0, 2400.0, vDistM)) * (1.0 - uFlatFacade);
   float seedVal = bSeed.x * 1.31 + bSeed.y * 2.17;
 
   if (abs(n.y) > 0.5) {
@@ -782,6 +783,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     uOvercast: { value: 0 },
     uDiagRaw: { value: 0 },
     uCityWallGain: { value: 0 },
+    uFlatFacade: { value: 0 },
     uCityDirXZ: { value: new THREE.Vector2(0, -1) },
     uWinRate: { value: 0.46 },
     uWinGlow: { value: 0 },

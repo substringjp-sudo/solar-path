@@ -3626,6 +3626,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (buildingFieldRef.current) {
       const bu = buildingFieldRef.current.material.uniforms;
       if (bu.uCityWallGain) bu.uCityWallGain.value = cityWallGain;
+      if (bu.uFlatFacade) bu.uFlatFacade.value = (skySettingsRef.current.volumetricGroundGrain ?? 0) > 0 ? 1 : 0;
       if (bu.uCityDirXZ?.value) (bu.uCityDirXZ.value as THREE.Vector2).set(cityDir.x, cityDir.z);
       if (bu.uObsElevM) bu.uObsElevM.value = simRef.current?.terrain?.observerElevation ?? 0;
       buildingFieldRef.current.setWindowLighting(
