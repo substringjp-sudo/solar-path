@@ -1753,20 +1753,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           />
         )}
 
-        {/* 샌드박스 우측 상단 수동 설정 배지 (기본값이면 숨김, 위아래 슬라이드로 EV 조절) */}
-        {expertMode && !isCameraOverlayActive && sandboxShootMode === 'photo' && (
-          <CornerExposureBadge
-            language={language}
-            exposure={sandboxExposure}
-            onExposureChange={setSandboxExposure}
-            manualIso={sandboxIso}
-            manualShutterS={sandboxShutterS}
-            manualWb={sandboxWb}
-            top={HEADER_HEIGHT + 8}
-            right={12}
-          />
-        )}
-
         {/* 샌드박스 천체 장노출 / 광학 렌즈·필터 3D 미리보기 */}
         {expertMode && !isCameraOverlayActive && sandboxLongExpUri && (
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>

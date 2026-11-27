@@ -2474,7 +2474,7 @@ export async function createVolumetricScene(
   let meterGain = 1;
   const exposureMeter = createExposureMeter();
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
-    const scale = Math.max(0.1, Math.min(8, exposureScale));
+    const scale = Math.max(0.015, Math.min(64, exposureScale));
     const table = baseExposureFor(lightAlt, p);   // 밤 균일변수 등 부수효과가 있어 수동에서도 부릅니다
     if (p.exposure == null && exposureMode === 'manual') return manualExposure * scale;
     return table * scale * (p.exposure == null && exposureMode === 'metered' ? meterGain : 1);
@@ -3296,7 +3296,7 @@ export async function createVolumetricScene(
       updateLod();
     },
     setExposureScale: (s: number) => {
-      const next = Number.isFinite(s) ? Math.max(0.1, Math.min(8, s)) : 1;
+      const next = Number.isFinite(s) ? Math.max(0.015, Math.min(64, s)) : 1;
       if (Math.abs(next - exposureScale) < 1e-4) return;
       exposureScale = next;
       if (!lastInput) return;

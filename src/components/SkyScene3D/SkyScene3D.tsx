@@ -720,7 +720,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 장노출 시뮬레이션 동안 별 밝기 추가 배율 */
   const starBoostOverrideRef = useRef<number>(1);
   /** 샌드박스 노출 배율 (EV·ISO·셔터 실시간 반영) */
-  const exposureScaleRef = useRef<number>(Math.max(0.1, Math.min(8, Number.isFinite(exposureScale) ? exposureScale : 1)));
+  const exposureScaleRef = useRef<number>(Math.max(0.015, Math.min(64, Number.isFinite(exposureScale) ? exposureScale : 1)));
   const lastAppliedExposureScaleRef = useRef<number>(1);
   /** 샌드박스 셔터 시간(초, 별 궤적 계산용) */
   const shutterSRef = useRef<number | null>(shutterS ?? null);
@@ -1904,7 +1904,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   // 샌드박스 노출 배율 · 셔터 시간 변경 시 즉시 렌더 요청
   useEffect(() => {
-    const clamped = Math.max(0.1, Math.min(8, Number.isFinite(exposureScale) ? exposureScale : 1));
+    const clamped = Math.max(0.015, Math.min(64, Number.isFinite(exposureScale) ? exposureScale : 1));
     if (Math.abs(exposureScaleRef.current - clamped) > 1e-5) {
       exposureScaleRef.current = clamped;
       requestRender(6);

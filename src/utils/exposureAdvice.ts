@@ -121,7 +121,7 @@ export function computeManualEvOffset(
   const effShutter = manualShutterS ?? advice.shutterS;
   const delta = Math.log2(Math.max(1, effIso) / Math.max(1, advice.iso))
     + Math.log2(Math.max(1e-5, effShutter) / Math.max(1e-5, advice.shutterS));
-  return Math.max(-3, Math.min(3, delta));
+  return Math.max(-6, Math.min(6, delta));
 }
 
 export function shutterLevelFor(shutterS: number): ExposureLevel {

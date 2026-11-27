@@ -373,15 +373,31 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
 
           if (ds.param === 'zoom') {
             const nextT = Math.max(0, Math.min(1, ds.zoomT - g.dx / 240));
-            const q = Math.round(nextT * 45);
+            // 프리셋 줌 눈금 근처에서는 자석처럼 스냅
+            let magnetPreset: number | null = null;
+            let bestDist = 0.026;
+            for (const preset of ZOOM_MAJOR_MARKS) {
+              const pt = valueToT(preset, ZOOM_DIAL_RANGE);
+              const d = Math.abs(nextT - pt);
+              if (d < bestDist) {
+                bestDist = d;
+                magnetPreset = preset;
+              }
+            }
+            const val = magnetPreset ?? roundZoom(tToValue(nextT, ZOOM_DIAL_RANGE));
+            const q = magnetPreset != null ? 10000 + Math.round(magnetPreset * 10) : Math.round(nextT * 45);
             if (q !== ds.lastQuant) {
-              if (q % 9 === 0) hapticTickMajor();
+              if (magnetPreset != null || q % 9 === 0) hapticTickMajor();
               else hapticTick();
               ds.lastQuant = q;
+              if (magnetPreset != null) {
+                ds.lastEmitTs = now;
+                st.onZoomChange(val);
+                return;
+              }
             }
             if (now - ds.lastEmitTs >= 32) {
               ds.lastEmitTs = now;
-              const val = roundZoom(tToValue(nextT, ZOOM_DIAL_RANGE));
               st.onZoomChange(val);
             }
             return;

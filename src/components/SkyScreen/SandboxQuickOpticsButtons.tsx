@@ -1,26 +1,29 @@
 /**
- * SandboxQuickOpticsButtons.tsx — 샌드박스 우측 상단 원형 빠른 확장 버튼(렌즈 · 필터).
- * 설정 시트를 열지 않고도 하늘 화면 위에서 화각·렌즈 마운트·광학 필터·필름 백을 즉시 전환할 수 있습니다.
+ * SandboxQuickOpticsButtons.tsx — 샌드박스 좌측 상단 세로 원형 빠른 확장 버튼(렌즈 · 필터).
+ * 위아래로 렌즈/필터 버튼을 배치하고, 누르면 오른쪽 옆으로 작은 원형 아이콘 버튼만 펼쳐집니다.
+ * 세부 설정은 설정 시트에서 조절합니다.
  */
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { RotateCcw, X } from 'lucide-react-native';
-import { GlassChip } from '../glass/GlassChip';
+import {
+  Contrast,
+  Disc,
+  Droplets,
+  RotateCcw,
+  Shield,
+  Sparkles,
+  Stars,
+  SunDim,
+} from 'lucide-react-native';
 import { GlassSurface } from '../glass/GlassSurface';
 import { MiniFilterRingIcon, MiniLensBarrelIcon, type LensKind } from '../AstroCamera/CameraLensZoomSection';
 import { color as DARK, mono } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
 import {
   createDefaultGearBag,
-  filmBackShortLabel,
-  frontFilterShortLabel,
-  hasActiveOpticalGear,
-  lensMountShortLabel,
   toggleFrontFilter,
   type CameraGearBagState,
-  type FilmBackMode,
   type FrontFilterId,
-  type OpticalLensMount,
 } from '../../utils/photoAlgorithms';
 
 type QuickMenu = 'lens' | 'filter' | null;
@@ -33,6 +36,19 @@ const QUICK_LENS_PRESETS: ReadonlyArray<{ zoom: number; mm: string; kind: LensKi
   { zoom: 3, mm: '70mm', kind: 'tele' },
   { zoom: 5, mm: '120mm', kind: 'tele' },
   { zoom: 10, mm: '240mm', kind: 'supertele' },
+];
+
+const QUICK_FILTER_ICONS: ReadonlyArray<{
+  id: FrontFilterId;
+  renderIcon: (active: boolean) => React.ReactNode;
+}> = [
+  { id: 'gnd', renderIcon: a => <Contrast size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'cpl', renderIcon: a => <Disc size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'nd1000', renderIcon: a => <SunDim size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'dehaze', renderIcon: a => <Droplets size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'proMist', renderIcon: a => <Sparkles size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'astroClear', renderIcon: a => <Stars size={14} color={a ? DARK.accent : DARK.text} /> },
+  { id: 'ghostClean', renderIcon: a => <Shield size={14} color={a ? DARK.accent : DARK.text} /> },
 ];
 
 interface Props {
@@ -76,8 +92,8 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
       )}
 
       <View style={[styles.wrap, { top, left }]} pointerEvents="box-none">
-        {/* 좌측 상단 작은 원형 확장 버튼 2개 */}
-        <View style={styles.btnRow} pointerEvents="box-none">
+        {/* 1행: 렌즈 버튼 (위) + 옆으로 작은 원형 아이콘 확장 */}
+        <View style={styles.row} pointerEvents="box-none">
           <Pressable
             testID="sb-quick-lens-btn"
             onPress={() => setOpenMenu(m => (m === 'lens' ? null : 'lens'))}
@@ -90,6 +106,48 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
             <MiniLensBarrelIcon active={openMenu === 'lens' || lensActive} kind={currentZoomPreset.kind} />
           </Pressable>
 
+          {openMenu === 'lens' && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.expandRow}
+              style={styles.expandScroll}
+            >
+              {QUICK_LENS_PRESETS.map(p => {
+                const active = Math.abs(teleX - p.zoom) < 0.08;
+                return (
+                  <Pressable
+                    key={p.mm}
+                    onPress={() => onChangeTeleX(p.zoom)}
+                    accessibilityRole="button"
+                    accessibilityLabel={p.mm}
+                    style={styles.miniCircleBtn}
+                  >
+                    <GlassSurface active={active} blurred style={StyleSheet.absoluteFill} />
+                    <MiniLensBarrelIcon active={active} kind={p.kind} />
+                  </Pressable>
+                );
+              })}
+              {lensActive && (
+                <Pressable
+                  onPress={() => {
+                    onChangeTeleX(1);
+                    onChangeGearBag(s => ({ ...s, lensMount: 'standard', verticalShift: false }));
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '렌즈 초기화', 'Reset lens', 'レンズリセット')}
+                  style={styles.miniCircleBtn}
+                >
+                  <GlassSurface blurred style={StyleSheet.absoluteFill} />
+                  <RotateCcw size={13} color={DARK.textDim} />
+                </Pressable>
+              )}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* 2행: 필터 버튼 (아래) + 옆으로 작은 원형 아이콘 확장 */}
+        <View style={styles.row} pointerEvents="box-none">
           <Pressable
             testID="sb-quick-filter-btn"
             onPress={() => setOpenMenu(m => (m === 'filter' ? null : 'filter'))}
@@ -106,257 +164,43 @@ export const SandboxQuickOpticsButtons: React.FC<Props> = ({
               </View>
             )}
           </Pressable>
-        </View>
 
-        {/* 확장 팝오버: 렌즈 */}
-        {openMenu === 'lens' && (
-          <GlassSurface blurred style={styles.popover}>
-            <View style={styles.popHeader}>
-              <Text style={styles.popTitle}>
-                {L3(language, '렌즈 · 화각', 'LENS · FOCAL', 'レンズ・画角')}
-              </Text>
-              <View style={styles.popHeaderActions}>
-                {lensActive && (
+          {openMenu === 'filter' && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.expandRow}
+              style={styles.expandScroll}
+            >
+              {QUICK_FILTER_ICONS.map(f => {
+                const active = gearBag.frontFilters.includes(f.id);
+                return (
                   <Pressable
-                    onPress={() => {
-                      onChangeTeleX(1);
-                      onChangeGearBag(s => ({ ...s, lensMount: 'standard', verticalShift: false }));
-                    }}
-                    hitSlop={6}
-                    style={styles.iconBtn}
-                    accessibilityLabel={L3(language, '렌즈 초기화', 'Reset lens', 'レンズリセット')}
+                    key={f.id}
+                    onPress={() => onChangeGearBag(s => toggleFrontFilter(s, f.id))}
+                    accessibilityRole="button"
+                    accessibilityLabel={f.id}
+                    style={styles.miniCircleBtn}
                   >
-                    <RotateCcw size={12} color={DARK.textDim} />
+                    <GlassSurface active={active} blurred style={StyleSheet.absoluteFill} />
+                    {f.renderIcon(active)}
                   </Pressable>
-                )}
-                <Pressable onPress={() => setOpenMenu(null)} hitSlop={6} style={styles.iconBtn}>
-                  <X size={13} color={DARK.textDim} />
+                );
+              })}
+              {filterActive && (
+                <Pressable
+                  onPress={() => onChangeGearBag(createDefaultGearBag())}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '필터 초기화', 'Reset filters', 'フィルターリセット')}
+                  style={styles.miniCircleBtn}
+                >
+                  <GlassSurface blurred style={StyleSheet.absoluteFill} />
+                  <RotateCcw size={13} color={DARK.textDim} />
                 </Pressable>
-              </View>
-            </View>
-
-            <Text style={styles.subLabel}>{L3(language, '화각 프리셋', 'FOCAL LENGTH', '焦点距離')}</Text>
-            <View style={styles.chipRow}>
-              {QUICK_LENS_PRESETS.map(p => (
-                <GlassChip
-                  key={p.mm}
-                  label={p.mm}
-                  mono
-                  active={Math.abs(teleX - p.zoom) < 0.08}
-                  onPress={() => onChangeTeleX(p.zoom)}
-                />
-              ))}
-            </View>
-
-            {!isLowSpec && (
-              <>
-                <Text style={styles.subLabel}>{L3(language, '광학 마운트', 'OPTICAL MOUNT', '光学マウント')}</Text>
-                <View style={styles.chipRow}>
-                  {(['standard', 'scheimpflug', 'dolly', 'anamorphic'] as OpticalLensMount[]).map(m => (
-                    <GlassChip
-                      key={m}
-                      label={lensMountShortLabel(m, language)}
-                      active={gearBag.lensMount === m}
-                      onPress={() => onChangeGearBag(s => ({ ...s, lensMount: m }))}
-                    />
-                  ))}
-                </View>
-
-                {gearBag.lensMount === 'scheimpflug' && (
-                  <View style={styles.tuneRow}>
-                    {[300, 800, 1200, 2500, 5000].map(dist => (
-                      <GlassChip
-                        key={dist}
-                        label={dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${dist}m`}
-                        mono
-                        active={gearBag.focusDistM === dist}
-                        onPress={() => onChangeGearBag(s => ({ ...s, focusDistM: dist }))}
-                      />
-                    ))}
-                    {([1.4, 2.0, 2.8, 4.0] as const).map(f => (
-                      <GlassChip
-                        key={f}
-                        label={`f/${f}`}
-                        mono
-                        active={gearBag.apertureF === f}
-                        onPress={() => onChangeGearBag(s => ({ ...s, apertureF: f }))}
-                      />
-                    ))}
-                  </View>
-                )}
-
-                {gearBag.lensMount === 'dolly' && (
-                  <View style={styles.tuneRow}>
-                    {[1.25, 1.55, 1.85, 2.2].map(z => (
-                      <GlassChip
-                        key={z}
-                        label={`${z.toFixed(2)}×`}
-                        mono
-                        active={Math.abs(gearBag.dollyFarZoom - z) < 0.05}
-                        onPress={() => onChangeGearBag(s => ({ ...s, dollyFarZoom: z }))}
-                      />
-                    ))}
-                  </View>
-                )}
-
-                {gearBag.lensMount === 'anamorphic' && (
-                  <View style={styles.tuneRow}>
-                    {([6, 8, 10] as const).map(b => (
-                      <GlassChip
-                        key={b}
-                        label={`${b}${L3(language, '갈래', '-ray', '本')}`}
-                        mono
-                        active={gearBag.sunstarBlades === b}
-                        onPress={() => onChangeGearBag(s => ({ ...s, sunstarBlades: b }))}
-                      />
-                    ))}
-                  </View>
-                )}
-              </>
-            )}
-          </GlassSurface>
-        )}
-
-        {/* 확장 팝오버: 필터 & 필름 */}
-        {openMenu === 'filter' && (
-          <GlassSurface blurred style={styles.popover}>
-            <View style={styles.popHeader}>
-              <Text style={styles.popTitle}>
-                {L3(
-                  language,
-                  `필터 (${gearBag.frontFilters.length}/2) · 필름`,
-                  `FILTERS (${gearBag.frontFilters.length}/2) · FILM`,
-                  `フィルター (${gearBag.frontFilters.length}/2) · フィルム`,
-                )}
-              </Text>
-              <View style={styles.popHeaderActions}>
-                {hasActiveOpticalGear(gearBag) && (
-                  <Pressable
-                    onPress={() => onChangeGearBag(createDefaultGearBag())}
-                    hitSlop={6}
-                    style={styles.iconBtn}
-                    accessibilityLabel={L3(language, '필터 초기화', 'Reset filters', 'フィルターリセット')}
-                  >
-                    <RotateCcw size={12} color={DARK.textDim} />
-                  </Pressable>
-                )}
-                <Pressable onPress={() => setOpenMenu(null)} hitSlop={6} style={styles.iconBtn}>
-                  <X size={13} color={DARK.textDim} />
-                </Pressable>
-              </View>
-            </View>
-
-            <ScrollView style={styles.popScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Text style={styles.subLabel}>{L3(language, '원형 필터', 'OPTICAL FILTERS', '円形フィルター')}</Text>
-              <View style={styles.chipRow}>
-                {(['gnd', 'cpl', 'nd1000', 'dehaze', 'proMist', 'astroClear', 'ghostClean'] as FrontFilterId[]).map(fid => (
-                  <GlassChip
-                    key={fid}
-                    label={frontFilterShortLabel(fid, language)}
-                    active={gearBag.frontFilters.includes(fid)}
-                    onPress={() => onChangeGearBag(s => toggleFrontFilter(s, fid))}
-                  />
-                ))}
-              </View>
-
-              {gearBag.frontFilters.includes('gnd') && (
-                <View style={styles.tuneRow}>
-                  <GlassChip
-                    label={L3(language, '리버스', 'Reverse', 'リバース')}
-                    active={gearBag.gndMode === 'reverse'}
-                    onPress={() => onChangeGearBag(s => ({ ...s, gndMode: 'reverse' }))}
-                  />
-                  <GlassChip
-                    label={L3(language, '표준', 'Standard', '標準')}
-                    active={gearBag.gndMode === 'standard'}
-                    onPress={() => onChangeGearBag(s => ({ ...s, gndMode: 'standard' }))}
-                  />
-                  {[1.0, 1.8, 2.5, 3.5].map(ev => (
-                    <GlassChip
-                      key={ev}
-                      label={`-${ev.toFixed(1)}EV`}
-                      mono
-                      active={Math.abs(gearBag.gndStops - ev) < 0.15}
-                      onPress={() => onChangeGearBag(s => ({ ...s, gndStops: ev }))}
-                    />
-                  ))}
-                </View>
               )}
-
-              {gearBag.frontFilters.includes('cpl') && (
-                <View style={styles.tuneRow}>
-                  {[0.4, 0.78, 1.0].map(v => (
-                    <GlassChip
-                      key={v}
-                      label={`CPL ${Math.round(v * 100)}%`}
-                      mono
-                      active={Math.abs(gearBag.cplStrength - v) < 0.12}
-                      onPress={() => onChangeGearBag(s => ({ ...s, cplStrength: v }))}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {gearBag.frontFilters.includes('nd1000') && (
-                <View style={styles.tuneRow}>
-                  {[6, 12, 20, 30, 60].map(sec => (
-                    <GlassChip
-                      key={sec}
-                      label={`ND ${sec}s`}
-                      mono
-                      active={gearBag.ndDurationSec === sec}
-                      onPress={() => onChangeGearBag(s => ({ ...s, ndDurationSec: sec }))}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {gearBag.frontFilters.includes('dehaze') && (
-                <View style={styles.tuneRow}>
-                  {[
-                    { v: -0.8, label: L3(language, '산수화', 'Ink', '山水') },
-                    { v: -0.4, label: L3(language, '안개', 'Mist', '薄霞') },
-                    { v: 0.55, label: 'Dehaze' },
-                    { v: 0.95, label: 'Clear+' },
-                  ].map(p => (
-                    <GlassChip
-                      key={p.v}
-                      label={p.label}
-                      active={Math.abs(gearBag.dehazeStrength - p.v) < 0.12}
-                      onPress={() => onChangeGearBag(s => ({ ...s, dehazeStrength: p.v }))}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {gearBag.frontFilters.includes('proMist') && (
-                <View style={styles.tuneRow}>
-                  {([0.125, 0.25, 0.5, 1] as const).map(gr => (
-                    <GlassChip
-                      key={gr}
-                      label={gr === 1 ? 'ProMist 1' : `1/${Math.round(1 / gr)}`}
-                      mono
-                      active={gearBag.proMistGrade === gr}
-                      onPress={() => onChangeGearBag(s => ({ ...s, proMistGrade: gr }))}
-                    />
-                  ))}
-                </View>
-              )}
-
-              <Text style={styles.subLabel}>{L3(language, '필름 · 센서 백', 'FILM BACK', 'フィルム')}</Text>
-              <View style={styles.chipRow}>
-                {(['natural', 'sunsetWb', 'monoZone'] as FilmBackMode[]).map(fb => (
-                  <GlassChip
-                    key={fb}
-                    label={filmBackShortLabel(fb, language)}
-                    active={gearBag.filmBack === fb}
-                    onPress={() => onChangeGearBag(s => ({ ...s, filmBack: fb }))}
-                  />
-                ))}
-              </View>
             </ScrollView>
-          </GlassSurface>
-        )}
+          )}
+        </View>
       </View>
     </>
   );
@@ -366,10 +210,12 @@ const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
     zIndex: 27,
+    flexDirection: 'column',
     alignItems: 'flex-start',
     gap: 8,
+    maxWidth: '92%',
   },
-  btnRow: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -378,6 +224,23 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandScroll: {
+    maxWidth: 280,
+  },
+  expandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 4,
+  },
+  miniCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -399,59 +262,5 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     fontWeight: '800',
     color: DARK.onAccent,
-  },
-  popover: {
-    width: 268,
-    maxHeight: 320,
-    borderRadius: 14,
-    padding: 10,
-    gap: 6,
-  },
-  popHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  popTitle: {
-    fontFamily: mono,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.7,
-    color: DARK.textDim,
-  },
-  popHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  iconBtn: {
-    padding: 2,
-  },
-  popScroll: {
-    maxHeight: 268,
-  },
-  subLabel: {
-    fontFamily: mono,
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: DARK.textDim,
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  tuneRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(148,163,184,0.22)',
   },
 });
