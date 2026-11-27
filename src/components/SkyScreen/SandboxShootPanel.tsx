@@ -11,8 +11,7 @@ import { ValueDialStrip } from '../glass/ValueDialStrip';
 import { AstroSettingsPanel } from '../AstroCamera/AstroSettingsPanel';
 import { AstroForecastBanner } from '../AstroCamera/AstroForecastBanner';
 import { TimelapsePanel } from '../AstroCamera/TimelapsePanel';
-import { ExposureCells } from '../AstroCamera/ExposureCells';
-import { MiniFilterRingIcon, type LensKind } from '../AstroCamera/CameraLensZoomSection';
+import { MiniFilterRingIcon } from '../AstroCamera/CameraLensZoomSection';
 import { GLASS, TEXT } from '../../theme/glassTokens';
 import { color as DARK } from '../../theme/tokens';
 import { L3, type Language } from '../../utils/i18n';
@@ -38,17 +37,7 @@ import {
 
 export type SandboxShootMode = 'photo' | 'astro' | 'timelapse';
 
-const EV_STEPS = [-2.0, -1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5, 2.0] as const;
 const ND_DURATION_STEPS = [3, 6, 10, 12, 15, 20, 30, 45, 60] as const;
-const LENS_ZOOM_PRESETS: ReadonlyArray<{ zoom: number; mm: string; kind: LensKind }> = [
-  { zoom: 0.6, mm: '14mm', kind: 'ultrawide' },
-  { zoom: 1, mm: '24mm', kind: 'wide' },
-  { zoom: 1.5, mm: '35mm', kind: 'wide' },
-  { zoom: 2, mm: '48mm', kind: 'wide' },
-  { zoom: 3, mm: '70mm', kind: 'tele' },
-  { zoom: 5, mm: '120mm', kind: 'tele' },
-  { zoom: 10, mm: '240mm', kind: 'supertele' },
-];
 
 interface Props {
   language: Language;
@@ -629,67 +618,6 @@ export const SandboxShootPanel: React.FC<Props> = ({
       >
         {mode === 'photo' && (
           <View style={styles.section}>
-            {(onChangeTeleX || onOpenCameraBag) && (
-              <>
-                <View style={styles.headerRow}>
-                  <Text style={styles.label}>{L3(language, '렌즈 · 배율 (좌우 스크롤)', 'LENS · ZOOM (SCROLL)', 'レンズ · 倍率（スクロール）')}</Text>
-                  {onOpenCameraBag && (
-                    <GlassChip
-                      testID="sb-open-gear-bag"
-                      icon={<MiniFilterRingIcon active={gearActive} />}
-                      label={gearBadge
-                        ? `${L3(language, '광학 가방', 'Gear Bag', '光学バッグ')} · ${gearBadge}`
-                        : L3(language, '광학 렌즈·필터 ▾', 'Optical Gear ▾', '光学レンズ・フィルター ▾')}
-                      active={gearActive}
-                      onPress={onOpenCameraBag}
-                    />
-                  )}
-                </View>
-                {onChangeTeleX && (
-                  <ValueDialStrip
-                    testID="sb-lens-zoom-dial"
-                    options={LENS_ZOOM_PRESETS.map(p => ({
-                      value: p.zoom,
-                      label: `${p.zoom}x · ${p.mm}`,
-                      major: p.zoom === 1 || p.zoom === 2 || p.zoom === 5 || p.zoom === 10,
-                    }))}
-                    selectedValue={teleX}
-                    isSelected={(opt, cur) => Math.abs(opt - cur) < 0.08}
-                    onSelect={onChangeTeleX}
-                  />
-                )}
-              </>
-            )}
-            <ValueDialStrip
-              testID="sb-ev-dial"
-              label={L3(language, '노출 보정 (EV · 좌우 스크롤)', 'EXPOSURE (EV · SCROLL)', '露出補正 (EV · スクロール)')}
-              valueText={`${exposure > 0 ? '+' : ''}${exposure.toFixed(1)} EV`}
-              options={EV_STEPS.map(ev => ({
-                value: ev,
-                label: ev === 0 ? '0' : `${ev > 0 ? '+' : ''}${ev.toFixed(1)}`,
-                major: Number.isInteger(ev),
-              }))}
-              selectedValue={exposure}
-              isSelected={(opt, cur) => Math.abs(opt - cur) < 0.05}
-              onSelect={onExposureChange}
-            />
-            {expoAdvice ? (
-              <ExposureCells
-                language={language}
-                advice={expoAdvice}
-                lensMm={lensMm}
-                lensText={lensText}
-                onPressLens={onOpenCameraBag}
-                gearSummary={gearBadge}
-                gearActive={gearActive}
-                manualIso={manualIso}
-                manualShutterS={manualShutterS}
-                manualWb={manualWb}
-                onChangeIso={onChangeIso}
-                onChangeShutter={onChangeShutter}
-                onChangeWb={onChangeWb}
-              />
-            ) : null}
             {inlineGearSection}
           </View>
         )}
