@@ -86,6 +86,8 @@ export interface CloudData {
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
   visibility?: number;
+  /** 공항 METAR 로 잰 주변 시정(m, 거리 · 시간 무게 평균) — 예보 시정과 달리 관측값. 있으면 박무 · 안개 두께를 이것으로 올림(liveScene). */
+  visibilityObs?: number;
   /** 2 m relative humidity in percent. Only populated for the observer point. */
   humidity?: number;
   /**

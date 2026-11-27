@@ -28,6 +28,9 @@ export interface MetarObs {
   clearBelowM: number | null;
   wx: string | null;
   tempC?: number; dewC?: number;
+  /** 지상 시정(m). 측정이 "N 이상"(예 6+ SM, 9999)이면 visCapped. 없으면 undefined. */
+  visM?: number;
+  visCapped?: boolean;
 }
 
 /** 옥타 → 운량(%): FEW 1~2 · SCT 3~4 · BKN 5~7 · OVC 8 · VV(수직시정, 하늘 안 보임) 8 */
@@ -74,7 +77,28 @@ export function parseMetarItem(it: any, lat: number, lon: number): MetarObs | nu
     icao: it.icaoId, lat: it.lat, lon: it.lon, distanceKm: haversineKm(lat, lon, it.lat, it.lon), timeMs, raw, layers, clearBelowM,
     wx: typeof it.wxString === 'string' && it.wxString ? it.wxString : null,
     tempC: typeof it.temp === 'number' ? it.temp : undefined, dewC: typeof it.dewp === 'number' ? it.dewp : undefined,
+    ...metarVisibility(it, raw),
   };
+}
+
+const SM_M = 1609.344;
+/**
+ * 시정(m). aviationweather.gov JSON 의 `visib`(법정 마일, 숫자 또는 "6+")를 쓰고, 없으면 원문에서(미터 4 자리 · "8SM" · CAVOK) 읽습니다.
+ * "N 이상"(9999 · 6+SM · CAVOK)은 상한 보고라 visCapped — 박무 · 안개 판정에는 못 쓰고 "그 이상 맑음"으로만 둡니다.
+ */
+export function metarVisibility(it: any, raw: string): { visM?: number; visCapped?: boolean } {
+  const v = it?.visib;
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return { visM: v * SM_M, visCapped: false };
+  if (typeof v === 'string') {
+    const n = parseFloat(v);
+    if (Number.isFinite(n) && n >= 0) return { visM: n * SM_M, visCapped: /\+/.test(v) };
+  }
+  if (/\bCAVOK\b/.test(raw)) return { visM: 10000, visCapped: true };
+  const mSm = raw.match(/\b(\d{1,2})(?:\/(\d))?SM\b/);
+  if (mSm) return { visM: (mSm[2] ? Number(mSm[1]) / Number(mSm[2]) : Number(mSm[1])) * SM_M, visCapped: false };
+  const mM = raw.match(/\b(\d{4})\b(?=\s)/);
+  if (mM) { const n = Number(mM[1]); return { visM: n, visCapped: n >= 9999 }; }
+  return {};
 }
 
 /** 여러 항목 중 가장 가까운 공항의 **가장 최근** 보고. */

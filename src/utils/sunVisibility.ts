@@ -216,7 +216,7 @@ export function hazeLayerRh(o: { humidity?: number; profileRhPct?: number[] }): 
   }
   return o.humidity;
 }
-export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[] }): AerosolOptics | null {
+export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; visibilityObs?: number; humidity?: number; profileRhPct?: number[] }): AerosolOptics | null {
   const ok = (v: number | undefined): v is number => v != null && Number.isFinite(v) && v >= 0;
   let aod: number | null = null;
   const pmAod = ok(o.pm25) || ok(o.pm10)
@@ -225,6 +225,8 @@ export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?:
   if (ok(o.aod550)) aod = pmAod != null ? Math.max(o.aod550, pmAod) : o.aod550;
   else if (pmAod != null) aod = pmAod;
   else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 60000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
+  // 공항이 잰 시정(박무 · 안개 · 연무)은 모형 AOD · 입자 농도가 놓치는 물방울 연무도 포함한 직접 소광 측정 — 더 탁하면 그쪽을 씁니다(Koschmieder, 층 두께 1.5 km).
+  if (ok(o.visibilityObs) && o.visibilityObs > 0 && o.visibilityObs < 60000) aod = Math.max(aod ?? 0, (3.912 / (o.visibilityObs / 1000)) * 1.5);
   if (aod == null) return null;
   const fine = ok(o.pm25) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.pm25 / o.pm10) : 0.6;
   const dustShare = ok(o.dust) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.dust / o.pm10) : 0;

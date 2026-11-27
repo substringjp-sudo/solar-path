@@ -121,3 +121,29 @@ export function correctMacroRing(
   }
   return usedAny ? { ring: out, used: stations.length } : { ring, used: 0 };
 }
+
+/** 시정 모으기: 이 무게 합 아래면(가까운 공항 없음) 쓰지 않음. 공항 한 곳이 20 km 안이면 합 ≈ 0.9. */
+export const VIS_MIN_WEIGHT = 0.15;
+/** 시정의 공간 규모(km) — 박무 · 안개 덩어리는 구름 고리보다 좁게 봅니다. */
+export const VIS_L_KM = 40;
+
+/**
+ * 장면 위치의 지상 시정(m): 공항별 가장 가까운 시각 보고의 시정을 로그 영역에서 거리 · 시간 무게로 평균.
+ * "N 이상" 상한 보고(9999 · 6+SM · CAVOK)는 그 값 이상이라는 뜻이라 더 탁한 보고가 하나라도 있으면 탁한 쪽이 이김(상한 보고는 무게 반).
+ * 쓸 보고가 없거나 무게 합이 VIS_MIN_WEIGHT 미만이면 null(예보 시정 그대로).
+ */
+export function visibilityFromReports(reports: readonly MetarObs[], sceneMs: number, lat: number, lon: number): { visM: number; used: number } | null {
+  let sw = 0, sl = 0, used = 0;
+  for (const r of nearestReportPerStation(reports, sceneMs)) {
+    if (r.visM == null || !(r.visM > 0)) continue;
+    const d = haversineKm(lat, lon, r.lat, r.lon);
+    if (d > 150) continue;
+    const wT = metarTimeWeight((sceneMs - r.timeMs) / 60_000);
+    let w = wT * Math.exp(-0.5 * (d / VIS_L_KM) ** 2);
+    if (r.visCapped) w *= 0.5;
+    if (!(w > 1e-4)) continue;
+    sw += w; sl += w * Math.log(r.visM); used++;
+  }
+  if (sw < VIS_MIN_WEIGHT) return null;
+  return { visM: Math.exp(sl / sw), used };
+}
