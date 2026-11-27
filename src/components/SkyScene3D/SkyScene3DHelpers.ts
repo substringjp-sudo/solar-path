@@ -50,6 +50,8 @@ export interface SkySettings {
   volumetricFarSun?: boolean;
   /** 구름 알갱이 다듬기(표본 누적 + 정착 뒤 몇 초 더 그림, PR #171). 끄면 그 전과 같음. 기본 켬. */
   volumetricRefine?: boolean;
+  /** 땅 알갱이(실험, 기본 0 끔): 1 위치 표본, 2 + 빛 표본 — 땅 · 건물을 구름과 같은 표본 방식으로(volumetricScene `GROUND_GRAIN_GLSL`). */
+  volumetricGroundGrain?: number;
   volumetricSheetDiffuse?: boolean;
   diagRawTerrain?: boolean;
   volumetricClampInscatter?: boolean;

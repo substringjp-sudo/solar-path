@@ -547,7 +547,7 @@ export default function App() {
         skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, diagRawTerrain: !!Q.diag, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol,
           // §130 흐름 모형 — volFlow:1 · volFlowUv:1 · volq:'low'|'medium'|'high' · volres:0.25~1 (장치 크기 알갱이 자)
           volumetricFlow: !!Q.volFlow, volumetricFlowUv: !!Q.volFlowUv,
-          ...(Q.volq ? { volumetricQuality: Q.volq } : {}), ...(Q.volres != null ? { volumetricRes: Q.volres, volumetricAutoRes: false } : {}) }}
+          ...(Q.volq ? { volumetricQuality: Q.volq } : {}), ...(Q.grain != null ? { volumetricGroundGrain: Q.grain } : {}), ...(Q.volres != null ? { volumetricRes: Q.volres, volumetricAutoRes: false } : {}) }}
         // tele:N · lens:1 — 샌드박스 망원 배율과 렌즈 정보 배지(2026-11-19). lens:1 이면 눈금 HUD 를 켭니다.
         telephotoX={Q.tele ?? 1}
         showLensInfo={!!Q.lens}

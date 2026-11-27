@@ -1,5 +1,6 @@
 # 위키 기록 (위에 새 줄)
 
+- 2026-11-27 · cloud-lighting — 땅 알갱이 실험(`volumetricGroundGrain` 0 끔/1 위치 표본/2 + 빛 표본, 기본 끔): 볼륨 합성에서 땅 · 건물 판을 구름 해상도 칸마다 확률적 위치 한 표본으로 읽음. 맥북 실제 GPU 비교만 확인, 기기 확인 전. 한계: 표본이 화면에 고정(땅은 이력 버퍼 없음).
 - 2026-11-27 · cloud-lighting · weather-data — 미래 시각에 흐린 날 채우기 덱이 기본 밀도(τ 58~64)로 떨어져 예보 직달일사 "해 맑음"(τ 0)과 어긋나게 하늘이 짙음(기기 11/27 11:06). 위성 GHI 가 없으면 예보 GHI(shortwave_radiation, 새로 받음)로 같은 두-흐름 식 — 조건 추가 없이 기상값에 맞춤. verify-deck-tau 8/8.
 - 2026-11-27 · weather-data · cloud-placement — 기기 07:13 서울: 성남 METAR BKN030(저 75 %)인데 예보 고리 저층 7 % → 화면에 구름 1.2 %(하네스). 거시 고리를 근처 공항 여러 곳 관측으로 보정(`utils/metarRing.ts`: 관측−예보 잔차를 거리 · 시간 무게로 퍼뜨림, Barnes 식, L 50 km, 보고 ±90 분 무게 1 → 240 분 0). 관측점 덮어쓰기 창도 서서히(60 km · 90 분 → 120 km · 240 분). METAR 조회는 ±1.5° 상자(±2° 이상은 API 가 군용 공항을 뺌). verify-metar-ring 17/17.
 - 2026-11-26 · harness-verification — 볼륨 하네스 기본 환경을 맥북 실제 GPU(`run-desktop.js`)로 고정(기기 한도 16 재현, 장면당 ~2 초). SwiftShader 는 보조. CLAUDE.md 도 갱신.

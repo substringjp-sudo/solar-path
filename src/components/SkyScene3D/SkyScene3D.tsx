@@ -3279,6 +3279,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const accumWant = volRefineRef.current > 0 && volSettleRef.current === 0 && !isInteractingNow && !isSlidingNow
             && (skySettingsRef.current.volumetricRefine ?? true) && (skySettingsRef.current.pixelArtRows ?? 0) <= 0;
           if (accumWant !== volAccumOnRef.current) { volAccumOnRef.current = accumWant; vol.setCloudAccumActive?.(accumWant); }
+          vol.setGroundGrain?.(skySettingsRef.current.volumetricGroundGrain ?? 0);
           volTex = vol.renderToTexture(dtSec);
           if (volSettleRef.current > 0) {
             volSettleRef.current--;

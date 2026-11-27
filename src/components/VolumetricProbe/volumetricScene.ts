@@ -606,6 +606,41 @@ export interface VolumetricOptions extends TsunOptions {
 export const HIGH_QUALITY_MIN_UNITS = 17;
 /** 시간 업스케일 누적 — 새 표본 무게(`cloudAccum`). 0.25 ≈ 최근 표본 ~7 개 평균. */
 export const CLOUD_ACCUM_DEFAULT = 0.25;
+/**
+ * 땅 알갱이(실험, 기본 끔): 볼륨 합성에서 땅 · 건물 판을 구름 해상도 칸(1/resolutionScale 화소)마다 확률적 위치 하나에서 읽어,
+ * 구름과 같은 크기 · 같은 흩어짐으로 그립니다(재질 무늬가 아니라 표본 방식). 1 = 위치만(A), 2 = 햇빛 · 하늘빛 몫도 넓게 흔든 표본(A+B).
+ * 칸 안 표본 자리는 화면 칸에 고정(시간에 따라 안 바뀜) — 땅은 이력 버퍼가 없어 바꾸면 끓습니다.
+ */
+/** 땅 알갱이 B: 칸 하나의 햇빛 · 하늘빛 몫 추정 흔들림(±비율). */
+export const GROUND_GRAIN_SUN_SPREAD = 0.35;
+export const GROUND_GRAIN_SKY_SPREAD = 0.2;
+export const GROUND_GRAIN_GLSL = [
+  'uniform float groundGrain;', 'uniform float groundGrainCell;',
+  'uvec2 vgPcg(uvec2 v) {',
+  '  v = v * 1664525u + 1013904223u;',
+  '  v.x += v.y * 1664525u; v.y += v.x * 1664525u;',
+  '  v ^= v >> 16u;',
+  '  v.x += v.y * 1664525u; v.y += v.x * 1664525u;',
+  '  v ^= v >> 16u;',
+  '  return v;',
+  '}',
+  'vec2 volGrainUv(vec2 uv, float radiusCells, float salt) {',
+  '  if (groundGrain < 0.5) return uv;',
+  '  vec2 tsz = vec2(textureSize(terrainDist, 0));',
+  '  vec2 cell = floor(uv * tsz / groundGrainCell);',
+  '  uvec2 h = vgPcg(uvec2(ivec2(cell) + ivec2(4096)) + uvec2(uint(salt) * 7919u, uint(salt) * 104729u));',
+  '  vec2 r = vec2(h) / 4294967295.0 * 2.0 - 1.0;',
+  '  vec2 c = (cell + 0.5 + r * radiusCells) * groundGrainCell;',
+  '  return clamp(c / tsz, vec2(0.0), vec2(1.0));',
+  '}',
+  // 칸마다 −1..1 — 빛 몫을 한 표본으로 추정할 때의 흔들림(평균 0이라 다듬어 모으면 원래 값).
+  'float volGrainRand(vec2 uv, float salt) {',
+  '  vec2 tsz = vec2(textureSize(terrainDist, 0));',
+  '  vec2 cell = floor(uv * tsz / groundGrainCell);',
+  '  uvec2 h = vgPcg(uvec2(ivec2(cell) + ivec2(4096)) + uvec2(uint(salt) * 31337u, uint(salt) * 65537u));',
+  '  return float(h.x) / 4294967295.0 * 2.0 - 1.0;',
+  '}',
+].join('\n');
 export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, physicsRenderComp: true, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, cells: true, edgeRough: EDGE_ROUGH_DEFAULT, cloudLight: 'physical', farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, cloudAccum: CLOUD_ACCUM_DEFAULT, clampInscatter: false, irradianceLogMu: false, keepIceShaderLoaded: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
@@ -676,6 +711,8 @@ export interface VolumetricScene {
   setInteracting?(active: boolean, deferFarSun?: boolean): void;
   /** 표본 누적(`cloudAccum`)을 켜고 끔 — 가만히 있는 다듬기 동안만 켭니다. 균일변수 하나만 바꿔 가볍습니다. */
   setCloudAccumActive(on: boolean): void;
+  /** 땅 알갱이(실험): 0 끔(점묘 무늬), 1 위치 표본(A), 2 + 빛 표본(B). `GROUND_GRAIN_GLSL` 참고. */
+  setGroundGrain(mode: number): void;
   setResolutionScale(s: number): void;
   /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
   resolutionScale(): number;
@@ -1019,6 +1056,7 @@ export async function createVolumetricScene(
       'uniform sampler2D terrainLit;', 'uniform sampler2D terrainLit2;', 'uniform float terrainLitOn;',
       'uniform sampler2D sunRidgeTex;', 'uniform float sunRidgeOn;', 'uniform float seaSlopeVar;',
       'float volTerrainLitHit = 0.0;',
+      GROUND_GRAIN_GLSL,
       TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
       // 구름 아래 공기 그늘 길이(km): 지형·지평선 시선만 — 지형까지(앱 지형 거리 텍스처) 또는 100 km 상한 × 그늘 비율.
       'uniform float cloudAirShade;', 'uniform float cloudAirTopKm;', 'uniform float farAirShade;', 'uniform float cloudSkyT;',
@@ -1214,19 +1252,29 @@ export async function createVolumetricScene(
       // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
       'outputColor.a = cloudAlphaOut > 0.5 ? 0.0 : 1.0;',
       '    if (terrainDistOn > 0.5) {',
-      '      vec4 vtDistRaw = texture(terrainDist, uv);',
+      // 땅 알갱이(groundGrain): 구름 해상도 칸마다 확률적 위치 하나에서 땅 판을 읽어, 구름과 같은 크기 · 같은 흩어짐으로 그립니다.
+      '      vec2 vtUv = volGrainUv(uv, 1.0, 0.0);',
+      '      vec4 vtDistRaw = texture(terrainDist, vtUv);',
       '      float vtKm = terrainDistDecodeKm(vtDistRaw);',
       '      if (vtKm < 1e8) {',
       '        outputColor.rgb = vec3(0.0);',
       // §129 지형 빛 판: 알베도(rgb)·햇빛 몫(a) 위에 takram 의 해·하늘 조도와 대기 원근을 하늘과 같은 값으로 입힙니다.
       // 하늘 조도는 수평면(위를 봄) 몫, 해는 원반을 마주한 조도 × 지형 셰이더의 ndl·그림자. 지형은 불투명(알파 1).
       '        if (terrainLitOn > 0.5) {',
-      '          vec4 vtLit = texture(terrainLit, uv);',
+      '          vec4 vtLit = texture(terrainLit, vtUv);',
+      // B: 햇빛 몫(그늘 · 구름 그늘)은 더 넓게 흔든 위치에서 한 표본 — 그늘 경계가 구름 가장자리처럼 흩어집니다.
+      '          if (groundGrain > 1.5) vtLit.a = texture(terrainLit, volGrainUv(uv, 2.5, 1.0)).a;',
       // §157 지형 빛 판은 출력이 둘: 0 = sqrt(알베도)·해 몫, 1 = 하늘빛 몫(AO·반구)·젖음·구름을 뚫은 햇빛(terrainLook.ts).
       '          vec3 vtAlb = vtLit.rgb * vtLit.rgb;',
-      '          vec4 vtL2 = texture(terrainLit2, uv);',
+      '          vec4 vtL2 = texture(terrainLit2, vtUv);',
+      // B: 하늘빛 몫(AO · 반구)도 흔든 위치에서 한 표본.
+      '          if (groundGrain > 1.5) vtL2.r = texture(terrainLit2, volGrainUv(uv, 2.5, 2.0)).r;',
+      // B: 칸 하나 = 표면 한 표본. 미세면 기울기(햇빛 몫)와 하늘 보임(하늘빛 몫)을 칸마다 한 번 뽑아 추정합니다 — 평균은 같고, 빛이 있는 곳에만 알갱이.
+      `          if (groundGrain > 1.5) { vtLit.a *= 1.0 + ${GROUND_GRAIN_SUN_SPREAD.toFixed(2)} * volGrainRand(uv, 3.0); vtL2.r *= 1.0 + ${GROUND_GRAIN_SKY_SPREAD.toFixed(2)} * volGrainRand(uv, 4.0); }`,
       `          float vtAmb = vtL2.r * ${LIT2_AMB_RANGE.toFixed(2)}, vtWet = vtL2.g, vtFill = vtL2.b;`,
       '          vec3 vtP = vCameraPosition + rayDirection * vtKm;',
+      // 땅 알갱이: 이웃 표본의 거리를 이 화소 시선에 대면 먼 표본이 대기 바닥(6360 km) 아래로 갈 수 있음 — 바닥 위로 올립니다.
+      '          if (groundGrain > 0.5) vtP = normalize(vtP) * max(length(vtP), 6360.002);',
       '          vec3 vtUp = normalize(vtP);',
       '          vec3 vtSky, vtSkyUnused;',
       '          GetSunAndSkyIrradiance(vtP, vtUp, sunDirection, vtSky);',
@@ -1370,7 +1418,7 @@ export async function createVolumetricScene(
       '                          + (smoothstep(0.68, 0.96, hU1) - smoothstep(0.68, 0.96, 1.0 - hU1));',
       '            float cross0 = clamp(impC0 * 0.95 + impArm0 * 0.65, -1.35, 1.35);',
       '            float cross1 = clamp(impC1 * 0.95 + impArm1 * 0.65, -1.35, 1.35);',
-      '            float stippleFade = 1.0 - smoothstep(2.4, 7.0, vtKm);',
+      '            float stippleFade = (1.0 - smoothstep(2.4, 7.0, vtKm)) * (groundGrain > 0.5 ? 0.0 : 1.0);',
       '            float crossStipple = (cross0 * 0.62 + cross1 * 0.38) * stippleFade;',
       '            vtRad *= 1.0 + crossStipple * mix(0.075, 0.105, isBld);',
       '          }',
@@ -1540,6 +1588,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('terrainLit', new Uniform(null));
     fx.uniforms.set('terrainLit2', new Uniform(null));
     fx.uniforms.set('terrainLitOn', new Uniform(0));
+    fx.uniforms.set('groundGrain', new Uniform(0));
+    fx.uniforms.set('groundGrainCell', new Uniform(2));
     fx.uniforms.set('sunRidgeTex', new Uniform(null));
     fx.uniforms.set('sunRidgeOn', new Uniform(0));
     fx.uniforms.set('cloudAirShade', new Uniform(0));
@@ -3377,6 +3427,10 @@ export async function createVolumetricScene(
       const rmU = (clouds.cloudsPass.resolveMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
       if (rmU.cloudAccum) rmU.cloudAccum.value = on ? Math.max(0.02, Math.min(1, opt.cloudAccum)) : 1;
     },
+    setGroundGrain: mode => {
+      const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
+      au.get('groundGrain')!.value = mode;
+    },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
     resolutionScale: () => clouds.resolutionScale,
     render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },
@@ -3385,6 +3439,7 @@ export async function createVolumetricScene(
     // 경로(스냅샷 등)가 놀라지 않게 되돌립니다.
     renderToTexture: dt => {
       if ((samplerProbeN++ & 127) === 0) probeSamplers();
+      (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('groundGrainCell')!.value = 1 / Math.max(0.05, clouds.resolutionScale);
       const prevAutoClear = renderer.autoClear;
       tonePass.renderToScreen = false; setCloudAlphaOut(true); composer.render(dt);
       renderer.autoClear = prevAutoClear;
