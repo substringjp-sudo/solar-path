@@ -85,6 +85,8 @@ export interface SandboxMasterDialProps {
   manualShutterS: number | null;
   onShutterChange: (s: number | null) => void;
   expoAdvice: ExposureAdvice | null;
+  /** 천체(장노출) · 타임랩스 모드에서 외부 셔터 탭 비활성화 */
+  shutterDisabled?: boolean;
 }
 
 interface DialTickItem {
@@ -153,9 +155,15 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
   manualShutterS,
   onShutterChange,
   expoAdvice,
+  shutterDisabled = false,
 }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
   const [activeParam, setActiveParam] = useState<SandboxDialParam>('time');
+  useEffect(() => {
+    if (shutterDisabled && activeParam === 'shutter') {
+      setActiveParam('time');
+    }
+  }, [shutterDisabled, activeParam]);
   const [dialDragging, setDialDragging] = useState(false);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
@@ -509,6 +517,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
     label: string;
     value: string;
     modified: boolean;
+    disabled?: boolean;
   }> = [
     {
       id: 'date',
@@ -549,8 +558,9 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
     {
       id: 'shutter',
       label: L3(language, '셔터', 'SHTR', 'SS'),
-      value: shutterValText,
-      modified: manualShutterS != null,
+      value: shutterDisabled ? '—' : shutterValText,
+      modified: !shutterDisabled && manualShutterS != null,
+      disabled: shutterDisabled,
     },
   ];
 
@@ -738,19 +748,23 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
       <View style={styles.paramStrip}>
         {paramTabs.map(tab => {
           const selected = activeParam === tab.id;
+          const isDisabled = !!tab.disabled;
           return (
             <Pressable
               key={tab.id}
               testID={`sb-dial-tab-${tab.id}`}
+              disabled={isDisabled}
               onPress={() => {
+                if (isDisabled) return;
                 hapticTick();
                 setActiveParam(tab.id);
               }}
               accessibilityRole="tab"
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled: isDisabled }}
               style={[
                 styles.paramTab,
                 selected && styles.paramTabActive,
+                isDisabled && { opacity: 0.35 },
               ]}
             >
               <Text

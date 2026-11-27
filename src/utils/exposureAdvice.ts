@@ -47,7 +47,7 @@ export function shutterLabel(s: number): string {
 }
 
 /** 해 고도(°) → 노출 추천. 숫자가 아니면 null. */
-export function adviseExposure(altDeg: number, opts: { handheld?: boolean } = {}): ExposureAdvice | null {
+export function adviseExposure(altDeg: number, opts: { handheld?: boolean; maxShutterS?: number } = {}): ExposureAdvice | null {
   const lux = sceneLux(altDeg);
   if (lux == null) return null;
   const handheld = opts.handheld !== false;
@@ -59,7 +59,8 @@ export function adviseExposure(altDeg: number, opts: { handheld?: boolean } = {}
     iso = ISO_STEPS.find(i => i >= need) ?? ISO_STEPS[ISO_STEPS.length - 1];
   }
   const t = (t0 * 100) / iso;
-  const shutterS = nearestLog(SHUTTER_STEPS, t);
+  const rawShutterS = nearestLog(SHUTTER_STEPS, t);
+  const shutterS = opts.maxShutterS != null ? Math.min(opts.maxShutterS, rawShutterS) : rawShutterS;
   const level: ExposureLevel = t > TRIPOD_OK_S ? 'astro' : handheld && t > HANDHELD_MAX_S ? 'tripod' : 'ok';
   const wb: WbAdvice = altDeg >= 6 ? 'auto' : altDeg >= -6 ? 'daylight' : 'night';
   return { ev100, iso, shutterS, shutterText: shutterLabel(shutterS), level, wb };
@@ -117,10 +118,11 @@ export function computeManualEvOffset(
   manualShutterS: number | null,
 ): number {
   if (!advice || (manualIso == null && manualShutterS == null)) return 0;
+  const baseShutter = Math.min(1, advice.shutterS);
   const effIso = manualIso ?? advice.iso;
-  const effShutter = manualShutterS ?? advice.shutterS;
+  const effShutter = manualShutterS ?? baseShutter;
   const delta = Math.log2(Math.max(1, effIso) / Math.max(1, advice.iso))
-    + Math.log2(Math.max(1e-5, effShutter) / Math.max(1e-5, advice.shutterS));
+    + Math.log2(Math.max(1e-5, effShutter) / Math.max(1e-5, baseShutter));
   return Math.max(-6, Math.min(6, delta));
 }
 

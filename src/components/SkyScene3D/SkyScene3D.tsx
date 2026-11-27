@@ -737,6 +737,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     exposureGain: number;
     shadowLift: number;
   } | null>(null);
+  /** 배치 장노출(renderLongExposure) 스텝 진행 중 매 프레임 누적 버퍼를 화면에 그대로 보여주기 위한 상태 */
+  const activeBatchAccumResolveRef = useRef<{
+    gain: number;
+    shadowLift: number;
+    fixedGround: boolean;
+  } | null>(null);
   const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
@@ -1524,6 +1530,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
         }
 
+        const useFixedGround = mode === 'tracked_fixed_ground';
         cityExpCompRef.current = Math.pow(Math.max(1, exposureGain), 0.65) / Math.max(1, exposureGain);
         volRef.current?.setCityTerrainExpScale?.(cityExpCompRef.current);
         volRef.current?.setAccumulating?.(true);
@@ -1552,16 +1559,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               begin: k === 0,
               captureStep: {
                 weight: 1,
-                fixedBase: k === 0 && mode === 'tracked_fixed_ground',
+                fixedBase: k === 0 && useFixedGround,
+              },
+              pendingResolve: {
+                gain: exposureGain,
+                shadowLift,
+                fixedGround: useFixedGround,
               },
             },
             (fn) => { cancelCurrentWait = fn; },
           );
+          activeBatchAccumResolveRef.current = {
+            gain: exposureGain,
+            shadowLift,
+            fixedGround: useFixedGround,
+          };
           if (isCancelled()) return cancelledResult();
+          opts.onStepProgress?.(k + 1, steps);
         }
 
         if (isCancelled()) return cancelledResult();
-        const useFixedGround = mode === 'tracked_fixed_ground';
         const state = h.getRenderState();
         const uri = await captureGlSnapshot(() => {
           if (composerRef.current && rendererRef.current) {
@@ -1592,6 +1609,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         volRef.current?.setAccumulating?.(false);
         overrideStartBucketMsRef.current = null;
         accumDirectiveRef.current = null;
+        activeBatchAccumResolveRef.current = null;
         composerRef.current?.endAccumulation();
         overrideSceneTimeMsRef.current = null;
         starBoostOverrideRef.current = 1;
@@ -3390,6 +3408,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           exposureGain: liveAcc.exposureGain,
           shadowLift: liveAcc.shadowLift,
           useFixedGround: false,
+        });
+      } else if (activeBatchAccumResolveRef.current) {
+        const batchAcc = activeBatchAccumResolveRef.current;
+        composerNow.resolveAccumulation(renderer as unknown as THREE.WebGLRenderer, {
+          exposureGain: batchAcc.gain,
+          shadowLift: batchAcc.shadowLift,
+          useFixedGround: batchAcc.fixedGround,
         });
       } else {
         renderer.setViewport(0, 0, dw, dh);

@@ -834,6 +834,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [collapseNonce, setCollapseNonce] = useState<number>(0);
   const [sandboxLongExpUri, setSandboxLongExpUri] = useState<string | null>(null);
   const [sandboxLongExpBusy, setSandboxLongExpBusy] = useState<boolean>(false);
+  const [sandboxLongExpProgress, setSandboxLongExpProgress] = useState<{ step: number; total: number } | null>(null);
   const [sandboxTlPreviewing, setSandboxTlPreviewing] = useState<boolean>(false);
   const [sandboxTlClock, setSandboxTlClock] = useState<string>('0:00 / 0:00');
   const sbPreviewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -975,9 +976,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     };
   }, [sandboxLiveView.fov]);
 
-  const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude)), [sunAltitude]);
-  const sandboxEffShutterS = sandboxShutterS ?? sandboxExpoAdvice?.shutterS ?? 0;
-  const wantPhotoLongExp = sandboxShootMode === 'photo' && sandboxEffShutterS >= 4;
+  const sandboxExpoAdvice = useMemo(() => adviseExposure(Math.round(sunAltitude), { maxShutterS: 1 }), [sunAltitude]);
+  const sandboxEffShutterS = sandboxShutterS ?? Math.min(1, sandboxExpoAdvice?.shutterS ?? (1 / 30));
+  const wantPhotoLongExp = sandboxShootMode === 'photo' && sandboxShutterS != null && sandboxShutterS >= 4;
 
   const runSandboxLongExp = useCallback(async () => {
     const sky = sceneRef.current;
@@ -1001,6 +1002,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           ? (sandboxAstroSettings.keepFixedGround ? 'tracked_fixed_ground' : 'tracked')
           : 'trails';
         const sp = computeAstroSimExposureParams(sandboxAstroSettings.durationSec, sandboxAstroSummary.clampedIso);
+        setSandboxLongExpProgress({ step: 0, total: sp.stepsForPreview });
         const res = await sky.renderLongExposure(
           { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
           {
@@ -1017,17 +1019,24 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             format: 'jpeg',
             compress: 0.85,
             signal: ctl.signal,
+            onStepProgress: (step, total) => {
+              if (reqId === longExpReqRef.current && !ctl.signal.aborted) {
+                setSandboxLongExpProgress({ step, total });
+              }
+            },
           },
         );
         baseUri = res.uri;
       } else if (wantPhotoLongExp) {
+        const photoSteps = Math.min(12, Math.max(4, Math.round(sandboxEffShutterS / 2)));
+        setSandboxLongExpProgress({ step: 0, total: photoSteps });
         const res = await sky.renderLongExposure(
           { az: st.view.az, el: st.view.el, fov: st.view.fov, rollDeg: st.view.roll },
           {
             mode: 'trails',
             startTimeMs: currentTimeRef.current.getTime(),
             durationSec: sandboxEffShutterS,
-            steps: Math.min(12, Math.max(4, Math.round(sandboxEffShutterS / 2))),
+            steps: photoSteps,
             exposureGain: 1,
             starBoost: 1.25,
             shadowLift: 0,
@@ -1037,10 +1046,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             format: 'jpeg',
             compress: 0.85,
             signal: ctl.signal,
+            onStepProgress: (step, total) => {
+              if (reqId === longExpReqRef.current && !ctl.signal.aborted) {
+                setSandboxLongExpProgress({ step, total });
+              }
+            },
           },
         );
         baseUri = res.uri;
       } else if (wantGear) {
+        setSandboxLongExpProgress(null);
         baseUri = await sky.takeSnapshot({ format: 'jpeg', compress: 0.9 });
       }
 
@@ -1087,6 +1102,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       if (reqId === longExpReqRef.current) {
         longExpBusyRef.current = false;
         setSandboxLongExpBusy(false);
+        setSandboxLongExpProgress(null);
       }
     }
   }, [
@@ -1782,8 +1798,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 샌드박스 천체 장노출 / 광학 렌즈·필터 3D 미리보기 */}
-          {expertMode && !isCameraOverlayActive && sandboxLongExpUri && (
+          {/* 샌드박스 천체 장노출 / 광학 렌즈·필터 3D 미리보기 (스텝 누적 중에는 아래 3D 캔버스의 실시간 누적 화면을 직접 노출) */}
+          {expertMode && !isCameraOverlayActive && sandboxLongExpUri && !sandboxLongExpProgress && (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <Image
                 source={{ uri: sandboxLongExpUri }}
@@ -1828,20 +1844,53 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             <View style={overlayStyles.previewBannerWrap} pointerEvents="box-none">
               <GlassSurface style={overlayStyles.previewBanner}>
                 {sandboxLongExpBusy ? (
-                  <>
-                    <ActivityIndicator size="small" color={sandboxShootMode === 'astro' ? DARK.moon : DARK.accent} />
-                    <Text style={overlayStyles.previewBannerText}>
-                      {sandboxShootMode === 'astro'
-                        ? L3(language, '장노출 합성 중…', 'Synthesizing long-exposure…', '長露光合成中…')
-                        : L3(language, `광학 렌즈·필터 시뮬레이션 중… (${sandboxGearBadge})`, `Simulating optics… (${sandboxGearBadge})`, `光学シミュレーション中… (${sandboxGearBadge})`)}
-                    </Text>
-                  </>
+                  sandboxLongExpProgress ? (
+                    <View style={{ minWidth: 168, gap: 5, paddingVertical: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <Text style={overlayStyles.previewBannerText}>
+                          {L3(
+                            language,
+                            `장노출 합성 중 ${sandboxLongExpProgress.step} / ${sandboxLongExpProgress.total}장`,
+                            `Stacking ${sandboxLongExpProgress.step} / ${sandboxLongExpProgress.total}`,
+                            `長露光合成中 ${sandboxLongExpProgress.step} / ${sandboxLongExpProgress.total}枚`,
+                          )}
+                        </Text>
+                        <Text style={[overlayStyles.previewBannerText, { opacity: 0.8 }]}>
+                          {`${Math.round((sandboxLongExpProgress.step / Math.max(1, sandboxLongExpProgress.total)) * 100)}%`}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          height: 4,
+                          borderRadius: 2,
+                          backgroundColor: 'rgba(255,255,255,0.16)',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <View
+                          style={{
+                            height: '100%',
+                            width: `${Math.min(100, Math.max(4, Math.round((sandboxLongExpProgress.step / Math.max(1, sandboxLongExpProgress.total)) * 100)))}%`,
+                            borderRadius: 2,
+                            backgroundColor: sandboxShootMode === 'astro' ? DARK.moon : DARK.accent,
+                          }}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <ActivityIndicator size="small" color={sandboxShootMode === 'astro' ? DARK.moon : DARK.accent} />
+                      <Text style={overlayStyles.previewBannerText}>
+                        {L3(language, `광학 렌즈·필터 시뮬레이션 중… (${sandboxGearBadge})`, `Simulating optics… (${sandboxGearBadge})`, `光学シミュレーション中… (${sandboxGearBadge})`)}
+                      </Text>
+                    </>
+                  )
                 ) : sandboxLongExpUri ? (
                   <>
                     <Text style={overlayStyles.previewBannerText}>
-                      {sandboxShootMode === 'astro'
+                      {sandboxShootMode === 'astro' || (wantPhotoLongExp && !sandboxGearActive)
                         ? L3(language, '장노출 합성 결과', 'Long-exposure preview', '長露光プレビュー')
-                        : `${L3(language, '광학 시뮬레이션', 'Optical preview', '光学プレビュー')} · ${sandboxGearBadge}`}
+                        : `${L3(language, '광학 시뮬레이션', 'Optical preview', '光学プレビュー')}${sandboxGearBadge ? ` · ${sandboxGearBadge}` : ''}`}
                     </Text>
                     <GlassChip
                       label={L3(language, '해제', 'Clear', '解除')}
@@ -2231,6 +2280,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 manualShutterS={sandboxShutterS}
                 onShutterChange={setSandboxShutterS}
                 expoAdvice={sandboxExpoAdvice}
+                shutterDisabled={sandboxShootMode !== 'photo'}
               />
             ) : undefined}
           />

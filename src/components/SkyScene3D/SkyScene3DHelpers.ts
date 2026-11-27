@@ -96,6 +96,8 @@ export interface LongExposureSimOptions {
   format?: 'jpeg' | 'png';
   compress?: number;
   signal?: AbortSignal;
+  /** 한 장씩 누적될 때마다 (현재 완료 장수 1..totalSteps, 전체 장수)를 알립니다. */
+  onStepProgress?: (step: number, totalSteps: number) => void;
 }
 
 export interface LongExposureSimResult {
