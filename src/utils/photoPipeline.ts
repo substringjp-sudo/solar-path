@@ -762,11 +762,10 @@ export async function applyOpticalGearToPhoto(
     : priorGndCurve;
   const gndGrid = bakeContourGndGrid(gndCurve, GRID_W, GRID_H);
 
-  // 2-b) 지형선(priorYNorm) 위로 솟은 수직 건물·구조물 기둥 거리 보정:
-  // 바닥 지형 고도각만으로는 지평선 위로 솟은 건물 상단이 하늘(Infinity)이나 수십 km 원경으로 잡혀
-  // 초점 거리 안에 있는 높은 건물도 윗부분이 흐려집니다.
-  // 이미지 스카이라인(refinedYNorm)이 지형선보다 위로 솟은 열에서는 건물 하단(지면 접점)의 거리를
-  // 건물 꼭대기(refinedYNorm)까지 수직 기둥으로 전파해 건물 전체가 동일한 3D 거리를 갖게 합니다.
+  // 2-b) 개선된 이미지 스카이라인(refinedYNorm)과 3D 깊이 버퍼(depthGrid) 양방향 정합:
+  // - 스카이라인 위쪽(y < topRow)은 하늘(Infinity)로 명확히 정리해 연무·산수화·능선 띠가 하늘로 번지지 않게 합니다.
+  // - 스카이라인 아래쪽(y >= topRow) 중 지형선 위로 솟은 건물 기둥 구간은 건물 하단(지면 접점)의 거리를
+  //   건물 꼭대기까지 수직 전파해 틸트-시프트·원근 압축·연무 필터가 실제 건물 실루엣을 정확히 따르게 합니다.
   if (depthGrid && skylineRes) {
     for (let x = 0; x < GRID_W; x++) {
       const u = (x + 0.5) / GRID_W;
@@ -776,7 +775,6 @@ export async function applyOpticalGearToPhoto(
       if (!Number.isFinite(refY)) continue;
       const basePriorY = Number.isFinite(priY) ? Math.max(refY, priY) : refY + 0.06;
       const lift = Math.max(0, basePriorY - refY);
-      // 건물 발밑(지면 접점) 행: 위로 많이 솟은 건물일수록 지면 기준점을 살짝 아래(중·근경)에서 샘플링
       const footV = clamp(basePriorY + Math.max(0.04, lift * 0.9), 0.15, 0.94);
       const footRow = clamp(Math.floor(footV * GRID_H), 0, GRID_H - 1);
       let colBaseDist = depthGrid[footRow * GRID_W + x];
@@ -784,6 +782,9 @@ export async function applyOpticalGearToPhoto(
         colBaseDist = gear.focusDistM > 0 ? clamp(gear.focusDistM, 450, 3200) : 1200;
       }
       const topRow = clamp(Math.floor(refY * GRID_H), 0, GRID_H - 1);
+      for (let y = 0; y < topRow; y++) {
+        depthGrid[y * GRID_W + x] = Number.POSITIVE_INFINITY;
+      }
       for (let y = topRow; y <= footRow; y++) {
         const idx = y * GRID_W + x;
         const curD = depthGrid[idx];
@@ -794,10 +795,13 @@ export async function applyOpticalGearToPhoto(
     }
   }
 
+  const activeSkylineYNorm = gndCurve.horizonYNorm;
+
   const useCpl = gear.frontFilters.includes('cpl');
   const cplGrid = useCpl
     ? computeRayleighCplGrid(ctx.sunAzDeg, ctx.sunAltDeg, ctx.attitude, ctx.intrinsics, GRID_W, GRID_H, {
         strength: gear.cplStrength,
+        skylineYNorm: activeSkylineYNorm,
       })
     : null;
 
@@ -817,6 +821,7 @@ export async function applyOpticalGearToPhoto(
         bortleClass: ctx.bortleClass ?? 7,
         aod,
         horizon: ctx.horizon,
+        skylineYNorm: activeSkylineYNorm,
         strength: gear.lightPollutionStrength,
       })
     : null;

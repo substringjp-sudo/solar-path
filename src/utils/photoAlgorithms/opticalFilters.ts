@@ -272,6 +272,8 @@ export interface RayleighCplOptions {
   wideUniformity?: number;
   /** 최대 감광 스톱(EV). 기본 1.6 EV. */
   maxStops?: number;
+  /** 이미지 기반 추론된 건물·능선 스카이라인(0..1 정규화 Y). 전달되면 건물·산을 제외한 하늘만 편광 감광합니다. */
+  skylineYNorm?: Float32Array | null;
 }
 
 /**
@@ -290,6 +292,7 @@ export function computeRayleighCplGrid(
   const strength = clamp(opts.strength ?? 0.75, 0, 1);
   const uniformity = clamp(opts.wideUniformity ?? 0.55, 0, 1);
   const maxStops = clamp(opts.maxStops ?? 1.6, 0, 3.0);
+  const skyLine = opts.skylineYNorm;
 
   const sunDir = dirFromAzEl(sunAzDeg, sunElDeg);
   const basis = cameraBasis(attitude);
@@ -303,17 +306,26 @@ export function computeRayleighCplGrid(
   const centerPol = cSin2 / (1 + cCos * cCos);
 
   for (let y = 0; y < gridH; y++) {
-    const py = ((y + 0.5) / gridH) * intrinsics.height;
+    const v = (y + 0.5) / gridH;
+    const py = v * intrinsics.height;
     for (let x = 0; x < gridW; x++) {
-      const px = ((x + 0.5) / gridW) * intrinsics.width;
+      const u = (x + 0.5) / gridW;
+      const px = u * intrinsics.width;
       const { az, el } = unproject(px, py, attitude, intrinsics, basis);
       const d = dirFromAzEl(az, el);
       const cosG = clamp(d[0] * sunDir[0] + d[1] * sunDir[1] + d[2] * sunDir[2], -1, 1);
       const sin2G = Math.max(0, 1 - cosG * cosG);
       const rawPol = sin2G / (1 + cosG * cosG);
 
-      // 지평선 아래(el < 0)는 하늘 레일리 편광 대상이 아니므로 부드럽게 감쇠
-      const skyFactor = clamp((el + 2) / 10, 0, 1);
+      // 스카이라인(건물 옥상·산 능선)이 있으면 그 위쪽 하늘만 편광 적용, 없으면 고도각 폴백
+      let skyFactor = clamp((el + 2) / 10, 0, 1);
+      if (skyLine && skyLine.length > 0) {
+        const col = clamp(Math.floor(u * skyLine.length), 0, skyLine.length - 1);
+        const hy = skyLine[col];
+        if (Number.isFinite(hy)) {
+          skyFactor = clamp((hy + 0.015 - v) / 0.035, 0, 1);
+        }
+      }
       const effPol = rawPol * (1 - uniformity) + centerPol * uniformity;
       const stops = maxStops * strength * effPol * skyFactor;
       out[y * gridW + x] = Math.pow(2, -stops);
@@ -451,12 +463,15 @@ export function computeLightPollutionNotchGrid(
     bortleClass?: number;
     aod?: number;
     horizon?: HorizonProfile | null;
+    /** 이미지 기반 추론된 건물·능선 스카이라인(0..1 정규화 Y). 전달되면 건물 야경 조명 색을 보존하고 하늘 광해만 제거합니다. */
+    skylineYNorm?: Float32Array | null;
     strength?: number;
   } = {},
 ): LightPollutionNotchResult {
   const bortle = clamp(opts.bortleClass ?? 7, 1, 9);
   const aod = clamp(opts.aod ?? 0.25, 0.05, 1.2);
   const strength = clamp(opts.strength ?? 0.75, 0, 1);
+  const skyLine = opts.skylineYNorm;
 
   // Bortle 1→0.05, 5→0.45, 9→1.0
   const bortleFactor = clamp((bortle - 1) / 8, 0.05, 1);
@@ -464,10 +479,33 @@ export function computeLightPollutionNotchGrid(
   const grid = new Float32Array(gridW * gridH);
 
   for (let y = 0; y < gridH; y++) {
-    const py = ((y + 0.5) / gridH) * intrinsics.height;
+    const v = (y + 0.5) / gridH;
+    const py = v * intrinsics.height;
     for (let x = 0; x < gridW; x++) {
-      const px = ((x + 0.5) / gridW) * intrinsics.width;
+      const u = (x + 0.5) / gridW;
+      const px = u * intrinsics.width;
       const { az, el } = unproject(px, py, attitude, intrinsics, basis);
+
+      if (skyLine && skyLine.length > 0) {
+        const col = clamp(Math.floor(u * skyLine.length), 0, skyLine.length - 1);
+        const hy = skyLine[col];
+        if (Number.isFinite(hy)) {
+          if (v > hy + 0.01) {
+            // 실제 건물·능선 실루엣 아래(지상·건물 창문 야경)는 광해 노치에서 제외
+            grid[y * gridW + x] = 0;
+            continue;
+          }
+          const skyGate = clamp((hy + 0.01 - v) / 0.025, 0, 1);
+          const aboveSkylineNorm = Math.max(0, hy - v);
+          const horizonGlow = Math.exp(-aboveSkylineNorm / 0.26);
+          const effEl = Math.max(1.0, el);
+          const airMass = 1 / (Math.sin(effEl * D2R) + 0.15 * Math.pow(effEl + 3.885, -1.253));
+          const lowAltGlow = Math.max(horizonGlow, clamp((airMass - 1) / 8.5, 0, 1));
+          grid[y * gridW + x] = clamp((0.25 + 0.75 * lowAltGlow) * bortleFactor * (0.7 + 0.5 * aod) * strength * skyGate, 0, 1);
+          continue;
+        }
+      }
+
       const hEl = opts.horizon ? horizonAt(opts.horizon, az) : 0;
       if (el < hEl - 0.5) {
         // 지상 영역은 광해 노치 제외(가로등 야경 자체 색 보존)

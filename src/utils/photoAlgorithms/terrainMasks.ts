@@ -226,15 +226,29 @@ export function refineSkylineWithImagePrior(
   const edgeScoreMat = new Float32Array(cols * imgH);
   const back = new Int16Array(cols * imgH);
 
-  // 각 열에서 3D 가이드 y_prior 주변 ±radRows 구간의 이미지 경계 점수 및 Prior 비용 계산
+  // 각 열에서 3D 가이드 y_prior 주변 탐색 구간의 이미지 경계 점수 및 Prior 비용 계산
   for (let c = 0; c < cols; c++) {
     const pyNorm = Number.isFinite(priorYNorm[c]) ? clamp(priorYNorm[c], 0.04, 0.96) : 0.52;
     const pyRow = pyNorm * imgH;
-    // 건물들은 지형 가이드보다 위쪽(y < pyRow)으로 솟아오르므로 위쪽 탐색 폭을 1.35배 더 넓게 허용
-    const yMin = Math.max(K, Math.floor(pyRow - radRows * 1.35));
+    // 높은 건물 옥상이 탐색 상한 밖으로 잘려 건물 중간(창문/단차)을 잡지 않도록 위쪽 탐색 폭을 대폭 확장
+    const upReach = Math.max(radRows * 2.15, Math.round(imgH * 0.26));
+    const yMin = Math.max(K, Math.floor(pyRow - upReach));
     const yMax = Math.min(imgH - K - 1, Math.ceil(pyRow + radRows * 0.85));
 
+    // 열 상단(하늘 기준점) 평균 휘도·색도 측정: 진짜 옥상 경계는 상단 하늘과 연속된 영역이 처음 끊기는 지점
+    let skyRefL = 0;
+    let skyRefC = 0;
+    const refSpan = Math.max(2, Math.min(5, K + 1));
+    for (let r = 0; r < refSpan; r++) {
+      const ry = clamp(yMin - K + r, 0, imgH - 1);
+      skyRefL += L[ry * cols + c];
+      skyRefC += C[ry * cols + c];
+    }
+    skyRefL /= refSpan;
+    skyRefC /= refSpan;
+
     let maxEdge = 1e-4;
+    let accumObstacleAbove = 0;
     for (let y = yMin; y <= yMax; y++) {
       let lAbove = 0;
       let lBelow = 0;
@@ -246,25 +260,43 @@ export function refineSkylineWithImagePrior(
         cAbove += C[(y - t) * cols + c];
         cBelow += C[(y + t - 1) * cols + c];
       }
-      const dL = (lAbove - lBelow) / K;
-      const dC = (cAbove - cBelow) / K;
+      lAbove /= K;
+      lBelow /= K;
+      cAbove /= K;
+      cBelow /= K;
+
+      const dL = lAbove - lBelow;
+      const dC = cAbove - cBelow;
       // 한 픽셀 단차(건물 옥상·능선 날카로운 실루엣)
-      const localStep = (L[(y - 1) * cols + c] - L[y * cols + c]);
-      // 하늘(위)이 지상·건물(아래)보다 밝거나 색도 차가 뚜렷한 곳을 높은 점수로 평가
-      const rawScore = Math.max(0, dL * 1.15 + dC * 0.45 + Math.max(0, localStep) * 0.65) + Math.abs(dL) * 0.22;
+      const localStep = L[(y - 1) * cols + c] - L[y * cols + c];
+
+      // 위쪽(lAbove)이 상단 하늘(skyRefL)만큼 밝고, 아래쪽(lBelow)이 어두운 불투명 건물/산일수록 가산점 부여.
+      // 반대로 이미 위쪽에서 하늘이 끊겨(accumObstacleAbove 증가) 건물 벽면 내부의 창문·층간 단차인 경우 감쇠.
+      const skyMatchAbove = clamp(1 - Math.max(0, skyRefL - lAbove) / Math.max(0.12, skyRefL * 0.65), 0.15, 1.0);
+      const firstRoofGate = Math.exp(-accumObstacleAbove * 2.4);
+
+      const rawScore =
+        (Math.max(0, dL * 1.25 + dC * 0.48 + Math.max(0, localStep) * 0.72) + Math.abs(dL) * 0.16) *
+        (0.35 + 0.65 * skyMatchAbove * firstRoofGate);
+
       edgeScoreMat[y * cols + c] = rawScore;
       if (rawScore > maxEdge) maxEdge = rawScore;
+
+      // 하늘 대비 뚜렷하게 어두운 장애물(건물 상단)이 시작되면 누적 차폐량을 올려 건물 중간 단차 선택을 억제
+      if (dL > 0.06 && lBelow < skyRefL * 0.78) {
+        accumObstacleAbove += dL * 0.85;
+      }
     }
 
     for (let y = yMin; y <= yMax; y++) {
       const raw = edgeScoreMat[y * cols + c];
       // 열 내부 상대 정규화 + 절대 대비 결합
-      const normEdge = clamp(raw / Math.max(0.08, maxEdge), 0, 1) * clamp(raw / 0.14, 0.2, 1.2);
+      const normEdge = clamp(raw / Math.max(0.08, maxEdge), 0, 1) * clamp(raw / 0.13, 0.22, 1.25);
       const dyNorm = (y - pyRow) / Math.max(1, radRows);
-      // 위쪽으로 솟은 건물 실루엣(dyNorm < 0)은 가이드 페널티를 완만하게 두어 옥상 경계를 잘 타도록 함
-      const asymDy = dyNorm < 0 ? dyNorm * 0.78 : dyNorm * 1.12;
+      // 위쪽으로 솟은 건물 옥상(dyNorm < 0)은 가이드 페널티를 대폭 낮춰(0.38) 옥상에서 건물 중간으로 끌려 내려오지 않게 함
+      const asymDy = dyNorm < 0 ? dyNorm * 0.38 : dyNorm * 1.15;
       const priorPenalty = priorW * (asymDy * asymDy);
-      const imageReward = (1 - priorW * 0.65) * normEdge;
+      const imageReward = (1 - priorW * 0.62) * normEdge;
       costMat[y * cols + c] = priorPenalty - imageReward;
     }
   }
@@ -340,14 +372,60 @@ export function refineSkylineWithImagePrior(
       : detectedNorm;
 
     refinedYNorm[c] = finalNorm;
+    if (c > 0) curY = clamp(back[c * imgH + curY], K, imgH - K - 1);
+  }
+
+  // ── 후처리: 건물과 건물 사이 뾰족한 V자 골(Spike) 제거 & 옥상 포락선 평활화 ──
+  // 1) 수평 모폴로지 클로징(Upper-Envelope Bridging):
+  // 화면 좌표에서 y가 작을수록 위쪽(옥상)이므로, 반경 R 안에서 min(팽창) → max(침식)를 수행하면
+  // 건물과 건물 사이의 좁은 틈(1~4열 폭)에서 바닥으로 급격히 파고드는 뾰족한 골짜기가 메워집니다.
+  const bridgeRad = Math.max(2, Math.round(cols / 28));
+  const dilated = new Float32Array(cols);
+  const closed = new Float32Array(cols);
+  for (let c = 0; c < cols; c++) {
+    let minY = refinedYNorm[c];
+    for (let d = -bridgeRad; d <= bridgeRad; d++) {
+      const nc = clamp(c + d, 0, cols - 1);
+      if (refinedYNorm[nc] < minY) minY = refinedYNorm[nc];
+    }
+    dilated[c] = minY;
+  }
+  for (let c = 0; c < cols; c++) {
+    let maxY = dilated[c];
+    for (let d = -bridgeRad; d <= bridgeRad; d++) {
+      const nc = clamp(c + d, 0, cols - 1);
+      if (dilated[nc] > maxY) maxY = dilated[nc];
+    }
+    // 뾰족한 골짜기(원래 값이 주변 옥상 포락선보다 아래로 깊게 파인 곳)일수록 포락선 쪽으로 강하게 메움
+    const valleyDepth = Math.max(0, refinedYNorm[c] - maxY);
+    const bridgeMix = clamp(0.65 + valleyDepth * 4.0, 0.65, 0.92);
+    closed[c] = refinedYNorm[c] * (1 - bridgeMix) + maxY * bridgeMix;
+  }
+
+  // 2) 5탭 가우시안 컨투어 스무딩 ([1, 4, 6, 4, 1] / 16) + 옥상 높이 보호(건물 위쪽을 깎지 않도록 보정)
+  const KERNEL = [1, 4, 6, 4, 1];
+  for (let c = 0; c < cols; c++) {
+    let acc = 0;
+    let wSum = 0;
+    for (let k = -2; k <= 2; k++) {
+      const nc = clamp(c + k, 0, cols - 1);
+      const w = KERNEL[k + 2];
+      acc += closed[nc] * w;
+      wSum += w;
+    }
+    const smoothed = acc / wSum;
+    // 스무딩으로 인해 건물 옥상 라인이 아래(큰 y)로 내려앉지 않도록 위쪽 포락선(closed)을 우선 보존
+    const finalY = smoothed > closed[c] ? closed[c] * 0.65 + smoothed * 0.35 : smoothed;
+    refinedYNorm[c] = finalY;
+
+    const pyNorm = Number.isFinite(priorYNorm[c]) ? priorYNorm[c] : Number.NaN;
     if (Number.isFinite(pyNorm)) {
-      const lift = pyNorm - finalNorm; // 화면 위쪽이 y가 작으므로 양수 = 가이드보다 위로 솟음(건물/능선)
+      const lift = pyNorm - finalY;
       liftSum += lift * 100;
       if (Math.abs(lift) >= 0.01) snappedCount++;
-      confSum += conf;
+      confSum += confidence[c];
       validCols++;
     }
-    if (c > 0) curY = clamp(back[c * imgH + curY], K, imgH - K - 1);
   }
 
   return {
