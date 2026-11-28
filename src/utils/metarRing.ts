@@ -13,7 +13,7 @@
  *
  * 판정: `tools/shader-preview/verify-metar-ring.js`.
  */
-import { metarSky, haversineKm, type MetarObs } from './metar';
+import { metarSky, haversineKm, type MetarObs, type MetarSky } from './metar';
 
 export interface RingPt { distance: number; azimuthOffset: number; cover: number }
 export type MacroRingBands = Partial<Record<'low' | 'mid' | 'high', RingPt[]>>;
@@ -146,4 +146,42 @@ export function visibilityFromReports(reports: readonly MetarObs[], sceneMs: num
   }
   if (sw < VIS_MIN_WEIGHT) return null;
   return { visM: Math.exp(sl / sw), used };
+}
+
+/** 하늘 모으기: 공항 한 곳이 이웃과 크게 다르면(오늘 성남 BKN 75% · 나머지 4곳 맑음~산재) 그 한 곳에 휘둘리지 않게. 공간 규모(km). */
+export const SKY_L_KM = 40;
+/** 무게 합이 이 값 미만이면 모으지 않음(null → 가장 가까운 한 곳 그대로). */
+export const SKY_MIN_WEIGHT = 0.15;
+
+/**
+ * 장면 위치의 낮은 · 중간 구름과 낮은 층 밑면을 **주변 공항 여러 곳의 거리 · 시간 무게 평균**으로. 공항별로 장면 시각에 가장 가까운 보고 하나만 쓰고,
+ * 공항마다 `metarSky`(낮은 층 누적, 중간 층 따로)를 구한 뒤 무게 w = 시간무게 × exp(−½(d/SKY_L_KM)²) 로 평균합니다. 한 곳뿐이면 그 곳 그대로.
+ * 강수 · 눈 · 뇌우는 가장 가까운 공항의 것(국지 현상이라 평균하지 않음). 쓸 보고가 없으면 null.
+ */
+export function fusedSkyFromReports(reports: readonly MetarObs[], sceneMs: number, lat: number, lon: number): { sky: MetarSky; used: number } | null {
+  const near = nearestReportPerStation(reports, sceneMs);
+  let swL = 0, sL = 0, swM = 0, sM = 0, swB = 0, sB = 0, used = 0, nearest: MetarObs | null = null, nearestD = Infinity;
+  for (const r of near) {
+    const d = haversineKm(lat, lon, r.lat, r.lon);
+    if (d > 150) continue;
+    const w = metarTimeWeight((sceneMs - r.timeMs) / 60_000) * Math.exp(-0.5 * (d / SKY_L_KM) ** 2);
+    if (!(w > 1e-4)) continue;
+    const s = metarSky(r);
+    if (s.lowCoverPct != null) { swL += w; sL += w * s.lowCoverPct; }
+    if (s.midCoverPct != null) { swM += w; sM += w * s.midCoverPct; }
+    if (s.lowBaseKmAgl != null && (s.lowCoverPct ?? 0) >= 19) { swB += w; sB += w * s.lowBaseKmAgl; }
+    used++;
+    if (d < nearestD) { nearestD = d; nearest = r; }
+  }
+  if (!nearest || Math.max(swL, swM) < SKY_MIN_WEIGHT) return null;
+  const ns = metarSky(nearest);
+  return {
+    sky: {
+      lowCoverPct: swL >= SKY_MIN_WEIGHT ? sL / swL : null,
+      midCoverPct: swM >= SKY_MIN_WEIGHT ? sM / swM : null,
+      lowBaseKmAgl: swB >= SKY_MIN_WEIGHT ? sB / swB : null,
+      raining: ns.raining, snowing: ns.snowing, thunder: ns.thunder,
+    },
+    used,
+  };
 }

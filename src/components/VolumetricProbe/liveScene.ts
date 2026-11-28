@@ -18,7 +18,7 @@ import { pickDni } from '../../utils/satelliteIrradiance';
 import { clearSkyGHIMean } from '../../utils/satelliteBias';
 import { DIFFUSE_G, DIFFUSE_G_ICE, DIFFUSE_K, diffuseTransmittance } from './cloudDiffuse';
 import { applyMetarToObs, type MetarObs } from '../../utils/metar';
-import { visibilityFromReports } from '../../utils/metarRing';
+import { fusedSkyFromReports, visibilityFromReports } from '../../utils/metarRing';
 import { correctMacroRing } from '../../utils/metarRing';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { GENUS_MICRO, lclBaseKm, particleCloudState, thermoAt, type ThermoInput } from './cloudPhysics';
@@ -591,7 +591,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const sunAltDeg = (sun.altitude * 180) / Math.PI;
   const obsRaw = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));
   // §160 관측 덮어쓰기 1 — METAR(실링미터). 창 밖이면 null → 예보 그대로.
-  const metarOv = obsRaw ? applyMetarToObs(obsRaw, a.metar, a.date.getTime(), a.heightM) : null;
+  // 여러 공항을 모은 하늘 — 가장 가까운 한 곳이 이웃과 다르면(예: 성남 BKN 75% · 김포 CAVOK · 인천 FEW · 오산 SCT) 그 한 곳에 휘둘리지 않게.
+  const skyFix = obsRaw && a.metars && a.metars.length > 1 ? fusedSkyFromReports(a.metars, a.date.getTime(), a.lat, a.lon) : null;
+  const metarOv = obsRaw ? applyMetarToObs(obsRaw, a.metar, a.date.getTime(), a.heightM, skyFix ? { sky: skyFix.sky } : {}) : null;
   // 관측 시정: 주변 공항 여러 곳의 거리 · 시간 무게 평균(예보 시정은 맑게 나오는 날이 많음 — 2026-11-27 예보 24 km, 공항 4~13 km 박무).
   const visFix = obsRaw && a.metars?.length ? visibilityFromReports(a.metars, a.date.getTime(), a.lat, a.lon) : null;
   const obs0 = metarOv?.obs ?? obsRaw;
@@ -1155,7 +1157,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   }
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(${deckTau.source === 'sat' ? '위성' : '예보'} 일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${visFix ? ` · 시정 ${(visFix.visM / 1000).toFixed(1)} km(공항 ${visFix.used}곳)` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
+  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(${deckTau.source === 'sat' ? '위성' : '예보'} 일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${metarOv && skyFix && skyFix.used > 1 ? ` · 공항 ${skyFix.used}곳 모음` : ''}${visFix ? ` · 시정 ${(visFix.visM / 1000).toFixed(1)} km(공항 ${visFix.used}곳)` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   // 습한 막이 있으면 그 막이 곧 습한 에어로졸층(직달일사 감소 전체로 두께를 정함) — 연무를 따로 더하면 두 번 셈.
   const haze = mist ? undefined : hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 30분 간격 에르미트 곡선 매듭([K0, K1])을 전후로 잡아 GPU에서 연속 블렌딩합니다.

@@ -152,12 +152,12 @@ export interface MetarOverride { obs: CloudData; note: string; sky: MetarSky }
  * 바뀐 obs 는 복사본입니다.
  */
 export function applyMetarToObs(obs: CloudData, m: MetarObs | null | undefined, sceneMs: number, groundM: number,
-  opts: { maxAgeMin?: number; maxKm?: number } = {}): MetarOverride | null {
+  opts: { maxAgeMin?: number; maxKm?: number; /** 여러 공항을 모은 하늘(`fusedSkyFromReports`) — 있으면 `m` 한 곳의 구름 대신 이것을 씀(`m` 은 시각 · 거리 무게와 강수 문장용). */ sky?: MetarSky } = {}): MetarOverride | null {
   if (!m) return null;
   // 창 안(±90 분 · 60 km)은 무게 1 — 예전과 똑같이 덮어씀. 창 밖은 무게가 0 까지 서서히 줄고, 숫자(운량)는 무게만큼만 섞음(밑면 높이 · 강수 문장은 무게 ≥ ½ 일 때).
   const w = metarWindowWeight((sceneMs - m.timeMs) / 60_000, m.distanceKm, opts.maxAgeMin ?? METAR_MAX_AGE_MIN, opts.maxKm ?? METAR_MAX_KM);
   if (!(w > 0)) return null;
-  const sky = metarSky(m);
+  const sky = opts.sky ?? metarSky(m);
   const out: CloudData = { ...obs };
   const parts: string[] = [];
   const mixPct = (cur: number | undefined, target: number) => (w >= 1 || cur == null || !Number.isFinite(cur) ? target : cur + (target - cur) * w);
