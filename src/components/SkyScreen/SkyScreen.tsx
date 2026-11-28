@@ -58,6 +58,7 @@ import { sunPosition } from '../../utils/solarPosition';
 import { starArgsFor, hourlyCovers, starWeatherOf, type StarWeather } from '../../utils/starTonight';
 import { estimateLightPollution, getPrehydratedLightPollution, type NightLights } from '../../utils/cityLightMap';
 import { ensureNightLightsForLocation, getCachedNightLights, loadNightLights } from '../../utils/nightLightsAsset';
+import { perfStart, perfEnd, perfLog, watchJsStall } from '../../utils/perfTrace';
 import { upcomingMoments, starMoment } from '../../utils/upcomingMoments';
 import { localNoons, type EventSide } from '../../utils/sunForecast';
 import type { LearnEntry, LearnSection, LearnTopic } from '../../utils/learnSections';
@@ -406,6 +407,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     const reqLat = latitude, reqLon = longitude;
     const reqTime = currentTimeRef.current;
     const reqDate = currentDateStr;
+    const tLoadAll = perfStart('WeatherLoad', `${reqDate} @ ${reqLat.toFixed(2)},${reqLon.toFixed(2)} (force=${forceRefresh})`);
+    watchJsStall('WeatherLoad', 5000);
 
     // 1) 캐시 조회 (동일 격자, 동일 날짜)
     const existingCache = weatherCacheList.find(c =>
@@ -424,52 +427,48 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setWeatherRefreshError(null);
     }
 
-    // 2) 이미 유효한 캐시 데이터가 있고 강제 새로고침이 아닌 경우 -> 1개 점 카나리아 지문 검사
-    if (!forceRefresh && hasValidCache) {
+    // 2) 이미 유효한 캐시 데이터가 있고 강제 새로고침이 아닌 경우 -> 즉시 화면에 반영(SWR)하고 백그라운드에서 카나리아 지문만 재검증
+    if (!forceRefresh && hasValidCache && existingCache) {
       const storedCanary = (existingCache as any)?.canaryPrint as string | undefined;
+      setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
+      setIsWeatherLoading(false);
+      setWeatherError(null);
+      perfEnd(tLoadAll, storedCanary ? 'cacheHitSWR' : 'cacheHitNoCanary');
 
       if (storedCanary) {
-        try {
-          if (__DEV__) {
-            console.log(`[Weather] 1개 점 카나리아 지문 검사 중... (${reqLat.toFixed(4)}, ${reqLon.toFixed(4)}, ${reqDate})`);
-          }
-          const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal);
-
-          if (controller.signal.aborted) return;
-
-          const decision = shouldSkipWeatherDownload({
-            hasValidCache,
-            forceRefresh: false,
-            storedCanary,
-            canarySeries,
-          });
-          if (decision.skip) {
+        void (async () => {
+          try {
+            const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal);
+            if (controller.signal.aborted) return;
+            const decision = shouldSkipWeatherDownload({
+              hasValidCache,
+              forceRefresh: false,
+              storedCanary,
+              canarySeries,
+            });
+            if (decision.skip) return;
             if (__DEV__) {
-              console.log(`[Weather] 카나리아 (${decision.reason}) — 대용량 요청 생략!`);
+              console.log('[Weather] 백그라운드 카나리아: 새 모델 런 감지 — 360° 날씨 조용히 갱신');
             }
-            setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
-            setIsWeatherLoading(false);
-            setWeatherError(null);
-            return;
+            const freshRing = await fetchDayWeatherRing(reqLat, reqLon, reqTime, true, controller.signal);
+            if (controller.signal.aborted || !Array.isArray(freshRing) || freshRing.length === 0 || (freshRing as any)[0]?.isFallback) {
+              return;
+            }
+            setPathData(freshRing);
+            addWeatherCache({
+              key: weatherCacheKey(reqLat, reqLon, reqDate),
+              data: freshRing,
+              timestamp: Date.now(),
+              latitude: reqLat,
+              longitude: reqLon,
+              canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
+            } as any);
+          } catch {
+            // 백그라운드 재검증 실패 시 이미 적용된 유효 캐시를 그대로 유지
           }
-          if (__DEV__) {
-            console.log('[Weather] 카나리아 지문 불일치 또는 새 모델 런 감지 — 360° 전체 날씨 갱신 진행');
-          }
-        } catch {
-          if (controller.signal.aborted) return;
-          // 에러(타임아웃 포함) 시에도 기존 캐시 안전하게 유지
-          setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
-          setIsWeatherLoading(false);
-          setWeatherError(null);
-          return;
-        }
-      } else {
-        // 저장된 지문이 없더라도 캐시 데이터가 있으므로 화면에 즉시 띄우고 불필요한 재요청 생략
-        setPathData(prev => (prev === existingCache!.data ? prev : (existingCache!.data as CloudPathData[])));
-        setIsWeatherLoading(false);
-        setWeatherError(null);
-        return;
+        })();
       }
+      return;
     }
 
     // 3) 캐시가 없거나, 강제 새로고침이거나, 카나리아 지문이 갈린 경우:
@@ -478,7 +477,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     setWeatherError(null);
 
     try {
+      const tRing = perfStart('WeatherLoad', 'fetchDayWeatherRing');
       const ringData = await fetchDayWeatherRing(reqLat, reqLon, reqTime, forceRefresh, controller.signal);
+      perfEnd(tRing, ringData ? `len=${ringData.length}` : 'null');
 
       if (controller.signal.aborted) return;
 
@@ -509,16 +510,32 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setIsWeatherLoading(false);
 
       if (!returnedFallback) {
-        const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal).catch(() => null);
+        const cacheKeyStr = weatherCacheKey(reqLat, reqLon, reqDate);
         addWeatherCache({
-          key: weatherCacheKey(reqLat, reqLon, reqDate),
+          key: cacheKeyStr,
           data: ringData,
           timestamp: downloadedAt,
           latitude: reqLat,
           longitude: reqLon,
-          canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
         } as any);
+        // 카나리아 지문 조회는 응답 완료를 막지 않고 백그라운드에서 보강합니다.
+        void (async () => {
+          const tPostCan = perfStart('WeatherLoad', 'bgPostRingCanary');
+          const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime).catch(() => null);
+          perfEnd(tPostCan, canarySeries ? 'ok' : 'null');
+          if (canarySeries) {
+            addWeatherCache({
+              key: cacheKeyStr,
+              data: ringData,
+              timestamp: downloadedAt,
+              latitude: reqLat,
+              longitude: reqLon,
+              canaryPrint: canaryPrint(canarySeries),
+            } as any);
+          }
+        })();
       }
+      perfEnd(tLoadAll, 'fetched');
     } catch (err: any) {
       if (controller.signal.aborted) return;
       const isTimeout = err?.name === 'AbortError';
@@ -745,6 +762,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [farStatus, setFarStatus] = useState<FarStatus | null>(null);
   /** 저장된 위치를 (lat, lon) 으로 바꿉니다(샌드박스 이동의 확정 · 내 위치로 · 저장한 장면 열기). */
   const setSpot = (p: { latitude: number; longitude: number }) => {
+    perfLog('Location', 'setSpot(move)', 0, `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`);
+    watchJsStall('LocationMove', 5000);
     useCelestialStore.getState().setLocation({
       coords: { latitude: p.latitude, longitude: p.longitude, altitude: 0, accuracy: 0, altitudeAccuracy: 0, heading: 0, speed: 0 },
       timestamp: Date.now(),
@@ -1406,6 +1425,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const lastGlowRef = useRef<GlowPeak<NonNullable<ReturnType<typeof scenePrediction>>> | null>(null);
   const glow = useMemo(() => {
     if (isSliding && lastGlowRef.current) return lastGlowRef.current;
+    const tGlow = perfStart('DateCalc', 'findGlowPeak');
     const next = findGlowPeak(
       isSunriseSide ? events?.sunrise : events?.sunset,
       isSunriseSide ? 'sunrise' : 'sunset',
@@ -1423,6 +1443,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         });
       },
     );
+    perfEnd(tGlow);
     lastGlowRef.current = next;
     return next;
   }, [isSliding, isSunriseSide, events, pathData, latitude, longitude, terrainData.observerElevation]);
@@ -1432,6 +1453,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const graphEvent = isSunriseSide ? events?.sunrise : events?.sunset;
   const scoreGraph = useMemo(() => {
     if (!graphEvent || !Number.isFinite(graphEvent.getTime()) || !pathData.length) return null;
+    const tScore = perfStart('DateCalc', 'sampleScores');
     const win = scoreWindow(graphEvent.getTime(), isSunriseSide ? 'sunrise' : 'sunset', tz);
     const h = pathData[0]?.hourly;
     const times = h?.timeMs ?? h?.time?.map(x => new Date(x).getTime());
@@ -1441,6 +1463,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       if (!canGlow(sunPosition(tm, latitude, longitude).altitude * (180 / Math.PI))) return 0;
       return covered(tm.getTime()) ? predictionAt(tm)?.score ?? null : null;
     });
+    perfEnd(tScore, `pts=${points.length}`);
     return hasAnyScore(points) ? { win, points } : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphEvent?.getTime(), isSunriseSide, pathData, latitude, longitude, tz, terrainData.observerElevation]);

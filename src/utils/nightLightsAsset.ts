@@ -15,6 +15,8 @@ import {
   type NightLights,
 } from './cityLightMap';
 import { setMvtDiskCacheAdapter } from './mvtTiles';
+import { setStbnDiskCacheAdapter } from '../components/VolumetricProbe/volumetricScene';
+import { perfStart, perfEnd } from './perfTrace';
 
 const { Asset } = require('expo-asset') as {
   Asset: {
@@ -45,18 +47,48 @@ export function fromBase64(s: string): Uint8Array {
 }
 
 function toBase64(bytes: Uint8Array): string {
-  let out = '';
+  const parts: string[] = [];
+  let chunk = '';
   const len = bytes.length;
   for (let i = 0; i < len; i += 3) {
     const b0 = bytes[i];
     const b1 = i + 1 < len ? bytes[i + 1] : 0;
     const b2 = i + 2 < len ? bytes[i + 2] : 0;
     const n = (b0 << 16) | (b1 << 8) | b2;
-    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
-    out += i + 1 < len ? B64[(n >> 6) & 63] : '=';
-    out += i + 2 < len ? B64[n & 63] : '=';
+    chunk +=
+      B64[(n >> 18) & 63] +
+      B64[(n >> 12) & 63] +
+      (i + 1 < len ? B64[(n >> 6) & 63] : '=') +
+      (i + 2 < len ? B64[n & 63] : '=');
+    if (chunk.length >= 8192) {
+      parts.push(chunk);
+      chunk = '';
+    }
   }
-  return out;
+  if (chunk) parts.push(chunk);
+  return parts.join('');
+}
+
+const STBN_CACHE_FILE = Platform.OS !== 'web' && FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}stbn_3d_v1.b64`
+  : null;
+
+if (STBN_CACHE_FILE) {
+  setStbnDiskCacheAdapter({
+    read: async () => {
+      try {
+        const info = await FileSystem.getInfoAsync(STBN_CACHE_FILE);
+        if (!info.exists || !info.size) return null;
+        const b64 = await FileSystem.readAsStringAsync(STBN_CACHE_FILE);
+        return b64 ? fromBase64(b64) : null;
+      } catch {
+        return null;
+      }
+    },
+    write: (bytes: Uint8Array) => {
+      FileSystem.writeAsStringAsync(STBN_CACHE_FILE, toBase64(bytes)).catch(() => {});
+    },
+  });
 }
 
 const MVT_CACHE_DIR = Platform.OS !== 'web' && FileSystem.documentDirectory
@@ -196,15 +228,21 @@ const PREHYDRATED_STUB: NightLights = { w: 3600, h: 1800, data: new Uint8Array(0
  * 캐시에 없는 새 위치로 이동했을 때만 원본 밤지도를 로드해 계산·영구 저장합니다.
  */
 export async function ensureNightLightsForLocation(lat: number, lon: number): Promise<CityLightField | null> {
+  const tAll = perfStart('NightLights', `ensure(${lat.toFixed(2)},${lon.toFixed(2)})`);
   await hydrateNightLightsFieldCache();
   const hit = getPrehydratedCityLightField(lat, lon);
   if (hit) {
     if (!resolvedCache) resolvedCache = PREHYDRATED_STUB;
+    perfEnd(tAll, 'diskCacheHit');
     return hit;
   }
   const map = await loadNightLights();
-  if (!map) return null;
-  return cityLightField(map, lat, lon);
+  if (!map) { perfEnd(tAll, 'mapNull'); return null; }
+  const tField = perfStart('NightLights', 'cityLightField');
+  const field = cityLightField(map, lat, lon);
+  perfEnd(tField);
+  perfEnd(tAll, 'computed');
+  return field;
 }
 
 /** 이미 로드가 끝난 밤 불빛 지도가 있으면 동기로 반환합니다. */
@@ -217,15 +255,19 @@ export function loadNightLights(): Promise<NightLights | null> {
     cache = (async () => {
       try {
         await hydrateNightLightsFieldCache();
+        const tAsset = perfStart('NightLights', 'asset+readBase64');
         const asset = Asset.fromModule(require('../../assets/nightlights/lights_01deg.png'));
         await asset.downloadAsync();
         const uri = asset.localUri ?? asset.uri;
         const bytes = Platform.OS === 'web'
           ? new Uint8Array(await (await fetch(uri)).arrayBuffer())
           : fromBase64(await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }));
+        perfEnd(tAsset, `${Math.round(bytes.length / 1024)}KB`);
         // PNG 디코딩 전후로 이벤트 루프에 양보해 UI/렌더 스레드가 멈추지 않게 합니다.
         await new Promise(r => setTimeout(r, 0));
+        const tPng = perfStart('NightLights', 'decodeGrayPng(3600x1800)');
         resolvedCache = decodeGrayPng(bytes);
+        perfEnd(tPng);
         return resolvedCache;
       } catch (e) {
         if (__DEV__) console.warn('[nightLights] load failed', e);

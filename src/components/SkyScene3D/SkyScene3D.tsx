@@ -44,6 +44,7 @@ import {
   FAR_MAX_BUILDINGS_SHOWN,
   PIXEL_ART_CHOICES,
   flattenDemForBuildings,
+  flattenDemForBuildingsAsync,
   sceneHeightSampler,
   mergeBuildings,
   dayOfYearOf,
@@ -93,6 +94,7 @@ import {
 } from './TerrainRing';
 import { createSun, updateSun, sunDisplayScale, setSunCloudAlpha, type SunHandle } from './SunMesh';
 import { sunVisibility, aerosolOpticsFromObs } from '../../utils/sunVisibility';
+import { perfStart, perfEnd, perfLog, watchJsStall } from '../../utils/perfTrace';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
@@ -2965,9 +2967,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const tAtmos = Date.now();
       const harnessVolOpts = (globalThis as unknown as { __volCreateOpts?: (r: THREE.WebGLRenderer) => Promise<Record<string, unknown>> }).__volCreateOpts;
       (harnessVolOpts ? harnessVolOpts(renderer as unknown as THREE.WebGLRenderer) : Promise.resolve({}))
-        .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, flow: skySettingsRef.current.volumetricFlow ?? true, flowUv: skySettingsRef.current.volumetricFlowUv ?? true, keepIceShaderLoaded: true, ...extra }))
+        .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, flow: skySettingsRef.current.volumetricFlow ?? true, flowUv: skySettingsRef.current.volumetricFlowUv ?? true, keepIceShaderLoaded: Boolean(skySettingsRef.current.volumetricPhysics && skySettingsRef.current.volumetricPhysicsIce), ...extra }))
         .then(v => {
           volumetricStats.atmosMs = Date.now() - tAtmos;
+          perfLog('Volumetric', 'createScene', volumetricStats.atmosMs);
           volumetricStats.spectral = v.spectral;
           volGovRef.current = createResolutionGovernor({ maxScale: skySettingsRef.current.volumetricRes ?? 0.5 });
           v.setResolutionScale(volGovRef.current.scale);
@@ -3017,19 +3020,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         volPendingRef.current ||
         (volSettleRef.current > 0 && !isSlidingRef.current);
       const focusBucketNow = () => Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000;
+      const nearbyBuckets = hourBuckets.filter((bMs) => Math.abs(bMs - vBucketMs) <= 2 * 3600000);
       (async () => {
-        const totalHours = hourBuckets.length;
+        const totalHours = nearbyBuckets.length;
         await new Promise(r => setTimeout(r, 1500));
+        const tPrewarmAll = perfStart('Prewarm', `nearbyPrewarm(buckets=${totalHours})`);
+        let bakedCount = 0;
         let reportedActive = false;
         const readyMs: number[] = [];
         setVolumetricStatus({ prewarm: { active: false, done: 0, total: totalHours, readyMs: [] } });
-        const remaining = hourBuckets.slice();
+        const remaining = nearbyBuckets.slice();
         for (let idx = 0; idx < totalHours; idx++) {
-          if (aborted) return;
+          if (aborted) { perfEnd(tPrewarmAll, `aborted at ${idx}/${totalHours}`); return; }
           while (shouldPausePrewarm() && !aborted) {
             await new Promise(r => setTimeout(r, 60));
           }
-          if (aborted) return;
+          if (aborted) { perfEnd(tPrewarmAll, `aborted at ${idx}/${totalHours}`); return; }
           // 막대가 움직였으면 지금 가리키는 시간 칸에 가장 가까운 것부터.
           const bMs = nextPrewarmBucket(remaining, focusBucketNow())!;
           remaining.splice(remaining.indexOf(bMs), 1);
@@ -3047,8 +3053,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               reportedActive = true;
               setVolumetricStatus({ prewarm: { active: true, done: idx, total: totalHours, readyMs: readyMs.slice() } });
             }
+            const tOne = perfStart('Prewarm', `bucket(${idx + 1}/${totalHours})`);
             await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm, true);
-            if (aborted) return;
+            perfEnd(tOne);
+            bakedCount++;
+            if (aborted) { perfEnd(tPrewarmAll, `aborted after bake ${idx + 1}/${totalHours}`); return; }
+            await new Promise(r => setTimeout(r, 250));
           }
           const done = idx + 1;
           readyMs.push(bMs);
@@ -3056,6 +3066,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             prewarm: { active: reportedActive && done < totalHours, done, total: totalHours, readyMs: readyMs.slice() },
           });
         }
+        perfEnd(tPrewarmAll, `baked=${bakedCount}/${totalHours}`);
       })().catch(() => {
         if (!aborted) setVolumetricStatus({ prewarm: null });
       });
@@ -3112,7 +3123,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             clampInscatter: volSet.volumetricClampInscatter ?? true,
             irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true,
             cloudAccum: ((volSet.volumetricRefine ?? true) && !isLowSpec) ? 0.25 : 1,
-            keepIceShaderLoaded: true,
+            keepIceShaderLoaded: Boolean(volSet.volumetricPhysics && volSet.volumetricPhysicsIce),
           }, false);
           // 고화질 → 저화질 전환 시에는 기존 구름 타일을 그대로 재사용하고, 저화질 → 고화질로 올릴 때만 S=128 타일이었다면 고해상도(S=256) 재합성을 트리거합니다.
           if (!prevKey || (!isLowSpec && lastVolIsFastRef.current)) {
@@ -3220,6 +3231,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const asyncSliceMs = isFirstCloudScene ? 8 : (isSlidingNow ? 4 : 10);
             vol.setSceneAsync(built.input, isFast, asyncSliceMs).then(applied => {
               if (volBuildSeqRef.current !== myBuildSeq) return;
+              perfLog('Volumetric', isFirstCloudScene ? 'firstBake' : 'sceneBake', Date.now() - tW, `applied=${applied}, fast=${isFast}`);
               volPendingRef.current = false;
               volumetricStats.weatherMs = vol.weatherMs();
               if (applied) {
@@ -4293,14 +4305,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const renderer = rendererRef.current;
     if (!renderer) { demLoadingKeyRef.current = null; return; }
     try {
+      const tDemTotal = perfStart('Location', `loadDemForRef(${key})`);
+      watchJsStall('LocationChange', 8000);
       const load = (radiusM: number) => loadDemPatch(lat, lng, radiusM, {
         renderer,
         loadTexture: (url: string) => loadTextureAsync({ asset: url }),
       });
+      const tNear = perfStart('Location', 'demNear');
       const patch = (needUpgradeMask && cur) ? cur : await load(FIELD_FAR_M);
+      perfEnd(tNear);
       // 물 마스크는 고화질 모드에서만 따로 받습니다(60km 광역 3×3 타일).
       // 저화질 도트 모드에서는 생략해 네트워크·텍스처 연산을 아끼고, 고화질로 전환할 때 추가로 받습니다.
+      const tMask = wantMask ? perfStart('Location', 'demSeaMask60km') : null;
       const maskPatch = wantMask ? await load(SEA_MASK_RADIUS_M).catch(() => null) : demMaskPatchRef.current;
+      if (tMask) perfEnd(tMask);
+      perfEnd(tDemTotal);
       // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
       // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
       // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
@@ -4322,7 +4341,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         blockCovers(patch, bldCoverRef.current.lat, bldCoverRef.current.lng, denseRadiusM(patch), 0)
       ) {
         moveObserver(patch, bldCoverRef.current.lat, bldCoverRef.current.lng);
-        flattenDemForBuildings(renderer, patch, bldCoverRef.current.cover);
+        await flattenDemForBuildingsAsync(renderer, patch, bldCoverRef.current.cover, () => demWantKeyRef.current !== key || rendererRef.current !== renderer);
+        if (demWantKeyRef.current !== key || rendererRef.current !== renderer) return;
         moveObserver(patch, lat, lng);
       }
       // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
@@ -4396,58 +4416,65 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => {
     if (!terrainFieldRef.current || isLowSpecMode) return;
 
+    const maskLat = Number(bldLat.toFixed(3));
+    const maskLng = Number(bldLng.toFixed(3));
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
     if (urbanLoadedKeyRef.current === key) return;
     if (urbanCenterRef.current) {
-      const uOff = localOffsetM({ latitude: urbanCenterRef.current.lat, longitude: urbanCenterRef.current.lng }, bldLat, bldLng);
+      const uOff = localOffsetM({ latitude: urbanCenterRef.current.lat, longitude: urbanCenterRef.current.lng }, maskLat, maskLng);
       if (Math.hypot(uOff.eastM, uOff.northM) < 400) return;
     }
 
     const controller = new AbortController();
-    fetchUrbanMask(bldLat, bldLng, { signal: controller.signal })
-      .then((mask) => {
-        if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
-        urbanLoadedKeyRef.current = key;
-        urbanCenterRef.current = { lat: bldLat, lng: bldLng };
-        terrainFieldRef.current.setUrbanMask(mask);
-        buildingFieldRef.current?.setLamps(mask.lamps, mask.lampDirs);
-        seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
-        urbanSerialRef.current += 1;
-        applyEye();
-        // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 깎고 패치를 다시 꽂습니다.
-        if (mask.bld) {
-          // 2026-11-19 물 덮개(강·호수 자리를 평평한 수면 고도로)와 건물 발자국(건물마다 바닥을 한 높이로)도 함께
-          // (demBuildingFlatten.ts 의 flattenWaterHeights · flattenFootprints).
-          const cover: BuildingCover = {
-            ...mask.bld,
-            water: [
-              ...(mask.waterHi ? [mask.waterHi] : []),
-              ...(mask.water ? [{ size: mask.size, halfM: mask.halfM, data: mask.water }] : []),
-            ],
-            footprints: mask.footprints,
-            pave: mask.pave,
-          };
-          bldCoverRef.current = { key, lat: bldLat, lng: bldLng, cover };
-          const patch = demPatchRef.current, renderer = rendererRef.current;
-          if (patch && renderer && blockCovers(patch, bldLat, bldLng, denseRadiusM(patch), 0)) {
-            // 건물 발자국은 마스크 중심 위치 기준입니다 — 눈이 떨어져 있어도 그 기준으로 깎고, 끝나면 눈 자리로 되돌립니다.
-            moveObserver(patch, bldLat, bldLng);
-            if (flattenDemForBuildings(renderer, patch, cover)) {
-              const maskPatch = demMaskPatchRef.current;
-              terrainFieldRef.current.setPatch(patch, patch, maskPatch);
-              buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
-              seaPlaneRef.current?.setPatch(patch, maskPatch);
-              demSerialRef.current += 1;
+    const timer = setTimeout(() => {
+      if (controller.signal.aborted) return;
+      const tUrban = perfStart('Location', `urbanMaskEffect(${key})`);
+      fetchUrbanMask(maskLat, maskLng, { signal: controller.signal })
+        .then(async (mask) => {
+          if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
+          urbanLoadedKeyRef.current = key;
+          urbanCenterRef.current = { lat: maskLat, lng: maskLng };
+          terrainFieldRef.current.setUrbanMask(mask);
+          buildingFieldRef.current?.setLamps(mask.lamps, mask.lampDirs);
+          seaPlaneRef.current?.setWaterMask?.(terrainFieldRef.current.waterMaskTex(), mask.halfM);
+          urbanSerialRef.current += 1;
+          applyEye();
+          // 지도가 DEM 보다 늦게 왔으면 여기서 건물 자리 고도를 비동기 청크로 깎고 패치를 다시 꽂습니다.
+          let changed = false;
+          if (mask.bld) {
+            const cover: BuildingCover = {
+              ...mask.bld,
+              water: [
+                ...(mask.waterHi ? [mask.waterHi] : []),
+                ...(mask.water ? [{ size: mask.size, halfM: mask.halfM, data: mask.water }] : []),
+              ],
+              footprints: mask.footprints,
+              pave: mask.pave,
+            };
+            bldCoverRef.current = { key, lat: maskLat, lng: maskLng, cover };
+            const patch = demPatchRef.current, renderer = rendererRef.current;
+            if (patch && renderer && blockCovers(patch, maskLat, maskLng, denseRadiusM(patch), 0)) {
+              moveObserver(patch, maskLat, maskLng);
+              changed = await flattenDemForBuildingsAsync(renderer, patch, cover, () => controller.signal.aborted);
+              if (controller.signal.aborted || !terrainFieldRef.current) return;
+              if (changed) {
+                const maskPatch = demMaskPatchRef.current;
+                terrainFieldRef.current.setPatch(patch, patch, maskPatch);
+                buildingFieldRef.current?.setPatch(patch, patch, maskPatch);
+                seaPlaneRef.current?.setPatch(patch, maskPatch);
+                demSerialRef.current += 1;
+              }
+              applyEye();
             }
-            applyEye();
           }
-        }
-        sceneDirtyRef.current = true;
-        requestRender(6);
-      })
-      .catch(() => {});
+          perfEnd(tUrban, changed ? 'flattened' : 'noFlatten');
+          sceneDirtyRef.current = true;
+          requestRender(6);
+        })
+        .catch(() => {});
+    }, 400);
 
-    return () => controller.abort();
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [bldLat, bldLng, requestRender, buildingSyncTick, isLowSpecMode]);
 
   const bldEnabled = Boolean(layers.buildings);
@@ -4488,51 +4515,56 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     const controller = new AbortController();
     buildingProgressRef.current = { phase: 'loading', done: 0, total: 0 };
-    fetchNearbyBuildings(bldLat, bldLng, {
-      radiusM: BUILDING_RADIUS_M,
-      signal: controller.signal,
-      onProgress: (p) => { if (!controller.signal.aborted) buildingProgressRef.current = { phase: 'loading', done: p.done, total: p.total }; },
-    })
-      .then((meshData) => {
-        if (controller.signal.aborted || !buildingFieldRef.current) return;
-        buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
-        buildingLoadedKeyRef.current = key;
-        bldCenterRef.current = { lat: bldLat, lng: bldLng };
-        buildingRetryCountRef.current = 0;
-        if (demPatchRef.current) {
-          buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
-        }
-        // 먼 건물은 위치마다 따로입니다 — 자리가 바뀌었으면 비우고, 같은 자리에서 다시 읽었으면 이어 붙입니다.
-        if (farLocKeyRef.current !== key) { farTilesRef.current = new Map(); farLocKeyRef.current = key; }
-        nearBuildingDataRef.current = meshData;
-        const merged = mergeBuildings(meshData, farTilesRef.current, bldLat, bldLng);
-        mergedBuildingRef.current = merged;
-        buildingFieldRef.current.setBuildings(merged);
-        buildingFieldRef.current.setVisible(true);
-        applyEye();
-        demSerialRef.current += 1;
-        volSettleRef.current = Math.max(volSettleRef.current, 18);
-        if (__DEV__) {
-          console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
-        }
-        sceneDirtyRef.current = true;
-        requestRender(10);
+    const bldTimer = setTimeout(() => {
+      if (controller.signal.aborted) return;
+      const tBld = perfStart('Location', `fetchNearbyBuildings(${key})`);
+      fetchNearbyBuildings(bldLat, bldLng, {
+        radiusM: BUILDING_RADIUS_M,
+        signal: controller.signal,
+        onProgress: (p) => { if (!controller.signal.aborted) buildingProgressRef.current = { phase: 'loading', done: p.done, total: p.total }; },
       })
-      .catch((e) => {
-        if (controller.signal.aborted) return;
-        if (__DEV__) console.warn('[Buildings] 주변 건물 데이터를 못 받았습니다.', e);
-        buildingProgressRef.current = { phase: 'retry', done: 0, total: 0 };
-        const n = buildingRetryCountRef.current;
-        buildingRetryCountRef.current = n + 1;
-        const waitMs = Math.min(30_000, 3000 * 2 ** n);
-        if (buildingRetryTimerRef.current) clearTimeout(buildingRetryTimerRef.current);
-        buildingRetryTimerRef.current = setTimeout(() => {
-          buildingRetryTimerRef.current = null;
-          setBuildingRetryTick((t) => t + 1);
-        }, waitMs);
-      });
+        .then((meshData) => {
+          if (controller.signal.aborted || !buildingFieldRef.current) return;
+          perfEnd(tBld, meshData ? `${meshData.buildingCount} blds, ${meshData.vertexCount} verts` : '0 blds');
+          buildingProgressRef.current = { phase: 'idle', done: 0, total: 0 };
+          buildingLoadedKeyRef.current = key;
+          bldCenterRef.current = { lat: bldLat, lng: bldLng };
+          buildingRetryCountRef.current = 0;
+          if (demPatchRef.current) {
+            buildingFieldRef.current.setPatch(demPatchRef.current, demPatchRef.current, demMaskPatchRef.current);
+          }
+          // 먼 건물은 위치마다 따로입니다 — 자리가 바뀌었으면 비우고, 같은 자리에서 다시 읽었으면 이어 붙입니다.
+          if (farLocKeyRef.current !== key) { farTilesRef.current = new Map(); farLocKeyRef.current = key; }
+          nearBuildingDataRef.current = meshData;
+          const merged = mergeBuildings(meshData, farTilesRef.current, bldLat, bldLng);
+          mergedBuildingRef.current = merged;
+          buildingFieldRef.current.setBuildings(merged);
+          buildingFieldRef.current.setVisible(true);
+          applyEye();
+          demSerialRef.current += 1;
+          volSettleRef.current = Math.max(volSettleRef.current, 18);
+          if (__DEV__) {
+            console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
+          }
+          sceneDirtyRef.current = true;
+          requestRender(10);
+        })
+        .catch((e) => {
+          if (controller.signal.aborted) return;
+          if (__DEV__) console.warn('[Buildings] 주변 건물 데이터를 못 받았습니다.', e);
+          buildingProgressRef.current = { phase: 'retry', done: 0, total: 0 };
+          const n = buildingRetryCountRef.current;
+          buildingRetryCountRef.current = n + 1;
+          const waitMs = Math.min(30_000, 3000 * 2 ** n);
+          if (buildingRetryTimerRef.current) clearTimeout(buildingRetryTimerRef.current);
+          buildingRetryTimerRef.current = setTimeout(() => {
+            buildingRetryTimerRef.current = null;
+            setBuildingRetryTick((t) => t + 1);
+          }, waitMs);
+        });
+    }, 900);
 
-    return () => controller.abort();
+    return () => { clearTimeout(bldTimer); controller.abort(); };
   }, [bldLat, bldLng, bldEnabled, requestRender, buildingSyncTick, buildingRetryTick]);
 
   useEffect(() => {

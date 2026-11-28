@@ -36,6 +36,7 @@ import { encryptData, decryptData } from './security';
 import {
   CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, CacheEntry, weatherTwinOfRingFile,
 } from './cachePolicy';
+import { perfLog, perfStart, perfEnd } from './perfTrace';
 
 const WEATHER_KEY = 'solar-path-cache-weather';
 const TERRAIN_KEY = 'solar-path-cache-terrain';
@@ -117,14 +118,20 @@ const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_E
   if (!BASE_DIR) return readAsyncStorage<T>(legacyKey, max);
   const dir = `${BASE_DIR}${bucket}/`;
   try {
+    const tTotal = perfStart('Cache', `readFiles(${bucket})`);
     await ensureDir(dir);
     const files = (await FileSystem.readDirectoryAsync(dir)).filter(f => f.endsWith('.dat') && !(skip && skip(f)));
+    let totalChars = 0;
+    let cryptoParseMs = 0;
     // 파일은 하나씩이 아니라 한꺼번에 읽습니다(저장장치 읽기를 겹침). 복호화는 JS 스레드에서 차례로 돕니다.
     const results = await Promise.all(files.map(async (file): Promise<CacheEntry<T> | null> => {
       const path = `${dir}${file}`;
       try {
         const raw = await FileSystem.readAsStringAsync(path);
+        totalChars += raw.length;
+        const tDec = Date.now();
         const env = JSON.parse(decodeText(raw)) as FileEnvelope<T>;
+        cryptoParseMs += Date.now() - tDec;
         if (env?.v === CACHE_SCHEMA_VERSION && env.entry?.key) {
           writtenTimestamps.set(path, env.entry.timestamp);
           return env.entry;
@@ -137,6 +144,7 @@ const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_E
     }));
     const loaded: CacheEntry<T>[] = results.filter((e): e is CacheEntry<T> => e != null);
     loaded.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    perfEnd(tTotal, `${files.length} files, ${Math.round(totalChars / 1024)}KB, decrypt+parse=${cryptoParseMs}ms`);
     if (loaded.length > 0) {
       await AsyncStorage.removeItem(legacyKey).catch(() => {});
       return loaded.slice(0, max);
@@ -155,7 +163,7 @@ const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_E
   }
 };
 
-const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEntry<T>[]): Promise<void> => {
+const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEntry<T>[], pruneUnlisted = true): Promise<void> => {
   if (!BASE_DIR) return writeAsyncStorage<T>(legacyKey, entries);
   const dir = `${BASE_DIR}${bucket}/`;
   try {
@@ -167,16 +175,22 @@ const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEn
       const path = `${dir}${name}`;
       // 이미 같은 timestamp 로 저장된 파일은 다시 암호화·기록하지 않습니다.
       if (writtenTimestamps.get(path) === entry.timestamp) continue;
+      const tSer = Date.now();
       const body = JSON.stringify({ v: CACHE_SCHEMA_VERSION, entry } as FileEnvelope<T>);
-      await FileSystem.writeAsStringAsync(path, encryptData(body));
+      const enc = encryptData(body);
+      const serMs = Date.now() - tSer;
+      await FileSystem.writeAsStringAsync(path, enc);
+      perfLog('Cache', `writeFiles(${bucket})`, serMs, `${name}, ${Math.round(enc.length / 1024)}KB encrypt+stringify`);
       writtenTimestamps.set(path, entry.timestamp);
     }
-    const existing = await FileSystem.readDirectoryAsync(dir);
-    for (const file of existing) {
-      if (!keepNames.has(file)) {
-        const path = `${dir}${file}`;
-        await FileSystem.deleteAsync(path, { idempotent: true });
-        writtenTimestamps.delete(path);
+    if (pruneUnlisted) {
+      const existing = await FileSystem.readDirectoryAsync(dir);
+      for (const file of existing) {
+        if (!keepNames.has(file)) {
+          const path = `${dir}${file}`;
+          await FileSystem.deleteAsync(path, { idempotent: true });
+          writtenTimestamps.delete(path);
+        }
       }
     }
   } catch (e) {
@@ -184,8 +198,50 @@ const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEn
   }
 };
 
-export const loadWeatherCache = <T = any>() => readFiles<T>('weather', WEATHER_KEY, MAX_CACHE_ENTRIES);
+let fullWeatherCacheHydrated = false;
+
+export const loadWeatherCache = async <T = any>(): Promise<CacheEntry<T>[]> => {
+  const res = await readFiles<T>('weather', WEATHER_KEY, MAX_CACHE_ENTRIES);
+  fullWeatherCacheHydrated = true;
+  return res;
+};
 export const loadTerrainCache = <T = any>() => readAsyncStorage<T>(TERRAIN_KEY);
+
+/**
+ * 초기 기동 시 당장 화면에 그릴 현재 위치·날짜의 단일 캐시 파일 1개만 먼저 읽어 복호화합니다.
+ * 10~13개 전체 캐시 파일(약 2.8MB)은 첫 화면이 뜬 뒤 유휴 시간에 적재합니다.
+ */
+export const loadPriorityWeatherEntry = async <T = any>(entryKey: string): Promise<CacheEntry<T> | null> => {
+  if (!BASE_DIR) {
+    const all = await readAsyncStorage<T>(WEATHER_KEY, MAX_CACHE_ENTRIES);
+    return all.find(e => e.key === entryKey) ?? null;
+  }
+  const tOne = perfStart('Cache', `readPriority(${entryKey})`);
+  const candidates: Array<{ bucket: string; name: string }> = [
+    { bucket: 'weather', name: safeFileName(entryKey) },
+  ];
+  if (entryKey.startsWith('w_')) {
+    candidates.push({ bucket: 'ring', name: safeFileName(`ring_${entryKey.slice(2)}`) });
+  }
+  for (const c of candidates) {
+    const path = `${BASE_DIR}${c.bucket}/${c.name}`;
+    try {
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) continue;
+      const raw = await FileSystem.readAsStringAsync(path);
+      const env = JSON.parse(decodeText(raw)) as FileEnvelope<T>;
+      if (env?.v === CACHE_SCHEMA_VERSION && env.entry?.key) {
+        writtenTimestamps.set(path, env.entry.timestamp);
+        perfEnd(tOne, `hit(${c.bucket}, ${Math.round(raw.length / 1024)}KB)`);
+        return env.entry;
+      }
+    } catch {
+      // ignore corrupted single file
+    }
+  }
+  perfEnd(tOne, 'miss');
+  return null;
+};
 /**
  * 링 캐시는 칸을 3 개만 읽습니다(`MAX_RING_ENTRIES`) — 한 칸이 100~200 KB 라 10 칸을 다 읽으면 켤 때 복호화만으로 한참 걸립니다.
  * 같은 날 · 같은 격자의 날씨 캐시(`w_…`) 파일이 있으면 그 링 파일은 건너뜁니다: 켤 때 둘을 `primeRingCache` 에 넣으면 같은 키는 날씨가 이기기 때문입니다.
@@ -205,6 +261,6 @@ export const loadRingCache = async <T = any>(): Promise<CacheEntry<T>[]> => {
     return twin != null && weatherFiles!.has(twin);
   } : undefined);
 };
-export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('weather', WEATHER_KEY, e);
+export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('weather', WEATHER_KEY, e, fullWeatherCacheHydrated);
 export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => writeAsyncStorage(TERRAIN_KEY, e);
 export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e.slice(0, MAX_RING_ENTRIES));

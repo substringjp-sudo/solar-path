@@ -4,7 +4,8 @@
  * - 외부 라이브러리(pbf 등) 없이 순수 TypeScript + 기존 `fflate` 만으로 MVT protobuf 를 해석합니다.
  * - `wantedLayers` 로 관심 레이어(`building`, `landuse`, `landcover`, `park`)만 선별 파싱해 모바일에서도 빠르게 동작합니다.
  */
-import { gunzipSync } from 'fflate';
+import { gunzipSync, gzipSync } from 'fflate';
+import { perfStart, perfEnd } from './perfTrace';
 
 /**
  * 지도 자료 건물 높이(`render_height`)의 상한(m). 오타 같은 터무니없는 값을 막는 안전장치입니다. 지금까지 가장 높은 건물이 828 m(부르즈 할리파)라
@@ -343,10 +344,10 @@ async function getTileUrlTemplate(): Promise<string> {
  */
 async function fetchBinaryBytes(url: string, signal: AbortSignal): Promise<Uint8Array> {
   if (signal.aborted) throw new Error('MVT aborted');
-  const isReactNative =
-    typeof navigator !== 'undefined' &&
-    (navigator as { product?: string }).product === 'ReactNative';
-  if (isReactNative && typeof XMLHttpRequest !== 'undefined') {
+  const isNodeOrBrowserDom =
+    (typeof process !== 'undefined' && Boolean((process as { versions?: { node?: string } }).versions?.node)) ||
+    (typeof document !== 'undefined' && typeof window !== 'undefined');
+  if (!isNodeOrBrowserDom && typeof XMLHttpRequest !== 'undefined') {
     return new Promise<Uint8Array>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       let settled = false;
@@ -394,6 +395,24 @@ let mvtDiskCacheAdapter: MvtDiskCacheAdapter | null = null;
 /** 앱 기동 시 네이티브 파일시스템 기반 MVT 타일 디스크 캐시를 연결합니다(Node 하네스 호환 유지). */
 export function setMvtDiskCacheAdapter(adapter: MvtDiskCacheAdapter | null): void {
   mvtDiskCacheAdapter = adapter;
+}
+
+export async function readAuxBinaryCache(key: string): Promise<Uint8Array | null> {
+  if (!mvtDiskCacheAdapter) return null;
+  try {
+    return await mvtDiskCacheAdapter.read(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeAuxBinaryCache(key: string, bytes: Uint8Array): void {
+  if (!mvtDiskCacheAdapter) return;
+  try {
+    mvtDiskCacheAdapter.write(key, bytes);
+  } catch {
+    // ignore disk cache write failure
+  }
 }
 
 /**
@@ -586,22 +605,46 @@ function stampSegment(buf: Uint8Array, size: number, halfM: number, ch: number,
   const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
   const r = rM * scale;
   const sdfW = PAVE_SDF_HALF_PX;
+  const rOut = r + sdfW;
+  const rOut2 = rOut * rOut;
+  const hasInner = r >= sdfW;
+  const rIn2 = hasInner ? (r - sdfW) * (r - sdfW) : -1;
   const invSpan = 1 / (2 * sdfW);
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - sdfW - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + sdfW + 1));
-  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - sdfW - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + sdfW + 1));
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - rOut - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + rOut + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - rOut - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + rOut + 1));
   if (x0 > x1 || z0 > z1) return;
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+  const absDz = Math.abs(dz);
+  const useScanSpan = absDz > 1e-3 && L2 > 1e-6;
+  const invDz = useScanSpan ? dx / dz : 0;
+  const rowHalfSpan = useScanSpan ? (rOut * Math.sqrt(L2)) / absDz + 1 : 0;
   for (let zz = z0; zz <= z1; zz++) {
     const pz = zz + 0.5;
-    for (let xx = x0; xx <= x1; xx++) {
+    let rx0 = x0, rx1 = x1;
+    if (useScanSpan) {
+      const xc = ax + (pz - az) * invDz;
+      const sx0 = Math.floor(xc - rowHalfSpan);
+      const sx1 = Math.ceil(xc + rowHalfSpan);
+      if (sx0 > rx0) rx0 = sx0;
+      if (sx1 < rx1) rx1 = sx1;
+      if (rx0 > rx1) continue;
+    }
+    const rowBase = zz * size;
+    for (let xx = rx0; xx <= rx1; xx++) {
       const px = xx + 0.5;
       let t = L2 > 1e-9 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
-      const d = Math.sqrt(ex * ex + ez * ez);
-      const cov = d <= r - sdfW ? 1 : d >= r + sdfW ? 0 : 0.5 + (r - d) * invSpan;
+      const d2 = ex * ex + ez * ez;
+      if (d2 >= rOut2) continue;
+      const o = (rowBase + xx) * 2 + ch;
+      if (hasInner && d2 <= rIn2) {
+        if (value > buf[o]) buf[o] = value;
+        continue;
+      }
+      const cov = 0.5 + (r - Math.sqrt(d2)) * invSpan;
       if (cov <= 0) continue;
-      const o = (zz * size + xx) * 2 + ch, v = Math.round(value * cov);
+      const v = Math.round(value * cov);
       if (v > buf[o]) buf[o] = v;
     }
   }
@@ -613,32 +656,180 @@ function stampSegmentMono(buf: Uint8Array, size: number, halfM: number,
   const ax = (a.x + halfM) * scale, az = (a.z + halfM) * scale, bx = (b.x + halfM) * scale, bz = (b.z + halfM) * scale;
   const r = rM * scale;
   const sdfW = value > 0 ? PAVE_SDF_HALF_PX : 0.5;
+  const rOut = value === 0 ? r : r + sdfW;
+  const rOut2 = rOut * rOut;
+  const r2 = r * r;
+  const hasInner = value > 0 && r >= sdfW;
+  const rIn2 = hasInner ? (r - sdfW) * (r - sdfW) : -1;
   const invSpan = 1 / (2 * sdfW);
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - sdfW - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + r + sdfW + 1));
-  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - r - sdfW - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + r + sdfW + 1));
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - (r + sdfW) - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(ax, bx) + (r + sdfW) + 1));
+  const z0 = Math.max(0, Math.floor(Math.min(az, bz) - (r + sdfW) - 1)), z1 = Math.min(size - 1, Math.ceil(Math.max(az, bz) + (r + sdfW) + 1));
   if (x0 > x1 || z0 > z1) return;
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+  const absDz = Math.abs(dz);
+  const useScanSpan = absDz > 1e-3 && L2 > 1e-6;
+  const invDz = useScanSpan ? dx / dz : 0;
+  const rowHalfSpan = useScanSpan ? (rOut * Math.sqrt(L2)) / absDz + 1 : 0;
   for (let zz = z0; zz <= z1; zz++) {
     const pz = zz + 0.5;
-    for (let xx = x0; xx <= x1; xx++) {
+    let rx0 = x0, rx1 = x1;
+    if (useScanSpan) {
+      const xc = ax + (pz - az) * invDz;
+      const sx0 = Math.floor(xc - rowHalfSpan);
+      const sx1 = Math.ceil(xc + rowHalfSpan);
+      if (sx0 > rx0) rx0 = sx0;
+      if (sx1 < rx1) rx1 = sx1;
+      if (rx0 > rx1) continue;
+    }
+    const rowBase = zz * size;
+    for (let xx = rx0; xx <= rx1; xx++) {
       const px = xx + 0.5;
       let t = L2 > 1e-9 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = px - (ax + t * dx), ez = pz - (az + t * dz);
-      const d = Math.sqrt(ex * ex + ez * ez);
+      const d2 = ex * ex + ez * ez;
       if (value === 0) {
-        if (d <= r) buf[zz * size + xx] = 0;
+        if (d2 <= r2) buf[rowBase + xx] = 0;
         continue;
       }
-      const cov = d <= r - sdfW ? 1 : d >= r + sdfW ? 0 : 0.5 + (r - d) * invSpan;
+      if (d2 >= rOut2) continue;
+      const o = rowBase + xx;
+      if (hasInner && d2 <= rIn2) {
+        if (value > buf[o]) buf[o] = value;
+        continue;
+      }
+      const cov = 0.5 + (r - Math.sqrt(d2)) * invSpan;
       if (cov <= 0) continue;
-      const o = zz * size + xx, v = Math.round(value * cov);
+      const v = Math.round(value * cov);
       if (v > buf[o]) buf[o] = v;
     }
   }
 }
 
 const URBAN_LAYERS = new Set(['landuse', 'landcover', 'park', 'building', 'transportation', 'water', 'waterway', 'aeroway']);
+const URBAN_MASK_MAGIC = 0x324b4d55; // 'UMK2'
+const URBAN_MEM_CACHE_MAX = 4;
+const urbanMaskMemCache = new Map<string, UrbanMaskResult>();
+
+function packUrbanMask(m: UrbanMaskResult): Uint8Array | null {
+  if (!m.pave || !m.pave.lamp || !m.bld || !m.water || !m.waterHi || !m.lamps || !m.lampDirs || !m.footprints) {
+    return null;
+  }
+  const pSize = m.pave.size;
+  const bldSize = m.bld.size;
+  const lampsLen = m.lamps.length;
+  const fpCount = m.footprints.length;
+  let totalFpFloats = 0;
+  for (let i = 0; i < fpCount; i++) totalFpFloats += m.footprints[i].length;
+
+  const headerBytes = 32;
+  const u8Bytes =
+    m.data.byteLength +
+    m.pave.data.byteLength +
+    m.pave.lamp.byteLength +
+    m.bld.data.byteLength +
+    m.water.byteLength +
+    m.waterHi.data.byteLength;
+  const alignedFloatOff = (headerBytes + u8Bytes + 3) & ~3;
+  const floatBytes = (lampsLen * 2 + fpCount + totalFpFloats) * 4;
+  const buf = new ArrayBuffer(alignedFloatOff + floatBytes);
+  const u32Header = new Uint32Array(buf, 0, 8);
+  const f32Header = new Float32Array(buf, 0, 8);
+  u32Header[0] = URBAN_MASK_MAGIC;
+  u32Header[1] = m.size;
+  f32Header[2] = m.halfM;
+  u32Header[3] = pSize;
+  f32Header[4] = m.pave.halfM;
+  u32Header[5] = bldSize;
+  u32Header[6] = lampsLen;
+  u32Header[7] = fpCount;
+
+  const bytes = new Uint8Array(buf);
+  let off = headerBytes;
+  for (const part of [m.data, m.pave.data, m.pave.lamp, m.bld.data, m.water, m.waterHi.data]) {
+    bytes.set(part, off);
+    off += part.byteLength;
+  }
+
+  let fOff = alignedFloatOff;
+  new Float32Array(buf, fOff, lampsLen).set(m.lamps);
+  fOff += lampsLen * 4;
+  new Float32Array(buf, fOff, lampsLen).set(m.lampDirs);
+  fOff += lampsLen * 4;
+  const fpLens = new Uint32Array(buf, fOff, fpCount);
+  fOff += fpCount * 4;
+  const fpData = new Float32Array(buf, fOff, totalFpFloats);
+  let fpCursor = 0;
+  for (let i = 0; i < fpCount; i++) {
+    const fp = m.footprints[i];
+    fpLens[i] = fp.length;
+    fpData.set(fp, fpCursor);
+    fpCursor += fp.length;
+  }
+  return gzipSync(bytes, { level: 1 });
+}
+
+function unpackUrbanMask(compressed: Uint8Array): UrbanMaskResult | null {
+  try {
+    const raw = gunzipSync(compressed);
+    if (raw.byteLength < 32) return null;
+    const aligned = raw.byteOffset % 4 === 0
+      ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
+      : new Uint8Array(raw).buffer;
+    const u32Header = new Uint32Array(aligned, 0, 8);
+    const f32Header = new Float32Array(aligned, 0, 8);
+    if (u32Header[0] !== URBAN_MASK_MAGIC) return null;
+    const size = u32Header[1];
+    const halfM = f32Header[2];
+    const pSize = u32Header[3];
+    const pHalf = f32Header[4];
+    const bldSize = u32Header[5];
+    const lampsLen = u32Header[6];
+    const fpCount = u32Header[7];
+
+    let off = 32;
+    const sliceU8 = (len: number) => {
+      const s = new Uint8Array(aligned, off, len);
+      off += len;
+      return s;
+    };
+    const data = sliceU8(size * size);
+    const paveData = sliceU8(pSize * pSize * 2);
+    const lampPool = sliceU8(pSize * pSize);
+    const bldCover = sliceU8(bldSize * bldSize);
+    const waterGrid = sliceU8(size * size);
+    const waterHi = sliceU8(pSize * pSize);
+
+    let fOff = (off + 3) & ~3;
+    const lamps = new Float32Array(aligned, fOff, lampsLen);
+    fOff += lampsLen * 4;
+    const lampDirs = new Float32Array(aligned, fOff, lampsLen);
+    fOff += lampsLen * 4;
+    const fpLens = new Uint32Array(aligned, fOff, fpCount);
+    fOff += fpCount * 4;
+    const footprints: Float32Array[] = new Array(fpCount);
+    for (let i = 0; i < fpCount; i++) {
+      const len = fpLens[i];
+      footprints[i] = new Float32Array(aligned, fOff, len);
+      fOff += len * 4;
+    }
+    return {
+      size,
+      halfM,
+      data,
+      pave: { size: pSize, halfM: pHalf, data: paveData, lamp: lampPool },
+      lamps,
+      lampDirs,
+      bld: { size: bldSize, halfM, data: bldCover },
+      footprints,
+      water: waterGrid,
+      waterHi: { size: pSize, halfM: pHalf, data: waterHi },
+      failedTiles: 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 관측자 반경 `halfM`(기본 3200m) 내 OpenFreeMap z=13 타일의 토지이용/건물 분포를 래스터화해
@@ -652,10 +843,41 @@ export async function fetchUrbanMask(
   const halfM = opts.halfM ?? 3200;
   const size = opts.size ?? 256;
   const z = 13;
+  const maskCacheKey = `urban_mask_v2_${z}_${lat.toFixed(3)}_${lon.toFixed(3)}_${halfM}_${size}_${PAVE_SIZE}`;
+  const memHit = urbanMaskMemCache.get(maskCacheKey);
+  if (memHit) {
+    urbanMaskMemCache.delete(maskCacheKey);
+    urbanMaskMemCache.set(maskCacheKey, memHit);
+    return memHit;
+  }
+  if (mvtDiskCacheAdapter) {
+    const tCache = perfStart('MVT', `readUrbanMaskCache(${lat.toFixed(3)},${lon.toFixed(3)})`);
+    try {
+      const cachedBytes = await mvtDiskCacheAdapter.read(maskCacheKey);
+      if (opts.signal?.aborted) return null;
+      if (cachedBytes && cachedBytes.length > 0) {
+        const unpacked = unpackUrbanMask(cachedBytes);
+        if (unpacked) {
+          perfEnd(tCache, `hit ${Math.round(cachedBytes.length / 1024)}KB`);
+          urbanMaskMemCache.set(maskCacheKey, unpacked);
+          while (urbanMaskMemCache.size > URBAN_MEM_CACHE_MAX) {
+            const oldest = urbanMaskMemCache.keys().next().value;
+            if (oldest !== undefined) urbanMaskMemCache.delete(oldest);
+            else break;
+          }
+          return unpacked;
+        }
+      }
+      perfEnd(tCache, 'miss');
+    } catch {
+      perfEnd(tCache, 'err');
+    }
+  }
   const tiles = tileListForRadius(lat, lon, halfM, z);
   const mPerDegLat = 111320;
   const mPerDegLon = 111320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180));
 
+  const tFetch = perfStart('MVT', `fetch+decodeUrban(${tiles.length} tiles)`);
   const decoded = await Promise.all(
     tiles.map(async (tc) => {
       try {
@@ -666,9 +888,11 @@ export async function fetchUrbanMask(
       }
     }),
   );
+  perfEnd(tFetch);
   if (opts.signal?.aborted) return null;
   const okTiles = decoded.filter((t): t is NonNullable<typeof t> => t !== null);
   if (okTiles.length === 0) return null;
+  const tRaster = perfStart('MVT', `rasterizeUrban(size=${size}, pave=${PAVE_SIZE})`);
 
   const grid = new Uint8Array(size * size);
   const bldCover = new Uint8Array(BLD_COVER_SIZE * BLD_COVER_SIZE);
@@ -807,6 +1031,7 @@ export async function fetchUrbanMask(
     }
     await new Promise(r => setTimeout(r, 0));
     if (opts.signal?.aborted) return null;
+    let lastRoadYield = Date.now();
     for (const { tc, layers } of okTiles) {
       const tr = layers.transportation;
       if (!tr) continue;
@@ -847,22 +1072,35 @@ export async function fetchUrbanMask(
             carry = (carry + len) % LAMP_SPACING_M;
           }
         }
+        if (Date.now() - lastRoadYield >= 12) {
+          await new Promise(r => setTimeout(r, 0));
+          if (opts.signal?.aborted) return null;
+          lastRoadYield = Date.now();
+        }
       }
     }
     // 빛 웅덩이: 가로등마다 반지름 LAMP_POOL_R_M 의 둥근 감쇠(가운데 255), 겹치면 최댓값.
     {
       const sc = pSize / (2 * pHalf);
       const rPx = LAMP_POOL_R_M * sc, R = Math.ceil(rPx);
+      const invR2 = 1 / (rPx * rPx);
       for (let k = 0; k < lampXZ.length; k += 2) {
         const cx = (lampXZ[k] + pHalf) * sc, cy = (lampXZ[k + 1] + pHalf) * sc;
         const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(pSize - 1, Math.ceil(cx + R));
         const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(pSize - 1, Math.ceil(cy + R));
-        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-          const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / rPx;
-          if (d >= 1) continue;
-          const v = Math.round(255 * (1 - d * d) * (1 - d * d));
-          const o = y * pSize + x;
-          if (v > lampPool[o]) lampPool[o] = v;
+        for (let y = y0; y <= y1; y++) {
+          const dy = y + 0.5 - cy;
+          const dy2 = dy * dy;
+          const rowOff = y * pSize;
+          for (let x = x0; x <= x1; x++) {
+            const dx = x + 0.5 - cx;
+            const d2 = (dx * dx + dy2) * invR2;
+            if (d2 >= 1) continue;
+            const om = 1 - d2;
+            const v = Math.round(255 * om * om);
+            const o = rowOff + x;
+            if (v > lampPool[o]) lampPool[o] = v;
+          }
         }
       }
     }
@@ -942,6 +1180,7 @@ export async function fetchUrbanMask(
 
   // 경계 부드럽게 (3×3 가벼운 블러 1회 — 약 25m 전환)
   const smooth = new Uint8Array(size * size);
+  let lastSmoothYield = Date.now();
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let acc = 0;
@@ -957,9 +1196,15 @@ export async function fetchUrbanMask(
       }
       smooth[y * size + x] = Math.round(acc / w);
     }
+    if ((y & 31) === 31 && Date.now() - lastSmoothYield >= 12) {
+      await new Promise(r => setTimeout(r, 0));
+      if (opts.signal?.aborted) return null;
+      lastSmoothYield = Date.now();
+    }
   }
 
-  return {
+  perfEnd(tRaster, `lamps=${lampXZ.length / 2}, footprints=${footprints.length}`);
+  const result: UrbanMaskResult = {
     size,
     halfM,
     data: smooth,
@@ -970,4 +1215,21 @@ export async function fetchUrbanMask(
     waterHi: { size: pSize, halfM: pHalf, data: waterHi },
     failedTiles: tiles.length - okTiles.length,
   };
+  if (result.failedTiles === 0) {
+    urbanMaskMemCache.set(maskCacheKey, result);
+    while (urbanMaskMemCache.size > URBAN_MEM_CACHE_MAX) {
+      const oldest = urbanMaskMemCache.keys().next().value;
+      if (oldest !== undefined) urbanMaskMemCache.delete(oldest);
+      else break;
+    }
+    if (mvtDiskCacheAdapter) {
+      setTimeout(() => {
+        try {
+          const packed = packUrbanMask(result);
+          if (packed) mvtDiskCacheAdapter?.write(maskCacheKey, packed);
+        } catch { /* ignore cache pack error */ }
+      }, 60);
+    }
+  }
+  return result;
 }

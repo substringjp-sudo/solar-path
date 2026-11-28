@@ -14,6 +14,7 @@ import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
 import { clearSkyGHIMean, estimateBias, correctCloudAt, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
+import { perfStart, perfEnd } from './perfTrace';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -713,7 +714,9 @@ export const fetchAirQuality = async (
   try {
     const response = await fetchWithTimeout(url, { signal }, 8000);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const tRingJson = perfStart('Weather', 'mainRingJsonParse');
     const data = await response.json();
+    perfEnd(tRingJson);
     if (data?.error) throw new Error(data.reason || 'unknown');
     const h = data?.hourly;
     const time: string[] = Array.isArray(h?.time) ? h.time : [];
@@ -823,7 +826,9 @@ export const fetchThermoProfile = async (
       response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const tRingJson = perfStart('Weather', 'mainRingJsonParse');
     const data = await response.json();
+    perfEnd(tRingJson);
     if (data?.error) throw new Error(data.reason || 'unknown');
     const h = data?.hourly;
     const time: string[] = Array.isArray(h?.time) ? h.time : [];
@@ -929,7 +934,9 @@ export const fetchLayerWinds = async (
       response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const tRingJson = perfStart('Weather', 'mainRingJsonParse');
     const data = await response.json();
+    perfEnd(tRingJson);
     if (data?.error) throw new Error(data.reason || 'unknown');
     const h = data?.hourly;
     const time: string[] = Array.isArray(h?.time) ? h.time : [];
@@ -1180,6 +1187,7 @@ export const fetchDayWeatherRing = async (
     };
 
     let response: Response;
+    const tMainRing = perfStart('Weather', `mainRingFetch(${targetDateStr})`);
     try {
       const first = await attemptRingFetch(src, 10000);
       src = first.usedSrc;
@@ -1203,6 +1211,7 @@ export const fetchDayWeatherRing = async (
       src = retry.usedSrc;
       response = retry.res;
     }
+    perfEnd(tMainRing, `status=${response.status}`);
     if (!response.ok) {
       if (response.status === 429) {
         // 2026-11-18 받아 둔 실제 예보가 있으면(오래됐어도) 그걸 씁니다 — 맑은 하늘을 지어내면 구름 많은 날도 맑게 보였음.
@@ -1216,7 +1225,9 @@ export const fetchDayWeatherRing = async (
       }
       throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
     }
+    const tRingJson = perfStart('Weather', 'mainRingJsonParse');
     const data = await response.json();
+    perfEnd(tRingJson);
     if (data?.error) {
       if (data?.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
         const stale = staleRealRing(cacheKey, lat, lon, targetDateStr);
@@ -1231,12 +1242,15 @@ export const fetchDayWeatherRing = async (
     }
 
     // 2) 메인 링이 성공했을 때만 바람 및 대기질을 이어서 요청 (429일 때 불필요한 추가 요청 폭주 방지)
+    const tAux = perfStart('Weather', 'auxApis(winds+air+thermo+sat)');
     const [winds, air, thermo, satIrr] = await Promise.all([
       fetchLayerWinds(lat, lon, targetDate, signal, nowMs, forceRefresh),
       fetchAirQuality(lat, lon, targetDate, signal, forceRefresh),
       fetchThermoProfile(lat, lon, targetDate, signal, nowMs, forceRefresh),
       fetchSatelliteIrradiance(lat, lon, targetDate, signal, forceRefresh),
     ]);
+    perfEnd(tAux);
+    const tBuildRing = perfStart('Weather', 'ringBuild+Blend');
     const results = Array.isArray(data) ? data : [data];
     const observerRaw = results[0] || (Array.isArray(data) ? data[0] : data);
     setLastRawWeather({
@@ -1340,6 +1354,7 @@ export const fetchDayWeatherRing = async (
     for (const p of out.filter(p => p.azimuthOffset === 180)) {
       out.push({ ...p, azimuthOffset: -180 });
     }
+    perfEnd(tBuildRing, `points=${out.length}`);
 
     ringCache.set(cacheKey, out);
     MEM_RING_CACHE.set(cacheKey, { data: out, time: Date.now() });
@@ -1628,7 +1643,9 @@ const fetchTerrainProfileImpl = async (
       if (response.status === 429) {
         if (__DEV__) console.warn('[TerrainAPI] Open-Meteo elevation rate limited (429). Using flat horizon fallback immediately.');
       } else if (response.ok) {
-        const data = await response.json();
+        const tRingJson = perfStart('Weather', 'mainRingJsonParse');
+    const data = await response.json();
+    perfEnd(tRingJson);
         if (data && Array.isArray(data.elevation) && data.elevation.length === points.length) {
           results = data.elevation;
         }

@@ -146,16 +146,25 @@ export function patchSpectralGenerator(gen: PrecomputedTexturesGenerator, opts: 
         atm.value = b.params.toUniform().value;
         ctx.lambdas.set(b.lambdas[0], b.lambdas[1], b.lambdas[2]);
         ctx.luminanceFromRadiance.copy(b.luminanceFromRadiance);
-        // 다중 산란 3D 텍스처 적분 중 2단계마다 1회 양보해 단일 프레임 GPU 커맨드 큐 독점(WindowServer/SurfaceFlinger 멈춤)을 방지합니다.
-        let stepIdx = 0;
+        // 한 파장 묶음(단일·다중 산란 적분) 안에서는 중간 FBO 가 공유 렌더러 상태(autoClear)에 깨지지 않도록
+        // 원자적으로 발행하고, 묶음 사이(총 4회)에서만 양보해 메인 스레드 블로킹을 줄입니다.
+        const prevAutoClear = g.renderer.autoClear;
+        g.renderer.autoClear = false;
         for (const _ of orig.call(g, ctx, additive || i > 0)) {
-          stepIdx++;
-          if (stepIdx % 2 === 0) yield;
+          g.renderer.autoClear = false;
         }
-        yield;
+        g.renderer.setRenderTarget(null);
+        g.renderer.autoClear = prevAutoClear;
+        if (i < batches.length - 1) yield;
       }
       if (opts.effectiveTransmittance) {
-        effectiveTransmittance(g, batches);
+        const prevAutoClearAfter = g.renderer.autoClear;
+        g.renderer.autoClear = false;
+        try {
+          effectiveTransmittance(g, batches);
+        } finally {
+          g.renderer.autoClear = prevAutoClearAfter;
+        }
       }
     } finally {
       atm.value = rgb;
@@ -163,7 +172,15 @@ export function patchSpectralGenerator(gen: PrecomputedTexturesGenerator, opts: 
       ctx.luminanceFromRadiance.identity();
     }
     // 원 모형: 마지막 묶음의 투과율이 남아 있으므로 680·550·440nm 로 다시 계산합니다.
-    if (!opts.effectiveTransmittance) g.computeTransmittance({ renderTarget: g.transmittanceRenderTarget });
+    if (!opts.effectiveTransmittance) {
+      const prevAutoClearAfter = g.renderer.autoClear;
+      g.renderer.autoClear = false;
+      try {
+        g.computeTransmittance({ renderTarget: g.transmittanceRenderTarget });
+      } finally {
+        g.renderer.autoClear = prevAutoClearAfter;
+      }
+    }
     g.renderer.setRenderTarget(null);
   };
   return true;

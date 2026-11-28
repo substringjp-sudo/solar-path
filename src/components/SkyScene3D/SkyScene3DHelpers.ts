@@ -6,7 +6,7 @@ import { type DemPatch } from '../../utils/demTiles';
 import { buildMergedBuildingGeometry, type BuildingMeshData } from '../../utils/buildingTiles';
 import { picksToElements, concatBuildingMeshData, type FarTileData } from '../../utils/farBuildingsLoad';
 import { FAR_OUTER_M } from '../../utils/farBuildings';
-import { flattenDemPatchUnderBuildings, type BuildingCover } from '../../utils/demBuildingFlatten';
+import { flattenDemPatchUnderBuildings, flattenDemPatchUnderBuildingsAsync, type BuildingCover } from '../../utils/demBuildingFlatten';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { skyRadiance, beamAtAltitude, angularSeparationDeg, moonLight, type AtmosphereParams } from '../../utils/atmosphere';
 import { getApparentAltitude } from '../../utils/sunsetPhysics';
@@ -152,6 +152,22 @@ const trackingMwVec = new THREE.Vector3();
 export function flattenDemForBuildings(renderer: any, patch: DemPatch, cover: BuildingCover): boolean {
   try {
     const st = flattenDemPatchUnderBuildings(renderer, patch, cover);
+    if (__DEV__ && st) console.log('[DEM] 건물 자리 고도 깎기', st.touched, '칸, 평균', st.meanDropM.toFixed(1), 'm, 최대', st.maxDropM.toFixed(1), 'm 낮춤');
+    return !!st && st.touched > 0;
+  } catch (e) {
+    if (__DEV__) console.warn('[DEM] 건물 자리 고도 깎기 실패', e);
+    return false;
+  }
+}
+
+export async function flattenDemForBuildingsAsync(
+  renderer: any,
+  patch: DemPatch,
+  cover: BuildingCover,
+  shouldAbort?: () => boolean,
+): Promise<boolean> {
+  try {
+    const st = await flattenDemPatchUnderBuildingsAsync(renderer, patch, cover, shouldAbort);
     if (__DEV__ && st) console.log('[DEM] 건물 자리 고도 깎기', st.touched, '칸, 평균', st.meanDropM.toFixed(1), 'm, 최대', st.maxDropM.toFixed(1), 'm 낮춤');
     return !!st && st.touched > 0;
   } catch (e) {

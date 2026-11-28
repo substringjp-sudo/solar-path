@@ -52,6 +52,7 @@ import { getDemTileUri } from './demTileCache';
 
 // 경위도 ↔ 타일 좌표와 타일의 지상 거리는 순수 기하라 `demGeometry.ts` 에 있습니다(Node 판정이 불러올 수 있게). 여기서는 같은 이름으로 다시 내보냅니다.
 import { lonLatToTileFloat, moveObserver, tileSpanMetres } from './demGeometry';
+import { perfStart, perfEnd } from './perfTrace';
 export { lonLatToTileFloat, tileSpanMetres };
 
 export const DEM_TILE_SIZE_PX = 256;
@@ -530,6 +531,7 @@ export async function loadDemPatch(
     }
   }
 
+  const tFetch = perfStart('DEM', `loadTiles(z=${zoom}, ${block}x${block})`);
   const tiles = await Promise.all(
     tileIndices.map(async ({ dx, dy }) => {
       try {
@@ -557,6 +559,7 @@ export async function loadDemPatch(
     }),
   );
   const got = tiles.filter((x) => x !== null).length;
+  perfEnd(tFetch, `got=${got}/${block * block}`);
   if (got === 0) return null;
 
   const size = DEM_TILE_SIZE_PX * block;
@@ -765,13 +768,16 @@ function buildConnectedSeaTexture(
   zoom: number,
 ): THREE.DataTexture | null {
   if (zoom > SEA_MASK_MAX_ZOOM || typeof renderer.readRenderTargetPixels !== 'function') return null;
+  const tSea = perfStart('DEM', `readPixels+seaBFS(z=${zoom}, ${size}x${size})`);
   const rgba = new Uint8Array(size * size * 4);
   try {
     renderer.readRenderTargetPixels(target, 0, 0, size, size, rgba);
   } catch {
+    perfEnd(tSea, 'readFailed');
     return null;
   }
   const mask = computeConnectedSeaMask(rgba, size);
+  perfEnd(tSea, mask ? 'ok' : 'null');
   if (!mask) return null;
 
   const total = size * size;

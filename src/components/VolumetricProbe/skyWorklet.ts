@@ -36,45 +36,89 @@ type WorkletRuntimeMod = {
 
 let workletMod: WorkletRuntimeMod | null = null;
 let skyRuntime: unknown = null;
-const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+const isNodeOrBrowserDom =
+  (typeof process !== 'undefined' && Boolean((process as { versions?: { node?: string } }).versions?.node)) ||
+  (typeof document !== 'undefined' && typeof window !== 'undefined');
 
 /**
  * React Native 진입점(SkyScene3D 등)에서 react-native-worklets 모듈을 등록합니다.
+ * RN 0.73+ / 0.81 Bridgeless 에서는 `navigator.product` 가 제거되었으므로 모듈 함수 시그니처와 비-DOM/Node 여부로 판별합니다.
  * VolumetricProbe 내부에 react-native 의존성을 두지 않아 Node/esbuild 하네스 번들링을 깨지 않습니다.
  */
 export function registerWorkletModule(mod: WorkletRuntimeMod | null | undefined): void {
-  if (!isReactNative || !mod) return;
+  if (isNodeOrBrowserDom || !mod) return;
   if (typeof mod.createWorkletRuntime === 'function' && typeof mod.runOnRuntime === 'function' && typeof mod.scheduleOnRN === 'function') {
     workletMod = mod;
   }
 }
 
 function ensureSkyRuntime(): { mod: WorkletRuntimeMod; rt: unknown } | null {
-  if (!isReactNative || !workletMod) return null;
+  if (isNodeOrBrowserDom || !workletMod) return null;
   if (skyRuntime) return { mod: workletMod, rt: skyRuntime };
   try {
     skyRuntime = workletMod.createWorkletRuntime({ name: 'sky-compute' });
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[PerfTrace][Worklet] sky-compute runtime created');
+    }
     return { mod: workletMod, rt: skyRuntime };
-  } catch {
+  } catch (e) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('[PerfTrace][Worklet] sky-compute creation failed:', e);
+    }
     return null;
   }
+}
+
+const WORKLET_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const WORKLET_B64_REV = (() => {
+  const t = new Int16Array(128).fill(-1);
+  for (let i = 0; i < 64; i++) t[WORKLET_B64.charCodeAt(i)] = i;
+  return t;
+})();
+
+function decodeBase64ToFloat32(b64: string, expectedFloats: number): Float32Array | null {
+  const byteLen = expectedFloats * 4;
+  if (!b64 || b64.length < Math.floor((byteLen * 4) / 3)) return null;
+  const out = new Uint8Array(byteLen);
+  let o = 0;
+  const len = b64.length;
+  for (let i = 0; i + 1 < len && o < byteLen; i += 4) {
+    const a = WORKLET_B64_REV[b64.charCodeAt(i)];
+    const b = WORKLET_B64_REV[b64.charCodeAt(i + 1)];
+    const c = i + 2 < len ? WORKLET_B64_REV[b64.charCodeAt(i + 2)] : -1;
+    const d = i + 3 < len ? WORKLET_B64_REV[b64.charCodeAt(i + 3)] : -1;
+    const n = (a << 18) | (b << 12) | ((c < 0 ? 0 : c) << 6) | (d < 0 ? 0 : d);
+    out[o++] = (n >> 16) & 255;
+    if (c >= 0 && o < byteLen) out[o++] = (n >> 8) & 255;
+    if (d >= 0 && o < byteLen) out[o++] = n & 255;
+  }
+  return o === byteLen ? new Float32Array(out.buffer) : null;
 }
 
 export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float32Array | null> {
   const env = ensureSkyRuntime();
   if (!env) return Promise.resolve(null);
 
+  const expectedFloats = p.n * p.n * (p.nz + 1);
+  const tStart = typeof __DEV__ !== 'undefined' && __DEV__ ? Date.now() : 0;
   return new Promise<Float32Array | null>(resolve => {
     let settled = false;
-    const finish = (res: Float32Array | null) => {
+    const finish = (b64: string | null, errMsg?: string | null) => {
       if (settled) return;
       settled = true;
+      const res = b64 ? decodeBase64ToFloat32(b64, expectedFloats) : null;
+      if (tStart > 0) {
+        console.log(
+          `[PerfTrace][Worklet] computeRawWave(${p.n}x${p.n}x${p.nz}): ${Date.now() - tStart}ms (${res ? 'ok' : `null${errMsg ? ': ' + errMsg : ''}`})`,
+        );
+      }
       resolve(res);
     };
 
     try {
       const { mod, rt } = env;
       const scheduleOnRN = mod.scheduleOnRN;
+      const b64Chars = WORKLET_B64;
       const run = mod.runOnRuntime(
         rt,
         (
@@ -95,7 +139,7 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
           wEy: Float64Array,
           wEz: Float64Array,
           wAmp: Float64Array,
-          cb: (out: Float32Array | null) => void,
+          cb: (outB64: string | null, err?: string | null) => void,
         ) => {
           'worklet';
           try {
@@ -184,9 +228,31 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
                 evalRow(y, z, sliceOff + iy * n);
               }
             }
-            scheduleOnRN(cb, packed);
-          } catch {
-            scheduleOnRN(cb, null);
+            // react-native-worklets 0.5.1 의 scheduleOnRN(makeShareableCloneOnUIRecursiveLEGACY)은 TypedArray 에
+            // Object.entries 를 돌아 예외를 던지므로, 순수 ASCII Base64 문자열(C++ _createSerializableString 경로)로 전송합니다.
+            const bytes = new Uint8Array(packed.buffer, packed.byteOffset, packed.byteLength);
+            const bLen = bytes.length;
+            const parts: string[] = [];
+            let chunk = '';
+            for (let i = 0; i < bLen; i += 3) {
+              const b0 = bytes[i];
+              const b1 = i + 1 < bLen ? bytes[i + 1] : 0;
+              const b2 = i + 2 < bLen ? bytes[i + 2] : 0;
+              const v = (b0 << 16) | (b1 << 8) | b2;
+              chunk +=
+                b64Chars[(v >> 18) & 63] +
+                b64Chars[(v >> 12) & 63] +
+                (i + 1 < bLen ? b64Chars[(v >> 6) & 63] : '=') +
+                (i + 2 < bLen ? b64Chars[v & 63] : '=');
+              if (chunk.length >= 8192) {
+                parts.push(chunk);
+                chunk = '';
+              }
+            }
+            if (chunk) parts.push(chunk);
+            scheduleOnRN(cb, parts.join(''), null);
+          } catch (e) {
+            scheduleOnRN(cb, null, String((e as Error)?.message ?? e));
           }
         },
       );
@@ -211,8 +277,8 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
         p.wAmp,
         finish,
       );
-    } catch {
-      finish(null);
+    } catch (e) {
+      finish(null, String((e as Error)?.message ?? e));
     }
   });
 }

@@ -321,7 +321,34 @@ function makeWeather(cover: number[], o: VolumetricOptions): DataTexture {
  * 공간(x, y): Interleaved Gradient Noise + 3×3 주기적 고주파 반발(void-and-cluster 근사) + 순위 정규화로 균일 분포 보장.
  * 시간/깊이(z): 황금비(Golden Ratio φ⁻¹ ≈ 0.6180339887) 저불일치 수열 + 공간 순환 이동으로 프레임 간 수렴 속도를 극대화.
  */
+type StbnDiskCacheAdapter = {
+  read(): Promise<Uint8Array | null>;
+  write(bytes: Uint8Array): void;
+};
+let stbnDiskCacheAdapter: StbnDiskCacheAdapter | null = null;
+export function setStbnDiskCacheAdapter(adapter: StbnDiskCacheAdapter | null): void {
+  stbnDiskCacheAdapter = adapter;
+}
+
 let cachedStbnBytes: Uint8Array | null = null;
+async function makeWhiteNoise3DAsync(): Promise<Data3DTexture> {
+  const W = STBN_TEXTURE_WIDTH, H = STBN_TEXTURE_HEIGHT, D = STBN_TEXTURE_DEPTH;
+  const expectedLen = W * H * D;
+  if (!cachedStbnBytes && stbnDiskCacheAdapter) {
+    try {
+      const loaded = await stbnDiskCacheAdapter.read();
+      if (loaded && loaded.length === expectedLen) {
+        cachedStbnBytes = loaded;
+      }
+    } catch { /* ignore cache read error */ }
+  }
+  const hadCached = Boolean(cachedStbnBytes);
+  const tex = makeWhiteNoise3D();
+  if (!hadCached && cachedStbnBytes && stbnDiskCacheAdapter) {
+    stbnDiskCacheAdapter.write(cachedStbnBytes);
+  }
+  return tex;
+}
 function makeWhiteNoise3D(): Data3DTexture {
   const W = STBN_TEXTURE_WIDTH, H = STBN_TEXTURE_HEIGHT, D = STBN_TEXTURE_DEPTH;
   if (!cachedStbnBytes) {
@@ -1864,22 +1891,65 @@ export async function createVolumetricScene(
     setFarAirShade((1 - farMap.map.centerT[3]) * airSunWeight * farSunFade);
   };
   const waveCacheMap = new Map<string, WaveField>();
-  // WEATHER_CACHE_SIZE(32) 와 크기를 맞춰 24시간 프리워밍 중 파동 텍스처가 먼저 축출되지 않도록 함
-  const WAVE_CACHE_SIZE = 32;
+  const waveGpuLru = new Set<string>();
+  const WAVE_CACHE_SIZE = 24;
+  // Adreno KGSL syncobj 고갈 및 VRAM 폭주를 막기 위해 GPU 에 실제 상주하는 3D HalfFloat 텍스처는 최근 3개만 유지하고 나머지는 CPU 배열(image)만 보존
+  const GPU_WAVE_TEX_MAX = 3;
   let activeWaveField: WaveField | null = null;
+  const ensureWaveGpuTex = (key: string, f: WaveField): WaveField => {
+    const rawTex = f.tex as Data3DTexture & { __gpuDisposed?: boolean };
+    if (rawTex.__gpuDisposed) {
+      const img = rawTex.image as { data: Uint16Array; width: number; height: number; depth: number };
+      const fresh = new Data3DTexture(img.data, img.width, img.height, img.depth);
+      fresh.format = RedFormat;
+      fresh.type = HalfFloatType;
+      fresh.minFilter = LinearFilter;
+      fresh.magFilter = LinearFilter;
+      fresh.wrapS = RepeatWrapping;
+      fresh.wrapT = RepeatWrapping;
+      fresh.wrapR = ClampToEdgeWrapping;
+      fresh.unpackAlignment = 1;
+      fresh.needsUpdate = true;
+      f.tex = fresh;
+    }
+    waveGpuLru.delete(key);
+    waveGpuLru.add(key);
+    for (const oldKey of waveGpuLru) {
+      if (waveGpuLru.size <= GPU_WAVE_TEX_MAX) break;
+      const oldField = waveCacheMap.get(oldKey);
+      if (!oldField || oldField === activeWaveField || oldKey === key) continue;
+      waveGpuLru.delete(oldKey);
+      oldField.tex.dispose();
+      (oldField.tex as Data3DTexture & { __gpuDisposed?: boolean }).__gpuDisposed = true;
+    }
+    return f;
+  };
   const waveCacheGet = (key: string): WaveField | null => {
     const f = waveCacheMap.get(key);
-    if (f) { waveCacheMap.delete(key); waveCacheMap.set(key, f); }
-    return f ?? null;
+    if (!f) return null;
+    waveCacheMap.delete(key);
+    waveCacheMap.set(key, f);
+    return ensureWaveGpuTex(key, f);
   };
-  const waveCachePut = (key: string, field: WaveField) => {
+  const waveCachePut = (key: string, field: WaveField, keepOnGpu = true) => {
     const prev = waveCacheMap.get(key);
-    if (prev && prev !== field && prev !== activeWaveField) prev.tex.dispose();
+    if (prev && prev !== field && prev !== activeWaveField) {
+      waveGpuLru.delete(key);
+      prev.tex.dispose();
+      (prev.tex as Data3DTexture & { __gpuDisposed?: boolean }).__gpuDisposed = true;
+    }
     waveCacheMap.set(key, field);
+    if (keepOnGpu) {
+      ensureWaveGpuTex(key, field);
+    } else if (field !== activeWaveField) {
+      field.tex.dispose();
+      (field.tex as Data3DTexture & { __gpuDisposed?: boolean }).__gpuDisposed = true;
+    }
     for (const [k, old] of waveCacheMap) {
       if (waveCacheMap.size <= WAVE_CACHE_SIZE) break;
       if (old === activeWaveField || k === key) continue;
       waveCacheMap.delete(k);
+      waveGpuLru.delete(k);
       old.tex.dispose();
     }
   };
@@ -1970,14 +2040,53 @@ export async function createVolumetricScene(
     setTsunShader(mat, lastShadow === false ? { arch: opt.archLight === 1, ...(opt.tsunDebug === 1 ? { debug: 1 as const } : {}) } : null);
   };
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
+  const yieldGpuFrame = () => new Promise<void>(r => setTimeout(r, 16));
+  // CloudShape(144³) · CloudShapeDetail(32³) 는 기본 render() 가 한 프레임에 144번의 3D 노이즈 드로우콜을 몰아서 던져
+  // 첫 렌더 프레임에서 Adreno GPU 큐가 2~3초 멈추는(HWUI Davey!) 원인이 됩니다. 16층씩 프레임 단위로 잘라 미리 구워 둡니다.
+  const prebakeProcedural3DSliced = async (proc: unknown, layersPerSlice = 16) => {
+    const p = proc as {
+      size?: number;
+      needsRender?: boolean;
+      material?: { uniforms?: { layer?: { value: number } } };
+      mesh?: unknown;
+      renderTarget?: unknown;
+      camera?: unknown;
+    };
+    if (
+      !p || !p.needsRender || typeof p.size !== 'number' || !p.material?.uniforms?.layer ||
+      !p.mesh || !p.renderTarget || !p.camera || typeof renderer.getRenderTarget !== 'function'
+    ) {
+      return;
+    }
+    p.needsRender = false;
+    const prevTarget = renderer.getRenderTarget();
+    const prevAutoClear = renderer.autoClear;
+    renderer.autoClear = false;
+    for (let layer = 0; layer < p.size; layer++) {
+      p.material.uniforms.layer.value = layer / p.size;
+      renderer.setRenderTarget(p.renderTarget as never, layer);
+      renderer.render(p.mesh as never, p.camera as never);
+      if ((layer + 1) % layersPerSlice === 0 && layer + 1 < p.size) {
+        renderer.setRenderTarget(prevTarget);
+        renderer.autoClear = prevAutoClear;
+        await yieldGpuFrame();
+        renderer.autoClear = false;
+      }
+    }
+    renderer.setRenderTarget(prevTarget);
+    renderer.autoClear = prevAutoClear;
+  };
+
   let cachedNoise = cloudNoiseCache.get(renderer);
   if (!cachedNoise) {
     const shape = new CloudShape();
-    await new Promise(r => setTimeout(r, 0));
+    await prebakeProcedural3DSliced(shape, 16);
+    await yieldGpuFrame();
     const shapeDetail = new CloudShapeDetail();
+    await prebakeProcedural3DSliced(shapeDetail, 16);
     const turbulence = new Turbulence();
-    const stbn = makeWhiteNoise3D();
-    await new Promise(r => setTimeout(r, 0));
+    const stbn = await makeWhiteNoise3DAsync();
+    await yieldGpuFrame();
     cachedNoise = { shape, shapeDetail, turbulence, stbn };
     cloudNoiseCache.set(renderer, cachedNoise);
   }
@@ -2012,6 +2121,7 @@ export async function createVolumetricScene(
       }
       await generator.update();
       mapForRenderer.set(cacheKey, { generator, spectral });
+      await yieldGpuFrame();
     }
   }
   const atmosTextures = options.precomputed ?? generator!.textures;
@@ -2596,17 +2706,78 @@ export async function createVolumetricScene(
     return { inputs, gl, useGenus, plain, key, flow: texFlow, S };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
-  const cacheGet = (key: string) => {
-    const t = weatherCache.get(key);
-    if (t) { weatherCache.delete(key); weatherCache.set(key, t); }   // 최근 사용을 뒤로
-    return t ?? null;
+  type WeatherCpuEntry = {
+    data: Uint8Array;
+    S: number;
+    minFilter: DataTexture['minFilter'];
+    magFilter: DataTexture['magFilter'];
+    generateMipmaps: boolean;
+    flipY: boolean;
+    userData: Record<string, unknown>;
   };
-  const cachePut = (key: string, t: DataTexture) => {
+  const weatherCpuCache = new Map<string, WeatherCpuEntry>();
+  // GPU 에는 최근 5장의 DataTexture 만 상주시키고, 나머지(최대 32장)는 CPU 바이트 배열로 보존해 VRAM·syncobj 부하를 차단합니다.
+  const GPU_WEATHER_TEX_MAX = 5;
+  const cacheGet = (key: string): DataTexture | null => {
+    const gpuHit = weatherCache.get(key);
+    if (gpuHit) {
+      weatherCache.delete(key);
+      weatherCache.set(key, gpuHit);
+      const cpuHit = weatherCpuCache.get(key);
+      if (cpuHit) { weatherCpuCache.delete(key); weatherCpuCache.set(key, cpuHit); }
+      return gpuHit;
+    }
+    const cpuEntry = weatherCpuCache.get(key);
+    if (!cpuEntry) return null;
+    weatherCpuCache.delete(key);
+    weatherCpuCache.set(key, cpuEntry);
+    const t = new DataTexture(cpuEntry.data, cpuEntry.S, cpuEntry.S, RGBAFormat, UnsignedByteType);
+    t.wrapS = t.wrapT = RepeatWrapping;
+    t.minFilter = cpuEntry.minFilter;
+    t.magFilter = cpuEntry.magFilter;
+    t.generateMipmaps = cpuEntry.generateMipmaps;
+    t.colorSpace = NoColorSpace;
+    t.flipY = cpuEntry.flipY;
+    t.userData = cpuEntry.userData;
+    t.needsUpdate = true;
     weatherCache.set(key, t);
     for (const [k, old] of weatherCache) {
-      if (weatherCache.size <= WEATHER_CACHE_SIZE) break;
-      if (old === weather) continue;   // 지금 쓰는 것은 버리지 않음
-      weatherCache.delete(k); old.dispose();
+      if (weatherCache.size <= GPU_WEATHER_TEX_MAX) break;
+      if (old === weather || k === key) continue;
+      weatherCache.delete(k);
+      old.dispose();
+    }
+    return t;
+  };
+  const cachePut = (key: string, t: DataTexture, keepOnGpu = true) => {
+    weatherCpuCache.delete(key);
+    weatherCpuCache.set(key, {
+      data: t.image.data as Uint8Array,
+      S: t.image.width,
+      minFilter: t.minFilter,
+      magFilter: t.magFilter,
+      generateMipmaps: t.generateMipmaps,
+      flipY: t.flipY,
+      userData: (t.userData ?? {}) as Record<string, unknown>,
+    });
+    for (const [k] of weatherCpuCache) {
+      if (weatherCpuCache.size <= WEATHER_CACHE_SIZE) break;
+      if (k === key) continue;
+      const gTex = weatherCache.get(k);
+      if (gTex && gTex === weather) continue;
+      weatherCpuCache.delete(k);
+      if (gTex) { weatherCache.delete(k); gTex.dispose(); }
+    }
+    if (!keepOnGpu && t !== weather) {
+      t.dispose();
+      return;
+    }
+    weatherCache.set(key, t);
+    for (const [k, old] of weatherCache) {
+      if (weatherCache.size <= GPU_WEATHER_TEX_MAX) break;
+      if (old === weather || k === key) continue;
+      weatherCache.delete(k);
+      old.dispose();
     }
   };
   let sceneToken = 0;
@@ -2933,7 +3104,7 @@ export async function createVolumetricScene(
   const setSceneAsync = async (p: VolumetricSceneInput, isFast = false, sliceMs = 12): Promise<boolean> => {
     const my = ++sceneToken;
     const planFull = weatherPlan(p, false);
-    const plan = isFast && weatherCache.has(planFull.key) ? planFull : weatherPlan(p, isFast);
+    const plan = isFast && (weatherCache.has(planFull.key) || weatherCpuCache.has(planFull.key)) ? planFull : weatherPlan(p, isFast);
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
@@ -2964,8 +3135,8 @@ export async function createVolumetricScene(
   };
   const hasCachedScene = (p: VolumetricSceneInput, isFast = false): boolean => {
     const planFull = weatherPlan(p, false);
-    const plan = isFast && weatherCache.has(planFull.key) ? planFull : weatherPlan(p, isFast);
-    if (!weatherCache.has(plan.key)) return false;
+    const plan = isFast && (weatherCache.has(planFull.key) || weatherCpuCache.has(planFull.key)) ? planFull : weatherPlan(p, isFast);
+    if (!weatherCache.has(plan.key) && !weatherCpuCache.has(plan.key)) return false;
     const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
     if (wp && !waveCacheMap.has(waveKey(wp))) return false;
     return true;
@@ -2993,8 +3164,7 @@ export async function createVolumetricScene(
       let didWork = false;
       if (!seenKeys.has(plan.key)) {
         seenKeys.add(plan.key);
-        const tex = cacheGet(plan.key);
-        if (!tex) {
+        if (!weatherCache.has(plan.key) && !weatherCpuCache.has(plan.key)) {
           didWork = true;
           const bakedTex = plan.useGenus
             ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, sliceNow, () => !!shouldAbort?.() || disposed, plan.flow, 0, isPaused)
@@ -3003,7 +3173,8 @@ export async function createVolumetricScene(
             bakedTex?.dispose();
             return doneCount;
           }
-          cachePut(plan.key, bakedTex);
+          // 프리웜은 CPU 바이트 캐시만 채우고 GPU DataTexture 는 즉시 해제해 백그라운드 GPU syncobj 생성을 막습니다.
+          cachePut(plan.key, bakedTex, false);
         }
       }
       const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
@@ -3011,14 +3182,14 @@ export async function createVolumetricScene(
         const wKey = waveKey(wp);
         if (!seenWaveKeys.has(wKey)) {
           seenWaveKeys.add(wKey);
-          if (!waveCacheGet(wKey)) {
+          if (!waveCacheMap.has(wKey)) {
             didWork = true;
             const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, PREWARM_SLICE_MS.interacting, 0, isPaused);
             if (!field || shouldAbort?.() || disposed) {
               field?.tex.dispose();
               return doneCount;
             }
-            waveCachePut(wKey, field);
+            waveCachePut(wKey, field, false);
           }
         }
       }
@@ -3506,8 +3677,10 @@ export async function createVolumetricScene(
       // generator 는 atmosGeneratorCache (WeakMap<WebGLRenderer, ...>) 에 공유 캐시되어 재사용되므로 여기서 dispose 하지 않습니다.
       for (const t of weatherCache.values()) t.dispose();
       weatherCache.clear();
+      weatherCpuCache.clear();
       for (const f of waveCacheMap.values()) f.tex.dispose();
       waveCacheMap.clear();
+      waveGpuLru.clear();
       activeWaveField = null;
     },
   };
