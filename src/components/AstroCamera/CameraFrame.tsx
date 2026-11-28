@@ -60,6 +60,8 @@ interface Props {
   panels?: Record<string, React.ReactNode>;
   /** 있으면 시간 자를 그립니다(3D 시뮬레이션 · 겹침일 때만). */
   ruler?: CameraRulerProps | null;
+  /** 기본 시간 자 대신 샌드박스/카메라 통합 마스터 다이얼 등을 직접 그릴 때 전달합니다. */
+  customRuler?: React.ReactNode;
   /** 셔터 줄 왼쪽 · 오른쪽 둥근 칩 */
   left?: React.ReactNode;
   right?: React.ReactNode;
@@ -83,7 +85,7 @@ interface Props {
 }
 
 export const CameraFrame: React.FC<Props> = ({
-  language, chips, zoomDial = null, panels, ruler = null, left, right, shutterLabel, shutterInner, shutterBusy = false, shutterColor, onShutter,
+  language, chips, zoomDial = null, panels, ruler = null, customRuler, left, right, shutterLabel, shutterInner, shutterBusy = false, shutterColor, onShutter,
   stripMode, stripModes, onPickMode, onDockHeight, screenH, stage: stageProp, onStageChange,
 }) => {
   const [stageState, setStageState] = React.useState<DockStage>('min');
@@ -164,7 +166,9 @@ export const CameraFrame: React.FC<Props> = ({
           {visibleChips.map(renderChip)}
         </View>
       ) : null}
-      {ruler ? (
+      {customRuler !== undefined ? (
+        customRuler
+      ) : ruler ? (
         <TimeRuler
           timeMs={ruler.timeMs}
           tz={ruler.tz}

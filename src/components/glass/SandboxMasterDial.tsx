@@ -87,6 +87,10 @@ export interface SandboxMasterDialProps {
   expoAdvice: ExposureAdvice | null;
   /** 천체(장노출) · 타임랩스 모드에서 외부 셔터 탭 비활성화 */
   shutterDisabled?: boolean;
+  /** 카메라 모드 등에서 숨길 탭 목록 (예: ['date', 'time', 'height']) */
+  hiddenParams?: readonly SandboxDialParam[];
+  /** 초기 선택 탭 (기본 'time', hiddenParams에 포함되면 첫 활성 탭으로 자동 대체) */
+  initialParam?: SandboxDialParam;
 }
 
 interface DialTickItem {
@@ -156,14 +160,23 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
   onShutterChange,
   expoAdvice,
   shutterDisabled = false,
+  hiddenParams,
+  initialParam = 'time',
 }) => {
   const [width, setWidth] = useState(RULER_WIDTH);
-  const [activeParam, setActiveParam] = useState<SandboxDialParam>('time');
-  useEffect(() => {
-    if (shutterDisabled && activeParam === 'shutter') {
-      setActiveParam('time');
+  const firstVisibleParam = useMemo<SandboxDialParam>(() => {
+    const all: SandboxDialParam[] = ['date', 'time', 'ev', 'zoom', 'height', 'iso', 'shutter'];
+    if ( (!hiddenParams || !hiddenParams.includes(initialParam)) && !(shutterDisabled && initialParam === 'shutter') ) {
+      return initialParam;
     }
-  }, [shutterDisabled, activeParam]);
+    return all.find(p => (!hiddenParams || !hiddenParams.includes(p)) && !(shutterDisabled && p === 'shutter')) ?? 'ev';
+  }, [hiddenParams, initialParam, shutterDisabled]);
+  const [activeParam, setActiveParam] = useState<SandboxDialParam>(firstVisibleParam);
+  useEffect(() => {
+    if ((shutterDisabled && activeParam === 'shutter') || (hiddenParams && hiddenParams.includes(activeParam))) {
+      setActiveParam(firstVisibleParam);
+    }
+  }, [shutterDisabled, hiddenParams, activeParam, firstVisibleParam]);
   const [dialDragging, setDialDragging] = useState(false);
   const [scrubMs, setScrubMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
@@ -563,6 +576,9 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
       disabled: shutterDisabled,
     },
   ];
+  const visibleParamTabs = hiddenParams && hiddenParams.length > 0
+    ? paramTabs.filter(tab => !hiddenParams.includes(tab.id))
+    : paramTabs;
 
   // ── 활성 항목에 따른 촘촘한 다이얼 눈금 생성 ──
   const dialTicks = useMemo<DialTickItem[]>(() => {
@@ -746,7 +762,7 @@ export const SandboxMasterDial: React.FC<SandboxMasterDialProps> = React.memo(({
     >
       {/* 1. 슬라이더 위 7개 항목(날짜 · 시간 · 노출 · 줌 · 높이 · ISO · 셔터) 선택 바 */}
       <View style={styles.paramStrip}>
-        {paramTabs.map(tab => {
+        {visibleParamTabs.map(tab => {
           const selected = activeParam === tab.id;
           const isDisabled = !!tab.disabled;
           return (

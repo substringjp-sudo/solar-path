@@ -96,6 +96,7 @@ import { sceneSummary } from '../utils/savedScenes';
 import { ExposureCells } from './AstroCamera/ExposureCells';
 import { CornerExposureBadge } from './AstroCamera/CornerExposureBadge';
 import { CameraFrame } from './AstroCamera/CameraFrame';
+import { SandboxMasterDial } from './glass/SandboxMasterDial';
 import { CameraLensZoomSection, type LensOption } from './AstroCamera/CameraLensZoomSection';
 import { VirtualCameraBagModal } from './AstroCamera/VirtualCameraBagModal';
 import { ViewfinderOpticsOverlay, ZoneSystemBar } from './AstroCamera/ViewfinderOpticsOverlay';
@@ -1275,7 +1276,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             await startAstroSessionAsync({
               cameraId: activeLensId || undefined,
               preferRaw: false,
-              maxLongEdge: 3200,
+              maxLongEdge: 2048,
             });
             const frame = await captureAstroSubFrameAsync({
               exposureMs: (manualPhotoShutterS ?? expoAdvice?.shutterS ?? 1 / 60) * 1000,
@@ -1754,7 +1755,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         lockFocusInfinity: settingsSnap.lockFocusInfinity,
         maxTrailPx: settingsSnap.maxTrailPx,
         rejectCloudyFrames: settingsSnap.rejectCloudyFrames,
-        outputFormat: 'png',
+        outputFormat: 'jpeg',
         stretchGain: Math.min(2.6, simParamsSnap.exposureGain * 0.85),
         asinhStrength: 10.0,
         consumeGyroPeakDegPerSec: () => {
@@ -2002,7 +2003,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [autoStartAt, autoNowMs]);
   useEffect(() => { if (!visible || !cameraScene) setAutoStartAt(null); }, [visible, cameraScene]);
   const autoState = cameraScene ? autoStartState(cameraScene.timeMs, autoNowMs) : null;
-  const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude), [sunPos.altitude]);
+  const expoAdvice = useMemo(() => adviseExposure(sunPos.altitude, { maxShutterS: 1 }), [sunPos.altitude]);
   const manualEvOffset = useMemo(
     () => computeManualEvOffset(expoAdvice, manualPhotoIso, manualPhotoShutterS),
     [expoAdvice, manualPhotoIso, manualPhotoShutterS],
@@ -2699,43 +2700,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   />
                 )}
 
-                {/* 노출(노을 EV / 천체 프리뷰 밝기 부스트) — 오른쪽 세로 막대 + 변경값 배지 */}
-                {viewMode !== 'sim' && (
-                  <>
-                    <CornerExposureBadge
-                      language={language}
-                      exposure={exposure}
-                      onExposureChange={setExposure}
-                      manualIso={cameraTab !== 'astro' ? manualPhotoIso : null}
-                      manualShutterS={cameraTab !== 'astro' ? manualPhotoShutterS : null}
-                      manualWb={cameraTab !== 'astro' ? manualPhotoWb : null}
-                      percentMode={cameraTab === 'astro'}
-                      top={TOP_INSET + 38 + space.sm}
-                      right={50}
-                    />
-                    <View style={[styles.exposure, { top: TOP_INSET + 38 + space.sm }]}>
-                      <Sun size={12} color={cameraTab === 'astro' ? color.moon : color.sun} />
-                      <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
-                        <View style={styles.exposureLine} />
-                        <View
-                          style={[
-                            styles.exposureFill,
-                            cameraTab === 'astro' && { backgroundColor: color.moon },
-                            { height: `${((exposure + 1) / 2) * 100}%` },
-                          ]}
-                        />
-                        <View
-                          style={[
-                            styles.exposureThumb,
-                            cameraTab === 'astro' && { borderColor: color.moon },
-                            { bottom: `${((exposure + 1) / 2) * 100}%` },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  </>
-                )}
-
               </View>
             </View>
 
@@ -2783,26 +2747,37 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         exposure: (
                           <>
                             {lensZoomSection}
-                            <ExposureCells
-                              language={language}
-                              advice={expoAdvice}
-                              lensMm={lensInfoText.mmText}
-                              lensText={lensInfoText.lensText}
-                              onPressLens={() => setGearBagOpen(true)}
-                              gearSummary={gearSummaryText}
-                              gearActive={gearActive}
-                              manualIso={manualPhotoIso}
-                              manualShutterS={manualPhotoShutterS}
-                              manualWb={manualPhotoWb}
-                              onChangeIso={setManualPhotoIso}
-                              onChangeShutter={setManualPhotoShutterS}
-                              onChangeWb={setManualPhotoWb}
-                            />
                           </>
                         ),
                       }
               }
               ruler={null}
+              customRuler={
+                <SandboxMasterDial
+                  language={language}
+                  timeMs={currentTime.getTime()}
+                  tz={tzHours}
+                  nowMs={Date.now()}
+                  live={false}
+                  showNow={false}
+                  onTimeChange={() => {}}
+                  onDatePreview={() => {}}
+                  exposure={exposure}
+                  onExposureChange={(ev) => setExposure(Math.max(-1, Math.min(1, ev)))}
+                  zoomX={currentMagnification}
+                  onZoomChange={setMagnification}
+                  eyeHeightM={1.6}
+                  onEyeHeightChange={() => {}}
+                  manualIso={manualPhotoIso}
+                  onIsoChange={setManualPhotoIso}
+                  manualShutterS={manualPhotoShutterS}
+                  onShutterChange={setManualPhotoShutterS}
+                  expoAdvice={expoAdvice}
+                  shutterDisabled={cameraTab === 'astro' || timelapseMode}
+                  hiddenParams={['date', 'time', 'height']}
+                  initialParam="zoom"
+                />
+              }
               left={
                 <GlassChip
                   label=""

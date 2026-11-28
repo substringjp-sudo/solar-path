@@ -59,7 +59,17 @@ import {
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const GRID_W = 48;
 const GRID_H = 36;
-const MAX_WORK_EDGE = 2048;
+const MAX_WORK_EDGE = 1536;
+
+function disposeSk(...items: Array<{ dispose?: () => void } | null | undefined>): void {
+  for (const item of items) {
+    try {
+      item?.dispose?.();
+    } catch {
+      // 이미 해제된 JSI 호스트 객체 무시
+    }
+  }
+}
 
 export interface PhotoProcessContext {
   gear: CameraGearBagState;
@@ -91,11 +101,15 @@ export interface PhotoProcessResult {
 
 function makeOpaqueRgbaImage(rgba: Uint8Array, width: number, height: number): SkImage | null {
   const data = Skia.Data.fromBytes(rgba);
-  return Skia.Image.MakeImage(
-    { width, height, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Opaque },
-    data,
-    width * 4,
-  );
+  try {
+    return Skia.Image.MakeImage(
+      { width, height, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Opaque },
+      data,
+      width * 4,
+    );
+  } finally {
+    disposeSk(data);
+  }
 }
 
 function imgShader(img: SkImage) {
@@ -108,13 +122,16 @@ function imgShader(img: SkImage) {
 }
 
 async function loadSkImageFromUri(uri: string): Promise<SkImage | null> {
+  let data: ReturnType<typeof Skia.Data.fromBase64> | null = null;
   try {
-    const data = uri.startsWith('data:')
+    data = uri.startsWith('data:')
       ? Skia.Data.fromBase64(uri.split(';base64,')[1] ?? '')
       : await Skia.Data.fromURI(uri);
     return Skia.Image.MakeImageFromEncoded(data);
   } catch {
     return null;
+  } finally {
+    disposeSk(data);
   }
 }
 
@@ -569,14 +586,17 @@ function estimateSkyRgbFromSkImage(
   const surf = Skia.Surface.Make(sw, sh);
   if (!surf) return [0.5, 0.5, 0.5];
   const c = surf.getCanvas();
-  c.drawImageRect(img, rect(0, 0, img.width(), img.height()), rect(0, 0, sw, sh), Skia.Paint());
+  const paint = Skia.Paint();
+  c.drawImageRect(img, rect(0, 0, img.width(), img.height()), rect(0, 0, sw, sh), paint);
   surf.flush();
-  const px = surf.makeImageSnapshot().readPixels(0, 0, {
+  const snap = surf.makeImageSnapshot();
+  const px = snap.readPixels(0, 0, {
     width: sw,
     height: sh,
     colorType: ColorType.RGBA_8888,
     alphaType: AlphaType.Unpremul,
   });
+  disposeSk(snap, paint, surf);
   if (!px || !(px instanceof Uint8Array)) return [0.5, 0.5, 0.5];
 
   const toLin = (v: number) => {
@@ -611,19 +631,22 @@ function sampleZoneHistogram(img: SkImage): ZoneHistogramResult | null {
   const sh = 64;
   const surf = Skia.Surface.Make(sw, sh);
   if (!surf) return null;
+  const paint = Skia.Paint();
   surf.getCanvas().drawImageRect(
     img,
     rect(0, 0, img.width(), img.height()),
     rect(0, 0, sw, sh),
-    Skia.Paint(),
+    paint,
   );
   surf.flush();
-  const px = surf.makeImageSnapshot().readPixels(0, 0, {
+  const snap = surf.makeImageSnapshot();
+  const px = snap.readPixels(0, 0, {
     width: sw,
     height: sh,
     colorType: ColorType.RGBA_8888,
     alphaType: AlphaType.Unpremul,
   });
+  disposeSk(snap, paint, surf);
   if (!px || !(px instanceof Uint8Array)) return null;
   const luma = new Float32Array(sw * sh);
   for (let i = 0; i < sw * sh; i++) {
@@ -675,17 +698,22 @@ export async function applyOpticalGearToPhoto(
   const workW = Math.max(16, Math.round(srcRaw.width() * scale));
   const workH = Math.max(16, Math.round(srcRaw.height() * scale));
 
-  // 작업용 해상도로 리사이즈된 기준 SkImage 확보
+  // 작업용 해상도로 리사이즈된 기준 SkImage 확보 후 원본 고해상도 버퍼는 즉시 해제
   const workSurf0 = Skia.Surface.Make(workW, workH);
-  if (!workSurf0) return { uri, zoneHistogram: null, recommendedCloudSec: null, appliedTags: [] };
+  if (!workSurf0) {
+    disposeSk(srcRaw);
+    return { uri, zoneHistogram: null, recommendedCloudSec: null, appliedTags: [] };
+  }
+  const paint0 = Skia.Paint();
   workSurf0.getCanvas().drawImageRect(
     srcRaw,
     rect(0, 0, srcRaw.width(), srcRaw.height()),
     rect(0, 0, workW, workH),
-    Skia.Paint(),
+    paint0,
   );
   workSurf0.flush();
   let curImg = workSurf0.makeImageSnapshot();
+  disposeSk(paint0, workSurf0, srcRaw);
 
   const { geomEffect: gFx, spatialEffect: sFx, colorEffect: cFx } = getEffects();
   const appliedTags: string[] = [];
@@ -729,19 +757,22 @@ export async function applyOpticalGearToPhoto(
     const sh = SKY_LOW_H;
     const skySurf = Skia.Surface.Make(sw, sh);
     if (skySurf) {
+      const skyPaint = Skia.Paint();
       skySurf.getCanvas().drawImageRect(
         curImg,
         rect(0, 0, curImg.width(), curImg.height()),
         rect(0, 0, sw, sh),
-        Skia.Paint(),
+        skyPaint,
       );
       skySurf.flush();
-      const skyPx = skySurf.makeImageSnapshot().readPixels(0, 0, {
+      const skySnap = skySurf.makeImageSnapshot();
+      const skyPx = skySnap.readPixels(0, 0, {
         width: sw,
         height: sh,
         colorType: ColorType.RGBA_8888,
         alphaType: AlphaType.Unpremul,
       });
+      disposeSk(skySnap, skyPaint, skySurf);
       if (skyPx && skyPx instanceof Uint8Array) {
         skyLowPx = skyPx;
         skylineRes = refineSkylineWithImagePrior(skyPx, sw, sh, priorGndCurve.horizonYNorm, {
@@ -922,6 +953,8 @@ export async function applyOpticalGearToPhoto(
     const cb = shiftRes.cropBox;
     const surf = Skia.Surface.Make(workW, workH);
     if (surf) {
+      const ch0 = imgShader(curImg);
+      const ch1 = imgShader(geomImg);
       const shader = gFx.makeShaderWithChildren(
         [
           workW, workH,
@@ -933,13 +966,15 @@ export async function applyOpticalGearToPhoto(
           useShift ? 1 : 0,
           useDolly ? 1 : 0,
         ],
-        [imgShader(curImg), imgShader(geomImg)],
+        [ch0, ch1],
       );
       const p = Skia.Paint();
       p.setShader(shader);
       surf.getCanvas().drawRect(rect(0, 0, workW, workH), p);
       surf.flush();
-      curImg = surf.makeImageSnapshot();
+      const nextImg = surf.makeImageSnapshot();
+      disposeSk(p, shader, ch0, ch1, surf, curImg);
+      curImg = nextImg;
       if (useShift) appliedTags.push('Vertical-Shift');
       if (useDolly) appliedTags.push(`Dolly ${gear.dollyFarZoom.toFixed(1)}×`);
     }
@@ -1020,34 +1055,45 @@ export async function applyOpticalGearToPhoto(
         const dh = Math.max(16, Math.round(workH / div));
         const ds = Skia.Surface.Make(dw, dh);
         if (ds) {
+          const dp = Skia.Paint();
           ds.getCanvas().drawImageRect(
             downImg,
             rect(0, 0, downImg.width(), downImg.height()),
             rect(0, 0, dw, dh),
-            Skia.Paint(),
+            dp,
           );
           ds.flush();
-          downImg = ds.makeImageSnapshot();
+          const nextDown = ds.makeImageSnapshot();
+          if (downImg !== curImg) disposeSk(downImg);
+          disposeSk(dp, ds);
+          downImg = nextDown;
         }
       }
       // 원본 해상도로 1/8 저주파 이미지를 매핑해 셰이더 내 coord 좌표계와 1:1 일치시킴
       const upSurf = Skia.Surface.Make(workW, workH);
       if (upSurf) {
+        const upP = Skia.Paint();
         upSurf.getCanvas().drawImageRect(
           downImg,
           rect(0, 0, downImg.width(), downImg.height()),
           rect(0, 0, workW, workH),
-          Skia.Paint(),
+          upP,
         );
         upSurf.flush();
         bokehLowImg = upSurf.makeImageSnapshot();
+        disposeSk(upP, upSurf);
       }
+      if (downImg !== curImg && downImg !== bokehLowImg) disposeSk(downImg);
     }
     const g0 = ghostRes?.ghosts[0];
     const g1 = ghostRes?.ghosts[1];
     const g2 = ghostRes?.ghosts[2];
     const surf = Skia.Surface.Make(workW, workH);
     if (surf) {
+      const ch0 = imgShader(curImg);
+      const ch1 = imgShader(bokehLowImg);
+      const ch2 = imgShader(maskAImg);
+      const ch3 = imgShader(geomImg);
       const shader = sFx.makeShaderWithChildren(
         [
           workW, workH,
@@ -1071,17 +1117,22 @@ export async function applyOpticalGearToPhoto(
           g1 ? g1.u : 0, g1 ? g1.v : 0, g1 ? g1.radiusNorm : 0.04, g1 ? g1.intensity : 0,
           g2 ? g2.u : 0, g2 ? g2.v : 0, g2 ? g2.radiusNorm : 0.05, g2 ? g2.intensity : 0,
         ],
-        [imgShader(curImg), imgShader(bokehLowImg), imgShader(maskAImg), imgShader(geomImg)],
+        [ch0, ch1, ch2, ch3],
       );
       const p = Skia.Paint();
       p.setShader(shader);
       surf.getCanvas().drawRect(rect(0, 0, workW, workH), p);
       surf.flush();
-      curImg = surf.makeImageSnapshot();
+      const nextImg = surf.makeImageSnapshot();
+      if (bokehLowImg !== curImg) disposeSk(bokehLowImg);
+      disposeSk(p, shader, ch0, ch1, ch2, ch3, surf, curImg);
+      curImg = nextImg;
       if (useBokeh) appliedTags.push('3D-Scheimpflug');
       if (useCloud) appliedTags.push(`ND1000-${gear.ndDurationSec}s`);
       if (useProMist) appliedTags.push(`ProMist`);
       if (useGhostClean) appliedTags.push('Anti-Ghost');
+    } else if (bokehLowImg !== curImg) {
+      disposeSk(bokehLowImg);
     }
   }
 
@@ -1131,6 +1182,10 @@ export async function applyOpticalGearToPhoto(
     if (lutImg) {
       const surf = Skia.Surface.Make(workW, workH);
       if (surf) {
+        const ch0 = imgShader(curImg);
+        const ch1 = imgShader(maskAImg);
+        const ch2 = imgShader(maskBImg);
+        const ch3 = imgShader(lutImg);
         const shader = cFx.makeShaderWithChildren(
           [
             workW, workH,
@@ -1156,13 +1211,15 @@ export async function applyOpticalGearToPhoto(
             monoRes.skyDarkenStops,
             monoRes.reliefContrastBoost,
           ],
-          [imgShader(curImg), imgShader(maskAImg), imgShader(maskBImg), imgShader(lutImg)],
+          [ch0, ch1, ch2, ch3],
         );
         const p = Skia.Paint();
         p.setShader(shader);
         surf.getCanvas().drawRect(rect(0, 0, workW, workH), p);
         surf.flush();
-        curImg = surf.makeImageSnapshot();
+        const nextImg = surf.makeImageSnapshot();
+        disposeSk(p, shader, ch0, ch1, ch2, ch3, surf, curImg);
+        curImg = nextImg;
         if (useWb) appliedTags.push(`SunsetWB ${wbRes.reference.horizonCctK}K`);
         if (useGnd) appliedTags.push(`GND-${gear.gndStops.toFixed(1)}EV`);
         if (useCpl) appliedTags.push('CPL');
@@ -1170,6 +1227,7 @@ export async function applyOpticalGearToPhoto(
         if (useLp) appliedTags.push('Astro-Clear');
         if (useMono) appliedTags.push(`Zone-${gear.monoFilter}`);
       }
+      disposeSk(lutImg);
     }
   }
 
@@ -1193,21 +1251,25 @@ export async function applyOpticalGearToPhoto(
         const srcW = Math.max(16, Math.round(workW / 1.16));
         const srcX = Math.round((workW - srcW) / 2);
 
+        const drawP = Skia.Paint();
         canvas.drawImageRect(
           curImg,
           rect(srcX, srcY, srcW, srcH),
           rect(0, barH, workW, targetH),
-          Skia.Paint(),
+          drawP,
         );
         surf.flush();
-        curImg = surf.makeImageSnapshot();
+        const nextImg = surf.makeImageSnapshot();
+        disposeSk(drawP, bgPaint, surf, curImg);
+        curImg = nextImg;
         appliedTags.push('2.39:1 Anamorphic');
       }
     }
   }
 
   const zoneHistogram = useMono || useWb ? sampleZoneHistogram(curImg) : null;
-  const outUri = await saveSkImageToTempJpeg(curImg, 93, 'opt');
+  const outUri = await saveSkImageToTempJpeg(curImg, 91, 'opt');
+  disposeSk(curImg, maskAImg, maskBImg, geomImg);
 
   return {
     uri: outUri,

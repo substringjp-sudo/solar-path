@@ -654,14 +654,14 @@ class AstroCameraModule : Module() {
           val rotDeg = ((sensorOrient - deviceRotationDeg) % 360 + 360) % 360
           val totalRes = resultRef.get()
 
-          val decoded = try {
-            if (activeFormat == ImageFormat.RAW_SENSOR) {
-              val rawParams = buildRawParams(ch, totalRes)
-              AstroStackAccumulator.decodeRawImage(capturedImg, rawParams, rotDeg, outFile)
-            } else {
-              AstroStackAccumulator.decodeYuvImage(capturedImg, rotDeg, activeMaxLongEdge, outFile)
-            }
-          } finally {
+            val decoded = try {
+              if (activeFormat == ImageFormat.RAW_SENSOR) {
+                val rawParams = buildRawParams(ch, totalRes)
+                AstroStackAccumulator.decodeRawImage(capturedImg, rawParams, rotDeg, activeMaxLongEdge, outFile)
+              } else {
+                AstroStackAccumulator.decodeYuvImage(capturedImg, rotDeg, activeMaxLongEdge, outFile)
+              }
+            } finally {
             capturedImg.close()
           }
 
@@ -716,6 +716,9 @@ class AstroCameraModule : Module() {
             promise.reject("ERR_STACK_SIZE", "Valid positive stack width/height required", null)
             return@launch
           }
+          // 새 세션 대형 FloatArray 할당 전 이전 세션을 먼저 해제해 2번째 촬영 OOM 방지
+          stackSession = null
+          System.gc()
           stackSession = AstroStackAccumulator.StackSession(w, h)
           promise.resolve(mapOf("width" to w, "height" to h))
         } catch (t: Throwable) {

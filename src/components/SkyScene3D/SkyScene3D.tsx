@@ -1576,6 +1576,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
           if (isCancelled()) return cancelledResult();
           opts.onStepProgress?.(k + 1, steps);
+          // 매 스텝 뒤 메인/UI 이벤트 루프에 한 프레임 양보해 합성 중 폰 전체가 멈추지 않게 함
+          await new Promise<void>(r => {
+            const t = setTimeout(() => { cancelCurrentWait = null; r(); }, 18);
+            cancelCurrentWait = () => { clearTimeout(t); cancelCurrentWait = null; r(); };
+          });
         }
 
         if (isCancelled()) return cancelledResult();

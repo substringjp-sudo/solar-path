@@ -329,10 +329,15 @@ object AstroStackAccumulator {
     image: Image,
     params: RawParams,
     rotationDeg: Int,
+    maxLongEdge: Int,
     outFile: File,
   ): DecodedFrameResult {
-    val halfW = image.width / 2
-    val halfH = image.height / 2
+    val rawHalfW = image.width / 2
+    val rawHalfH = image.height / 2
+    val capEdge = max(512, min(2048, if (maxLongEdge > 0) maxLongEdge else 2048))
+    val bayerStride = max(1, ceil(max(rawHalfW, rawHalfH).toDouble() / capEdge).toInt())
+    val halfW = max(1, rawHalfW / bayerStride)
+    val halfH = max(1, rawHalfH / bayerStride)
     val rot = ((rotationDeg % 360) + 360) % 360
     val swap = rot == 90 || rot == 270
     val outW = if (swap) halfH else halfW
@@ -363,14 +368,14 @@ object AstroStackAccumulator {
     val nextRowBytes = ByteArray(image.width * pixStride)
 
     for (by in 0 until halfH) {
-      val sy0 = by * 2
+      val sy0 = by * 2 * bayerStride
       buf.position(sy0 * rowStride)
       buf.get(rowBytes, 0, min(rowBytes.size, buf.remaining()))
       buf.position((sy0 + 1) * rowStride)
       buf.get(nextRowBytes, 0, min(nextRowBytes.size, buf.remaining()))
 
       for (bx in 0 until halfW) {
-        val sx0 = bx * 2
+        val sx0 = bx * 2 * bayerStride
         val o0 = sx0 * pixStride
         val o1 = (sx0 + 1) * pixStride
 
