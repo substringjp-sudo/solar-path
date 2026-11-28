@@ -146,15 +146,21 @@ export function patchSpectralGenerator(gen: PrecomputedTexturesGenerator, opts: 
         atm.value = b.params.toUniform().value;
         ctx.lambdas.set(b.lambdas[0], b.lambdas[1], b.lambdas[2]);
         ctx.luminanceFromRadiance.copy(b.luminanceFromRadiance);
-        // 한 파장 묶음(단일·다중 산란 적분) 안에서는 중간 FBO 가 공유 렌더러 상태(autoClear)에 깨지지 않도록
-        // 원자적으로 발행하고, 묶음 사이(총 4회)에서만 양보해 메인 스레드 블로킹을 줄입니다.
+        // 한 파장 묶음 내부의 단일·다중 산란 단계마다 양보해 3D 드로우콜을 분산하되,
+        // yield 경계에서 공유 렌더러(autoClear)가 바뀌어도 누적 FBO 가 지워지지 않도록 매 재개마다 autoClear=false 를 재보장합니다.
         const prevAutoClear = g.renderer.autoClear;
         g.renderer.autoClear = false;
-        for (const _ of orig.call(g, ctx, additive || i > 0)) {
-          g.renderer.autoClear = false;
+        try {
+          for (const _ of orig.call(g, ctx, additive || i > 0)) {
+            g.renderer.setRenderTarget(null);
+            g.renderer.autoClear = prevAutoClear;
+            yield;
+            g.renderer.autoClear = false;
+          }
+        } finally {
+          g.renderer.setRenderTarget(null);
+          g.renderer.autoClear = prevAutoClear;
         }
-        g.renderer.setRenderTarget(null);
-        g.renderer.autoClear = prevAutoClear;
         if (i < batches.length - 1) yield;
       }
       if (opts.effectiveTransmittance) {

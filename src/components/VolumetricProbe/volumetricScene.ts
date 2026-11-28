@@ -840,6 +840,7 @@ export async function createVolumetricScene(
   aerial.skyLight = false;
 
   const clouds = new CloudsEffect(camera, undefined, atmosphereParams);
+  if (!options.precomputed) await new Promise<void>(r => setTimeout(r, 0));
   clouds.qualityPreset = 'low';
   /** 품질 단계가 정한 accurateSunSkyLight — 해가 낮을 때 켰다가 되돌릴 값. */
   let baseAccurate = clouds.clouds.accurateSunSkyLight;
@@ -1982,6 +1983,7 @@ export async function createVolumetricScene(
     if (aerialFx.getFragmentShader() !== fs) aerialFx.setFragmentShader(fs);   // EffectPass 가 change 사건으로 다시 합칩니다
   };
   applyLightingFix();
+  if (!options.precomputed) await new Promise<void>(r => setTimeout(r, 0));
   if (opt.keepIceShaderLoaded) {
     for (const m of genusMats) setGenusPhysics(m, [], false, true);
   }
@@ -2130,6 +2132,7 @@ export async function createVolumetricScene(
 
   // 표시 곡선(§125): 사진 밝기비 자에서 AgX 1/4 · ACES 2/4 · Neutral 2/4, 노을 '가장 붉은 곳의 색'에서
   // AgX 3/4 · ACES 3/4 · Neutral 1/4 → ACES. AgX 는 햇빛 받은 구름을 하늘의 4.2배 → 2.4배로 눌렀습니다.
+  if (!options.precomputed) await yieldGpuFrame();
   const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
   const composer = new EffectComposer(renderer, { frameBufferType: opt.bufferType === 'float' ? FloatType : HalfFloatType, multisampling: 0 });
   composer.addPass(new RenderPass(scene, camera));
@@ -2137,6 +2140,7 @@ export async function createVolumetricScene(
   const tonePass = new EffectPass(camera, toneMapping);
   composer.addPass(tonePass);
   composer.setSize(width, height);
+  if (!options.precomputed) await yieldGpuFrame();
 
   let weather: DataTexture | null = null;
   /** 마지막 날씨 생성 시간(ms) — 시험 화면 표시용. */

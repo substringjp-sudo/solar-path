@@ -3594,7 +3594,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     animateRef.current = animate;
     isLoopRunningRef.current = true;
-    animate();
+    // onContextCreate 의 3D 메시/합성기 조립 직후 한 프레임 양보해 첫 렌더·볼륨 생성과 스톨이 한 턴에 겹치지 않게 합니다.
+    animFrameRef.current = requestAnimationFrame(() => animate());
     // 렌더러가 생긴 **뒤에** DEM 을 받게 합니다. 요청 이펙트는 location 에만 걸려 있어서,
     // 마운트 때 렌더러가 아직 없으면 위치가 바뀔 때까지 지형을 안 받았습니다.
     setDemRetryTick(t => t + 1);
